@@ -1,0 +1,46 @@
+# Local Python environments and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.pyc
+*.pyo
+*.pyd
+
+# Streamlit / browser / tunnel scratch
+.streamlit/secrets.toml
+.selenium-profile*/
+edge_profile_tmp*/
+public_tunnel*.log
+public_tunnel_token.txt
+public_fixed_url.txt
+public_access_code.txt
+*.log
+
+# Generated databases and data caches
+components.db
+components.db-wal
+components.db-shm
+components.backup_*.db
+*.sqlite
+*.sqlite-journal
+*.parquet
+*.pkl
+cache/
+
+# Temporary scratch artifacts
+tmp_*
+_tmp_*
+*_tmp.*
+
+# Heavy local data trees that are not needed in the cloud repo
+Capacitor/
+Crystal*/
+Inductor/
+Resistor/
+backup/
+exports/
+tools/PortableGit/
+tools/cloudflared.exe
