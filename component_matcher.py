@@ -121,6 +121,21 @@ def ensure_streamlit_cloud_data_bundle():
     return all(os.path.exists(path) for path in required_paths)
 
 
+def ensure_component_data_ready(action_label=""):
+    if database_has_component_rows():
+        return True
+
+    if ensure_streamlit_cloud_data_bundle():
+        clear_data_load_caches()
+        return database_has_component_rows()
+
+    try:
+        maybe_update_database(force=False)
+    except Exception:
+        return False
+    return database_has_component_rows()
+
+
 def is_public_mode():
     return str(os.getenv(COMPONENT_MATCHER_PUBLIC_MODE_ENV, "")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -13578,6 +13593,18 @@ def render_bom_progress_card(progress_placeholder, progress_state):
     progress_placeholder.markdown(build_bom_progress_card_html(progress_state), unsafe_allow_html=True)
 
 
+def build_reference_note_html():
+    return (
+        '<div style="margin:6px 2px 10px 2px; padding:10px 12px; border-radius:12px; '
+        'background:rgba(239,246,255,0.95); border:1px solid rgba(147,197,253,0.65); '
+        'color:#1e3a8a; font-size:13px; line-height:1.7;">'
+        '说明：<strong>信昌料号 / 华科料号</strong> 显示的是跨品牌对照料号，'
+        '不是当前输入型号自身的品牌归属。<strong>匹配结果</strong> 默认展示可替代品牌，'
+        '不重复展示输入的原始型号。'
+        '</div>'
+    )
+
+
 def build_search_progress_state(
     total_queries,
     completed_queries,
@@ -14486,10 +14513,7 @@ if get_configured_access_code() != "" and st.session_state.get("_app_access_gran
         if st.button("退出访问码", use_container_width=True):
             st.session_state.pop("_app_access_granted", None)
             st.rerun()
-
-ensure_streamlit_cloud_data_bundle()
-
-if not is_component_matcher_build_mode():
+if not is_component_matcher_build_mode() and database_has_component_rows():
     maybe_update_database(force=False)
 
 
@@ -14575,6 +14599,24 @@ if search_clicked:
             )
 
         render_search_progress(0, stage_step=0, stage_text="准备开始", note="已收到搜索请求，正在准备匹配")
+        if not database_has_component_rows():
+            render_search_progress(
+                0,
+                stage_step=0,
+                stage_text="正在准备数据",
+                note="首次使用当前环境，正在加载搜索所需的数据包",
+            )
+            if not ensure_component_data_ready("搜索"):
+                render_search_progress(
+                    0,
+                    stage_step=SEARCH_PROGRESS_STAGE_COUNT,
+                    stage_text="数据准备失败",
+                    note="当前环境缺少可用数据库，无法继续搜索",
+                    done=True,
+                    summary_lines=["未能准备搜索数据库，请检查部署数据包或本地数据库是否完整。"],
+                )
+                st.error("当前环境缺少可用数据库，暂时无法执行搜索。")
+                st.stop()
         exact_prefetch_lines = [line for line in dict.fromkeys(lines) if looks_like_compact_part_query(line)]
         if exact_prefetch_lines:
             render_search_progress(
@@ -14768,6 +14810,7 @@ if search_clicked:
                     matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                     matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                     matched = ensure_component_display_columns(matched)
+                    show_reference_note = infer_spec_component_type(spec) == "MLCC"
                     show_df = select_component_display_columns(
                         matched,
                         spec,
@@ -14807,6 +14850,7 @@ if search_clicked:
                         f'{part_info_fragment}'
                         '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
                         '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
+                        f'{build_reference_note_html() if show_reference_note else ""}'
                         f'{result_fragment}'
                         '<div class="match-card-footer"></div>'
                     )
@@ -14825,6 +14869,7 @@ if search_clicked:
                 matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                 matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                 matched = ensure_component_display_columns(matched)
+                show_reference_note = infer_spec_component_type(spec) == "MLCC"
                 show_df = select_component_display_columns(
                     matched,
                     spec,
@@ -14838,7 +14883,11 @@ if search_clicked:
                     for col, value in refs.items():
                         show_df[col] = value
                     show_df = move_columns_after(show_df, "型号", ["信昌料号", "华科料号"])
-                clickable_table_html = render_clickable_result_table(show_df, spec=spec, footer_html=query_inline_html)
+                clickable_table_html = render_clickable_result_table(
+                    show_df,
+                    spec=spec,
+                    footer_html=(build_reference_note_html() if show_reference_note else "") + query_inline_html,
+                )
                 if clickable_table_html:
                     components.html(
                         clickable_table_html,
@@ -15160,13 +15209,13 @@ if uploaded_file is not None:
                     st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
 
                 if stored_bom_signature != current_bom_signature:
-                    if not database_has_component_rows():
+                    if not ensure_component_data_ready("BOM 匹配"):
                         render_bom_progress_card(
                             progress_placeholder,
                             {
                                 "title": "BOM 匹配失败",
-                                "subtitle": "数据库为空，无法开始匹配",
-                                "current_text": "请先确认元件数据库是否已导入",
+                                "subtitle": "当前环境缺少可用数据库，无法开始匹配",
+                                "current_text": "请先确认部署数据包或本地数据库是否完整",
                                 "processed_rows": 0,
                                 "total_rows": total_workbook_rows,
                                 "percent": 100.0,
@@ -15174,11 +15223,11 @@ if uploaded_file is not None:
                                 "elapsed_seconds": 0.0,
                                 "chips": [
                                     {"label": "阶段", "value": "匹配终止", "tone": "fail"},
-                                    {"label": "状态", "value": "数据库为空", "tone": "fail"},
+                                    {"label": "状态", "value": "数据不可用", "tone": "fail"},
                                 ],
                             },
                         )
-                        st.warning("数据库为空，请先确认 Excel 数据")
+                        st.warning("当前环境缺少可用数据库，请先确认部署数据包或本地数据库。")
                     else:
                         progress_state_holder = {"state": {}}
 
@@ -15275,6 +15324,8 @@ if uploaded_file is not None:
                     component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
                     st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
+                    if any(col in bom_result_df.columns for col in ["信昌料号", "华科料号"]):
+                        st.markdown(build_reference_note_html(), unsafe_allow_html=True)
                     display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
                     export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                     export_filename = f"{export_name_root}_匹配后.xlsx"
