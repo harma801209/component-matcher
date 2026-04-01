@@ -8847,10 +8847,27 @@ def write_prepared_cache(df):
 
 
 def read_prepared_cache():
-    if os.path.exists(PREPARED_CACHE_PATH):
-        return pd.read_parquet(PREPARED_CACHE_PATH)
     if os.path.exists(PREPARED_CACHE_FALLBACK_PATH):
         return pd.read_pickle(PREPARED_CACHE_FALLBACK_PATH)
+    if os.path.exists(PREPARED_CACHE_PATH):
+        if pq is not None:
+            try:
+                return pd.read_parquet(PREPARED_CACHE_PATH)
+            except Exception:
+                if os.path.exists(PREPARED_CACHE_FALLBACK_PATH):
+                    return pd.read_pickle(PREPARED_CACHE_FALLBACK_PATH)
+        if os.path.exists(DB_PATH):
+            conn = sqlite3.connect(DB_PATH)
+            try:
+                df = pd.read_sql("SELECT * FROM components", conn)
+            finally:
+                conn.close()
+            rebuilt = prepare_search_dataframe(deduplicate_component_rows(df))
+            try:
+                rebuilt.to_pickle(PREPARED_CACHE_FALLBACK_PATH)
+            except Exception:
+                pass
+            return rebuilt
     raise FileNotFoundError("prepared cache not found")
 
 
