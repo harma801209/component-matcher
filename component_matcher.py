@@ -15104,18 +15104,6 @@ if search_clicked:
                 aborted_reason = "数据库为空，搜索已提前停止"
                 break
 
-            query_inline_html = (
-                '<div style="margin-top:4px; padding:12px 14px 12px 14px; '
-                'border-left:4px solid #3b82f6; border-top:1px solid rgba(59,130,246,0.18); '
-                'border-right:1px solid rgba(59,130,246,0.14); border-bottom:1px solid rgba(59,130,246,0.14); '
-                'border-radius:0 12px 12px 0; background:linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.03) 100%); '
-                'box-shadow:0 1px 0 rgba(148,163,184,0.10) inset;">'
-                f'<div style="font-size:17px; font-weight:700; color:#1f2937; line-height:1.45; word-break:break-all;">'
-                f'{html.escape(line)}'
-                '</div>'
-                '</div>'
-            )
-
             if mode == "无法识别" or spec is None:
                 render_search_progress(
                     line_index - 1,
@@ -15257,7 +15245,7 @@ if search_clicked:
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,
-                    footer_html=query_inline_html,
+                    footer_html="",
                 )
                 if clickable_table_html:
                     components.html(
@@ -15274,7 +15262,6 @@ if search_clicked:
                         height=420,
                         column_config=build_component_column_config(show_df.columns, spec)
                     )
-                    st.markdown(query_inline_html, unsafe_allow_html=True)
                 search_stats["success"] += 1
             else:
                 render_search_progress(
