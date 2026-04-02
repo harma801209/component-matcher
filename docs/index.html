@@ -157,6 +157,19 @@
       transition: opacity 260ms ease;
     }
 
+    .frame-mask {
+      position: absolute;
+      left: 19px;
+      right: 19px;
+      bottom: 19px;
+      height: 54px;
+      border-radius: 0 0 24px 24px;
+      background:
+        linear-gradient(180deg, rgba(5, 8, 18, 0) 0%, rgba(5, 8, 18, 0.94) 42%, rgba(5, 8, 18, 1) 100%);
+      pointer-events: none;
+      z-index: 4;
+    }
+
     .loading.hidden {
       opacity: 0;
     }
@@ -241,6 +254,14 @@
         inset: 12px;
         border-radius: 20px;
       }
+
+      .frame-mask {
+        left: 13px;
+        right: 13px;
+        bottom: 13px;
+        height: 58px;
+        border-radius: 0 0 20px 20px;
+      }
     }
   </style>
 </head>
@@ -279,10 +300,12 @@
         id="matcher-frame"
         class="frame"
         title="富临通元器件匹配系统"
-        src="https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen"
+        src="https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen&embed_options=dark_theme"
         loading="eager"
         referrerpolicy="strict-origin-when-cross-origin"
       ></iframe>
+
+      <div class="frame-mask" aria-hidden="true"></div>
 
       <div class="loading" id="loading-mask">
         <div class="loading-card">
