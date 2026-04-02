@@ -874,3 +874,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 使用 Playwright 以手机视图直接访问公网 `https://fruition-componentmatche.streamlit.app/`，在 Streamlit 内层 app frame 中模拟用户输入 `0402 1uf 10v` 并点击搜索。
 - 复测结果：页面已从此前卡在“正在载入候选库”恢复为正常完成；真实公网实例本轮返回 `1` 条匹配，页面显示耗时约 `1.5s`。
 - 这说明新的候选收窄逻辑已经被公网部署吃到，手机外网场景可以正常完成规格搜索。
+
+## 2026-04-03 10:12 一键同步局域网与公网发布链
+- 新增 `build_streamlit_cloud_bundle.py`，把当前本地 `components.db`、搜索索引和关键缓存统一打包为 `streamlit_cloud_bundle.zip`，并生成 `streamlit_cloud_bundle.manifest.json`，避免内容不变时重复重打包。
+- 新增 `sync_local_and_public.py`、`sync_local_and_public.ps1`、`sync_local_and_public.cmd`，统一完成“重建云端数据包、语法校验、暂存发布文件、提交、通过 GitHub SSH 443 推送”的发布流程。
+- PowerShell 包装脚本已修正单命令 Python 调用时的参数展开问题，避免后续双击启动器时因数组切片为空而报错。
+- `README.md` 与 `PUBLIC_ACCESS.md` 已补充“一键同步发布”说明，后续本地改规则、数据库或页面后，不需要再手工分别维护局域网版和公网版的发布动作。

@@ -1,0 +1,40 @@
+{
+  "members": [
+    {
+      "path": "components.db",
+      "size": 2334613504,
+      "mtime_ns": 1774961201483760600,
+      "sha256": "7be14e1b366ef75ac3e9b47db50c0882c02632e2e8011ed0fc55666815553863"
+    },
+    {
+      "path": "cache/components_search.sqlite",
+      "size": 422191104,
+      "mtime_ns": 1775130911423782600,
+      "sha256": "2f5b6268a84b0df5675da1c34a50da00b6b814339bccffcdd44aeac5a273b0d5"
+    },
+    {
+      "path": "cache/components_prepared_v5.parquet",
+      "size": 102917304,
+      "mtime_ns": 1774962962380390400,
+      "sha256": "4d87969dce9a63b8451b2c8569b0a437e17b7e5a3f39a764cec21c7f2cb1546d"
+    },
+    {
+      "path": "cache/components_prepared_v5_meta.json",
+      "size": 148,
+      "mtime_ns": 1774962962390392500,
+      "sha256": "daa6fba91ad04212e07c4dd1c33f0db905062d30796ca78d708bac0e29f79190"
+    },
+    {
+      "path": "cache/mlcc_lcsc_dimension_cache.json",
+      "size": 20303,
+      "mtime_ns": 1774883005959060100,
+      "sha256": "3fdf5de58da594cbfa781bf6c8fe95ed56350ff3cda3015fd4dc77aaf8a75039"
+    },
+    {
+      "path": "cache/pdc_findchips_cache.json",
+      "size": 9289,
+      "mtime_ns": 1773761226667109500,
+      "sha256": "9ce555cba3d019c5be50fa24b2f872a1f9d15a0fa845450a8b78ef7ebdf454b0"
+    }
+  ]
+}

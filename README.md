@@ -1,37 +1,69 @@
 # 富临通元器件匹配系统
 
-这是一个用于阻容感器件料号与规格匹配的 Streamlit 应用。
+这是一个用于阻容感与铝电解电容料号、规格参数、BOM 上传匹配的 Streamlit 应用。
 
-## Cloud 版本
+## 当前部署结构
 
-本仓库已经整理成可部署到 **Streamlit Community Cloud** 的结构：
+- 局域网版：直接读取这台电脑上的本地数据库和缓存
+- 公网版：部署在 Streamlit Community Cloud，固定地址为 [fruition-componentmatche.streamlit.app](https://fruition-componentmatche.streamlit.app)
 
-- 入口文件：`streamlit_app.py`
-- 依赖文件：`requirements.txt`
-- Python 版本：`runtime.txt`
-- Streamlit 配置：`.streamlit/config.toml`
-- 云端数据包：`streamlit_cloud_bundle.zip`
+两边共用同一套代码，但公网版使用仓库里的发布文件和 `streamlit_cloud_bundle.zip`。
 
-Streamlit Community Cloud 会从仓库根目录启动应用，因此请保持这些文件位于仓库根目录。
+## 一键同步发布
 
-## 部署方式
+如果你已经在本地改好了规则、数据库、页面或说明文件，推荐直接使用下面这个启动器：
 
-1. 将本仓库推送到 GitHub。
-2. 在 Streamlit Community Cloud 中创建新应用。
-3. 入口文件选择 `streamlit_app.py`。
-4. 如需访问码保护，在 Community Cloud 的 Secrets 中添加：
+- [sync_local_and_public.cmd](C:/Users/zjh/Desktop/data/sync_local_and_public.cmd)
 
-```toml
-app_access_code = "你的访问码"
+它会自动完成这几件事：
+
+1. 重新构建 `streamlit_cloud_bundle.zip`
+2. 校验关键 Python 文件语法
+3. 只暂存发布需要的文件
+4. 自动创建 git commit
+5. 通过 GitHub SSH 443 推送到远端 `main`
+6. 让 Streamlit Community Cloud 自动部署新版本
+
+也可以直接运行 PowerShell 版：
+
+```powershell
+.\sync_local_and_public.ps1
 ```
+
+常用参数：
+
+```powershell
+.\sync_local_and_public.ps1 -CommitMessage "更新江海铝电解库"
+.\sync_local_and_public.ps1 -SkipBundleRebuild
+.\sync_local_and_public.ps1 -SkipPush
+```
+
+## Streamlit Community Cloud
+
+云端入口文件：
+
+- `streamlit_app.py`
+
+云端运行依赖：
+
+- `requirements.txt`
+- `runtime.txt`
+- `.streamlit/config.toml`
+
+云端数据包：
+
+- `streamlit_cloud_bundle.zip`
+- `streamlit_cloud_bundle.manifest.json`
+
+应用在云端启动时，如果本地数据库文件不存在，会自动从 `streamlit_cloud_bundle.zip` 解包恢复。
 
 ## 本地启动
 
 - 局域网启动：`start_lan.cmd`
-- 公网固定隧道启动：`start_public_fixed.cmd`
+- 本地固定公网隧道启动：`start_public_fixed.cmd`
 
 ## 说明
 
-- `streamlit_cloud_bundle.zip` 使用 Git LFS 管理，里面包含云端运行所需的数据包。
-- 应用启动时会自动解包云端数据包，并在数据库已存在时避免重复全量重建。
-- 如果你只想让团队内或局域网使用，可以继续用本地启动脚本。
+- `streamlit_cloud_bundle.zip` 使用 Git LFS 管理
+- 公网版和局域网版不会自动双向同步；推荐用一键同步脚本统一发布
+- 如果需要访问保护，可以在本地启动器或 Streamlit Cloud secrets 中设置 `app_access_code`

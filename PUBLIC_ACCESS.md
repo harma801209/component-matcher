@@ -143,3 +143,34 @@ Security notes:
 - The app now supports an access-code gate when `APP_ACCESS_CODE` is set by the launcher or by Streamlit Cloud secrets
 - Search input and BOM upload now have size limits so a single request cannot flood the app with very large payloads
 - For a stricter public deployment, you can also add Cloudflare Access in front of the tunnel; that keeps the fixed URL but adds identity-based protection
+
+## 5. One-click sync for both LAN and public releases
+
+If you change rules, database content, or public-facing text locally and want the LAN version and the Streamlit public version to stay aligned, use:
+
+- `sync_local_and_public.cmd`
+
+Or:
+
+```powershell
+.\sync_local_and_public.ps1
+```
+
+What it does:
+
+1. Rebuilds `streamlit_cloud_bundle.zip` from the current local database and caches
+2. Syntax-checks the main app and sync scripts
+3. Stages only the publishable release files
+4. Creates a git commit
+5. Pushes through GitHub SSH on port `443`
+6. Lets Streamlit Community Cloud auto-deploy the updated public app
+
+Useful options:
+
+```powershell
+.\sync_local_and_public.ps1 -CommitMessage "更新 MLCC 规则"
+.\sync_local_and_public.ps1 -SkipBundleRebuild
+.\sync_local_and_public.ps1 -SkipPush
+```
+
+This is the recommended path if you do not want to repeat the same publish work twice after every local change.
