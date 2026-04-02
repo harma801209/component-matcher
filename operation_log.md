@@ -897,3 +897,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 访问建议：
   - 外部访客优先使用 GitHub Pages 包装页
   - 管理和调试仍可继续使用原始 `streamlit.app` 链接
+
+## 2026-04-03 11:47 访客页底部平台栏遮罩
+- 复测发现 `embed=true` 版 Streamlit 仍会保留一条极简嵌入栏（如 `Built with Streamlit / Fullscreen`），官方不能直接关闭。
+- 在 `docs/index.html` 的 GitHub Pages 外壳页中新增了底部遮罩层，并统一改成 `dark_theme` 嵌入，尽量把这条平台栏在访客视角中压到不可见。
+- Playwright 手机视角复测已生成截图：`cache/github_pages_mobile_wrapper_v3.png`，当前访客入口页主视图已不再直接露出底部平台角标。
