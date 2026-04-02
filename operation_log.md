@@ -889,3 +889,11 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - 真实推送通过，`streamlit_cloud_bundle.zip` 已经通过 Git LFS 上传到远端 `main`
   - 无改动时再次执行 `sync_local_and_public.ps1 -SkipBundleRebuild` 会优雅返回 `Everything up-to-date`
 - 结论：后续本地改数据库、规则或页面后，优先用 `sync_local_and_public.cmd` / `sync_local_and_public.ps1` 做统一发布，不再需要人工分别处理局域网版和公网版。
+
+## 2026-04-03 11:31 GitHub Pages 访客外壳页
+- 针对手机访客仍会在 `streamlit.app` 原始页面里看到平台角标的问题，新增了一个免费的 GitHub Pages 外壳页：`https://harma801209.github.io/component-matcher/`
+- 新增文件：`docs/index.html`、`docs/404.html`、`docs/.nojekyll`，通过 iframe 嵌入 `https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen`，让访客优先进入精简后的访问壳，而不是直接看到原始 Streamlit Community Cloud 页面。
+- 已通过 GitHub Pages API 将仓库 `harma801209/component-matcher` 配置为从 `main` 分支 `/docs` 目录发布；当前 Pages 状态为 `built`。
+- 访问建议：
+  - 外部访客优先使用 GitHub Pages 包装页
+  - 管理和调试仍可继续使用原始 `streamlit.app` 链接
