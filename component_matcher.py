@@ -7628,8 +7628,6 @@ def build_bom_display_df(result_df):
         "BOM数量",
         "匹配参数明细",
         "首选推荐等级",
-        "信昌料号",
-        "华科料号",
         "其他品牌型号",
         "状态",
         "解析说明",
@@ -12791,7 +12789,6 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
 def build_part_info_df(df, spec, query_model):
     if spec is None:
         return pd.DataFrame()
-    spec_type = infer_spec_component_type(spec)
     hit = pd.DataFrame()
     if df is not None and not df.empty and "型号" in df.columns:
         hit = df[df["型号"].astype(str).apply(clean_model) == clean_model(query_model)].copy()
@@ -12805,11 +12802,6 @@ def build_part_info_df(df, spec, query_model):
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
         show_df = fill_component_display_blanks(show_df, spec)
         show_df = select_component_display_columns(show_df, spec, prefix_columns=["品牌", "型号"])
-        if spec_type == "MLCC":
-            refs = resolve_mlcc_brand_references(df, spec, matched=hit, current_model=query_model)
-            for col, value in refs.items():
-                show_df[col] = value
-            show_df = move_columns_after(show_df, "型号", ["信昌料号", "华科料号"])
         return format_display_df(show_df)
     row = pd.DataFrame([{
         "品牌": spec.get("品牌", ""),
@@ -12817,11 +12809,6 @@ def build_part_info_df(df, spec, query_model):
         **build_component_display_row(spec),
     }])
     row = select_component_display_columns(row, spec, prefix_columns=["品牌", "型号"])
-    if spec_type == "MLCC":
-        refs = resolve_mlcc_brand_references(df, spec, current_model=query_model)
-        for col, value in refs.items():
-            row[col] = value
-        row = move_columns_after(row, "型号", ["信昌料号", "华科料号"])
     return format_display_df(row)
 
 
@@ -13993,18 +13980,6 @@ def render_bom_progress_card(progress_placeholder, progress_state):
     if progress_placeholder is None:
         return
     progress_placeholder.markdown(build_bom_progress_card_html(progress_state), unsafe_allow_html=True)
-
-
-def build_reference_note_html():
-    return (
-        '<div style="margin:6px 2px 10px 2px; padding:10px 12px; border-radius:12px; '
-        'background:rgba(239,246,255,0.95); border:1px solid rgba(147,197,253,0.65); '
-        'color:#1e3a8a; font-size:13px; line-height:1.7;">'
-        '说明：<strong>信昌料号 / 华科料号</strong> 显示的是跨品牌对照料号，'
-        '不是当前输入型号自身的品牌归属。<strong>匹配结果</strong> 默认展示可替代品牌，'
-        '不重复展示输入的原始型号。'
-        '</div>'
-    )
 
 
 def build_search_progress_state(
@@ -15219,7 +15194,6 @@ if search_clicked:
                     matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                     matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                     matched = ensure_component_display_columns(matched)
-                    show_reference_note = infer_spec_component_type(spec) == "MLCC"
                     show_df = select_component_display_columns(
                         matched,
                         spec,
@@ -15228,11 +15202,6 @@ if search_clicked:
                     )
                     show_df = format_display_df(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
-                    if infer_spec_component_type(spec) == "MLCC":
-                        refs = resolve_mlcc_brand_references(query_df, spec, matched=matched, current_model=spec.get("型号", ""))
-                        for col, value in refs.items():
-                            show_df[col] = value
-                        show_df = move_columns_after(show_df, "型号", ["信昌料号", "华科料号"])
 
                     part_info_fragment = render_clickable_result_table(
                         part_info_df,
@@ -15259,7 +15228,6 @@ if search_clicked:
                         f'{part_info_fragment}'
                         '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
                         '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
-                        f'{build_reference_note_html() if show_reference_note else ""}'
                         f'{result_fragment}'
                         '<div class="match-card-footer"></div>'
                     )
@@ -15278,7 +15246,6 @@ if search_clicked:
                 matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                 matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                 matched = ensure_component_display_columns(matched)
-                show_reference_note = infer_spec_component_type(spec) == "MLCC"
                 show_df = select_component_display_columns(
                     matched,
                     spec,
@@ -15287,15 +15254,10 @@ if search_clicked:
                 )
                 show_df = format_display_df(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)
-                if infer_spec_component_type(spec) == "MLCC":
-                    refs = resolve_mlcc_brand_references(query_df, spec, matched=matched, current_model=spec.get("型号", ""))
-                    for col, value in refs.items():
-                        show_df[col] = value
-                    show_df = move_columns_after(show_df, "型号", ["信昌料号", "华科料号"])
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,
-                    footer_html=(build_reference_note_html() if show_reference_note else "") + query_inline_html,
+                    footer_html=query_inline_html,
                 )
                 if clickable_table_html:
                     components.html(
@@ -15733,8 +15695,6 @@ if uploaded_file is not None:
                     component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
                     st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
-                    if any(col in bom_result_df.columns for col in ["信昌料号", "华科料号"]):
-                        st.markdown(build_reference_note_html(), unsafe_allow_html=True)
                     display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
                     export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                     export_filename = f"{export_name_root}_匹配后.xlsx"

@@ -902,3 +902,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 复测发现 `embed=true` 版 Streamlit 仍会保留一条极简嵌入栏（如 `Built with Streamlit / Fullscreen`），官方不能直接关闭。
 - 在 `docs/index.html` 的 GitHub Pages 外壳页中新增了底部遮罩层，并统一改成 `dark_theme` 嵌入，尽量把这条平台栏在访客视角中压到不可见。
 - Playwright 手机视角复测已生成截图：`cache/github_pages_mobile_wrapper_v3.png`，当前访客入口页主视图已不再直接露出底部平台角标。
+
+## 2026-04-03 12:06 匹配结果去除信昌/华科对照列
+- 按当前页面需求，已从搜索结果展示层去掉 `信昌料号`、`华科料号` 两列，不再在“匹配料号资料”“匹配结果”中单独呈现。
+- 已删除蓝色说明文案：`信昌料号 / 华科料号 显示的是跨品牌对照料号...`
+- BOM 结果展示层也同步去掉这两列及对应说明，避免不同入口显示口径不一致。
+- 底层对照数据与映射逻辑暂时保留，仅调整展示层，后续如还要继续利用内部映射做匹配，不会受本轮界面清理影响。
