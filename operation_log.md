@@ -771,6 +771,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 新增 [README.md](C:/Users/zjh/Desktop/data/README.md)，把 Streamlit Community Cloud 的部署入口、GitHub 推送方式、`streamlit_app.py` 入口和访问码 secrets 说明整理成仓库首页说明。
 - 重新核对了云端 bundle 内容，确认 [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) 里包含 `components.db`、`cache/components_search.sqlite`、`cache/components_prepared_v5.parquet` 和相关元数据缓存，云端启动不需要现场全量重建。
 - 再次确认 `component_matcher.py` 的云端入口顺序是先访问码门禁、再解包云端数据包、最后才按需检查数据库，适合 Streamlit Community Cloud 的固定 `streamlit.app` 部署方式。
+- 修正了 `component_matcher.py` 的云端首搜链路：`ensure_streamlit_cloud_data_bundle()` 支持按需解包，`搜索/BOM` 首次进入时优先只解 `cache/components_search.sqlite` 和小缓存，不再先解完整 `components.db`。
+- 给 `component_matcher.py` 加了 search sidecar 轻量回退，`load_component_rows_by_brand_model_pairs()` / `load_component_rows_by_clean_models_map()` / `fetch_search_candidate_pairs()` 在无完整数据库时也能直接用 `components_search.sqlite` 服务查询；在纯 bundle 环境里验证到搜索资产轻解压约 `10.6s`，随后 `MT43X472K302EGZ` 精确料号查询约 `2.2s`，且未触发 `components.db` 解包。
+- 增加了首页后台预热 `components_search.sqlite` 的线程，保证 Streamlit Community Cloud 打开首页时不阻塞渲染，同时尽量把搜索索引准备前置到用户真正点击搜索之前。
 
 ## 2026-04-02 局域网 / 公网真实用户回归与修复
 
@@ -799,3 +802,19 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - 该说明已同时加入单条搜索结果区和 BOM 结果区
 - 本轮仍然保留一个未彻底解决的风险：
   - Streamlit Community Cloud 冷启动后的“第一次搜索”仍可能因为首次解包大数据包而明显偏慢，需要后续继续瘦身公网数据包
+
+## 2026-04-02 16:25 Cloud 首搜继续优化
+- 继续处理 Streamlit Community Cloud 冷启动后“第一次搜索偏慢”的问题，重点放在：
+  - 搜索入口和 BOM 型号列优先复用精确料号命中行，避免同一轮内重复做型号直查和反推规格
+  - 云端后台预热时，搜索索引文件改为先写 `.part` 临时文件，再原子替换为正式 `components_search.sqlite`
+- 修复了一个真实竞态问题：
+  - 旧逻辑在后台预热时直接把搜索索引写到正式路径，用户若在预热尚未完成时点击搜索，前台线程可能看到“文件已存在但内容尚未写完”的半成品索引
+  - 这会导致首次搜索偶发出现精确料号查不到、候选为空或表现不稳定
+  - 现在改成原子落盘后，前台只会看到完整可查询的索引文件
+- 复测结果：
+  - 当前工作目录热态下，`MT43X472K302EGZ` 的 `resolve_search_query_dataframe_and_spec(...)` 已压到约 `0.98s`
+  - 干净 cloud bundle-only 目录里，首次选择性解包 `components_search.sqlite` 约 `5.5s`
+  - 干净 cloud bundle-only 目录里，模拟“首页已打开并后台预热 5 秒后再点搜索”，`MT43X472K302EGZ` 不再出现空结果，精确料号可正常返回 1 行原厂资料并继续走 `fast_query`
+- 当前判断：
+  - 首搜的最大耗时仍然是云端首次解包 `components_search.sqlite`
+  - 但这轮已经把“预热过程中偶发拿到半成品索引”的不稳定问题收掉了，公网首搜的一致性会明显更好

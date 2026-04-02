@@ -17,6 +17,7 @@ import streamlit.components.v1 as components
 import re
 import unicodedata
 import zipfile
+import shutil
 from io import BytesIO
 import urllib.parse
 import urllib.request
@@ -102,38 +103,120 @@ PUBLIC_BOM_MAX_ROWS = 10000
 PRIVATE_BOM_MAX_ROWS = 50000
 PUBLIC_BOM_MAX_SHEETS = 10
 PRIVATE_BOM_MAX_SHEETS = 25
+STREAMLIT_CLOUD_BUNDLE_LOCK = threading.Lock()
+CLOUD_SEARCH_ASSET_WARMUP_LOCK = threading.Lock()
+CLOUD_SEARCH_ASSET_WARMUP_STARTED = False
 
 
-def ensure_streamlit_cloud_data_bundle():
-    required_paths = [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
-    if all(os.path.exists(path) for path in required_paths):
+def bundle_member_path_for_local_path(path):
+    rel_path = os.path.relpath(os.path.abspath(path), BASE_DIR)
+    return rel_path.replace("\\", "/")
+
+
+def ensure_streamlit_cloud_data_bundle(required_paths=None):
+    target_paths = [
+        os.path.abspath(path)
+        for path in (
+            required_paths
+            or [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
+        )
+    ]
+    if all(os.path.exists(path) for path in target_paths):
         return True
     if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
         return False
 
     try:
-        with zipfile.ZipFile(STREAMLIT_CLOUD_BUNDLE_PATH, "r") as archive:
-            archive.extractall(BASE_DIR)
+        with STREAMLIT_CLOUD_BUNDLE_LOCK:
+            with zipfile.ZipFile(STREAMLIT_CLOUD_BUNDLE_PATH, "r") as archive:
+                available_members = set(archive.namelist())
+                for target_path in target_paths:
+                    if os.path.exists(target_path):
+                        continue
+                    member_name = bundle_member_path_for_local_path(target_path)
+                    if member_name not in available_members:
+                        logging.getLogger(__name__).warning(
+                            "cloud bundle missing member: %s",
+                            member_name,
+                        )
+                        continue
+                    target_dir = os.path.dirname(target_path)
+                    if target_dir:
+                        os.makedirs(target_dir, exist_ok=True)
+                    temp_target_path = target_path + ".part"
+                    if os.path.exists(temp_target_path):
+                        try:
+                            os.remove(temp_target_path)
+                        except Exception:
+                            pass
+                    try:
+                        with archive.open(member_name, "r") as source_handle, open(temp_target_path, "wb") as target_handle:
+                            shutil.copyfileobj(source_handle, target_handle, length=1024 * 1024)
+                        os.replace(temp_target_path, target_path)
+                    finally:
+                        if os.path.exists(temp_target_path):
+                            try:
+                                os.remove(temp_target_path)
+                            except Exception:
+                                pass
     except Exception as exc:
         logging.getLogger(__name__).warning("failed to extract cloud bundle: %s", exc)
         return False
 
-    return all(os.path.exists(path) for path in required_paths)
+    return all(os.path.exists(path) for path in target_paths)
+
+
+def search_sidecar_assets_available():
+    return os.path.exists(SEARCH_DB_PATH)
+
+
+def get_search_asset_bundle_paths():
+    return [
+        SEARCH_DB_PATH,
+        MLCC_LCSC_DIMENSION_CACHE_PATH,
+        os.path.join(BASE_DIR, "cache", "pdc_findchips_cache.json"),
+    ]
+
+
+def maybe_start_cloud_search_asset_warmup():
+    global CLOUD_SEARCH_ASSET_WARMUP_STARTED
+    if database_has_component_rows() or search_sidecar_assets_available():
+        return
+    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        return
+    with CLOUD_SEARCH_ASSET_WARMUP_LOCK:
+        if CLOUD_SEARCH_ASSET_WARMUP_STARTED:
+            return
+        CLOUD_SEARCH_ASSET_WARMUP_STARTED = True
+
+    def _warm():
+        try:
+            ensure_streamlit_cloud_data_bundle(required_paths=get_search_asset_bundle_paths())
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def ensure_component_data_ready(action_label=""):
     if database_has_component_rows():
         return True
 
+    action_text = clean_text(action_label)
+    search_asset_paths = get_search_asset_bundle_paths()
+    if action_text in {"搜索", "BOM 匹配"} and ensure_streamlit_cloud_data_bundle(required_paths=search_asset_paths):
+        clear_data_load_caches()
+        return search_sidecar_assets_available()
+
     if ensure_streamlit_cloud_data_bundle():
         clear_data_load_caches()
-        return database_has_component_rows()
+        return database_has_component_rows() or search_sidecar_assets_available()
 
     try:
         maybe_update_database(force=False)
     except Exception:
         return False
-    return database_has_component_rows()
+    return database_has_component_rows() or search_sidecar_assets_available()
 
 
 def is_public_mode():
@@ -9314,7 +9397,22 @@ def search_index_is_current(conn, required_columns=None, table_name=COMPONENTS_S
     return True
 
 
+def search_index_can_serve_queries(conn, required_columns=None, table_name=COMPONENTS_SEARCH_CORE_TABLE, allow_without_database=False):
+    if search_index_is_current(conn, required_columns=required_columns, table_name=table_name):
+        return True
+    if allow_without_database and not os.path.exists(DB_PATH):
+        if not search_table_exists(conn, table_name=table_name):
+            return False
+        if required_columns and not search_table_has_columns(conn, required_columns, table_name=table_name):
+            return False
+        meta = read_search_index_meta(conn)
+        return isinstance(meta, dict)
+    return False
+
+
 def open_search_db_connection(timeout_sec=30):
+    if not os.path.exists(SEARCH_DB_PATH):
+        ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     if not os.path.exists(SEARCH_DB_PATH):
         return None
     conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec))
@@ -10139,29 +10237,130 @@ def concat_component_frames(frames):
     return combined
 
 
+def format_sidecar_numeric_display(value):
+    try:
+        number = float(value)
+    except Exception:
+        return ""
+    if not math.isfinite(number):
+        return ""
+    rounded = round(number)
+    if abs(number - rounded) < 1e-9:
+        return str(int(rounded))
+    return f"{number:.12g}"
+
+
+def build_working_temperature_from_sidecar_bounds(low_value, high_value):
+    low_text = format_sidecar_numeric_display(low_value)
+    high_text = format_sidecar_numeric_display(high_value)
+    if low_text != "" and high_text != "":
+        return normalize_working_temperature_text(f"{low_text}~{high_text}℃")
+    if high_text != "":
+        return normalize_working_temperature_text(f"{high_text}℃")
+    if low_text != "":
+        return normalize_working_temperature_text(f"{low_text}℃")
+    return ""
+
+
+def query_search_sidecar_table_by_models(conn, table_name, models):
+    model_list = [clean_text(model) for model in (models or []) if clean_text(model) != ""]
+    if conn is None or not model_list:
+        return pd.DataFrame()
+    frames = []
+    try:
+        for model_chunk in chunk_items(model_list, SEARCH_DB_FETCH_CHUNK):
+            placeholders = ",".join(["?"] * len(model_chunk))
+            query = f'SELECT * FROM {table_name} WHERE "型号" IN ({placeholders})'
+            frames.append(pd.read_sql_query(query, conn, params=model_chunk))
+    except Exception:
+        return pd.DataFrame()
+    return concat_component_frames(frames)
+
+
+def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=None):
+    core_row = core_row or {}
+    detail_row = detail_row or {}
+    brand = clean_text(core_row.get("品牌", detail_row.get("品牌", "")))
+    model = clean_text(core_row.get("型号", detail_row.get("型号", "")))
+    if model == "":
+        return {}
+
+    component_type = normalize_component_type(
+        detail_row.get("_component_type", core_row.get("_component_type", ""))
+    )
+    record = {
+        "品牌": brand,
+        "型号": model,
+        "器件类型": component_type,
+        "系列": "",
+        "系列说明": "",
+        "尺寸（inch）": clean_size(detail_row.get("_size", "")),
+        "尺寸（mm）": clean_text(detail_row.get("_body_size", "")),
+        "材质（介质）": clean_material(detail_row.get("_mat", "")),
+        "容值误差": clean_tol_for_display(detail_row.get("_tol", "")),
+        "耐压（V）": voltage_display(format_sidecar_numeric_display(detail_row.get("_volt_num", ""))),
+        "工作温度": build_working_temperature_from_sidecar_bounds(detail_row.get("_temp_low", ""), detail_row.get("_temp_high", "")),
+        "寿命（h）": format_life_hours_display(format_sidecar_numeric_display(detail_row.get("_life_hours_num", ""))),
+        "安装方式": normalize_mounting_style(detail_row.get("_mount_style", "")),
+        "特殊用途": normalize_special_use(detail_row.get("_special_use_norm", "")),
+        "脚距": clean_text(detail_row.get("_pitch", "")),
+        "安规": clean_text(detail_row.get("_safety_class", "")),
+        "压敏电压": voltage_display(clean_voltage(detail_row.get("_varistor_voltage", ""))),
+        "规格": clean_text(detail_row.get("_disc_size", "")) or clean_text(detail_row.get("_body_size", "")),
+        "数据来源": "搜索索引轻量回退",
+        "容值_pf": None,
+        "_resistance_ohm": None,
+        "_model_rule_authority": "search_sidecar_light",
+    }
+
+    pf_value = pd.to_numeric(pd.Series([detail_row.get("_pf", None)]), errors="coerce").iloc[0]
+    res_ohm = pd.to_numeric(pd.Series([detail_row.get("_res_ohm", None)]), errors="coerce").iloc[0]
+    value_num = pd.to_numeric(pd.Series([detail_row.get("_value_num", None)]), errors="coerce").iloc[0]
+    if pd.notna(pf_value):
+        record["容值_pf"] = float(pf_value)
+        value, unit = pf_to_value_unit(float(pf_value))
+        record["容值"] = value
+        record["容值单位"] = unit
+    elif pd.notna(res_ohm):
+        record["_resistance_ohm"] = float(res_ohm)
+        value, unit = ohm_to_library_value_unit(float(res_ohm))
+        record["容值"] = value
+        record["容值单位"] = unit
+    elif pd.notna(value_num):
+        record["容值"] = format_sidecar_numeric_display(value_num)
+        record["容值单位"] = clean_text(detail_row.get("_unit_upper", "")).upper()
+
+    parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
+    if isinstance(parsed_rule, dict) and parsed_rule:
+        record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
+    return record
+
+
 def load_component_rows_by_brand_model_pairs(candidate_pairs):
     pairs = [
         (clean_text(brand), clean_text(model))
         for brand, model in (candidate_pairs or [])
         if clean_text(model) != ""
     ]
-    if not pairs or not os.path.exists(DB_PATH):
+    if not pairs:
         return pd.DataFrame()
+    combined = pd.DataFrame()
     models = sorted({model for _, model in pairs if model != ""})
-    if not models:
-        return pd.DataFrame()
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        frames = []
-        for model_chunk in chunk_items(models, SEARCH_DB_FETCH_CHUNK):
-            placeholders = ",".join(["?"] * len(model_chunk))
-            query = f'SELECT * FROM components WHERE "型号" IN ({placeholders})'
-            frames.append(pd.read_sql_query(query, conn, params=model_chunk))
-    except Exception:
-        return pd.DataFrame()
-    finally:
-        conn.close()
-    combined = concat_component_frames(frames)
+    if os.path.exists(DB_PATH) and models:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            frames = []
+            for model_chunk in chunk_items(models, SEARCH_DB_FETCH_CHUNK):
+                placeholders = ",".join(["?"] * len(model_chunk))
+                query = f'SELECT * FROM components WHERE "型号" IN ({placeholders})'
+                frames.append(pd.read_sql_query(query, conn, params=model_chunk))
+            combined = concat_component_frames(frames)
+        except Exception:
+            combined = pd.DataFrame()
+        finally:
+            conn.close()
+    if combined.empty:
+        combined = load_search_sidecar_rows_by_brand_model_pairs(pairs)
     seed_rows = load_jianghai_seed_rows()
     if seed_rows:
         combined = concat_component_frames([combined, pd.DataFrame(seed_rows)])
@@ -10173,6 +10372,93 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs):
     return prepare_search_dataframe(combined)
 
 
+def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs):
+    pairs = [
+        (clean_text(brand), clean_text(model))
+        for brand, model in (candidate_pairs or [])
+        if clean_text(model) != ""
+    ]
+    if not pairs:
+        return pd.DataFrame()
+
+    required_columns = {"品牌", "型号", "_model_clean", "_component_type"}
+    conn = open_search_db_connection(timeout_sec=10)
+    try:
+        if conn is None or not search_index_can_serve_queries(
+            conn,
+            required_columns=required_columns,
+            table_name=COMPONENTS_SEARCH_CORE_TABLE,
+            allow_without_database=True,
+        ):
+            if os.path.exists(DB_PATH):
+                if conn is not None:
+                    conn.close()
+                rebuild_search_index_from_database_fast()
+                conn = open_search_db_connection(timeout_sec=10)
+            if conn is None or not search_index_can_serve_queries(
+                conn,
+                required_columns=required_columns,
+                table_name=COMPONENTS_SEARCH_CORE_TABLE,
+                allow_without_database=True,
+            ):
+                return pd.DataFrame()
+
+        models = sorted({model for _, model in pairs if model != ""})
+        pair_df = pd.DataFrame(pairs, columns=["品牌", "型号"]).drop_duplicates()
+        core_df = query_search_sidecar_table_by_models(conn, COMPONENTS_SEARCH_CORE_TABLE, models)
+        if core_df.empty:
+            return pd.DataFrame()
+        core_df = core_df.merge(pair_df, on=["品牌", "型号"], how="inner")
+        if core_df.empty:
+            return pd.DataFrame()
+
+        side_maps = {}
+        for table_name in [
+            COMPONENTS_SEARCH_CAPACITOR_TABLE,
+            COMPONENTS_SEARCH_RESISTOR_TABLE,
+            COMPONENTS_SEARCH_VALUE_TABLE,
+            COMPONENTS_SEARCH_VARISTOR_TABLE,
+        ]:
+            table_df = query_search_sidecar_table_by_models(conn, table_name, models)
+            if table_df.empty:
+                side_maps[table_name] = {}
+                continue
+            table_df = table_df.merge(pair_df, on=["品牌", "型号"], how="inner")
+            side_maps[table_name] = {
+                (clean_text(row.get("品牌", "")), clean_text(row.get("型号", ""))): row
+                for row in table_df.to_dict("records")
+                if clean_text(row.get("型号", "")) != ""
+            }
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        if conn is not None:
+            conn.close()
+
+    records = []
+    for core_row in core_df.to_dict("records"):
+        pair_key = (clean_text(core_row.get("品牌", "")), clean_text(core_row.get("型号", "")))
+        detail_row = {}
+        preferred_table = search_index_table_for_component_type(clean_text(core_row.get("_component_type", "")))
+        if preferred_table in side_maps:
+            detail_row = side_maps[preferred_table].get(pair_key, {})
+        if not detail_row:
+            for table_name in [
+                COMPONENTS_SEARCH_CAPACITOR_TABLE,
+                COMPONENTS_SEARCH_RESISTOR_TABLE,
+                COMPONENTS_SEARCH_VALUE_TABLE,
+                COMPONENTS_SEARCH_VARISTOR_TABLE,
+            ]:
+                detail_row = side_maps.get(table_name, {}).get(pair_key, {})
+                if detail_row:
+                    break
+        record = build_lightweight_component_row_from_search_sidecar(core_row, detail_row)
+        if record:
+            records.append(record)
+
+    return prepare_search_dataframe(pd.DataFrame(records)) if records else pd.DataFrame()
+
+
 def load_component_rows_by_clean_models_map(models):
     model_clean_list = [
         clean_model(model)
@@ -10180,17 +10466,28 @@ def load_component_rows_by_clean_models_map(models):
         if clean_model(model) != ""
     ]
     unique_models = list(dict.fromkeys(model_clean_list))
-    if not unique_models or not os.path.exists(DB_PATH):
+    if not unique_models:
         return {}
     required_columns = {"品牌", "型号", "_model_clean"}
     conn = open_search_db_connection(timeout_sec=10)
     try:
-        if conn is None or not search_index_is_current(conn, required_columns, table_name=COMPONENTS_SEARCH_CORE_TABLE):
+        if conn is None or not search_index_can_serve_queries(
+            conn,
+            required_columns=required_columns,
+            table_name=COMPONENTS_SEARCH_CORE_TABLE,
+            allow_without_database=True,
+        ):
             if conn is not None:
                 conn.close()
-            rebuild_search_index_from_database_fast()
+            if os.path.exists(DB_PATH):
+                rebuild_search_index_from_database_fast()
             conn = open_search_db_connection(timeout_sec=10)
-            if conn is None or not search_index_is_current(conn, required_columns, table_name=COMPONENTS_SEARCH_CORE_TABLE):
+            if conn is None or not search_index_can_serve_queries(
+                conn,
+                required_columns=required_columns,
+                table_name=COMPONENTS_SEARCH_CORE_TABLE,
+                allow_without_database=True,
+            ):
                 return {model_clean: pd.DataFrame() for model_clean in unique_models}
         rows = []
         for model_chunk in chunk_items(unique_models, SEARCH_DB_FETCH_CHUNK):
@@ -10264,7 +10561,12 @@ def load_component_rows_by_clean_model(model):
 
 
 def load_component_rows_by_typed_spec(spec):
-    if spec is None or not os.path.exists(DB_PATH):
+    if spec is None:
+        return pd.DataFrame()
+    if not os.path.exists(DB_PATH):
+        candidate_pairs = fetch_search_candidate_pairs(spec)
+        if candidate_pairs:
+            return load_component_rows_by_brand_model_pairs(candidate_pairs)
         return pd.DataFrame()
     component_type = infer_spec_component_type(spec)
     supported_types = (
@@ -10491,8 +10793,19 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
     return concat_component_frames(frames)
 
 
+def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
+    if isinstance(exact_part_rows, pd.DataFrame):
+        return exact_part_rows
+    if not looks_like_compact_part_query(query_text):
+        return pd.DataFrame()
+    rows = load_component_rows_by_clean_model(query_text)
+    if isinstance(rows, pd.DataFrame):
+        return rows
+    return pd.DataFrame()
+
+
 def fetch_search_candidate_pairs(spec):
-    if spec is None or not os.path.exists(DB_PATH):
+    if spec is None:
         return None
     target_type = infer_spec_component_type(spec)
     compatible_types = compatible_component_types_for_search(target_type)
@@ -10693,12 +11006,23 @@ def fetch_search_candidate_pairs(spec):
     )
     conn = open_search_db_connection(timeout_sec=10)
     try:
-        if conn is None or not search_index_is_current(conn, required_search_columns, table_name=search_table_name):
+        if conn is None or not search_index_can_serve_queries(
+            conn,
+            required_columns=required_search_columns,
+            table_name=search_table_name,
+            allow_without_database=True,
+        ):
             if conn is not None:
                 conn.close()
-            rebuild_search_index_from_database_fast()
+            if os.path.exists(DB_PATH):
+                rebuild_search_index_from_database_fast()
             conn = open_search_db_connection(timeout_sec=10)
-            if conn is None or not search_index_is_current(conn, required_search_columns, table_name=search_table_name):
+            if conn is None or not search_index_can_serve_queries(
+                conn,
+                required_columns=required_search_columns,
+                table_name=search_table_name,
+                allow_without_database=True,
+            ):
                 return None
         rows = conn.execute(query, params).fetchall()
         result = [(clean_text(row[0]), clean_text(row[1])) for row in rows if clean_text(row[1]) != ""]
@@ -13083,7 +13407,9 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
     cached = query_cache.get(query_text) if query_cache is not None else None
     if cached is None:
         full_df = df
-        mode, spec = detect_query_mode_and_spec(None, query_text)
+        exact_part_rows = resolve_prefetched_exact_part_rows(query_text)
+        detect_df = exact_part_rows if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty else None
+        mode, spec = detect_query_mode_and_spec(detect_df, query_text)
         query_df = None
         source_text = clean_text(source_label)
         model_token_rows = pd.DataFrame()
@@ -13092,7 +13418,6 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
         if mode == "无法识别":
             model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(query_text)
         if mode == "无法识别" and source_text == "型号列":
-            exact_part_rows = load_component_rows_by_clean_model(query_text)
             if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty:
                 query_df = exact_part_rows
                 mode, spec = detect_query_mode_and_spec(query_df, query_text)
@@ -13105,7 +13430,11 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
             query_df = model_token_rows
             mode, spec = detect_query_mode_and_spec(query_df, matched_model_token or query_text)
         if mode != "无法识别" and spec is not None:
-            query_df = load_search_dataframe_for_query(mode, spec, query_text) if query_df is None else query_df
+            query_df = (
+                load_search_dataframe_for_query(mode, spec, query_text, exact_part_rows=exact_part_rows)
+                if query_df is None
+                else query_df
+            )
         if query_df is None:
             allow_heavy_fallback = not (
                 mode == "无法识别"
@@ -14326,7 +14655,9 @@ def resolve_search_query_dataframe_and_spec(
         )
 
     emit(1, "正在解析输入", "先按命名规则和规格关键词识别当前输入")
-    mode, spec = detect_query_mode_and_spec(None, line)
+    prefetched_exact_rows = resolve_prefetched_exact_part_rows(line, exact_part_rows=exact_part_rows)
+    detect_df = prefetched_exact_rows if isinstance(prefetched_exact_rows, pd.DataFrame) and not prefetched_exact_rows.empty else None
+    mode, spec = detect_query_mode_and_spec(detect_df, line)
     query_df = None
     candidate_rows = 0
     query_frame_cache_key = ""
@@ -14366,7 +14697,7 @@ def resolve_search_query_dataframe_and_spec(
                 "candidate_rows": candidate_rows,
             }
         emit(2, "正在载入候选库", "按识别到的规格从索引缩小候选范围", "快速索引")
-        query_df = load_search_dataframe_for_query(mode, spec, line, exact_part_rows=exact_part_rows)
+        query_df = load_search_dataframe_for_query(mode, spec, line, exact_part_rows=prefetched_exact_rows)
         if isinstance(query_df, pd.DataFrame):
             candidate_rows = len(query_df)
             if isinstance(query_frame_cache, dict) and not query_df.empty and query_frame_cache_key != "":
@@ -14392,7 +14723,7 @@ def resolve_search_query_dataframe_and_spec(
 
     if looks_like_compact_part_query(line):
         emit(2, "正在按料号直查数据库", "命名规则未完整命中时，先尝试数据库精确料号直查", "数据库直查")
-        exact_df = exact_part_rows if isinstance(exact_part_rows, pd.DataFrame) else load_component_rows_by_clean_model(line)
+        exact_df = prefetched_exact_rows
         if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
             exact_mode, exact_spec = detect_query_mode_and_spec(exact_df, line)
             if exact_mode != "无法识别" and exact_spec is not None:
@@ -14515,6 +14846,8 @@ if get_configured_access_code() != "" and st.session_state.get("_app_access_gran
             st.rerun()
 if not is_component_matcher_build_mode() and database_has_component_rows():
     maybe_update_database(force=False)
+if not is_component_matcher_build_mode():
+    maybe_start_cloud_search_asset_warmup()
 
 
 logo_b64 = image_to_base64(LOGO_PATH)
