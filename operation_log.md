@@ -880,3 +880,12 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 新增 `sync_local_and_public.py`、`sync_local_and_public.ps1`、`sync_local_and_public.cmd`，统一完成“重建云端数据包、语法校验、暂存发布文件、提交、通过 GitHub SSH 443 推送”的发布流程。
 - PowerShell 包装脚本已修正单命令 Python 调用时的参数展开问题，避免后续双击启动器时因数组切片为空而报错。
 - `README.md` 与 `PUBLIC_ACCESS.md` 已补充“一键同步发布”说明，后续本地改规则、数据库或页面后，不需要再手工分别维护局域网版和公网版的发布动作。
+
+## 2026-04-03 11:08 一键同步发布链最终打通
+- 发布脚本改为优先使用“仓库专用 deploy key”，避免依赖用户级 `/user/keys` API；当前这台机器的仓库写入密钥已经成功注册到 `harma801209/component-matcher`。
+- 由于本地历史里还保留了早期“通过 GitHub API 直接写远端”的旧提交，脚本不再对本地分支做 rebase，而是抓取远端最新 `main` 后，基于当前本地提交的文件树合成一个“发布专用 commit”，再通过 SSH 443 推到远端，绕开同内容不同 hash 的历史冲突。
+- 已完成三轮验证：
+  - `sync_local_and_public.ps1 -SkipBundleRebuild -SkipPush` 半实战通过，可生成本地 commit 与发布 commit
+  - 真实推送通过，`streamlit_cloud_bundle.zip` 已经通过 Git LFS 上传到远端 `main`
+  - 无改动时再次执行 `sync_local_and_public.ps1 -SkipBundleRebuild` 会优雅返回 `Everything up-to-date`
+- 结论：后续本地改数据库、规则或页面后，优先用 `sync_local_and_public.cmd` / `sync_local_and_public.ps1` 做统一发布，不再需要人工分别处理局域网版和公网版。
