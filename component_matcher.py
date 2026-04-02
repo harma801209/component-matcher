@@ -10277,7 +10277,7 @@ def query_search_sidecar_table_by_models(conn, table_name, models):
     return concat_component_frames(frames)
 
 
-def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=None):
+def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=None, include_model_rule=True):
     core_row = core_row or {}
     detail_row = detail_row or {}
     brand = clean_text(core_row.get("品牌", detail_row.get("品牌", "")))
@@ -10330,13 +10330,14 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         record["容值"] = format_sidecar_numeric_display(value_num)
         record["容值单位"] = clean_text(detail_row.get("_unit_upper", "")).upper()
 
-    parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
-    if isinstance(parsed_rule, dict) and parsed_rule:
-        record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
+    if include_model_rule:
+        parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
+        if isinstance(parsed_rule, dict) and parsed_rule:
+            record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
     return record
 
 
-def load_component_rows_by_brand_model_pairs(candidate_pairs):
+def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=""):
     pairs = [
         (clean_text(brand), clean_text(model))
         for brand, model in (candidate_pairs or [])
@@ -10360,7 +10361,7 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs):
         finally:
             conn.close()
     if combined.empty:
-        combined = load_search_sidecar_rows_by_brand_model_pairs(pairs)
+        combined = load_search_sidecar_rows_by_brand_model_pairs(pairs, preferred_component_type=preferred_component_type)
     seed_rows = load_jianghai_seed_rows()
     if seed_rows:
         combined = concat_component_frames([combined, pd.DataFrame(seed_rows)])
@@ -10372,7 +10373,7 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs):
     return prepare_search_dataframe(combined)
 
 
-def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs):
+def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=""):
     pairs = [
         (clean_text(brand), clean_text(model))
         for brand, model in (candidate_pairs or [])
@@ -10404,30 +10405,76 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs):
                 return pd.DataFrame()
 
         models = sorted({model for _, model in pairs if model != ""})
-        pair_df = pd.DataFrame(pairs, columns=["品牌", "型号"]).drop_duplicates()
+        pair_set = set(pairs)
+        preferred_table = search_index_table_for_component_type(clean_text(preferred_component_type))
+
+        if preferred_table and preferred_table != COMPONENTS_SEARCH_CORE_TABLE:
+            detail_df = query_search_sidecar_table_by_models(conn, preferred_table, models)
+            if not detail_df.empty and {"品牌", "型号"}.issubset(detail_df.columns):
+                detail_rows = [
+                    row
+                    for row in detail_df.to_dict("records")
+                    if (
+                        clean_text(row.get("品牌", "")),
+                        clean_text(row.get("型号", "")),
+                    ) in pair_set
+                ]
+                if detail_rows:
+                    records = []
+                    for detail_row in detail_rows:
+                        record = build_lightweight_component_row_from_search_sidecar(
+                            detail_row,
+                            detail_row,
+                            include_model_rule=False,
+                        )
+                        if record:
+                            records.append(record)
+                    if records:
+                        return prepare_search_dataframe(pd.DataFrame(records))
+
         core_df = query_search_sidecar_table_by_models(conn, COMPONENTS_SEARCH_CORE_TABLE, models)
         if core_df.empty:
             return pd.DataFrame()
-        core_df = core_df.merge(pair_df, on=["品牌", "型号"], how="inner")
-        if core_df.empty:
+        if not {"品牌", "型号"}.issubset(core_df.columns):
+            return pd.DataFrame()
+        core_rows = [
+            row
+            for row in core_df.to_dict("records")
+            if (
+                clean_text(row.get("品牌", "")),
+                clean_text(row.get("型号", "")),
+            ) in pair_set
+        ]
+        if not core_rows:
             return pd.DataFrame()
 
-        side_maps = {}
-        for table_name in [
+        fallback_table_order = [
             COMPONENTS_SEARCH_CAPACITOR_TABLE,
             COMPONENTS_SEARCH_RESISTOR_TABLE,
             COMPONENTS_SEARCH_VALUE_TABLE,
             COMPONENTS_SEARCH_VARISTOR_TABLE,
-        ]:
+        ]
+        table_scan_order = []
+        if preferred_table and preferred_table != COMPONENTS_SEARCH_CORE_TABLE:
+            table_scan_order.append(preferred_table)
+        table_scan_order.extend([table_name for table_name in fallback_table_order if table_name not in table_scan_order])
+
+        side_maps = {}
+        for table_name in table_scan_order:
             table_df = query_search_sidecar_table_by_models(conn, table_name, models)
-            if table_df.empty:
+            if table_df.empty or not {"品牌", "型号"}.issubset(table_df.columns):
                 side_maps[table_name] = {}
                 continue
-            table_df = table_df.merge(pair_df, on=["品牌", "型号"], how="inner")
             side_maps[table_name] = {
                 (clean_text(row.get("品牌", "")), clean_text(row.get("型号", ""))): row
                 for row in table_df.to_dict("records")
-                if clean_text(row.get("型号", "")) != ""
+                if (
+                    clean_text(row.get("型号", "")) != ""
+                    and (
+                        clean_text(row.get("品牌", "")),
+                        clean_text(row.get("型号", "")),
+                    ) in pair_set
+                )
             }
     except Exception:
         return pd.DataFrame()
@@ -10436,19 +10483,17 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs):
             conn.close()
 
     records = []
-    for core_row in core_df.to_dict("records"):
-        pair_key = (clean_text(core_row.get("品牌", "")), clean_text(core_row.get("型号", "")))
+    for core_row in core_rows:
+        pair_key = (
+            clean_text(core_row.get("品牌", "")),
+            clean_text(core_row.get("型号", "")),
+        )
         detail_row = {}
-        preferred_table = search_index_table_for_component_type(clean_text(core_row.get("_component_type", "")))
-        if preferred_table in side_maps:
-            detail_row = side_maps[preferred_table].get(pair_key, {})
+        row_preferred_table = search_index_table_for_component_type(clean_text(core_row.get("_component_type", "")))
+        if row_preferred_table in side_maps:
+            detail_row = side_maps[row_preferred_table].get(pair_key, {})
         if not detail_row:
-            for table_name in [
-                COMPONENTS_SEARCH_CAPACITOR_TABLE,
-                COMPONENTS_SEARCH_RESISTOR_TABLE,
-                COMPONENTS_SEARCH_VALUE_TABLE,
-                COMPONENTS_SEARCH_VARISTOR_TABLE,
-            ]:
+            for table_name in table_scan_order:
                 detail_row = side_maps.get(table_name, {}).get(pair_key, {})
                 if detail_row:
                     break
@@ -10566,7 +10611,7 @@ def load_component_rows_by_typed_spec(spec):
     if not os.path.exists(DB_PATH):
         candidate_pairs = fetch_search_candidate_pairs(spec)
         if candidate_pairs:
-            return load_component_rows_by_brand_model_pairs(candidate_pairs)
+            return load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type)
         return pd.DataFrame()
     component_type = infer_spec_component_type(spec)
     supported_types = (
@@ -10777,7 +10822,7 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
     if can_use_fast_search_dataframe(spec):
         candidate_pairs = fetch_search_candidate_pairs(spec)
         if candidate_pairs is not None and len(candidate_pairs) > 0:
-            frames.append(load_component_rows_by_brand_model_pairs(candidate_pairs))
+            frames.append(load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type))
             used_fast_path = True
         else:
             if component_type in (
@@ -10820,6 +10865,8 @@ def fetch_search_candidate_pairs(spec):
         size = clean_size(spec.get("尺寸（inch）", ""))
         material = clean_material(spec.get("材质（介质）", ""))
         pf = spec.get("容值_pf", None)
+        tol = clean_tol_for_match(spec.get("容值误差", ""))
+        volt = clean_voltage(spec.get("耐压（V）", ""))
         if size == "" or pf is None:
             return None
         required_search_columns.update({"_size", "_mat", "_pf", "_tol", "_volt_num"})
@@ -10834,6 +10881,12 @@ def fetch_search_candidate_pairs(spec):
         if material != "":
             where_clauses.append("_mat = ?")
             params.append(material)
+        if tol != "":
+            where_clauses.append("_tol = ?")
+            params.append(tol)
+        if volt != "":
+            where_clauses.append("_volt_num IS NOT NULL AND _volt_num >= ?")
+            params.append(float(volt))
     elif target_type in RESISTOR_COMPONENT_TYPES or target_type == "热敏电阻":
         size = clean_size(spec.get("尺寸（inch）", ""))
         resistance_ohm = spec.get("_resistance_ohm", None)
@@ -14696,7 +14749,10 @@ def resolve_search_query_dataframe_and_spec(
                 "used_full_df": False,
                 "candidate_rows": candidate_rows,
             }
-        emit(2, "正在载入候选库", "按识别到的规格从索引缩小候选范围", "快速索引")
+        candidate_note = "按识别到的规格从索引缩小候选范围"
+        if not database_has_component_rows() and os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+            candidate_note += "；公网首搜可能需要 5-15 秒预热索引"
+        emit(2, "正在载入候选库", candidate_note, "快速索引")
         query_df = load_search_dataframe_for_query(mode, spec, line, exact_part_rows=prefetched_exact_rows)
         if isinstance(query_df, pd.DataFrame):
             candidate_rows = len(query_df)
@@ -15726,3 +15782,7 @@ st.markdown(
     ''',
     unsafe_allow_html=True
 )
+
+
+
+
