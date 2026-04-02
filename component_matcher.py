@@ -10859,6 +10859,8 @@ def fetch_search_candidate_pairs(spec):
         return None
     where_clauses = []
     params = []
+    exact_query = ""
+    exact_query_params = []
     required_search_columns = {"品牌", "型号", "_component_type"}
 
     if target_type == "MLCC":
@@ -10885,6 +10887,15 @@ def fetch_search_candidate_pairs(spec):
             where_clauses.append("_tol = ?")
             params.append(tol)
         if volt != "":
+            exact_voltage_clauses = list(where_clauses)
+            exact_voltage_params = list(params)
+            exact_voltage_clauses.append("_volt_num IS NOT NULL AND ABS(_volt_num - ?) < 1e-9")
+            exact_voltage_params.append(float(volt))
+            exact_query = (
+                f'SELECT DISTINCT "品牌", "型号" FROM {search_table_name} '
+                f'WHERE {" AND ".join(exact_voltage_clauses)}'
+            )
+            exact_query_params = exact_voltage_params
             where_clauses.append("_volt_num IS NOT NULL AND _volt_num >= ?")
             params.append(float(volt))
     elif target_type in RESISTOR_COMPONENT_TYPES or target_type == "热敏电阻":
@@ -11077,6 +11088,15 @@ def fetch_search_candidate_pairs(spec):
                 allow_without_database=True,
             ):
                 return None
+        if exact_query:
+            exact_rows = conn.execute(exact_query, exact_query_params).fetchall()
+            exact_result = [
+                (clean_text(row[0]), clean_text(row[1]))
+                for row in exact_rows
+                if clean_text(row[1]) != ""
+            ]
+            if exact_result:
+                return exact_result
         rows = conn.execute(query, params).fetchall()
         result = [(clean_text(row[0]), clean_text(row[1])) for row in rows if clean_text(row[1]) != ""]
         return result if result else None
