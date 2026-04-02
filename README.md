@@ -6,6 +6,7 @@
 
 - 局域网版：直接读取这台电脑上的本地数据库和缓存
 - 公网版：部署在 Streamlit Community Cloud，固定地址为 [fruition-componentmatche.streamlit.app](https://fruition-componentmatche.streamlit.app)
+- 访客外壳页：部署到 GitHub Pages，适合给外部用户使用，地址为 `https://harma801209.github.io/component-matcher/`
 
 两边共用同一套代码，但公网版使用仓库里的发布文件和 `streamlit_cloud_bundle.zip`。
 
@@ -23,6 +24,7 @@
 4. 自动创建 git commit
 5. 通过 GitHub SSH 443 推送到远端 `main`
 6. 让 Streamlit Community Cloud 自动部署新版本
+7. 同步 GitHub Pages 外壳页（`docs/` 目录）
 
 也可以直接运行 PowerShell 版：
 

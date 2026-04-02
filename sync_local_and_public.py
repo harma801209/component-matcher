@@ -33,6 +33,7 @@ PUBLISH_FILES = [
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
     ".streamlit/config.toml",
+    "docs",
 ]
 
 

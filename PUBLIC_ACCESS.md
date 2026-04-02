@@ -117,6 +117,21 @@ Main caveat:
 
 - This app is data-heavy, so the cloud bundle is large. The good news is that it is still much smaller than the raw database files and is much more suitable for GitHub / Cloud than the unpacked `.db` files.
 
+### Visitor wrapper page
+
+To give outside users a cleaner entry than the raw `streamlit.app` page, this repo also supports a free GitHub Pages wrapper:
+
+- Wrapper URL: `https://harma801209.github.io/component-matcher/`
+- Source files: `docs/index.html`, `docs/404.html`, `docs/.nojekyll`
+
+The wrapper uses an iframe with:
+
+```text
+https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen
+```
+
+This reduces the default Streamlit cloud chrome for visitors, especially on mobile.
+
 ## 4. One-click local launchers in this folder
 
 Two double-click launchers are now included in the `DATA` folder:
