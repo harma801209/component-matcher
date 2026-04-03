@@ -949,3 +949,43 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 ## 2026-04-03 18:58 一键同步脚本 UTF-8 输出修复
 - `sync_local_and_public.py` 的 `run_command()` 现在显式使用 `utf-8` + `errors=replace` 读取子进程输出，避免 Windows/GBK 环境下 Git LFS 输出触发 `UnicodeDecodeError`。
 - 目的：让局域网/公网一键同步链在包含大 bundle 与 LFS 上传时更稳定，避免“代码已提交但推送阶段因编码炸掉”的假失败。
+
+## 2026-04-03 19:06 Cloudflare Pages 代理入口修复
+- 发现 `https://fruition-component.pages.dev/` 出现 `502`，根因是代理 Worker 仍把上游固定拼到 `https://fruition-componentmatche.streamlit.app/~/+/`，而该上游入口已开始直接返回 `502`。
+- 已将 `cloudflare-pages-proxy/dist/_worker.js` 的上游前缀切回根路径，由代理直接转发到 `https://fruition-componentmatche.streamlit.app/`，避免固定网址因旧入口失效而整站不可用。
+
+## 2026-04-03 20:38 整库回退收紧与 Pages 旧缓存清理
+- 对“看起来像完整料号、但命名规则和数据库都没命中”的输入，搜索链路现在改成快速失败，不再默认整库回退；复测 `ECV1VVZ2330M0605V1` 时，`resolve_search_query_dataframe_and_spec()` 已返回 `unknown_compact_part`，不再进入 `full_dataframe`。
+- `looks_like_compact_part_query()` 增补了更宽松的完整料号识别条件，并纳入 `ECV` 前缀，避免这类紧凑型料号因为前缀未收录而被误判成普通文本。
+- `cloudflare-pages-proxy/dist/_worker.js` 已恢复为完整的 Streamlit 代理版本，并新增：
+  - `/service-worker.js` 与 `/service-worker` 清缓存/注销脚本
+  - HTML 注入侧的旧 service worker 与旧 caches 主动清理逻辑，首次命中后会自动刷新一次
+- `deploy_cloudflare_pages_proxy.ps1` 现在固定设置 `NODE_OPTIONS=--dns-result-order=ipv4first`，绕过本机 Node 对 `api.cloudflare.com` 的 DNS 解析异常，Cloudflare Pages 可再次正常部署。
+- 已重新部署 Cloudflare Pages，新部署预览地址为 `https://de884a87.fruition-component.pages.dev`；正式域名 `https://fruition-component.pages.dev/` 已确认带上新的清缓存脚本与新的 `_stcore/host-config` / `service-worker.js` 响应。
+
+## 2026-04-03 21:48 统一为公网正式版入口
+- 项目说明与公网访问说明已重写，正式入口统一为 `https://fruition-component.pages.dev/`，不再把局域网版和公网版当成两套长期维护的产品。
+- `README.md` 与 `PUBLIC_ACCESS.md` 已改成只强调正式公网入口、发布流程和 `Cloudflare Pages + Streamlit Community Cloud` 架构。
+- `sync_local_and_public.ps1` 与 `sync_local_and_public.py` 的默认公网地址已更新为 `https://fruition-component.pages.dev/`。
+- 旧兼容启动器 `start_lan.ps1` / `start_public_fixed.ps1` 已降级为“打开正式公网入口”的提示壳，不再继续启动本地 LAN / Tunnel 服务，避免误导成正式运行方式。
+
+## 2026-04-03 22:41 Cloudflare Pages 入口恢复与站点图标补回
+- 鉴于 `pages.dev` 直代理 Streamlit 运行态持续卡在 websocket `401 Unauthorized`，正式公网入口已先切换为“无头壳全屏 embed 容器”方案：根页面直接承载 `https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen`，避免自建代理链继续拖累可用性。
+- 新入口页面不再显示之前 GitHub Pages 那种额外头部，只保留一个全屏 `iframe` 与底部细遮罩，用于盖住 Streamlit embed 页面的底部平台条，尽量保持版面接近正式公网应用。
+- `cloudflare-pages-proxy/dist/_worker.js` 已新增 `buildEmbedShellResponse()`，并让根路径 HTML 请求优先走该入口壳页；预览与正式域名首页均已恢复正常渲染。
+- 因自定义壳页接管后浏览器标签缺失站点 logo，现已将本地 `logo.png` 缩制成小号图标，并改为内嵌 `data:image/png;base64,...` favicon 链接，`fruition-component.pages.dev` 标签页现已带回品牌图标。
+
+## 2026-04-03 21:48 江海欧洲 ECV 系列铝电解析补齐
+- 发现 `ECV2AVTD100M0607V1` 并不是无效输入，而是江海欧洲 `CD VTD` 系列的正式订货码；已按官方目录 `JE25_ECap_Catalogue.pdf` 补进 `ECV + 电压码 + 系列码 + 容值码 + 公差码 + 尺寸码` 解析。
+- `component_matcher.py` 现已新增江海欧洲贴片铝电规则，已覆盖：
+  - `VT1`
+  - `VTD`
+  - `VZ2`
+  - `VZL`
+  - `VZS`
+- 已新增对应的官方电压码、公差码、尺寸码、系列画像，并把 `ECV...` 纳入 `jianghai_series_code_from_model()` 与 `parse_jianghai_aluminum_model()`。
+- 复测：
+  - `ECV2AVTD100M0607V1 -> 江海Jianghai / VTD / 10uF / ±20% / 100V / 6.3*7.7mm / 贴片 / -55~105℃ / 2000h`
+  - `ECV1VVZ2330M0605V1 -> 江海Jianghai / VZ2 / 33uF / ±20% / 35V / 6.3*5.4mm / 贴片 / -55~105℃ / 2000h`
+- 同时修正了 `build_rule_fallback_row_from_model()`，不再把所有 fallback 料号硬当成 `MLCC`；铝电这类规则反推行现在会补齐展示链需要的基础列。
+- 已补上 cloud bundle 的坏文件检查：`ensure_streamlit_cloud_data_bundle()` 与 `search_sidecar_assets_available()` 现在会把“文件存在但为 0 字节”视为无效并触发重提取，避免再次出现“数据库为空，搜索已提前停止”的假空库状态。

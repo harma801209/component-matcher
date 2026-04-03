@@ -113,6 +113,13 @@ def bundle_member_path_for_local_path(path):
     return rel_path.replace("\\", "/")
 
 
+def bundle_target_is_valid(path):
+    try:
+        return os.path.exists(path) and os.path.getsize(path) > 0
+    except Exception:
+        return False
+
+
 def ensure_streamlit_cloud_data_bundle(required_paths=None):
     target_paths = [
         os.path.abspath(path)
@@ -121,7 +128,7 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
             or [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
         )
     ]
-    if all(os.path.exists(path) for path in target_paths):
+    if all(bundle_target_is_valid(path) for path in target_paths):
         return True
     if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
         return False
@@ -131,7 +138,7 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
             with zipfile.ZipFile(STREAMLIT_CLOUD_BUNDLE_PATH, "r") as archive:
                 available_members = set(archive.namelist())
                 for target_path in target_paths:
-                    if os.path.exists(target_path):
+                    if bundle_target_is_valid(target_path):
                         continue
                     member_name = bundle_member_path_for_local_path(target_path)
                     if member_name not in available_members:
@@ -163,11 +170,11 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
         logging.getLogger(__name__).warning("failed to extract cloud bundle: %s", exc)
         return False
 
-    return all(os.path.exists(path) for path in target_paths)
+    return all(bundle_target_is_valid(path) for path in target_paths)
 
 
 def search_sidecar_assets_available():
-    return os.path.exists(SEARCH_DB_PATH)
+    return bundle_target_is_valid(SEARCH_DB_PATH)
 
 
 def get_search_asset_bundle_paths():
@@ -3031,6 +3038,11 @@ JIANGHAI_SERIES_MEANING = {
     "KPA": "江海 HPA KPA 系列",
     "APA": "江海 HPA APA 系列",
     "CPA": "江海 HPA CPA 系列",
+    "VT1": "江海欧洲 CD VT1 系列",
+    "VTD": "江海欧洲 CD VTD 系列",
+    "VZ2": "江海欧洲 CD VZ2 系列",
+    "VZL": "江海欧洲 CD VZL 系列",
+    "VZS": "江海欧洲 CD VZS 系列",
 }
 
 
@@ -3056,6 +3068,7 @@ def jianghai_series_code_from_model(model):
         r"^PCV(?:[0-9A-Z]{2})([A-Z]{3})",
         r"^PHR1([A-Z]LB)",
         r"^PCP\d([A-Z]PA)",
+        r"^ECV(?:0J|1A|1C|1E|1V|1H|1J|1K|2A)(VT1|VTD|VZ2|VZL|VZS)",
     ]
     for pattern in patterns:
         match = re.match(pattern, compact)
@@ -3140,6 +3153,46 @@ JIANGHAI_GENERIC_SERIES_PROFILES = {
     "JVM": {"family": "PCV1 JVM", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "", "特殊用途": "混合物"},
 }
 
+JIANGHAI_EUROPE_SMD_VOLTAGE_MAP = {
+    "0J": "6.3",
+    "1A": "10",
+    "1C": "16",
+    "1E": "25",
+    "1V": "35",
+    "1H": "50",
+    "1J": "63",
+    "1K": "80",
+    "2A": "100",
+}
+
+JIANGHAI_EUROPE_SMD_TOLERANCE_MAP = {
+    "J": "5",
+    "K": "10",
+    "M": "20",
+    "Q": "+30/-10",
+}
+
+JIANGHAI_EUROPE_SMD_SIZE_CODE_MAP = {
+    "0405": "4*5.4mm",
+    "0505": "5*5.4mm",
+    "0506": "5*6mm",
+    "0605": "6.3*5.4mm",
+    "0606": "6.3*6mm",
+    "0607": "6.3*7.7mm",
+    "0806": "8*6.2mm",
+    "0810": "8*10.2mm",
+    "1010": "10*10.2mm",
+    "1012": "10*12.5mm",
+}
+
+JIANGHAI_EUROPE_SMD_SERIES_PROFILES = {
+    "VT1": {"family": "CD VT1", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "1000", "特殊用途": "低ESR/标准型"},
+    "VTD": {"family": "CD VTD", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "2000", "特殊用途": "低ESR"},
+    "VZ2": {"family": "CD VZ2", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "2000", "特殊用途": "高纹波/低阻抗"},
+    "VZL": {"family": "CD VZL", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "5000", "特殊用途": "长寿命/低ESR"},
+    "VZS": {"family": "CD VZS", "安装方式": "贴片", "封装代码": "SMD", "工作温度": "-55~105℃", "寿命（h）": "2000", "特殊用途": "小型化/低ESR"},
+}
+
 JIANGHAI_SCREW_VOLTAGE_MAP = {
     "GUP": "400",
     "WUP": "450",
@@ -3207,6 +3260,11 @@ def jianghai_series_profile(series_code, model=""):
     model_clean = clean_model(model)
     if code == "":
         return {}
+    if model_clean.startswith("ECV") and code in JIANGHAI_EUROPE_SMD_SERIES_PROFILES:
+        profile = dict(JIANGHAI_EUROPE_SMD_SERIES_PROFILES.get(code, {}))
+        if len(model_clean) >= 5:
+            profile["voltage"] = JIANGHAI_EUROPE_SMD_VOLTAGE_MAP.get(model_clean[3:5], "")
+        return profile
     if model_clean.startswith("PHR1") and len(code) == 3 and code[1:] in JIANGHAI_PHR_FAMILY_PROFILES:
         profile = dict(JIANGHAI_PHR_FAMILY_PROFILES[code[1:]])
         profile["voltage"] = JIANGHAI_PHR_VOLTAGE_MAP.get(code[0], "")
@@ -3386,6 +3444,106 @@ def jianghai_size_from_model_rule(model, series_code=""):
     return ""
 
 
+JIANGHAI_EUROPE_SMD_DATASHEET_URL = "https://jianghai-europe.com/wp-content/uploads/JE25_ECap_Catalogue.pdf"
+
+
+def jianghai_europe_cap_code_to_uf(code):
+    token = clean_model(code)
+    if token == "":
+        return ""
+    if "R" in token:
+        match = re.fullmatch(r"(\d*)R(\d+)", token)
+        if not match:
+            return ""
+        left = match.group(1) or "0"
+        right = match.group(2)
+        try:
+            return _format_compact_number(float(f"{left}.{right}"))
+        except Exception:
+            return ""
+    if not re.fullmatch(r"\d{3}", token):
+        return ""
+    try:
+        base = int(token[:2])
+        exponent = int(token[2])
+        return _format_compact_number(base * (10 ** exponent))
+    except Exception:
+        return ""
+
+
+def parse_jianghai_europe_smd_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return None
+    match = re.fullmatch(
+        r"ECV(?P<volt>0J|1A|1C|1E|1V|1H|1J|1K|2A)(?P<series>VT1|VTD|VZ2|VZL|VZS)(?P<cap>(?:\d{3}|[0-9]*R[0-9]+))(?P<tol>[A-Z])(?P<size>\d{4})(?P<rest>[A-Z0-9]*)",
+        compact,
+    )
+    if match is None:
+        return None
+    series_code = match.group("series")
+    series_profile = dict(JIANGHAI_EUROPE_SMD_SERIES_PROFILES.get(series_code, {}))
+    voltage = clean_voltage(JIANGHAI_EUROPE_SMD_VOLTAGE_MAP.get(match.group("volt"), ""))
+    capacitance_uf = jianghai_europe_cap_code_to_uf(match.group("cap"))
+    if capacitance_uf == "":
+        return None
+    capacitance_pf = cap_to_pf(capacitance_uf, "UF")
+    tolerance = clean_tol_for_match(JIANGHAI_EUROPE_SMD_TOLERANCE_MAP.get(match.group("tol"), ""))
+    body_size = clean_text(JIANGHAI_EUROPE_SMD_SIZE_CODE_MAP.get(match.group("size"), ""))
+    work_temp = normalize_working_temperature_text(series_profile.get("工作温度", ""))
+    life_hours = normalize_life_hours_value(series_profile.get("寿命（h）", ""))
+    mounting_style = normalize_mounting_style(series_profile.get("安装方式", ""), series_profile.get("封装代码", ""))
+    special_use = normalize_special_use(series_profile.get("特殊用途", ""))
+    summary = build_other_component_summary(
+        [
+            f"{capacitance_uf}UF",
+            clean_tol_for_display(tolerance),
+            voltage_display(voltage),
+            work_temp,
+            format_life_hours_display(life_hours),
+            body_size,
+            mounting_style,
+            special_use,
+        ]
+    )
+    param_count = sum(
+        [
+            1 if capacitance_pf is not None else 0,
+            1 if tolerance != "" else 0,
+            1 if voltage != "" else 0,
+            1 if body_size != "" else 0,
+            1 if work_temp != "" else 0,
+            1 if life_hours != "" else 0,
+        ]
+    )
+    if param_count < 3:
+        return None
+    return {
+        "品牌": "江海Jianghai",
+        "型号": compact,
+        "系列": series_code,
+        "系列说明": jianghai_series_meaning(series_code),
+        "器件类型": "铝电解电容",
+        "容值": clean_text(capacitance_uf),
+        "容值单位": "UF",
+        "容值_pf": capacitance_pf,
+        "容值误差": tolerance,
+        "耐压（V）": voltage,
+        "尺寸（mm）": body_size,
+        "工作温度": work_temp,
+        "寿命（h）": life_hours,
+        "安装方式": mounting_style,
+        "封装代码": clean_text(series_profile.get("封装代码", "")),
+        "特殊用途": special_use,
+        "规格摘要": summary,
+        "备注2": JIANGHAI_EUROPE_SMD_DATASHEET_URL,
+        "_body_size": body_size,
+        "_core_param_count": param_count,
+        "_param_count": param_count,
+        "_model_rule_authority": "jianghai_europe_smd_series",
+    }
+
+
 def jianghai_voltage_from_cd263_model(model):
     compact = clean_model(model)
     match = re.search(r"M(\d{3})\d{3}$", compact)
@@ -3422,6 +3580,9 @@ def parse_jianghai_aluminum_model(model):
     compact = clean_model(model)
     if compact == "":
         return None
+    europe_smd_parsed = parse_jianghai_europe_smd_model(compact)
+    if europe_smd_parsed is not None:
+        return europe_smd_parsed
     series_code = jianghai_series_code_from_model(compact)
     if series_code == "":
         return None
@@ -10972,9 +11133,36 @@ def load_component_rows_by_clean_models_map(models):
 
 
 def build_rule_fallback_row_from_model(model, brand=""):
-    parsed = parse_model_rule(model, brand=brand, component_type="MLCC")
+    parsed = parse_model_rule(model, brand=brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
         return pd.DataFrame()
+    fallback_defaults = {
+        "品牌": "",
+        "型号": clean_model(model),
+        "器件类型": "",
+        "系列": "",
+        "系列说明": "",
+        "尺寸（inch）": "",
+        "尺寸（mm）": "",
+        "长度（mm）": "",
+        "宽度（mm）": "",
+        "高度（mm）": "",
+        "材质（介质）": "",
+        "容值": "",
+        "容值单位": "",
+        "容值_pf": None,
+        "容值误差": "",
+        "耐压（V）": "",
+        "安装方式": "",
+        "封装代码": "",
+        "特殊用途": "",
+        "规格摘要": "",
+        "备注1": "",
+        "备注2": "",
+        "备注3": "",
+    }
+    fallback_defaults.update(parsed)
+    parsed = fallback_defaults
     fallback = pd.DataFrame([parsed])
     try:
         fallback = prepare_search_dataframe(fallback)
