@@ -44,3 +44,6 @@ backup/
 exports/
 tools/PortableGit/
 tools/cloudflared.exe
+tools/nodejs/
+tools/wrangler/
+cloudflare-pages-proxy/.wrangler/

@@ -308,7 +308,7 @@ PREPARED_SEARCH_REQUIRED_COLUMNS = [
     "_tol_kind", "_tol_num", "_volt_num", "_component_type",
     "_res_ohm", "_power", "_power_watt", "_body_size", "_pitch", "_safety_class",
     "_varistor_voltage", "_disc_size", "_temp_low", "_temp_high", "_life_hours_num",
-    "_mount_style", "_special_use_norm", "_model_rule_authority",
+    "_mount_style", "_special_use_norm", "_mlcc_series_class", "_model_rule_authority",
 ]
 
 st.set_page_config(
@@ -2107,10 +2107,35 @@ PDC_MT_CASE_DIMENSION_MAP = {
     "43": {"长度（mm）": "4.50±0.40", "宽度（mm）": "3.20±0.30"},
 }
 PDC_MLCC_SERIES_MEANING = {
+    "FN": "常规 / General Purpose MLCC",
+    "FS": "高容 / High Capacitance MLCC",
+    "FM": "中压 / Medium Voltage MLCC",
+    "FV": "高压 / High Voltage MLCC",
+    "FP": "抗弯 / Anti-Bend General Purpose MLCC",
+    "FK": "安规 / Safety Certified MLCC",
+    "FH": "安规 / Safety Certified MLCC",
     "MT": "车规 / AEC-Q200",
     "MG": "次车规 / 无AEC-Q200",
     "MS": "车规 / 软端子",
 }
+PDC_MLCC_SERIES_CLASS = {
+    "FN": "常规",
+    "FS": "高容",
+    "FM": "中压",
+    "FV": "高压",
+    "FP": "常规/抗弯",
+    "FK": "安规",
+    "FH": "安规",
+    "MT": "车规",
+    "MG": "次车规",
+    "MS": "车规/软端子",
+}
+PDC_MLCC_SERIES_SPECIAL_USE = {
+    "MT": "车规",
+    "MG": "次车规",
+    "MS": "车规",
+}
+PDC_MLCC_SERIES_PREFIXES = tuple(PDC_MLCC_SERIES_MEANING.keys())
 
 
 def build_pdc_mt_dimension_fields(size_code, thickness_code):
@@ -2136,6 +2161,32 @@ def pdc_mlcc_series_code_from_model(model):
 
 def pdc_mlcc_series_meaning(series_code):
     return clean_text(PDC_MLCC_SERIES_MEANING.get(clean_text(series_code).upper(), ""))
+
+
+def pdc_mlcc_series_class(series_code):
+    return clean_text(PDC_MLCC_SERIES_CLASS.get(clean_text(series_code).upper(), ""))
+
+
+def pdc_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    return {
+        "系列": code,
+        "系列说明": pdc_mlcc_series_meaning(code),
+        "特殊用途": clean_text(PDC_MLCC_SERIES_SPECIAL_USE.get(code, "")),
+        "_mlcc_series_class": pdc_mlcc_series_class(code),
+    }
+
+
+def pdc_general_mlcc_series_code_from_model(model):
+    model_key = clean_model(model)
+    if model_key == "":
+        return ""
+    for prefix in PDC_MLCC_SERIES_PREFIXES:
+        if model_key.startswith(prefix):
+            return prefix
+    return ""
 
 
 def pdc_mlcc_series_profile_from_model(model):
@@ -2591,14 +2642,14 @@ MURATA_SERIES_PREFIX_PATTERN = re.compile(
 )
 
 MURATA_SERIES_MEANING = {
-    "GRM": "General-purpose MLCC",
-    "GCM": "Automotive MLCC",
-    "GRT": "Automotive MLCC",
+    "GRM": "常规 / General-purpose MLCC",
+    "GCM": "车规 / Automotive MLCC",
+    "GRT": "车规 / Automotive MLCC",
     "GCJ": "Murata MLCC series",
     "GCG": "Murata MLCC series",
     "GCQ": "Murata MLCC series",
-    "GJM": "High-Q MLCC",
-    "GQM": "High-Q MLCC",
+    "GJM": "高Q / High-Q MLCC",
+    "GQM": "高Q / High-Q MLCC",
     "GRJ": "Murata MLCC series",
     "GMA": "Murata MLCC series",
     "GMD": "Murata MLCC series",
@@ -2614,7 +2665,7 @@ MURATA_SERIES_MEANING = {
     "LLA": "Murata MLCC series",
     "LLG": "Murata MLCC series",
     "LLC": "Murata MLCC series",
-    "NFM": "Murata EMI filter series",
+    "NFM": "EMI滤波 / Murata EMI filter series",
     "KCM": "Murata MLCC series",
     "KRT": "Murata MLCC series",
     "DK1": "Murata MLCC series",
@@ -2678,6 +2729,30 @@ def murata_series_meaning(series_code):
     return MURATA_SERIES_MEANING.get(code, "Murata 官方系列代码")
 
 
+MURATA_MLCC_SERIES_CLASS = {
+    "GRM": "常规",
+    "GCM": "车规",
+    "GRT": "车规",
+    "GJM": "高Q",
+    "GQM": "高Q",
+    "NFM": "EMI滤波",
+}
+
+
+def murata_series_profile(series_code):
+    code = clean_text(series_code)
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(MURATA_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if class_text == "车规" else ""
+    return {
+        "系列": code,
+        "系列说明": murata_series_meaning(code),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
 def fenghua_am_series_code_from_model(model):
     compact = clean_model(model)
     if compact == "":
@@ -2694,6 +2769,181 @@ def fenghua_am_series_meaning(series_code):
 
 def fenghua_am_dimension_fields_from_model(model):
     return decode_fenghua_am_dimension_fields_from_model(model)
+
+
+TDK_MLCC_SERIES_MEANING = {
+    "C": "常规 / General-purpose MLCC",
+    "CGA": "车规 / AEC-Q200",
+}
+TDK_MLCC_SERIES_CLASS = {
+    "C": "常规",
+    "CGA": "车规",
+}
+
+
+MLCC_SERIES_CLASS_RULES = [
+    ("次车规", [r"WITHOUT\s+AEC[- ]?Q200", r"无\s*AEC[- ]?Q200", r"次车规"]),
+    ("车规", [r"\bAUTOMOTIVE\b", r"\bAEC[- ]?Q200\b", r"汽车级", r"(?<!次)车规"]),
+    ("软端子", [r"SOFT\s*TERMINATION", r"软端子"]),
+    ("高容", [r"HIGH\s+CAPACITANCE", r"高容"]),
+    ("高压", [r"HIGH\s+VOLTAGE", r"高压"]),
+    ("中压", [r"MEDIUM\s+VOLTAGE", r"中压"]),
+    ("抗弯", [r"ANTI[- ]?BEND", r"抗弯"]),
+    ("安规", [r"SAFETY", r"安规", r"\bX1/Y2\b", r"\bX2\b"]),
+    ("高Q", [r"HIGH[- ]?Q", r"高Q"]),
+    ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"滤波"]),
+    ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
+]
+MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "高容", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
+
+
+def mlcc_series_class_tokens(value):
+    text = clean_text(value)
+    if text == "":
+        return []
+    tokens = []
+    for label, patterns in MLCC_SERIES_CLASS_RULES:
+        for pattern in patterns:
+            if re.search(pattern, text, flags=re.I):
+                tokens.append(label)
+                break
+    return list(dict.fromkeys(tokens))
+
+
+def normalize_mlcc_series_class(value):
+    tokens = mlcc_series_class_tokens(value)
+    if not tokens:
+        return ""
+    return "/".join(tokens)
+
+
+def tdk_mlcc_series_profile_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    if compact.startswith("CGA"):
+        series_code_match = re.match(r"^(CGA[0-9A-Z]{3})", compact)
+        series_code = clean_text(series_code_match.group(1)) if series_code_match else "CGA"
+        return {
+            "系列": series_code,
+            "系列说明": TDK_MLCC_SERIES_MEANING["CGA"],
+            "特殊用途": "车规",
+            "_mlcc_series_class": TDK_MLCC_SERIES_CLASS["CGA"],
+        }
+    if re.match(r"^C\d{4}[A-Z0-9].*", compact):
+        return {
+            "系列": compact[:5],
+            "系列说明": TDK_MLCC_SERIES_MEANING["C"],
+            "特殊用途": "",
+            "_mlcc_series_class": TDK_MLCC_SERIES_CLASS["C"],
+        }
+    return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+
+
+def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    brand_upper = clean_text(brand_text).upper()
+    model_key = clean_model(model)
+    series_key = clean_text(series).upper()
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": clean_text(special_use),
+        "_mlcc_series_class": normalize_mlcc_series_class(special_use),
+    }
+
+    if model_key.startswith("AM") or "FENGHUA" in brand_upper or "风华" in brand_text:
+        profile = {
+            "系列": "AM",
+            "系列说明": fenghua_am_series_meaning("AM"),
+            "特殊用途": "车规",
+            "_mlcc_series_class": "车规",
+        }
+    else:
+        pdc_series_code = pdc_general_mlcc_series_code_from_model(model_key)
+        murata_series_code = murata_series_code_from_model(model_key)
+        if pdc_series_code != "":
+            profile = pdc_mlcc_series_profile(pdc_series_code)
+        elif murata_series_code != "":
+            profile = murata_series_profile(murata_series_code)
+        elif model_key.startswith("CGA") or re.match(r"^C\d{4}[A-Z0-9].*", model_key):
+            profile = tdk_mlcc_series_profile_from_model(model_key)
+        elif series_key in PDC_MLCC_SERIES_MEANING:
+            profile = pdc_mlcc_series_profile(series_key)
+        elif series_key in MURATA_SERIES_MEANING:
+            profile = murata_series_profile(series_key)
+        elif series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
+            profile = tdk_mlcc_series_profile_from_model(series_key)
+        else:
+            profile = {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+
+    if result["系列"] == "" and clean_text(profile.get("系列", "")) != "":
+        result["系列"] = clean_text(profile.get("系列", ""))
+    if result["系列说明"] == "" and clean_text(profile.get("系列说明", "")) != "":
+        result["系列说明"] = clean_text(profile.get("系列说明", ""))
+    if result["特殊用途"] == "" and clean_text(profile.get("特殊用途", "")) != "":
+        result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+
+    result["_mlcc_series_class"] = normalize_mlcc_series_class(
+        "/".join(
+            part for part in [
+                clean_text(profile.get("_mlcc_series_class", "")),
+                result["系列说明"],
+                result["特殊用途"],
+            ] if clean_text(part) != ""
+        )
+    )
+    return result
+
+
+def infer_mlcc_series_class_from_spec(spec):
+    if spec is None:
+        return ""
+    profile = resolve_mlcc_series_profile(
+        brand=spec.get("品牌", ""),
+        model=spec.get("型号", ""),
+        series=spec.get("系列", ""),
+        series_desc=spec.get("系列说明", ""),
+        special_use=spec.get("特殊用途", ""),
+    )
+    return clean_text(profile.get("_mlcc_series_class", ""))
+
+
+def mlcc_series_class_requires_filter(value):
+    tokens = set(mlcc_series_class_tokens(value))
+    return bool(tokens & MLCC_STRICT_CLASS_TOKENS)
+
+
+def mlcc_series_class_matches(candidate, target):
+    target_tokens = set(mlcc_series_class_tokens(target))
+    if not target_tokens:
+        return True
+    candidate_tokens = set(mlcc_series_class_tokens(candidate))
+    if not candidate_tokens:
+        return False
+    if "车规" in target_tokens and "车规" not in candidate_tokens:
+        return False
+    if "次车规" in target_tokens and not ({"次车规", "车规"} & candidate_tokens):
+        return False
+    for token in MLCC_STRICT_CLASS_TOKENS - {"车规", "次车规"}:
+        if token in target_tokens and token not in candidate_tokens:
+            return False
+    return True
+
+
+def mlcc_series_class_sort_rank(candidate, target):
+    target_text = normalize_mlcc_series_class(target)
+    target_tokens = set(mlcc_series_class_tokens(target_text))
+    if not target_tokens:
+        return 1
+    candidate_text = normalize_mlcc_series_class(candidate)
+    if candidate_text != "" and candidate_text == target_text:
+        return 0
+    if mlcc_series_class_matches(candidate_text, target_text):
+        return 1
+    if candidate_text == "":
+        return 2
+    return 3
 
 
 NICHICON_SERIES_PREFIX_PATTERN = re.compile(r"^(UV[A-Z0-9])")
@@ -4306,14 +4556,21 @@ def parse_pdc_fp(model):
     tol_map = {"J":"5","K":"10","M":"20"}
     voltage_map = {"100":"10","101":"100","102":"1000","200":"20","201":"200","202":"2000","250":"25","251":"250","252":"2500","300":"30","301":"300","302":"3000","450":"45","451":"450","500":"50","501":"500","630":"63","631":"630"}
     try:
+        series_profile = pdc_mlcc_series_profile("FP")
         return {
             "品牌":"信昌PDC",
             "型号":model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）":size_map.get(model[2:4], ""),
             "材质（介质）":clean_material(material_map.get(model[4], "")),
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(voltage_map.get(model[9:12], "")),
+            "_model_rule_authority": "pdc_fp_series",
         }
     except:
         return None
@@ -4344,14 +4601,21 @@ def parse_pdc_fs(model):
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
     tol_map = {"J":"5","K":"10","M":"20"}
     try:
+        series_profile = pdc_mlcc_series_profile("FS")
         return {
             "品牌":"信昌PDC",
             "型号":model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）":size_map.get(model[2:4], ""),
             "材质（介质）":clean_material(material_map.get(model[4], "")),
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":parse_pdc_fs_voltage(model),
+            "_model_rule_authority": "pdc_fs_series",
         }
     except:
         return None
@@ -4364,14 +4628,21 @@ def parse_pdc_fn(model):
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
     tol_map = {"J":"5","K":"10","M":"20"}
     try:
+        series_profile = pdc_mlcc_series_profile("FN")
         return {
             "品牌":"信昌PDC",
             "型号":model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）":size_map.get(model[2:4], ""),
             "材质（介质）":clean_material(material_map.get(model[4], "")),
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            "_model_rule_authority": "pdc_fn_series",
         }
     except:
         return None
@@ -4384,14 +4655,21 @@ def parse_pdc_fm(model):
     material_map = {"X":"X7R","N":"COG(NPO)","Y":"Y5V"}
     tol_map = {"J":"5","K":"10","M":"20"}
     try:
+        series_profile = pdc_mlcc_series_profile("FM")
         return {
             "品牌":"信昌PDC",
             "型号":model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）":size_map.get(model[2:4], ""),
             "材质（介质）":clean_material(material_map.get(model[4], "")),
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            "_model_rule_authority": "pdc_fm_series",
         }
     except:
         return None
@@ -4404,14 +4682,21 @@ def parse_pdc_fv(model):
     material_map = {"X":"X7R","N":"COG(NPO)"}
     tol_map = {"J":"5","K":"10","M":"20"}
     try:
+        series_profile = pdc_mlcc_series_profile("FV")
         return {
             "品牌":"信昌PDC",
             "型号":model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）":size_map.get(model[2:4], ""),
             "材质（介质）":clean_material(material_map.get(model[4], "")),
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            "_model_rule_authority": "pdc_fv_series",
         }
     except:
         return None
@@ -4426,14 +4711,21 @@ def parse_pdc_fk(model):
     tol_map = {"J": "5", "K": "10"}
     voltage_map = {"502": "250"}
     try:
+        series_profile = pdc_mlcc_series_profile("FK")
         return {
             "品牌": "信昌PDC",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(model[2:4], ""),
             "材质（介质）": clean_material(material_map.get(model[4], "")),
             "容值_pf": eia_code_to_pf(model[5:8]),
             "容值误差": clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）": clean_voltage(voltage_map.get(model[9:12], "")),
+            "_model_rule_authority": "pdc_fk_series",
         }
     except:
         return None
@@ -4448,14 +4740,21 @@ def parse_pdc_fh(model):
     tol_map = {"J": "5", "K": "10"}
     voltage_map = {"302": "250"}
     try:
+        series_profile = pdc_mlcc_series_profile("FH")
         return {
             "品牌": "信昌PDC",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(model[2:4], ""),
             "材质（介质）": clean_material(material_map.get(model[4], "")),
             "容值_pf": eia_code_to_pf(model[5:8]),
             "容值误差": clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）": clean_voltage(voltage_map.get(model[9:12], "")),
+            "_model_rule_authority": "pdc_fh_series",
         }
     except:
         return None
@@ -4493,10 +4792,14 @@ def parse_pdc_mlcc_core(model, family_prefix="MT", allow_partial=False):
             series_code = family_prefix
         if series_meaning == "":
             series_meaning = pdc_mlcc_series_meaning(series_code)
+        series_profile = pdc_mlcc_series_profile(series_code)
         if special_meaning != "":
             series_desc = f"{series_meaning} / {special_meaning}" if series_meaning else special_meaning
         else:
             series_desc = series_meaning
+        special_use = clean_text(series_profile.get("特殊用途", ""))
+        if special_meaning != "":
+            special_use = f"{special_use}/{special_meaning}" if special_use else special_meaning
 
         param_count = sum([
             1 if size else 0,
@@ -4523,7 +4826,17 @@ def parse_pdc_mlcc_core(model, family_prefix="MT", allow_partial=False):
             "容值误差": tol,
             "耐压（V）": clean_voltage(volt),
             "安装方式": "贴片",
-            "特殊用途": special_meaning,
+            "特殊用途": special_use,
+            "_mlcc_series_class": normalize_mlcc_series_class(
+                "/".join(
+                    part for part in [
+                        clean_text(series_profile.get("_mlcc_series_class", "")),
+                        series_desc,
+                        special_use,
+                    ]
+                    if clean_text(part) != ""
+                )
+            ),
             "_pdc_package_code": package_code,
             "_pdc_thickness_code": thickness_code,
             "_pdc_control_code": special_code,
@@ -4595,6 +4908,7 @@ def parse_murata_core(model, allow_partial=False):
         volt_code = model[p+5:p+7]
         cap_code = model[p+7:p+10]
         tol_code = model[p+10]
+        series_profile = murata_series_profile(prefix)
 
         size = clean_size(size_map.get(size_code, ""))
         mat = clean_material(material_map.get(mat_code, ""))
@@ -4615,6 +4929,11 @@ def parse_murata_core(model, allow_partial=False):
         return {
             "品牌": "村田Murata",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size,
             "材质（介质）": mat,
             "容值_pf": pf,
@@ -4669,10 +4988,16 @@ def parse_tdk_c_series(model):
         cap_code = model[10:13]
         tol_code = model[13]
         dimension_fields = decode_tdk_dimension_fields_from_model(model)
+        series_profile = tdk_mlcc_series_profile_from_model(model)
 
         return {
             "品牌": "TDK",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),
@@ -4717,15 +5042,22 @@ def parse_tdk_cga_series(model):
         return None
 
     try:
+        series_profile = tdk_mlcc_series_profile_from_model(model)
         return {
             "品牌": "TDK",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(match.group(1), ""),
             "材质（介质）": clean_material(material_map.get(match.group(4), "")),
             "容值_pf": murata_cap_code_to_pf(match.group(6)),
             "容值误差": clean_tol_for_match(tol_map.get(match.group(7), "")),
             "耐压（V）": clean_voltage(voltage_map.get(match.group(5), "")),
             "_model_rule_authority": "tdk_cga_series",
+            **decode_tdk_dimension_fields_from_model(model),
         }
     except:
         return None
@@ -6648,17 +6980,21 @@ def build_component_display_row(spec, allow_online_lookup=False):
     disc_size = clean_text(spec.get("_disc_size", ""))
     series_code = clean_text(spec.get("系列", ""))
     series_desc = clean_text(spec.get("系列说明", ""))
-    if series_code == "" or series_desc == "":
-        parsed_series_code, parsed_series_desc, _, _, parsed_special_code = pdc_mlcc_series_profile_from_model(spec.get("型号", ""))
-        parsed_special_desc = pdc_mlcc_special_control_meaning(parsed_special_code)
-        if parsed_series_desc != "" and parsed_special_desc != "":
-            parsed_series_desc = f"{parsed_series_desc} / {parsed_special_desc}"
-        elif parsed_series_desc == "" and parsed_special_desc != "":
-            parsed_series_desc = parsed_special_desc
+    special_use = clean_text(spec.get("特殊用途", ""))
+    if resolve_component_display_type(spec) == "MLCC":
+        mlcc_profile = resolve_mlcc_series_profile(
+            brand=spec.get("品牌", ""),
+            model=spec.get("型号", ""),
+            series=series_code,
+            series_desc=series_desc,
+            special_use=special_use,
+        )
         if series_code == "":
-            series_code = parsed_series_code
+            series_code = clean_text(mlcc_profile.get("系列", ""))
         if series_desc == "":
-            series_desc = parsed_series_desc
+            series_desc = clean_text(mlcc_profile.get("系列说明", ""))
+        if special_use == "":
+            special_use = clean_text(mlcc_profile.get("特殊用途", ""))
     return {
         "系列": series_code,
         "系列说明": series_desc,
@@ -6676,7 +7012,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
         "功率": format_power_display(spec.get("_power", "")),
         "安装方式": normalize_mounting_style(spec.get("安装方式", "")),
-        "特殊用途": normalize_special_use(spec.get("特殊用途", "")),
+        "特殊用途": normalize_special_use(special_use),
         "脚距": clean_text(spec.get("_pitch", "")),
         "安规": clean_text(spec.get("_safety_class", "")),
         "规格": disc_size or body_size,
@@ -6715,27 +7051,34 @@ def ensure_component_display_columns(df):
     if "系列说明" not in out.columns:
         out["系列说明"] = blank_series()
     out["系列说明"] = out["系列说明"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+    if "特殊用途" not in out.columns:
+        out["特殊用途"] = blank_series()
     if "型号" in out.columns:
-        model_series_profile = out["型号"].astype(str).apply(pdc_mlcc_series_profile_from_model)
-        if not model_series_profile.empty:
-            parsed_series = model_series_profile.apply(lambda item: item[0] if isinstance(item, tuple) and len(item) >= 1 else "")
-            parsed_series_special = model_series_profile.apply(lambda item: pdc_mlcc_special_control_meaning(item[4]) if isinstance(item, tuple) and len(item) >= 5 else "")
-            parsed_series_desc = model_series_profile.apply(lambda item: item[1] if isinstance(item, tuple) and len(item) >= 2 else "").astype("string").fillna("")
-            parsed_series_special = parsed_series_special.astype("string").fillna("")
-            parsed_series_desc = parsed_series_desc.mask(
-                parsed_series_special.ne("") & parsed_series_desc.eq(""),
-                parsed_series_special,
+        mlcc_type_mask = (
+            out["器件类型"].astype(str).apply(normalize_component_type).eq("MLCC")
+            if "器件类型" in out.columns
+            else pd.Series(True, index=out.index)
+        )
+        if mlcc_type_mask.any():
+            mlcc_profiles = out.loc[mlcc_type_mask].apply(
+                lambda row: resolve_mlcc_series_profile(
+                    brand=row.get("品牌", ""),
+                    model=row.get("型号", ""),
+                    series=row.get("系列", ""),
+                    series_desc=row.get("系列说明", ""),
+                    special_use=row.get("特殊用途", ""),
+                ),
+                axis=1,
             )
-            parsed_series_desc = parsed_series_desc.mask(
-                parsed_series_special.ne("") & parsed_series_desc.ne(""),
-                parsed_series_desc + " / " + parsed_series_special,
-            )
-            blank_series_mask = out["系列"].eq("") & parsed_series.ne("")
-            if blank_series_mask.any():
-                out.loc[blank_series_mask, "系列"] = parsed_series[blank_series_mask]
-            blank_series_desc_mask = out["系列说明"].eq("") & parsed_series_desc.ne("")
-            if blank_series_desc_mask.any():
-                out.loc[blank_series_desc_mask, "系列说明"] = parsed_series_desc[blank_series_desc_mask]
+            mlcc_profile_df = pd.DataFrame(list(mlcc_profiles), index=mlcc_profiles.index)
+            for col in ["系列", "系列说明", "特殊用途"]:
+                blank_mask = out.loc[mlcc_type_mask, col].astype(str).apply(clean_text).eq("")
+                if blank_mask.any():
+                    blank_idx = blank_mask[blank_mask].index
+                    fill_values = mlcc_profile_df.loc[blank_idx, col].astype(str).apply(clean_text)
+                    valid_idx = fill_values[fill_values.ne("")].index
+                    if len(valid_idx) > 0:
+                        out.loc[valid_idx, col] = fill_values.loc[valid_idx]
     if "规格" not in out.columns:
         if "_disc_size" in out.columns:
             disc_size = out["_disc_size"].astype(str).apply(clean_text)
@@ -6757,8 +7100,6 @@ def ensure_component_display_columns(df):
     if "安装方式" not in out.columns:
         out["安装方式"] = blank_series()
     out["安装方式"] = out["安装方式"].astype(str).apply(normalize_mounting_style)
-    if "特殊用途" not in out.columns:
-        out["特殊用途"] = blank_series()
     out["特殊用途"] = out["特殊用途"].astype(str).apply(normalize_special_use)
     if "压敏电压" not in out.columns:
         if "_varistor_voltage" in out.columns:
@@ -10076,6 +10417,51 @@ def prepare_search_dataframe(df):
     if "_model_rule_authority" not in work.columns:
         work["_model_rule_authority"] = ""
     work = fill_missing_series_from_model(work)
+    if "系列说明" not in work.columns:
+        work["系列说明"] = ""
+    if "特殊用途" not in work.columns:
+        work["特殊用途"] = ""
+    if "_mlcc_series_class" not in work.columns:
+        work["_mlcc_series_class"] = ""
+    else:
+        work["_mlcc_series_class"] = work["_mlcc_series_class"].astype(str).apply(normalize_mlcc_series_class)
+    mlcc_mask = work["_component_type"].astype(str).apply(normalize_component_type).eq("MLCC")
+    if mlcc_mask.any():
+        mlcc_rows = work.loc[mlcc_mask, ["品牌", "型号", "系列", "系列说明", "特殊用途"]].copy()
+        mlcc_profiles = mlcc_rows.apply(
+            lambda row: resolve_mlcc_series_profile(
+                brand=row.get("品牌", ""),
+                model=row.get("型号", ""),
+                series=row.get("系列", ""),
+                series_desc=row.get("系列说明", ""),
+                special_use=row.get("特殊用途", ""),
+            ),
+            axis=1,
+        )
+        mlcc_profile_df = pd.DataFrame(list(mlcc_profiles), index=mlcc_profiles.index)
+        for col in ["系列", "系列说明", "特殊用途"]:
+            blank_mask = work.loc[mlcc_mask, col].astype(str).apply(clean_text).eq("")
+            if blank_mask.any():
+                blank_idx = blank_mask[blank_mask].index
+                fill_values = mlcc_profile_df.loc[blank_idx, col].astype(str).apply(clean_text)
+                valid_idx = fill_values[fill_values.ne("")].index
+                if len(valid_idx) > 0:
+                    work.loc[valid_idx, col] = fill_values.loc[valid_idx]
+        work.loc[mlcc_mask, "_mlcc_series_class"] = [
+            normalize_mlcc_series_class(
+                "/".join(
+                    part
+                    for part in [
+                        clean_text(work.at[idx, "_mlcc_series_class"]),
+                        clean_text(work.at[idx, "系列说明"]),
+                        clean_text(work.at[idx, "特殊用途"]),
+                        clean_text(mlcc_profile_df.at[idx, "_mlcc_series_class"]) if idx in mlcc_profile_df.index else "",
+                    ]
+                    if clean_text(part) != ""
+                )
+            )
+            for idx in work.loc[mlcc_mask].index
+        ]
     if "_unit_upper" not in work.columns:
         if "容值单位" in work.columns:
             work["_unit_upper"] = work["容值单位"].apply(lambda value: normalize_search_sidecar_value(value).upper() if normalize_search_sidecar_value(value) is not None else None)
@@ -10301,6 +10687,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "寿命（h）": format_life_hours_display(format_sidecar_numeric_display(detail_row.get("_life_hours_num", ""))),
         "安装方式": normalize_mounting_style(detail_row.get("_mount_style", "")),
         "特殊用途": normalize_special_use(detail_row.get("_special_use_norm", "")),
+        "_mlcc_series_class": clean_text(detail_row.get("_mlcc_series_class", core_row.get("_mlcc_series_class", ""))),
         "脚距": clean_text(detail_row.get("_pitch", "")),
         "安规": clean_text(detail_row.get("_safety_class", "")),
         "压敏电压": voltage_display(clean_voltage(detail_row.get("_varistor_voltage", ""))),
@@ -11154,6 +11541,19 @@ def scope_search_dataframe(df, spec):
         if pf is not None:
             target_pf = float(pf)
             mask &= base["_pf"].notna() & ((base["_pf"] - target_pf).abs() < 1e-6)
+            if not mask.any():
+                return base.iloc[0:0]
+        spec_mlcc_class = infer_mlcc_series_class_from_spec(spec)
+        if mlcc_series_class_requires_filter(spec_mlcc_class):
+            candidate_class = (
+                base["_mlcc_series_class"].astype(str)
+                if "_mlcc_series_class" in base.columns
+                else pd.Series([""] * len(base), index=base.index, dtype="object")
+            )
+            class_mask = candidate_class.apply(lambda value: mlcc_series_class_matches(value, spec_mlcc_class))
+            if not class_mask.any():
+                return base.iloc[0:0]
+            mask &= class_mask
             if not mask.any():
                 return base.iloc[0:0]
     else:
@@ -12997,12 +13397,14 @@ def apply_match_levels_and_sort(df, spec):
         spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
         spec_volt = clean_voltage(spec.get("耐压（V）", ""))
         spec_pf = spec.get("容值_pf", None)
+        spec_mlcc_class = infer_mlcc_series_class_from_spec(spec)
 
         row_size_raw = work["_size"] if "_size" in work.columns else work["尺寸（inch）"].astype(str).apply(clean_size)
         row_mat_raw = work["_mat"] if "_mat" in work.columns else work["材质（介质）"].astype(str).apply(clean_material)
         row_tol_raw = work["_tol"] if "_tol" in work.columns else work["容值误差"].astype(str).apply(clean_tol_for_match)
         row_volt_raw = work["_volt"] if "_volt" in work.columns else work["耐压（V）"].astype(str).apply(clean_voltage)
         row_pf = work["_pf"] if "_pf" in work.columns else pd.to_numeric(work["容值_pf"], errors="coerce")
+        row_mlcc_class = work["_mlcc_series_class"] if "_mlcc_series_class" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
 
         level_series = pd.Series("需确认替代", index=work.index, dtype="object")
         rank_series = pd.Series(4, index=work.index, dtype="int64")
@@ -13062,6 +13464,7 @@ def apply_match_levels_and_sort(df, spec):
 
         work["推荐等级"] = level_series
         work["_level_rank"] = rank_series
+        work["_mlcc_class_rank"] = row_mlcc_class.astype(str).apply(lambda value: mlcc_series_class_sort_rank(value, spec_mlcc_class))
     else:
         levels = work.apply(lambda r: classify_match_level(r, spec), axis=1)
         work["推荐等级"] = [x[0] for x in levels]
@@ -13073,13 +13476,16 @@ def apply_match_levels_and_sort(df, spec):
     work["_brand_rank"] = work["品牌"].apply(brand_priority_value)
     sort_cols = ["_seed_rank", "_level_rank"]
     ascending = [True, True]
+    if "_mlcc_class_rank" in work.columns:
+        sort_cols.append("_mlcc_class_rank")
+        ascending.append(True)
     if "_matched_param_count" in work.columns:
         sort_cols.append("_matched_param_count")
         ascending.append(False)
     sort_cols.extend(["_brand_rank", "品牌", "型号"])
     ascending.extend([True, True, True])
     work = work.sort_values(by=sort_cols, ascending=ascending)
-    return work.drop(columns=["_seed_rank", "_level_rank", "_brand_rank"])
+    return work.drop(columns=["_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
 
 def detect_query_mode_and_spec(df, line):
     other_spec = parse_other_passive_query(line)

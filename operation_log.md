@@ -912,3 +912,40 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 ## 2026-04-03 12:15 规格搜索结果去除底部重复输入框
 - 当用户走“规格参数搜索”或“料号片段反推规格”时，页面上方已经有 `规格条件` 表格，因此匹配结果下方不再重复显示一整块蓝色输入原文框。
 - 已移除该重复展示对应的 `query_inline_html` 输出，避免规格页上下重复表达同一组条件，界面更干净。
+
+## 2026-04-03 13:05 Cloudflare 直代理改为真实应用页
+- 放弃 `GitHub Pages iframe 外壳` 和 `Streamlit 分享层` 方案，改为直接代理真正的 Streamlit 应用路径：`https://fruition-componentmatche.streamlit.app/~/+/`，目标域名维持用户选定的 `fruition-component.pages.dev`。
+- 新建并收敛 `cloudflare-pages-proxy/dist/_worker.js`：现在首页 `/` 会直接映射到上游 `/~/+/`，静态资源、`/_stcore/*` 和其他应用请求统一自动前缀到 `/~/+/`，不再依赖 `share.streamlit.io` 的 `app/context/status` 接口。
+- 关键修复：为上游代理请求补齐 `Origin/Referer`，并对 `/_stcore/stream` 走原样 WebSocket 透传，避免此前本地一直卡在 `401 Unauthorized` 或分享层白屏。
+- 本地 `wrangler pages dev` + Playwright 已验证：
+  - 首页能正常渲染为真实应用版式，而不是分享外壳或 GitHub Pages 头壳
+  - `/_stcore/stream` 已返回 `101 Switching Protocols`
+  - 规格搜索 `1210/X7R/4.7uF/10%/100V` 能正常提交并返回 `MLCC匹配结果`
+- 当前剩余阻塞只剩 Cloudflare 账号登录，待执行一次 `wrangler login` 后即可把这版真正部署到 `fruition-component.pages.dev`。
+
+## 2026-04-03 13:38 Cloudflare Pages 正式上线与手机端复测
+- 已通过 Cloudflare Wrangler 登录并创建 Pages 项目 `fruition-component`，正式固定网址为 `https://fruition-component.pages.dev/`。
+- 线上部署已完成，Cloudflare 首次部署预览地址为 `https://6f9c2f9c.fruition-component.pages.dev`，正式域名 `https://fruition-component.pages.dev/` 已返回 `200`。
+- 使用 Playwright 对正式域名做真实浏览器验证：
+  - 桌面端：首页可正常打开，规格搜索 `1210/X7R/4.7uF/10%/100V` 能正常返回 `MLCC匹配结果`
+  - 手机端：首页排版正常，`搜索` 与 `BOM批量上传匹配` 区块可见
+  - 手机端规格搜索 `0402 1uF 10V` 能正常完成，页面显示耗时约 `1.5s`
+  - 手机端料号搜索 `AM10B103K202NT` 能正常完成，页面显示耗时约 `0.3s`
+- 结论：`fruition-component.pages.dev` 现在已经可以作为对外访客固定入口使用，且不再暴露 GitHub 用户名。
+
+## 2026-04-03 18:34 MLCC 系列品类接入匹配规则
+- 按品牌规格书/官方命名规则，把 MLCC 的“系列品类”正式接入解析与匹配，不再只显示原始系列前缀。
+- 已补的官方品类规则包括：
+  - 村田 Murata：`GRM=常规`、`GCM/GRT=车规`、`GJM/GQM=高Q`
+  - 信昌 PDC：`FN=常规`、`FS=高容`、`FM=中压`、`FV=高压`、`FP=抗弯`、`FK/FH=安规`、`MT=车规`、`MG=次车规`、`MS=车规软端子`
+  - TDK：`Cxxxx=常规`、`CGAxxxx=车规/AEC-Q200`
+- `parse_murata_core()`、`parse_tdk_c_series()`、`parse_tdk_cga_series()`、`parse_pdc_mlcc_core()` 现在都会直接输出 `系列 / 系列说明 / 特殊用途 / _mlcc_series_class`。
+- `prepare_search_dataframe()` 现在会为 MLCC 行补齐官方系列说明与 `_mlcc_series_class`，即使数据库原始行只有基础系列前缀也能回填。
+- `scope_search_dataframe()` 现在会把 `车规/次车规/高容/高压/中压/抗弯/安规/高Q/EMI滤波` 作为 MLCC 严格筛选条件，不再让车规查询混出常规品。
+- `apply_match_levels_and_sort()` 现在加入 `_mlcc_class_rank`，同品类候选会优先排前。
+- 复测 `GCM31MR71E105MA37L` 时，对同规格数据库候选进行官方规则反推后，保留的候选只剩 `GCM` 与 `TDK CGA` 等车规系列，`TDK C3216` 这类常规系列已被排除。
+- 显示侧也已补齐：`ensure_component_display_columns()` / `build_component_display_row()` 现在会把 `GCM -> 车规 / Automotive MLCC`、`CGA -> 车规 / AEC-Q200` 这类系列说明直接展示出来。
+
+## 2026-04-03 18:58 一键同步脚本 UTF-8 输出修复
+- `sync_local_and_public.py` 的 `run_command()` 现在显式使用 `utf-8` + `errors=replace` 读取子进程输出，避免 Windows/GBK 环境下 Git LFS 输出触发 `UnicodeDecodeError`。
+- 目的：让局域网/公网一键同步链在包含大 bundle 与 LFS 上传时更稳定，避免“代码已提交但推送阶段因编码炸掉”的假失败。

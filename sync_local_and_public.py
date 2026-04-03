@@ -50,12 +50,16 @@ def run_command(
     env: dict | None = None,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess:
+    encoding = "utf-8" if text else None
+    errors = "replace" if text else None
     completed = subprocess.run(
         args,
         cwd=ROOT,
         check=False,
         capture_output=capture_output,
         text=text,
+        encoding=encoding,
+        errors=errors,
         env=env,
         input=input_text,
     )
