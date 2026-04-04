@@ -120,6 +120,28 @@ def bundle_target_is_valid(path):
         return False
 
 
+def get_path_signature(path):
+    abs_path = os.path.abspath(path)
+    try:
+        if not os.path.exists(abs_path):
+            return {
+                "path": abs_path,
+                "exists": False,
+            }
+        stat = os.stat(abs_path)
+        return {
+            "path": abs_path,
+            "exists": True,
+            "mtime": round(stat.st_mtime, 6),
+            "size": stat.st_size,
+        }
+    except Exception:
+        return {
+            "path": abs_path,
+            "exists": False,
+        }
+
+
 def ensure_streamlit_cloud_data_bundle(required_paths=None):
     target_paths = [
         os.path.abspath(path)
@@ -174,7 +196,7 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
 
 
 def search_sidecar_assets_available():
-    return bundle_target_is_valid(SEARCH_DB_PATH)
+    return all(bundle_target_is_valid(path) for path in get_search_asset_bundle_paths())
 
 
 def get_search_asset_bundle_paths():
@@ -308,7 +330,9 @@ MODEL_REVERSE_LOOKUP_COLUMNS = [
 MODEL_REVERSE_LOOKUP_CACHE = {}
 MLCC_REFERENCE_LOOKUP_CACHE = {}
 SAMSUNG_MLCC_DIMENSION_LOOKUP = None
+SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE = None
 MLCC_LCSC_DIMENSION_CACHE = None
+MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = None
 MLCC_LCSC_DIMENSION_CACHE_LOCK = threading.Lock()
 PREPARED_SEARCH_REQUIRED_COLUMNS = [
     "_model_clean", "_size", "_mat", "_tol", "_volt", "_pf",
@@ -1490,21 +1514,28 @@ def build_mlcc_size_search_tokens(model="", size_hint=""):
 
 
 def load_mlcc_lcsc_dimension_cache():
-    global MLCC_LCSC_DIMENSION_CACHE
-    if MLCC_LCSC_DIMENSION_CACHE is not None:
+    global MLCC_LCSC_DIMENSION_CACHE, MLCC_LCSC_DIMENSION_CACHE_SIGNATURE
+    signature = get_path_signature(MLCC_LCSC_DIMENSION_CACHE_PATH)
+    if (
+        MLCC_LCSC_DIMENSION_CACHE is not None
+        and MLCC_LCSC_DIMENSION_CACHE_SIGNATURE == signature
+    ):
         return MLCC_LCSC_DIMENSION_CACHE
     cached = load_json_file_if_exists(MLCC_LCSC_DIMENSION_CACHE_PATH, {})
     MLCC_LCSC_DIMENSION_CACHE = cached if isinstance(cached, dict) else {}
+    MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = signature
     return MLCC_LCSC_DIMENSION_CACHE
 
 
 def save_mlcc_lcsc_dimension_cache():
+    global MLCC_LCSC_DIMENSION_CACHE_SIGNATURE
     cache = load_mlcc_lcsc_dimension_cache()
     cache_dir = os.path.dirname(MLCC_LCSC_DIMENSION_CACHE_PATH)
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
     with open(MLCC_LCSC_DIMENSION_CACHE_PATH, "w", encoding="utf-8") as handle:
         json.dump(cache, handle, ensure_ascii=False, indent=2)
+    MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = get_path_signature(MLCC_LCSC_DIMENSION_CACHE_PATH)
 
 
 def http_fetch_url_text(url, timeout=18):
@@ -1836,8 +1867,15 @@ def lookup_mlcc_lcsc_dimension_fields(model, brand="", lcsc_url="", size_hint=""
 
 
 def load_samsung_mlcc_dimension_lookup():
-    global SAMSUNG_MLCC_DIMENSION_LOOKUP
-    if SAMSUNG_MLCC_DIMENSION_LOOKUP is not None:
+    global SAMSUNG_MLCC_DIMENSION_LOOKUP, SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE
+    signature = (
+        get_path_signature(SAMSUNG_MLCC_STATUS_CACHE_PATH),
+        get_path_signature(SAMSUNG_MLCC_PACKAGE_CACHE_PATH),
+    )
+    if (
+        SAMSUNG_MLCC_DIMENSION_LOOKUP is not None
+        and SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE == signature
+    ):
         return SAMSUNG_MLCC_DIMENSION_LOOKUP
 
     lookup = {}
@@ -1869,6 +1907,7 @@ def load_samsung_mlcc_dimension_lookup():
                     lookup[packaged_key] = fields.copy()
 
     SAMSUNG_MLCC_DIMENSION_LOOKUP = lookup
+    SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE = signature
     return SAMSUNG_MLCC_DIMENSION_LOOKUP
 
 
@@ -2645,7 +2684,7 @@ MURATA_SERIES_PREFIX_PATTERN = re.compile(
     r"GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|"
     r"LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|"
     r"ZRA|ZRB|Z62|Z63|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|"
-    r"CLLC|CLLE|CLLG|NCP\d{2}[A-Z]{2}|NCU\d{2}[A-Z]{2}|YNA)"
+    r"CLLC|CLLE|CLLG|NCP\d{2}[A-Z]{2}|NCU\d{2}[A-Z]{2}|NCG\d{2}[A-Z]{2}|FTN\d{2}[A-Z]{2}|YNA)"
 )
 
 MURATA_SERIES_MEANING = {
@@ -2733,7 +2772,163 @@ def murata_series_meaning(series_code):
     code = clean_text(series_code)
     if not code:
         return "Murata 官方系列代码"
+    if code.startswith(("FTN", "NCP", "NCU", "NCG")):
+        return "Murata NTC thermistor series"
     return MURATA_SERIES_MEANING.get(code, "Murata 官方系列代码")
+
+
+MURATA_NTC_MODEL_PATTERN = re.compile(r"^(?P<series>(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2})(?P<res>\d{3})(?P<tol>[BCDFGJKMZ])(?P<tail>.*)$")
+MURATA_NTC_SIZE_MAP = {
+    "02": "0402",
+    "03": "0603",
+    "15": "1005",
+    "18": "1608",
+    "21": "2012",
+    "31": "3216",
+    "32": "3225",
+    "42": "4532",
+    "43": "5750",
+}
+
+
+def murata_ntc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    match = MURATA_NTC_MODEL_PATTERN.match(compact)
+    if not match:
+        return ""
+    return match.group("series")
+
+
+def murata_ntc_series_profile_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return {
+            "系列": "",
+            "系列说明": "",
+            "特殊用途": "",
+            "尺寸（inch）": "",
+            "尺寸（mm）": "",
+            "长度（mm）": "",
+            "宽度（mm）": "",
+            "_ntc_resistance_code": "",
+            "_ntc_tolerance_code": "",
+            "_ntc_tail": "",
+        }
+    match = MURATA_NTC_MODEL_PATTERN.match(compact)
+    if not match:
+        return {
+            "系列": "",
+            "系列说明": "",
+            "特殊用途": "",
+            "尺寸（inch）": "",
+            "尺寸（mm）": "",
+            "长度（mm）": "",
+            "宽度（mm）": "",
+            "_ntc_resistance_code": "",
+            "_ntc_tolerance_code": "",
+            "_ntc_tail": "",
+        }
+
+    size_code = compact[3:5]
+    size_inch = MURATA_NTC_SIZE_MAP.get(size_code, "")
+    mm_dims = MURATA_SIZE_DIMENSION_MAP.get(size_code, ("", ""))
+    length_mm, width_mm = mm_dims if len(mm_dims) == 2 else ("", "")
+    size_mm = f"{length_mm}×{width_mm}" if length_mm and width_mm else ""
+    return {
+        "系列": match.group("series"),
+        "系列说明": "Murata NTC thermistor series",
+        "特殊用途": "",
+        "尺寸（inch）": size_inch,
+        "尺寸（mm）": size_mm,
+        "长度（mm）": length_mm,
+        "宽度（mm）": width_mm,
+        "_ntc_resistance_code": match.group("res"),
+        "_ntc_tolerance_code": match.group("tol"),
+        "_ntc_tail": match.group("tail"),
+    }
+
+
+def parse_murata_ntc_core(model, allow_partial=False):
+    compact = clean_model(model)
+    profile = murata_ntc_series_profile_from_model(compact)
+    if clean_text(profile.get("系列", "")) == "":
+        return None
+
+    match = MURATA_NTC_MODEL_PATTERN.match(compact)
+    if match is None:
+        return None
+
+    size_code = compact[3:5]
+    size_inch = clean_text(profile.get("尺寸（inch）", ""))
+    size_mm = clean_text(profile.get("尺寸（mm）", ""))
+    length_mm = clean_text(profile.get("长度（mm）", ""))
+    width_mm = clean_text(profile.get("宽度（mm）", ""))
+    resistance_ohm = extract_resistor_value_from_model(compact, size_hint=size_inch)
+    if resistance_ohm is None:
+        resistance_ohm = parse_resistor_value_code(match.group("res"))
+    tol_code = clean_text(match.group("tol"))
+    tol_value = {
+        "B": "0.1",
+        "C": "0.25",
+        "D": "0.5",
+        "E": "3",
+        "F": "1",
+        "G": "2",
+        "J": "5",
+        "K": "10",
+        "M": "20",
+        "Z": "+80/-20",
+    }.get(tol_code, "")
+    tol = clean_tol_for_match(f"±{tol_value}%") if tol_value and tol_value not in {"+80/-20"} else clean_text(tol_value)
+    resistance_value, resistance_unit = ohm_to_library_value_unit(resistance_ohm) if resistance_ohm is not None else ("", "")
+    summary = build_other_component_summary([
+        f"{resistance_value}{resistance_unit}" if resistance_value and resistance_unit else "",
+        clean_tol_for_display(tol) if clean_text(tol) != "" else "",
+        size_inch,
+        size_mm,
+    ])
+    param_count = sum([
+        1 if size_inch else 0,
+        1 if resistance_ohm is not None else 0,
+        1 if clean_text(tol) != "" else 0,
+    ])
+    if allow_partial and param_count < 3:
+        return None
+    return {
+        "品牌": "村田Murata",
+        "型号": compact,
+        "器件类型": "热敏电阻",
+        "系列": profile["系列"],
+        "系列说明": profile["系列说明"],
+        "安装方式": "贴片",
+        "封装代码": size_inch,
+        "尺寸（inch）": size_inch,
+        "尺寸（mm）": size_mm,
+        "长度（mm）": length_mm,
+        "宽度（mm）": width_mm,
+        "规格摘要": summary,
+        "容值": resistance_value,
+        "容值单位": resistance_unit,
+        "容值误差": tol,
+        "特殊用途": profile["特殊用途"],
+        "_ntc_resistance_code": match.group("res"),
+        "_ntc_tolerance_code": tol_code,
+        "_ntc_tail": match.group("tail"),
+        "_model_rule_authority": "murata_ntc_series",
+        "_param_count": param_count,
+        "_partial_part": True,
+    }
+
+
+def parse_murata_ntc_common(model):
+    parsed = parse_murata_ntc_core(model, allow_partial=False)
+    if parsed is None:
+        return None
+    parsed.pop("_param_count", None)
+    parsed.pop("_partial_part", None)
+    return parsed
 
 
 MURATA_MLCC_SERIES_CLASS = {
@@ -4427,8 +4622,73 @@ def build_pdc_mt_rule_breakdown(model, parsed=None):
     return pd.DataFrame(rows)
 
 
+def build_murata_ntc_rule_breakdown(model, parsed=None):
+    model_clean = clean_model(model)
+    series_code = murata_ntc_series_code_from_model(model_clean)
+    if not series_code:
+        return pd.DataFrame([
+            {"段位": "型号", "原始片段": model_clean, "含义": "Murata NTC 官方系列代码未能从型号前缀识别", "结果": ""}
+        ])
+
+    match = MURATA_NTC_MODEL_PATTERN.fullmatch(model_clean)
+    rows = [{
+        "段位": "系列前缀",
+        "原始片段": series_code,
+        "含义": murata_series_meaning(series_code),
+        "结果": series_code,
+    }]
+    if match is not None:
+        size_code = match.group("series")[3:5]
+        resistance_code = match.group("res")
+        tol_code = match.group("tol")
+        tail = match.group("tail")
+        resistance_value = clean_text(parsed.get("容值", "")) if parsed is not None else ""
+        resistance_unit = clean_text(parsed.get("容值单位", "")) if parsed is not None else ""
+        if (resistance_value == "" or resistance_unit == "") and parsed is not None:
+            extracted_ohm = extract_resistor_value_from_model(model_clean, size_hint=clean_size(parsed.get("尺寸（inch）", "")))
+            if extracted_ohm is not None:
+                resistance_value, resistance_unit = ohm_to_library_value_unit(extracted_ohm)
+        rows.extend([
+            {
+                "段位": "尺寸码",
+                "原始片段": size_code,
+                "含义": MURATA_NTC_SIZE_MAP.get(size_code, "未知尺寸"),
+                "结果": clean_size(parsed.get("尺寸（inch）", "")) if parsed is not None else "",
+            },
+            {
+                "段位": "电阻码",
+                "原始片段": resistance_code,
+                "含义": "R25 额定阻值编码",
+                "结果": f"{resistance_value}{resistance_unit}" if resistance_value and resistance_unit else "",
+            },
+            {
+                "段位": "容差码",
+                "原始片段": tol_code,
+                "含义": clean_tol_for_match(parsed.get("容值误差", "")) if parsed is not None else clean_tol_for_match(tol_code),
+                "结果": clean_tol_for_match(parsed.get("容值误差", "")) if parsed is not None else clean_tol_for_match(tol_code),
+            },
+        ])
+        if clean_text(tail) != "":
+            rows.append({
+                "段位": "后缀",
+                "原始片段": tail,
+                "含义": "包装 / 版本 / 额外控制码",
+                "结果": clean_text(tail),
+            })
+    else:
+        rows.append({
+            "段位": "后续编码",
+            "原始片段": model_clean[len(series_code):],
+            "含义": "Murata NTC 系列内部的阻值 / 容差 / 版本编码",
+            "结果": "",
+        })
+    return pd.DataFrame(rows)
+
+
 def build_murata_rule_breakdown(model, parsed=None):
     model_clean = clean_model(model)
+    if murata_ntc_series_code_from_model(model_clean):
+        return build_murata_ntc_rule_breakdown(model_clean, parsed=parsed)
     series_code = murata_series_code_from_model(model_clean)
     if not series_code:
         return pd.DataFrame([
@@ -4531,6 +4791,8 @@ def build_model_naming_interpretation(model, brand="", component_type=""):
     pdc_series_code, pdc_series_desc, _, _, _ = pdc_mlcc_series_profile_from_model(model_text)
     if pdc_series_code != "":
         family = f"pdc_{pdc_series_code.lower()}_series"
+    elif murata_ntc_series_code_from_model(model_text):
+        family = "murata_ntc_series"
     elif murata_series_code_from_model(model_text):
         family = "murata_core_series"
     elif resolved_type in RESISTOR_COMPONENT_TYPES or resolved_type == "热敏电阻":
@@ -4552,6 +4814,8 @@ def build_model_naming_interpretation(model, brand="", component_type=""):
             summary = f"按信昌 PDC {series_label} 系列原厂料号结构拆分。"
         else:
             summary = "按信昌 PDC 系列原厂料号结构拆分。"
+    elif family == "murata_ntc_series":
+        summary = "按村田 Murata NTC 官方热敏电阻系列规则拆分。"
     elif family == "murata_core_series":
         summary = "按村田 Murata 官方系列代码拆分。"
     elif family == "fenghua_am_series":
@@ -4564,6 +4828,8 @@ def build_model_naming_interpretation(model, brand="", component_type=""):
         summary = f"已按 {resolved_type or '已知'} 命名规则解析。"
     if family.startswith("pdc_"):
         breakdown = build_pdc_mt_rule_breakdown(model_text, parsed=parsed)
+    elif family == "murata_ntc_series":
+        breakdown = build_murata_ntc_rule_breakdown(model_text, parsed=parsed)
     elif family == "murata_core_series":
         breakdown = build_murata_rule_breakdown(model_text, parsed=parsed)
     elif family == "fenghua_am_series":
@@ -6361,6 +6627,8 @@ def looks_like_thermistor_context(text):
     if "MURATA" in upper and re.search(r"\bPRG\d", upper):
         return True
     if "MURATA" in upper and re.search(r"PRG\d", compact):
+        return True
+    if re.search(r"(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2}\d{3}[BCDFGJKMZ]", compact):
         return True
     return False
 
@@ -8734,6 +9002,10 @@ def reverse_spec_partial(model):
         return parse_pdc_fh_partial(m)
     if m.startswith("MT"):
         return parse_pdc_mt_partial(m)
+    if murata_ntc_series_code_from_model(m):
+        parsed = parse_murata_ntc_core(m, allow_partial=True)
+        if parsed is not None:
+            return parsed
     if m.startswith(("GRM", "GCM", "GCJ", "GJM", "GQM")):
         return parse_murata_partial(m)
     if m.startswith("CC"):
@@ -8815,8 +9087,16 @@ def parse_model_rule(model, brand="", component_type=""):
         if m.startswith("CL"):
             return parse_samsung_cl(m)
     if "MURATA" in brand_upper or "村田" in brand_text:
+        if murata_ntc_series_code_from_model(m):
+            parsed = parse_murata_ntc_common(m)
+            if parsed is not None:
+                return parsed
         if m.startswith(("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ")):
             return parse_murata_common(m)
+    if murata_ntc_series_code_from_model(m):
+        parsed = parse_murata_ntc_common(m)
+        if parsed is not None:
+            return parsed
     if "TDK" in brand_upper or "东电化" in brand_text:
         if m.startswith("CGA"):
             parsed = parse_tdk_cga_series(m)
@@ -9438,11 +9718,15 @@ def get_search_index_signature():
     if db_signature.get("db_missing"):
         return {
             "db_missing": True,
+            "db_path": DB_PATH,
+            "db_mtime": 0.0,
+            "db_size": 0,
             "cache_version": PREPARED_CACHE_VERSION,
             "search_index_schema_version": SEARCH_INDEX_SCHEMA_VERSION,
         }
     return {
         "db_path": db_signature.get("db_path", DB_PATH),
+        "db_mtime": db_signature.get("db_mtime", 0),
         "db_size": db_signature.get("db_size", 0),
         "cache_version": PREPARED_CACHE_VERSION,
         "search_index_schema_version": SEARCH_INDEX_SCHEMA_VERSION,
@@ -10047,7 +10331,7 @@ def _load_data_cached(cache_signature):
 
 def load_data(cache_signature=None):
     if cache_signature is None:
-        cache_signature = get_query_cache_signature()
+        cache_signature = get_raw_data_cache_signature()
     return _load_data_cached(cache_signature)
 
 
@@ -10260,7 +10544,7 @@ def _load_prepared_data_cached(cache_signature):
             return cached
     except Exception:
         pass
-    prepared = prepare_search_dataframe(load_data(cache_signature))
+    prepared = prepare_search_dataframe(load_data())
     try:
         write_prepared_cache(prepared)
     except Exception:
@@ -10270,13 +10554,20 @@ def _load_prepared_data_cached(cache_signature):
 
 def load_prepared_data(cache_signature=None):
     if cache_signature is None:
-        cache_signature = get_query_cache_signature()
+        cache_signature = get_data_cache_signature()
     return _load_prepared_data_cached(cache_signature)
 
 
 def clear_data_load_caches():
+    global SAMSUNG_MLCC_DIMENSION_LOOKUP, SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE
+    global MLCC_LCSC_DIMENSION_CACHE, MLCC_LCSC_DIMENSION_CACHE_SIGNATURE
     MODEL_REVERSE_LOOKUP_CACHE.clear()
     MLCC_REFERENCE_LOOKUP_CACHE.clear()
+    clear_session_query_caches()
+    SAMSUNG_MLCC_DIMENSION_LOOKUP = None
+    SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE = None
+    MLCC_LCSC_DIMENSION_CACHE = None
+    MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = None
     for cached_func in (_load_data_cached, _load_prepared_data_cached):
         try:
             cached_func.clear()
@@ -10377,17 +10668,47 @@ def run_query_match(df, mode, spec):
     return pd.DataFrame()
 
 
+def add_path_signature_fields(signature, label, path):
+    path_signature = get_path_signature(path)
+    signature[f"{label}_path"] = path_signature.get("path", os.path.abspath(path))
+    signature[f"{label}_exists"] = bool(path_signature.get("exists", False))
+    if path_signature.get("exists", False):
+        signature[f"{label}_mtime"] = path_signature.get("mtime", 0)
+        signature[f"{label}_size"] = path_signature.get("size", 0)
+    return signature
+
+
+def build_data_cache_signature():
+    signature = dict(get_database_signature())
+    add_path_signature_fields(signature, "prepared_cache", PREPARED_CACHE_PATH)
+    add_path_signature_fields(signature, "prepared_meta", PREPARED_CACHE_META_PATH)
+    return signature
+
+
+def get_data_cache_signature():
+    try:
+        return json.dumps(build_data_cache_signature(), sort_keys=True, ensure_ascii=True)
+    except Exception:
+        return "db-unknown"
+
+
+def get_raw_data_cache_signature():
+    try:
+        return json.dumps(get_database_signature(), sort_keys=True, ensure_ascii=True)
+    except Exception:
+        return "db-unknown"
+
+
 def get_query_cache_signature():
     try:
-        signature = dict(get_database_signature())
+        signature = build_data_cache_signature()
         for path_key, path_value in (
-            ("prepared_cache_mtime", PREPARED_CACHE_PATH),
-            ("prepared_meta_mtime", PREPARED_CACHE_META_PATH),
+            ("search_db", SEARCH_DB_PATH),
+            ("mlcc_lcsc_dimension_cache", MLCC_LCSC_DIMENSION_CACHE_PATH),
+            ("pdc_findchips_cache", os.path.join(BASE_DIR, "cache", "pdc_findchips_cache.json")),
         ):
-            if os.path.exists(path_value):
-                stat = os.stat(path_value)
-                signature[path_key] = round(stat.st_mtime, 6)
-                signature[f"{path_key}_size"] = stat.st_size
+            add_path_signature_fields(signature, path_key, path_value)
+        signature["search_index_schema_version"] = SEARCH_INDEX_SCHEMA_VERSION
         return json.dumps(signature, sort_keys=True, ensure_ascii=True)
     except Exception:
         return "db-unknown"
@@ -10413,6 +10734,21 @@ def get_session_query_dataframe_cache():
         return cache
     except Exception:
         return {}
+
+
+def clear_session_query_caches():
+    try:
+        for key in ("_query_result_cache", "_query_dataframe_cache"):
+            cache = st.session_state.get(key)
+            if isinstance(cache, dict):
+                cache.clear()
+            elif key in st.session_state:
+                try:
+                    del st.session_state[key]
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 def store_session_query_dataframe_cache(cache_key, frame, limit=96):
@@ -12159,7 +12495,7 @@ def get_model_reverse_lookup(df, cache_signature=None):
     if df is None or df.empty:
         return pd.DataFrame(columns=MODEL_REVERSE_LOOKUP_COLUMNS).set_index("_model_clean", drop=False)
     if cache_signature is None:
-        cache_signature = get_query_cache_signature()
+        cache_signature = get_data_cache_signature()
     cached = MODEL_REVERSE_LOOKUP_CACHE.get(cache_signature)
     if cached is not None:
         return cached
@@ -15331,7 +15667,7 @@ def official_verify_dataframe(lines, brand_mode="自动判断"):
 
 
 def load_search_dataframe_for_action(action_label):
-    cache_signature = get_query_cache_signature()
+    cache_signature = get_data_cache_signature()
     with st.spinner(f"正在加载元件库，准备{action_label}..."):
         return load_prepared_data(cache_signature)
 

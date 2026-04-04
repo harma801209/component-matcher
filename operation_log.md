@@ -999,3 +999,21 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 ## 2026-04-04 15:16 江海官方压缩包搜索侧车补齐
 - 按这次新抽取的江海官方压缩包与现有 `components_search.sqlite` 做差集，补写了 3,321 行缺失的江海铝电记录。
 - `components_search_core` 与 `components_search_capacitor` 已同步更新，搜索索引元数据也已重写，后续只需重新打包 bundle 并推送即可让公网侧拿到最新数据。
+
+## 2026-04-04 19:02 公网验收与扩库复核
+- 已用 Playwright 打开 `https://fruition-component.pages.dev/`，确认外壳页标题正常，真实应用 frame 已加载，并能展示查询输入框与搜索按钮。
+- 已用已知存在的型号 `ECS2ABZ122M250030` 做端到端搜索验证，页面返回 1 条匹配结果，耗时约 `1.7s`。
+- 复核了 `1 Snapin 2024-2025` 目录下的 `CD293/CD294/CD295/CD295S/CD296/CD296L/CD296Q/CD297/CD297S/CD299/CD29C/CD29CS/CD29CT/CD29F/CD29G/CD29H/CD29HE/CD29L/CD29NF/CD29UH` 等官方 PDF，解析出的型号与当前 CSV 对照后未发现缺失项。
+
+## 2026-04-04 19:32 根因修复：缓存签名与侧车缓存同步
+- 将查询缓存、数据缓存和原始库缓存拆开：`components.db`、`components_prepared_v5.parquet`、`components_search.sqlite` 现在各自走独立签名，避免“只换了派生层但底层没刷新”时继续命中旧结果。
+- `components_search.sqlite` 的索引签名已补入 `mtime`，同时把 `mlcc_lcsc_dimension_cache.json` 和 `pdc_findchips_cache.json` 纳入查询签名，避免侧车文件更新后仍沿用旧查询命中。
+- `search_sidecar_assets_available()` 现在会检查整套搜索资产，而不是只看主 SQLite 是否存在，避免文件缺失时误判为可用。
+- `load_mlcc_lcsc_dimension_cache()` 与 `load_samsung_mlcc_dimension_lookup()` 现在会按文件签名自动失效重载，`clear_data_load_caches()` 也会一并清空会话查询缓存和 MLCC 内存缓存，减少重复修表象。
+- 已验证 `component_matcher.py` 可正常编译并导入，且测试结果表明原始库/准备层/查询层的签名已经拆开，查询层会识别搜索索引与侧车缓存的变化。
+
+## 2026-04-04 23:40 Murata NTC 扩库与导入器修复
+- 补齐 Murata NTC 识别链路：`looks_like_thermistor_context()`、`parse_model_rule()`、`reverse_spec_partial()`、`build_model_naming_interpretation()` 和 Murata 规则拆解都已接入 `FTN/NCP/NCU/NCG` 型号前缀。
+- 修正导入器里缺失的 NTC 容差映射，避免 `热敏电阻_NTC.xlsx` 在归一化时直接被吞成空表。
+- 已重新解析 `Resistor/热敏电阻_NTC.xlsx`，写入 363 条 Murata 官方 NTC 记录，并把它们合入主库与搜索缓存。
+- 已重建 `streamlit_cloud_bundle.zip`，bundle 当前包含最新的 `components.db`、`components_search.sqlite` 和 `components_prepared_v5.parquet`。
