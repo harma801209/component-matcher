@@ -3077,13 +3077,13 @@ def jianghai_series_code_from_model(model):
     return ""
 
 
-def jianghai_series_meaning(series_code):
+def jianghai_series_meaning(series_code, model=""):
     code = clean_text(series_code).upper()
     if not code:
         return "Jianghai 官方系列代码"
     if code in JIANGHAI_SERIES_MEANING:
         return JIANGHAI_SERIES_MEANING.get(code, "Jianghai 官方系列代码")
-    profile = jianghai_series_profile(code)
+    profile = jianghai_series_profile(code, model)
     family = clean_text(profile.get("family", ""))
     if family != "":
         return f"江海 {family} {code} 系列"
@@ -3219,6 +3219,35 @@ JIANGHAI_PCV_VOLTAGE_MAP = {
     "JVM": "6.3",
 }
 
+JIANGHAI_ECR1_RADIAL_SERIES_PROFILES = {
+    "ALL": {"family": "CD281 / CD281L", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "AXX": {"family": "CD282", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "JYL": {"family": "CD282L", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "AEQ": {"family": "CD282X", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "JXY": {"family": "CD284", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "KLY": {"family": "CD284L", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "-40~105℃", "寿命（h）": "", "特殊用途": "低ESR/长寿命"},
+    "EQL": {"family": "CD28L", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+}
+
+JIANGHAI_ECR2_RADIAL_SERIES_PROFILES = {
+    "XDE": {"family": "CD261L", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "GKH": {"family": "CD264", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "CFK": {"family": "CD266", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "WZR": {"family": "CD26HL", "安装方式": "插件", "封装代码": "RADIAL", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+}
+
+JIANGHAI_ECS_SNAPIN_SERIES_PROFILES = {
+    "CBW": {"family": "CD294", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "FBC": {"family": "CD295", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "WKC": {"family": "CD296", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "WQK": {"family": "CD296Q", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "EBB": {"family": "CD297", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "GPG": {"family": "CD299", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "GQT": {"family": "CD29CT", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "GQR": {"family": "CD29HE", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+    "EQL": {"family": "CD29L", "安装方式": "插件", "封装代码": "SNAP-IN", "工作温度": "", "寿命（h）": "", "特殊用途": "工业"},
+}
+
 JIANGHAI_PHR_SIZE_CODE_MAP = {
     "BAB": "8*11.5mm",
     "C10": "10*10mm",
@@ -3276,6 +3305,18 @@ def jianghai_series_profile(series_code, model=""):
     if model_clean.startswith("PCV") and code in JIANGHAI_PCV_VOLTAGE_MAP:
         profile = dict(JIANGHAI_GENERIC_SERIES_PROFILES.get(code, {}))
         profile["voltage"] = JIANGHAI_PCV_VOLTAGE_MAP.get(code, "")
+        return profile
+    if model_clean.startswith("ECR1") and code in JIANGHAI_ECR1_RADIAL_SERIES_PROFILES:
+        profile = dict(JIANGHAI_ECR1_RADIAL_SERIES_PROFILES.get(code, {}))
+        profile["voltage"] = jianghai_voltage_from_cd263_model(model_clean)
+        return profile
+    if model_clean.startswith("ECR2") and code in JIANGHAI_ECR2_RADIAL_SERIES_PROFILES:
+        profile = dict(JIANGHAI_ECR2_RADIAL_SERIES_PROFILES.get(code, {}))
+        profile["voltage"] = jianghai_voltage_from_cd263_model(model_clean)
+        return profile
+    if model_clean.startswith(("ECS1", "ECS2")) and code in JIANGHAI_ECS_SNAPIN_SERIES_PROFILES:
+        profile = dict(JIANGHAI_ECS_SNAPIN_SERIES_PROFILES.get(code, {}))
+        profile["voltage"] = jianghai_voltage_from_snapin_model(model_clean)
         return profile
     if model_clean.startswith(("ECR1", "ECR2")) and code in JIANGHAI_LY_VOLTAGE_MAP:
         profile = dict(JIANGHAI_GENERIC_SERIES_PROFILES.get(code, {}))
@@ -3363,6 +3404,11 @@ def jianghai_size_from_six_digit_code(code):
         "013": "13.5",
         "014": "14.5",
         "015": "15.5",
+        "115": "11.5",
+        "125": "12.5",
+        "135": "13.5",
+        "145": "14.5",
+        "155": "15.5",
         "016": "16",
         "020": "20",
         "025": "25",
@@ -3435,6 +3481,11 @@ def jianghai_size_from_model_rule(model, series_code=""):
             height = jianghai_dimension_from_integer_token(match.group(3))
             if diameter != "" and height != "":
                 return jianghai_size_text(diameter, height)
+        match = re.search(r"M(\d{3})(\d{3})V?$", compact)
+        if match:
+            size_text = jianghai_size_from_six_digit_code("".join(match.groups()))
+            if size_text != "":
+                return size_text
     if compact.startswith(("ECA1", "ECC1")):
         tail_match = re.search(r"(\d{3})(\d{3})$", compact)
         if tail_match:
@@ -3522,7 +3573,7 @@ def parse_jianghai_europe_smd_model(model):
         "品牌": "江海Jianghai",
         "型号": compact,
         "系列": series_code,
-        "系列说明": jianghai_series_meaning(series_code),
+        "系列说明": jianghai_series_meaning(series_code, compact),
         "器件类型": "铝电解电容",
         "容值": clean_text(capacitance_uf),
         "容值单位": "UF",
@@ -3618,6 +3669,7 @@ def parse_jianghai_aluminum_model(model):
         "品牌": "江海Jianghai",
         "型号": compact,
         "系列": series_code,
+        "系列说明": jianghai_series_meaning(series_code, compact),
         "器件类型": "铝电解电容",
         "容值_pf": cap_pf,
         "容值误差": "20",
@@ -3837,6 +3889,14 @@ def fill_missing_series_from_model(df):
     jianghai_mask = jianghai_brand_mask & jianghai_series.ne("")
     if jianghai_mask.any():
         work.loc[jianghai_mask, "系列"] = jianghai_series[jianghai_mask]
+        jianghai_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
+        jianghai_desc_mask = jianghai_mask & jianghai_desc_blank
+        if jianghai_desc_mask.any():
+            jianghai_desc = jianghai_series[jianghai_desc_mask].combine(
+                model_clean[jianghai_desc_mask],
+                lambda series, model: jianghai_series_meaning(series, model),
+            )
+            work.loc[jianghai_desc_mask, "系列说明"] = jianghai_desc
         missing_mask.loc[jianghai_mask] = False
 
     fenghua_mask = fenghua_model_mask | (fenghua_brand_mask & fenghua_model_mask)
@@ -5478,13 +5538,17 @@ def looks_like_compact_part_query(line):
         "CL", "AM", "FP", "FS", "FN", "FM", "FV", "FK", "FH",
         "GRM", "GCM", "GCJ", "GJM", "GQM",
         "TCC", "TMK", "JMK", "EMK", "LMK", "AMK", "CC",
-        "ECG2", "ECR", "ECS1", "ECS2", "ECA1", "ECC1", "PHR1", "PHV1", "PCP",
+        "ECG2", "ECR", "ECS1", "ECS2", "ECA1", "ECC1", "ECV", "PHR1", "PHV1", "PCP",
     )
     if raw.startswith(known_prefixes):
         return True
     if raw.startswith("C") and len(raw) >= 14:
         return True
     if len(raw) >= 11 and raw[:4].isdigit():
+        return True
+    alpha_count = len(re.findall(r"[A-Z]", raw))
+    digit_count = len(re.findall(r"\d", raw))
+    if len(raw) >= 12 and alpha_count >= 3 and digit_count >= 3:
         return True
     return False
 
@@ -15388,6 +15452,22 @@ def resolve_search_query_dataframe_and_spec(
                     "used_full_df": False,
                     "candidate_rows": candidate_rows,
                 }
+        if mode == "无法识别" and spec is None:
+            emit(
+                2,
+                "未命中数据库原始料号",
+                "命名规则未覆盖且数据库没有完全相同料号，已跳过整库回退",
+                "快速失败",
+                "warn",
+            )
+            return {
+                "query_df": pd.DataFrame(),
+                "mode": mode,
+                "spec": spec,
+                "resolution_path": "unknown_compact_part",
+                "used_full_df": False,
+                "candidate_rows": 0,
+            }
 
     if query_df is not None:
         emit(

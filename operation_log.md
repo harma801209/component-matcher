@@ -989,3 +989,13 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - `ECV1VVZ2330M0605V1 -> 江海Jianghai / VZ2 / 33uF / ±20% / 35V / 6.3*5.4mm / 贴片 / -55~105℃ / 2000h`
 - 同时修正了 `build_rule_fallback_row_from_model()`，不再把所有 fallback 料号硬当成 `MLCC`；铝电这类规则反推行现在会补齐展示链需要的基础列。
 - 已补上 cloud bundle 的坏文件检查：`ensure_streamlit_cloud_data_bundle()` 与 `search_sidecar_assets_available()` 现在会把“文件存在但为 0 字节”视为无效并触发重提取，避免再次出现“数据库为空，搜索已提前停止”的假空库状态。
+
+## 2026-04-03 23:26 公网标签页 favicon 放大优化
+- 发现 `fruition-component.pages.dev` 虽然已经恢复了标签页 logo，但此前使用的是横向大字标缩进 64x64 方形图标，浏览器标签里留白过多，视觉上会显得过小。
+- 已将 `cloudflare-pages-proxy/dist/_worker.js` 中内嵌的 `FAVICON_DATA_URL` 替换为更紧凑的方形裁切版本，并同步更新 `cloudflare-pages-proxy/dist/favicon.png`，让标签页里的品牌图标占比更接近常规站点 favicon。
+- 首页 favicon 链接已改为直接请求 `/favicon.png?v=20260403b`，并在 Worker 中显式接管 `/favicon.png` / `/favicon.ico` 返回 PNG 响应，避免先前走静态路径时被代理逻辑重定向，导致浏览器继续拿到旧图标或空图标。
+- 本次调整不影响页面正文布局，只优化浏览器标签与收藏夹中的显示效果。
+
+## 2026-04-04 15:16 江海官方压缩包搜索侧车补齐
+- 按这次新抽取的江海官方压缩包与现有 `components_search.sqlite` 做差集，补写了 3,321 行缺失的江海铝电记录。
+- `components_search_core` 与 `components_search_capacitor` 已同步更新，搜索索引元数据也已重写，后续只需重新打包 bundle 并推送即可让公网侧拿到最新数据。

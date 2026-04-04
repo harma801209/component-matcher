@@ -2,7 +2,7 @@ param(
     [string]$CommitMessage = "",
     [switch]$SkipBundleRebuild,
     [switch]$SkipPush,
-    [string]$PublicUrl = "https://fruition-componentmatche.streamlit.app"
+    [string]$PublicUrl = "https://fruition-component.pages.dev/"
 )
 
 $ErrorActionPreference = "Stop"

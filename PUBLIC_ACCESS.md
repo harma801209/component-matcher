@@ -1,191 +1,89 @@
-# External Access Guide
+# 公网访问说明
 
-There are two ways to expose this Streamlit app without renting a cloud server:
+## 正式使用方式
 
-1. Quick tunnel for temporary sharing
-2. Named tunnel for a fixed domain
+现在系统已经统一按**公网正式版**维护，正式对外入口是：
 
-Both options still require one local computer to stay on and connected to the internet.
+- [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)
 
-## 1. Quick tunnel
+这条网址具备这些特征：
 
-This is the fastest way to get a public URL, but the URL changes every time you restart it.
+- 免费固定地址
+- 不暴露个人 GitHub 用户名
+- 用户不需要连你家/公司的局域网
+- 你本地电脑关机后仍然可以访问
 
-The `start_public.ps1` script now does two convenience things:
+## 现在的公网架构
 
-- Reuses the existing local Streamlit app if `8501` is already running
-- Downloads the Windows `cloudflared` binary from the official Cloudflare release if it is not already installed
+当前链路是：
 
-Install `cloudflared` on Windows:
+1. `Cloudflare Pages` 作为固定入口
+2. `Cloudflare Pages Worker` 负责代理和清理前端旧缓存
+3. `Streamlit Community Cloud` 运行应用主体
 
-```powershell
-winget install --id Cloudflare.cloudflared
-```
+所以现在的“正式站点”已经不是本地电脑上的临时服务。
 
-Start the app with:
+## 本地电脑什么时候还需要参与
 
-```powershell
-.\start_public.ps1
-```
+只有在下面这些场景，本地电脑才需要开着：
 
-Or double-click `start_public.bat`.
+- 我们修改命名规则
+- 我们扩数据库
+- 我们调整页面显示
+- 我们重新发布更新
 
-Official docs:
+也就是说，本地电脑现在承担的是：
 
-- [Downloads](https://developers.cloudflare.com/tunnel/downloads/)
-- [Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+- 开发
+- 调试
+- 发布
 
-## 2. Fixed domain
+而不是“网站在线运行”。
 
-This is the recommended mode if you want a stable URL such as `bom.example.com`.
+## 现在最重要的两个脚本
 
-Cloudflare's official flow is:
-
-1. Create a named tunnel in Cloudflare Zero Trust.
-2. Add a public hostname route for the tunnel, such as `bom.example.com`.
-3. Install `cloudflared` on the local machine.
-4. Start the local app and keep the tunnel online.
-
-Cloudflare docs:
-
-- [Create a Cloudflare Tunnel](https://developers.cloudflare.com/learning-paths/clientless-access/connect-private-applications/create-tunnel/)
-- [Published applications](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/)
-- [Tunnel run parameters](https://developers.cloudflare.com/tunnel/advanced/run-parameters/)
-- [Tunnel tokens](https://developers.cloudflare.com/tunnel/advanced/tunnel-tokens/)
-
-### What I added in this project
-
-- `start_streamlit.ps1`
-- `setup_fixed_domain.ps1`
-- `setup_fixed_domain.bat`
-
-### How to use the fixed-domain setup
-
-1. In Cloudflare Zero Trust, create a named tunnel and add the public hostname you want.
-2. Copy the tunnel token from Cloudflare.
-3. On Windows, install `cloudflared` if needed:
-
-```powershell
-winget install --id Cloudflare.cloudflared
-```
-
-4. Run this script and paste your token. It will prompt for elevation if needed:
-
-```powershell
-.\setup_fixed_domain.ps1 -TunnelToken "PASTE_YOUR_TUNNEL_TOKEN_HERE"
-```
-
-Or double-click `setup_fixed_domain.bat` and follow the prompt.
-
-What the setup does:
-
-- Creates an auto-start entry for Streamlit in your Windows Startup folder
-- Installs the Cloudflare Tunnel service using the token you provided
-- Leaves the fixed hostname managed by Cloudflare
-
-### URLs
-
-- Local URL: `http://127.0.0.1:8501`
-- Fixed public URL: the hostname you created in Cloudflare, for example `bom.example.com`
-
-### Notes
-
-- The fixed URL does not change on restart
-- The local PC must remain powered on
-- If you later change the hostname, you only need to update the Cloudflare dashboard route
-
-## 3. Free fixed URL on Streamlit Community Cloud
-
-If you want a stable free public link without keeping this PC online, Streamlit Community Cloud is the best fit.
-
-What you need:
-
-- Push this folder to a GitHub repository
-- Use `streamlit_app.py` as the entry file
-- Keep `streamlit_cloud_bundle.zip` in the repo and track it with Git LFS so the app can restore `components.db` and the search caches on startup
-- Do not commit the unpacked `components.db` / `cache/*` files to the cloud repo if you are creating a clean deployment repo; the zip bundle is what matters at runtime
-- If you want the cloud deployment to be protected too, set `app_access_code` in Streamlit Cloud secrets; the same access-code gate will work there
-
-What the app now does for Cloud:
-
-- Uses relative paths instead of Windows-only absolute paths
-- Automatically extracts `streamlit_cloud_bundle.zip` if the local database files are missing
-- Avoids unnecessary startup rebuilds when the database already exists
-- Remains portable without Windows-only absolute paths
-
-Main caveat:
-
-- This app is data-heavy, so the cloud bundle is large. The good news is that it is still much smaller than the raw database files and is much more suitable for GitHub / Cloud than the unpacked `.db` files.
-
-### Visitor wrapper page
-
-To give outside users a cleaner entry than the raw `streamlit.app` page, this repo also supports a free GitHub Pages wrapper:
-
-- Wrapper URL: `https://harma801209.github.io/component-matcher/`
-- Source files: `docs/index.html`, `docs/404.html`, `docs/.nojekyll`
-
-The wrapper uses an iframe with:
-
-```text
-https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen
-```
-
-This reduces the default Streamlit cloud chrome for visitors, especially on mobile.
-
-## 4. One-click local launchers in this folder
-
-Two double-click launchers are now included in the `DATA` folder:
-
-- `start_lan.cmd`
-  - Starts the app on the machine's LAN IP when available, otherwise falls back to `0.0.0.0:8501`
-  - Best for devices on the same local network
-  - The host machine opens the local browser URL automatically
-- `start_public_fixed.cmd`
-  - Starts the app on `127.0.0.1:8501`
-  - Starts a Cloudflare Tunnel using a fixed tunnel token
-  - Best for a stable public URL after one-time Cloudflare tunnel setup
-
-For the fixed public launcher:
-
-- Place your Cloudflare tunnel token in `public_tunnel_token.txt`
-- `start_public_fixed.ps1` will generate `public_access_code.txt` the first time it runs, or you can create it yourself from `public_access_code.txt.example`
-- Optionally place the public URL in `public_fixed_url.txt` so the script can open it automatically
-- The tunnel itself must already be configured in Cloudflare to point at `http://127.0.0.1:8501`
-- The example files in this folder show the expected format
-
-Security notes:
-
-- The app now supports an access-code gate when `APP_ACCESS_CODE` is set by the launcher or by Streamlit Cloud secrets
-- Search input and BOM upload now have size limits so a single request cannot flood the app with very large payloads
-- For a stricter public deployment, you can also add Cloudflare Access in front of the tunnel; that keeps the fixed URL but adds identity-based protection
-
-## 5. One-click sync for both LAN and public releases
-
-If you change rules, database content, or public-facing text locally and want the LAN version and the Streamlit public version to stay aligned, use:
-
-- `sync_local_and_public.cmd`
-
-Or:
+### 1. 一键同步正式发布
 
 ```powershell
 .\sync_local_and_public.ps1
 ```
 
-What it does:
+或双击：
 
-1. Rebuilds `streamlit_cloud_bundle.zip` from the current local database and caches
-2. Syntax-checks the main app and sync scripts
-3. Stages only the publishable release files
-4. Creates a git commit
-5. Pushes through GitHub SSH on port `443`
-6. Lets Streamlit Community Cloud auto-deploy the updated public app
+- [sync_local_and_public.cmd](C:/Users/zjh/Desktop/data/sync_local_and_public.cmd)
 
-Useful options:
+这一步负责把最新代码和数据同步到公网应用链路。
+
+### 2. Cloudflare Pages 代理部署
+
+当修改了 `pages.dev` 入口代理逻辑时，再执行：
 
 ```powershell
-.\sync_local_and_public.ps1 -CommitMessage "更新 MLCC 规则"
-.\sync_local_and_public.ps1 -SkipBundleRebuild
-.\sync_local_and_public.ps1 -SkipPush
+.\deploy_cloudflare_pages_proxy.ps1
 ```
 
-This is the recommended path if you do not want to repeat the same publish work twice after every local change.
+或双击：
+
+- [deploy_cloudflare_pages_proxy.cmd](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.cmd)
+
+## 旧入口说明
+
+下面这些旧方式现在都不再作为正式入口：
+
+- 局域网直接打开本机服务
+- 本地 Cloudflare Tunnel 固定隧道
+- `streamlit.app` 原始直链
+- 旧的 GitHub Pages 外壳页
+
+如果只是给用户使用，请只发这个：
+
+- [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)
+
+## 兼容启动器
+
+保留的旧启动器只是为了兼容以前的操作习惯：
+
+- [start_lan.cmd](C:/Users/zjh/Desktop/data/start_lan.cmd)
+- [start_public_fixed.cmd](C:/Users/zjh/Desktop/data/start_public_fixed.cmd)
+
+它们现在不再代表推荐架构，会提示改用正式公网入口。

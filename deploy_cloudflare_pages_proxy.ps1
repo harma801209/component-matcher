@@ -22,6 +22,7 @@ if (-not (Test-Path $distDir)) {
 }
 
 $env:PATH = "$nodeDir;$env:PATH"
+$env:NODE_OPTIONS = "--dns-result-order=ipv4first"
 
 Push-Location $projectDir
 try {

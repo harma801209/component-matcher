@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_PUBLIC_URL = "https://fruition-componentmatche.streamlit.app"
+DEFAULT_PUBLIC_URL = "https://fruition-component.pages.dev/"
 DEFAULT_BUNDLE_OUTPUT = ROOT / "streamlit_cloud_bundle.zip"
 PUBLISH_FILES = [
     "component_matcher.py",
@@ -328,7 +328,7 @@ def main() -> int:
     parser.add_argument("--commit-message", default="", help="Optional custom git commit message.")
     parser.add_argument("--skip-bundle-rebuild", action="store_true", help="Skip rebuilding streamlit_cloud_bundle.zip.")
     parser.add_argument("--skip-push", action="store_true", help="Prepare commit locally but do not push.")
-    parser.add_argument("--public-url", default=DEFAULT_PUBLIC_URL, help="Public Streamlit URL to display after publish.")
+    parser.add_argument("--public-url", default=DEFAULT_PUBLIC_URL, help="Public site URL to display after publish.")
     args = parser.parse_args()
 
     os.chdir(ROOT)
@@ -353,7 +353,7 @@ def main() -> int:
         write_step("Skipping push by request")
     else:
         push_branch(repo_full_name, branch, ssh_env, publish_sha)
-        write_step(f"Public Streamlit app: {args.public_url}")
+        write_step(f"Public site: {args.public_url}")
 
     if commit_sha:
         print(f"[sync] local commit: {commit_sha}")

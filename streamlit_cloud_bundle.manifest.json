@@ -3,26 +3,26 @@
     {
       "path": "components.db",
       "size": 2334613504,
-      "mtime_ns": 1774961201483760600,
-      "sha256": "7be14e1b366ef75ac3e9b47db50c0882c02632e2e8011ed0fc55666815553863"
+      "mtime_ns": 1775286828770189800,
+      "sha256": "041a719d9361f4d8892315b718a845294b5fa94aa42edf774ba8a52cb964f505"
     },
     {
       "path": "cache/components_search.sqlite",
-      "size": 422313984,
-      "mtime_ns": 1775184328204890600,
-      "sha256": "24aedbde63ddeaa48402128e5fc193f8b506e5d1975fb0b3090999fec397c3c4"
+      "size": 424595456,
+      "mtime_ns": 1775286849573059000,
+      "sha256": "e6225b914c27d854ea70e8cecf173ddbaf9560f6214d0c3d189082e7c918306a"
     },
     {
       "path": "cache/components_prepared_v5.parquet",
-      "size": 103007331,
-      "mtime_ns": 1775184283541234900,
-      "sha256": "88f29c4ac42f16eecce9241ff3338673a093b135506c8a7fc675532541458aa9"
+      "size": 97840206,
+      "mtime_ns": 1775290944462480800,
+      "sha256": "7e24dd625ef8116f09073349239be6b18792a12d50b23defda5ca8554b997af2"
     },
     {
       "path": "cache/components_prepared_v5_meta.json",
-      "size": 148,
-      "mtime_ns": 1775184283552240200,
-      "sha256": "daa6fba91ad04212e07c4dd1c33f0db905062d30796ca78d708bac0e29f79190"
+      "size": 147,
+      "mtime_ns": 1775290944470810900,
+      "sha256": "244c6dcdc5eaafecc07715290ba28d3fc96f3548c6ddbff810733a8870efbb2e"
     },
     {
       "path": "cache/mlcc_lcsc_dimension_cache.json",
