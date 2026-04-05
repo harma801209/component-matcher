@@ -5,6 +5,8 @@ param(
     [string]$PublicUrl = "https://fruition-component.pages.dev/"
 )
 
+. (Join-Path $PSScriptRoot "powershell_utf8.ps1")
+
 $ErrorActionPreference = "Stop"
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
 

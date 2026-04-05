@@ -9359,6 +9359,40 @@ def should_skip_workbook(file_path):
     return False
 
 
+def infer_default_component_type_from_source_path(source_path):
+    if not source_path:
+        return ""
+    lower_name = os.path.basename(str(source_path)).lower()
+    stem = os.path.splitext(lower_name)[0]
+    candidates = [
+        ("mlcc", "MLCC"),
+        ("薄膜电容", "薄膜电容"),
+        ("钽电容", "钽电容"),
+        ("铝电解电容", "铝电解电容"),
+        ("aluminum_electrolytic", "铝电解电容"),
+        ("热敏电阻_ntc", "热敏电阻"),
+        ("热敏电阻", "热敏电阻"),
+        ("ntc", "热敏电阻"),
+        ("压敏电阻_vdr", "压敏电阻"),
+        ("压敏电阻", "压敏电阻"),
+        ("vdr", "压敏电阻"),
+        ("薄膜电阻", "薄膜电阻"),
+        ("厚膜电阻", "厚膜电阻"),
+        ("金属氧化膜电阻", "金属氧化膜电阻"),
+        ("碳膜电阻", "碳膜电阻"),
+        ("绕线电阻", "绕线电阻"),
+        ("贴片电阻", "贴片电阻"),
+        ("合金电阻", "合金电阻"),
+        ("功率电感", "功率电感"),
+        ("共模电感", "共模电感"),
+        ("磁珠", "磁珠"),
+    ]
+    for needle, component_type in candidates:
+        if needle in stem:
+            return component_type
+    return ""
+
+
 LIBRARY_COMMON_COLUMNS = [
     "器件类型", "安装方式", "封装代码", "尺寸（mm）", "规格摘要", "生产状态",
     "长度（mm）", "宽度（mm）", "高度（mm）",
@@ -9444,7 +9478,7 @@ def get_workbook_sheet_names(file_path, xls):
     return list(xls.sheet_names)
 
 
-def normalize_imported_component_dataframe(df):
+def normalize_imported_component_dataframe(df, source_path=""):
     if df is None or df.empty:
         return pd.DataFrame()
     work = importer_map_headers(df.copy())
@@ -9497,6 +9531,28 @@ def normalize_imported_component_dataframe(df):
     work["备注3"] = work["备注3"].apply(clean_text)
     for col in LIBRARY_COMMON_COLUMNS:
         work[col] = work[col].apply(clean_text)
+
+    source_component_type = infer_default_component_type_from_source_path(source_path)
+    if source_component_type and "器件类型" in work.columns:
+        type_text = work["器件类型"].astype("string").fillna("").apply(clean_text)
+        blank_type_mask = (
+            type_text.eq("")
+            | type_text.str.fullmatch(r"[?？]+", na=False)
+            | type_text.str.lower().isin({"none", "nan"})
+        )
+        if blank_type_mask.any():
+            work.loc[blank_type_mask, "器件类型"] = source_component_type
+
+    if source_component_type and "系列" in work.columns:
+        series_text = work["系列"].astype("string").fillna("").apply(clean_text)
+        blank_series_mask = (
+            series_text.eq("")
+            | series_text.str.fullmatch(r"[?？]+", na=False)
+            | series_text.isin(SERIES_PLACEHOLDER_TOKENS)
+            | series_text.str.lower().isin({"none", "nan"})
+        )
+        if blank_series_mask.any():
+            work.loc[blank_series_mask, "系列"] = source_component_type
 
     samsung_mask = work["品牌"].apply(
         lambda x: ("三星" in clean_brand(x)) or ("SAMSUNG" in clean_brand(x).upper())
@@ -9651,7 +9707,7 @@ def read_source_component_dataframe(source_path):
             return pd.DataFrame()
         if df.empty:
             return df
-        df = normalize_imported_component_dataframe(df)
+        df = normalize_imported_component_dataframe(df, source_path=source_path)
         if df is None or df.empty:
             return pd.DataFrame()
         return deduplicate_component_rows(df)
@@ -9677,7 +9733,7 @@ def read_source_component_dataframe(source_path):
                         continue
                     if clean_text(df.at[row_idx, "备注2"]) == "" and clean_text(url) != "":
                         df.at[row_idx, "备注2"] = url
-            df = normalize_imported_component_dataframe(df)
+            df = normalize_imported_component_dataframe(df, source_path=source_path)
             if not df.empty:
                 all_dfs.append(df)
         except Exception:
