@@ -1023,3 +1023,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 修正了 Murata NTC 专用解析：尺寸码改为官方 `0603(0201)` 映射，阻值优先走 `104 -> 100kΩ` 的专用编码，不再被尾段 `05R` 误吸走。
 - 修正了共用的容差归一化逻辑，去掉了把 `0.5` 这类小数百分比错误放大的分支；这会影响所有走 `clean_tol_for_display()` 的型号，不限 Murata。
 - 已确认 `components.db` / sidecar 里当前并没有这条 NCP03 型号的预存记录，因此这次问题主要由代码解析路径导致，不是单个数据库行写坏。
+
+## 2026-04-05 Streamlit 登录态持久化
+- 新增 `streamlit_auth_state.py`，把 Streamlit/GitHub 登录态统一保存成 `streamlit_cloud_state.json`，下次启动优先加载，减少反复手动授权。
+- `auto_streamlit_deploy.py` 和 `tmp_keep_streamlit_login.py` 现在都基于 saved state 启动；一旦进入 Deploy 页面，会自动刷新 state 文件。
+- 已把 `streamlit_cloud_state.json` 加入 `.gitignore`，避免把登录态文件误提交到仓库。

@@ -13,6 +13,7 @@ __pycache__/
 .streamlit/secrets.toml
 .selenium-profile*/
 edge_profile_tmp*/
+streamlit_cloud_state.json
 public_tunnel*.log
 public_tunnel_token.txt
 public_fixed_url.txt
