@@ -1040,8 +1040,6 @@ def normalize_tolerance_number(value):
         num = abs(float(clean_text(value)))
     except:
         return None
-    if 0 < num < 1:
-        num = num * 100
     if float(num).is_integer():
         num = int(num)
     return str(num)
@@ -2778,7 +2776,7 @@ def murata_series_meaning(series_code):
 
 
 MURATA_NTC_MODEL_PATTERN = re.compile(r"^(?P<series>(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2})(?P<res>\d{3})(?P<tol>[BCDFGJKMZ])(?P<tail>.*)$")
-MURATA_NTC_SIZE_MAP = {
+MURATA_NTC_BODY_SIZE_MAP = {
     "02": "0402",
     "03": "0603",
     "15": "1005",
@@ -2789,6 +2787,24 @@ MURATA_NTC_SIZE_MAP = {
     "42": "4532",
     "43": "5750",
 }
+MURATA_NTC_INCH_SIZE_MAP = {
+    "02": "01005",
+    "03": "0201",
+    "15": "0402",
+    "18": "0603",
+    "21": "0805",
+    "31": "1206",
+    "32": "1210",
+    "42": "1812",
+    "43": "2220",
+}
+
+def format_murata_ntc_size_label(size_code):
+    body_code = clean_text(MURATA_NTC_BODY_SIZE_MAP.get(size_code, ""))
+    inch_code = clean_text(MURATA_NTC_INCH_SIZE_MAP.get(size_code, ""))
+    if body_code and inch_code:
+        return f"{body_code}({inch_code})"
+    return body_code or inch_code
 
 
 def murata_ntc_series_code_from_model(model):
@@ -2832,7 +2848,7 @@ def murata_ntc_series_profile_from_model(model):
         }
 
     size_code = compact[3:5]
-    size_inch = MURATA_NTC_SIZE_MAP.get(size_code, "")
+    size_inch = MURATA_NTC_INCH_SIZE_MAP.get(size_code, "")
     mm_dims = MURATA_SIZE_DIMENSION_MAP.get(size_code, ("", ""))
     length_mm, width_mm = mm_dims if len(mm_dims) == 2 else ("", "")
     size_mm = f"{length_mm}×{width_mm}" if length_mm and width_mm else ""
@@ -2844,6 +2860,7 @@ def murata_ntc_series_profile_from_model(model):
         "尺寸（mm）": size_mm,
         "长度（mm）": length_mm,
         "宽度（mm）": width_mm,
+        "封装代码": size_inch,
         "_ntc_resistance_code": match.group("res"),
         "_ntc_tolerance_code": match.group("tol"),
         "_ntc_tail": match.group("tail"),
@@ -2861,13 +2878,15 @@ def parse_murata_ntc_core(model, allow_partial=False):
         return None
 
     size_code = compact[3:5]
+    size_label = format_murata_ntc_size_label(size_code)
     size_inch = clean_text(profile.get("尺寸（inch）", ""))
     size_mm = clean_text(profile.get("尺寸（mm）", ""))
     length_mm = clean_text(profile.get("长度（mm）", ""))
     width_mm = clean_text(profile.get("宽度（mm）", ""))
-    resistance_ohm = extract_resistor_value_from_model(compact, size_hint=size_inch)
+    resistance_ohm = parse_resistor_value_code(match.group("res"))
     if resistance_ohm is None:
-        resistance_ohm = parse_resistor_value_code(match.group("res"))
+        extracted_ohm, _ = extract_resistor_value_from_model(compact, size_hint=size_inch)
+        resistance_ohm = extracted_ohm
     tol_code = clean_text(match.group("tol"))
     tol_value = {
         "B": "0.1",
@@ -2886,7 +2905,7 @@ def parse_murata_ntc_core(model, allow_partial=False):
     summary = build_other_component_summary([
         f"{resistance_value}{resistance_unit}" if resistance_value and resistance_unit else "",
         clean_tol_for_display(tol) if clean_text(tol) != "" else "",
-        size_inch,
+        size_label,
         size_mm,
     ])
     param_count = sum([
@@ -4639,20 +4658,23 @@ def build_murata_ntc_rule_breakdown(model, parsed=None):
     }]
     if match is not None:
         size_code = match.group("series")[3:5]
+        size_label = format_murata_ntc_size_label(size_code)
         resistance_code = match.group("res")
         tol_code = match.group("tol")
         tail = match.group("tail")
         resistance_value = clean_text(parsed.get("容值", "")) if parsed is not None else ""
         resistance_unit = clean_text(parsed.get("容值单位", "")) if parsed is not None else ""
         if (resistance_value == "" or resistance_unit == "") and parsed is not None:
-            extracted_ohm = extract_resistor_value_from_model(model_clean, size_hint=clean_size(parsed.get("尺寸（inch）", "")))
+            extracted_ohm = parse_resistor_value_code(resistance_code)
+            if extracted_ohm is None:
+                extracted_ohm, _ = extract_resistor_value_from_model(model_clean, size_hint=clean_size(parsed.get("尺寸（inch）", "")))
             if extracted_ohm is not None:
                 resistance_value, resistance_unit = ohm_to_library_value_unit(extracted_ohm)
         rows.extend([
             {
                 "段位": "尺寸码",
                 "原始片段": size_code,
-                "含义": MURATA_NTC_SIZE_MAP.get(size_code, "未知尺寸"),
+                "含义": size_label or "未知尺寸",
                 "结果": clean_size(parsed.get("尺寸（inch）", "")) if parsed is not None else "",
             },
             {

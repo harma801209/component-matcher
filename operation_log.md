@@ -1017,3 +1017,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 修正导入器里缺失的 NTC 容差映射，避免 `热敏电阻_NTC.xlsx` 在归一化时直接被吞成空表。
 - 已重新解析 `Resistor/热敏电阻_NTC.xlsx`，写入 363 条 Murata 官方 NTC 记录，并把它们合入主库与搜索缓存。
 - 已重建 `streamlit_cloud_bundle.zip`，bundle 当前包含最新的 `components.db`、`components_search.sqlite` 和 `components_prepared_v5.parquet`。
+
+## 2026-04-05 Murata NTC 根因回修与全局容差修正
+- 已按 Murata 官方资料核实 `NCP03WF104D05RL`：`100kΩ ±0.5%`、`B25/50=4250K ±0.5%`、`0603(0201)`，确认截图里的 `0603`、空阻值、`±50%` 都是错误反推。
+- 修正了 Murata NTC 专用解析：尺寸码改为官方 `0603(0201)` 映射，阻值优先走 `104 -> 100kΩ` 的专用编码，不再被尾段 `05R` 误吸走。
+- 修正了共用的容差归一化逻辑，去掉了把 `0.5` 这类小数百分比错误放大的分支；这会影响所有走 `clean_tol_for_display()` 的型号，不限 Murata。
+- 已确认 `components.db` / sidecar 里当前并没有这条 NCP03 型号的预存记录，因此这次问题主要由代码解析路径导致，不是单个数据库行写坏。
