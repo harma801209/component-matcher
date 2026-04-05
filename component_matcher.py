@@ -6642,6 +6642,8 @@ def looks_like_thermistor_context(text):
     compact = normalize_component_keyword_compact(raw)
     if matches_component_alias(raw, "热敏电阻"):
         return True
+    if upper.startswith("NTC") or compact.startswith("NTC"):
+        return True
     if any(token in raw for token in ["过流保护", "正极电阻", "自恢复保险丝", "可恢复保险丝", "保险丝热敏"]):
         return True
     if any(token in upper for token in ["PTC THERMISTOR", "OVERCURRENT PROTECTION", "RESETTABLE FUSE", "RESETTABLE", "POLYFUSE", "PPTC", "POSISTOR"]):
@@ -6653,6 +6655,66 @@ def looks_like_thermistor_context(text):
     if re.search(r"(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2}\d{3}[BCDFGJKMZ]", compact):
         return True
     return False
+
+
+def reverse_lookup_row_priority(row):
+    model_text = clean_model(row.get("_model_clean", row.get("型号", "")))
+    row_type = normalize_component_type(row.get("_component_type", "")) or normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
+    data_source = clean_text(row.get("数据来源", ""))
+    data_status = clean_text(row.get("数据状态", ""))
+    series = clean_text(row.get("系列", ""))
+    summary = clean_text(row.get("规格摘要", ""))
+    score = 0
+
+    if "官方PDF" in data_status:
+        score += 1000
+    elif "官方" in data_status:
+        score += 400
+
+    if "Part Number List" in data_source or "官方" in data_source:
+        score += 200
+
+    if looks_like_thermistor_context(model_text):
+        if row_type == "热敏电阻":
+            score += 300
+        elif row_type in RESISTOR_COMPONENT_TYPES:
+            score -= 300
+
+    if looks_like_varistor_context(model_text):
+        if row_type in VARISTOR_COMPONENT_TYPES:
+            score += 300
+        elif row_type == "贴片电阻":
+            score -= 300
+
+    if series != "":
+        score += 10
+    if summary != "":
+        score += 5
+    if clean_text(row.get("容值", "")) != "" or clean_text(row.get("阻值@25C", "")) != "":
+        score += 5
+    return score
+
+
+def prioritize_component_rows_for_lookup(df):
+    if df is None or df.empty:
+        return df
+    if "品牌" not in df.columns or "型号" not in df.columns:
+        return df
+
+    work = df.copy()
+    work["_lookup_order"] = range(len(work))
+    try:
+        work["_lookup_priority"] = work.apply(reverse_lookup_row_priority, axis=1)
+    except Exception:
+        work["_lookup_priority"] = 0
+
+    work = work.sort_values(
+        by=["品牌", "型号", "_lookup_priority", "_lookup_order"],
+        ascending=[True, True, False, True],
+        kind="mergesort",
+    )
+    return work.drop(columns=["_lookup_priority", "_lookup_order"], errors="ignore")
+
 
 def looks_like_resistor_context(text):
     hint = detect_component_type_hint(text)
@@ -9909,6 +9971,7 @@ def build_search_index_dataframe(prepared):
     search_df["_mount_style"] = search_df["_mount_style"].astype("string")
     search_df["_special_use_norm"] = search_df["_special_use_norm"].astype("string")
     search_df["_unit_upper"] = search_df["_unit_upper"].astype("string")
+    search_df = prioritize_component_rows_for_lookup(search_df)
     search_df = search_df.drop_duplicates(subset=["品牌", "型号"], keep="first").reset_index(drop=True)
     return search_df
 
@@ -9976,6 +10039,8 @@ def normalize_search_sidecar_frame(df, columns, numeric_columns=(), dedupe_colum
         else:
             work[column] = work[column].map(normalize_search_sidecar_value)
     dedupe_columns = [column for column in (dedupe_columns or []) if column in work.columns]
+    if {"品牌", "型号"}.issubset(work.columns) and {"品牌", "型号"}.issubset(set(dedupe_columns)):
+        work = prioritize_component_rows_for_lookup(work)
     if dedupe_columns:
         work = work.drop_duplicates(subset=dedupe_columns, keep="first")
     else:
@@ -11200,6 +11265,7 @@ def concat_component_frames(frames):
     if {"品牌", "型号"}.issubset(combined.columns):
         combined["品牌"] = combined["品牌"].astype(str).apply(clean_text)
         combined["型号"] = combined["型号"].astype(str).apply(clean_text)
+        combined = prioritize_component_rows_for_lookup(combined)
         combined = combined.drop_duplicates(subset=["品牌", "型号"], keep="first")
     return combined
 
@@ -12525,7 +12591,17 @@ def get_model_reverse_lookup(df, cache_signature=None):
     available_cols = [col for col in MODEL_REVERSE_LOOKUP_COLUMNS if col in work.columns]
     lookup = work[available_cols].copy()
     lookup = lookup[lookup["_model_clean"].astype(str).ne("")]
+    if not lookup.empty:
+        lookup = lookup.copy()
+        lookup["_reverse_priority"] = work.loc[lookup.index].apply(reverse_lookup_row_priority, axis=1)
+        lookup["_reverse_order"] = range(len(lookup))
+        lookup = lookup.sort_values(
+            by=["_model_clean", "_reverse_priority", "_reverse_order"],
+            ascending=[True, False, True],
+            kind="mergesort",
+        )
     lookup = lookup.drop_duplicates(subset=["_model_clean"], keep="first")
+    lookup = lookup.drop(columns=["_reverse_priority", "_reverse_order"], errors="ignore")
     lookup = lookup.set_index("_model_clean", drop=False)
     MODEL_REVERSE_LOOKUP_CACHE.clear()
     MODEL_REVERSE_LOOKUP_CACHE[cache_signature] = lookup
