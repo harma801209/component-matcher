@@ -9382,6 +9382,10 @@ def infer_default_component_type_from_source_path(source_path):
     lower_name = os.path.basename(str(source_path)).lower()
     stem = os.path.splitext(lower_name)[0]
     candidates = [
+        ("晶振", "晶振"),
+        ("振荡器", "振荡器"),
+        ("crystal", "晶振"),
+        ("oscillator", "振荡器"),
         ("mlcc", "MLCC"),
         ("薄膜电容", "薄膜电容"),
         ("钽电容", "钽电容"),
@@ -9444,6 +9448,16 @@ def get_source_workbooks():
         source_files.append(MASTER_XLSX_PATH)
     if os.path.exists(RESISTOR_LIBRARY_CACHE_PATH):
         source_files.append(RESISTOR_LIBRARY_CACHE_PATH)
+    crystal_workbooks = [
+        f for f in glob.glob(os.path.join(DATA_FOLDER, "Crystal*", "*.xlsx"))
+        if not should_skip_workbook(f)
+    ]
+    source_files.extend(sorted(crystal_workbooks))
+    crystal_csvs = [
+        f for f in glob.glob(os.path.join(DATA_FOLDER, "Crystal*", "*.csv"))
+        if not should_skip_workbook(f)
+    ]
+    source_files.extend(sorted(crystal_csvs))
     capacitor_workbooks = [
         f for f in glob.glob(os.path.join(DATA_FOLDER, "Capacitor", "*.xlsx"))
         if not should_skip_workbook(f)

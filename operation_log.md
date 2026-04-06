@@ -1038,3 +1038,15 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 跑通 `build_rubycon_aluminum_expansion.py` 后，Rubycon 官方铝电解 PDF 新增 1,055 条记录，`Capacitor/aluminum_electrolytic_library.csv` 总行数更新到 15,411。
 - 继续同步 `sync_fenghua_am_official.py`，额外补入 15 条风华 AM 系列 MLCC 记录，当前 `风华Fenghua` 总数为 7,387 条。
 - 已重新执行 `sync_local_and_public.py`，最新发布提交为 `09fd077e3af10055d3e7c60f9af47966627021fb`，公网 bundle 已更新到这两批新数据。
+
+## 2026-04-06 MLCC 系列码修正与结果列精简
+- 排查到 `fill_missing_series_from_model()` 把 PDC MLCC 的系列写成了 `FS15` 这类“系列 + 尺寸码”拼接值，根因是早期的 PDC 兜底规则和展示层仅补空值、不改旧值。
+- 已把 PDC MLCC 系列规范改为统一回填系列前缀，并把 `SOURCE_NORMALIZED_CACHE_VERSION` 提升到 `2`，让旧的源标准化缓存强制失效重建。
+- 结果表里 `特殊用途` 列已从 `select_component_display_columns()` 的附加尾列中移除，MLCC 结果页现在不再单独显示这一列。
+- 已重建 `components.db` / `components_search.sqlite` / `components_prepared_v5.parquet`，并执行 `sync_local_and_public.py`；最新发布提交为 `3ad08da55db02b509844265f852842762d9f1175`。
+
+## 2026-04-06 Epson 晶振/振荡器官方源补入
+- 新增 Epson 官方晶振与振荡器抓取链路，`component_matcher.py` 现已接入 `Crystal*/*.xlsx` / `Crystal*/*.csv` 作为来源工作簿，并把 `crystal` / `oscillator` 路径纳入默认器件类型推断。
+- 抓取到的官方页已写入 `Crystal/晶振.xlsx` 与 `Crystal/振荡器.xlsx`，共补入 272 条 Epson 记录，主库里 `爱普生Epson` 当前共 272 条，`晶振` 44 条、`振荡器` 228 条。
+- 搜索侧车已先按数据库重建完成；准备层最初尝试全量重建过慢，最终改为把 Epson 这批新增 prepared 行增量追加到现有 `components_prepared_v5.parquet`，并同步更新 meta，避免白跑整库重算。
+- 当前 `components_prepared_v5.parquet` / `components_prepared_v5_meta.json` 已与 `components.db` 对齐，准备缓存状态为 current。
