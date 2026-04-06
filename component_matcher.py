@@ -85,7 +85,7 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 6
-SOURCE_NORMALIZED_CACHE_VERSION = 1
+SOURCE_NORMALIZED_CACHE_VERSION = 2
 SEARCH_INDEX_SCHEMA_VERSION = 5
 QUERY_RESULT_CACHE_VERSION = 5
 MANUAL_CORRECTION_RULES_VERSION = 1
@@ -4059,6 +4059,18 @@ def fill_missing_series_from_model(df):
         if fenghua_desc_blank.any():
             work.loc[fenghua_mask & fenghua_desc_blank, "系列说明"] = fenghua_am_series_meaning("AM")
 
+    pdc_series = model_clean.apply(pdc_general_mlcc_series_code_from_model)
+    pdc_mask = pdc_series.ne("")
+    if pdc_mask.any():
+        work.loc[pdc_mask, "系列"] = pdc_series[pdc_mask]
+        if "系列说明" not in work.columns:
+            work["系列说明"] = ""
+        pdc_series_desc = pdc_series.apply(pdc_mlcc_series_meaning)
+        pdc_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
+        pdc_desc_mask = pdc_mask & pdc_desc_blank & ~pdc_series.isin(["MT", "MG", "MS"])
+        if pdc_desc_mask.any():
+            work.loc[pdc_desc_mask, "系列说明"] = pdc_series_desc[pdc_desc_mask]
+
     if not missing_mask.any():
         return work
 
@@ -4159,7 +4171,7 @@ def fill_missing_series_from_model(df):
     assign_series(r"^((?:CC|CQ)\d{4})")
     assign_series(r"^((?:TMK|JMK|EMK|LMK|AMK)\d{2,3})")
     assign_series(r"^((?:MAAS|MSAS|MLAS|MCAST|MCAS)\d{2,3})")
-    assign_series(r"^((?:MT|FP|FS|FN|FM|FV|FK|FH)\d{2})")
+    assign_series(r"^((?:MT|FP|FS|FN|FM|FV|FK|FH))(?:\d{2})")
     assign_series(r"^(ECR\d[A-Z]{3})")
     assign_series(r"^(ECA\d[A-Z]{3})")
     assign_series(r"^(EEE\d[A-Z]{3})")
@@ -7566,8 +7578,9 @@ def build_component_display_row(spec, allow_online_lookup=False):
             series_desc=series_desc,
             special_use=special_use,
         )
-        if series_code == "":
-            series_code = clean_text(mlcc_profile.get("系列", ""))
+        profile_series = clean_text(mlcc_profile.get("系列", ""))
+        if profile_series != "":
+            series_code = profile_series
         if series_desc == "":
             series_desc = clean_text(mlcc_profile.get("系列说明", ""))
         if special_use == "":
@@ -7648,7 +7661,11 @@ def ensure_component_display_columns(df):
                 axis=1,
             )
             mlcc_profile_df = pd.DataFrame(list(mlcc_profiles), index=mlcc_profiles.index)
-            for col in ["系列", "系列说明", "特殊用途"]:
+            series_values = mlcc_profile_df["系列"].astype(str).apply(clean_text)
+            series_valid_idx = series_values[series_values.ne("")].index
+            if len(series_valid_idx) > 0:
+                out.loc[series_valid_idx, "系列"] = series_values.loc[series_valid_idx]
+            for col in ["系列说明", "特殊用途"]:
                 blank_mask = out.loc[mlcc_type_mask, col].astype(str).apply(clean_text).eq("")
                 if blank_mask.any():
                     blank_idx = blank_mask[blank_mask].index
@@ -16350,7 +16367,7 @@ if search_clicked:
                         matched,
                         spec,
                         prefix_columns=["推荐等级", "品牌", "型号", "系列"],
-                        suffix_columns=["特殊用途", "备注1", "备注2", "备注3"],
+                        suffix_columns=["备注1", "备注2", "备注3"],
                     )
                     show_df = format_display_df(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
@@ -16402,7 +16419,7 @@ if search_clicked:
                     matched,
                     spec,
                     prefix_columns=["推荐等级", "品牌", "型号", "系列"],
-                    suffix_columns=["特殊用途", "备注1", "备注2", "备注3"],
+                    suffix_columns=["备注1", "备注2", "备注3"],
                 )
                 show_df = format_display_df(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)

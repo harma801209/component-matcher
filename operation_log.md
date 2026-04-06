@@ -1033,3 +1033,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 在 `component_matcher.py` 里给源文件导入补了默认器件类型推断：`Capacitor/MLCC.xlsx` 这类工作簿现在会在空类型时自动落成 `MLCC`，`系列` 也会从 `??` 回填为可用的通用系列名。
 - 重新跑了整库重建，`components.db` 里的 MLCC 行数提升到 `164,613`，空 `器件类型` 已清零，样例料号 `01R5N0R5B160CT` 现在能正确落到 `MLCC / MLCC`。
 - 已执行 `sync_local_and_public.py`，发布提交为 `ffbe2b0fca2013fcc2764e9805bd198caeaa193c`，对外 bundle 也已同步到最新库。
+
+## 2026-04-06 Rubycon 铝电解扩库与风华 AM 补录
+- 跑通 `build_rubycon_aluminum_expansion.py` 后，Rubycon 官方铝电解 PDF 新增 1,055 条记录，`Capacitor/aluminum_electrolytic_library.csv` 总行数更新到 15,411。
+- 继续同步 `sync_fenghua_am_official.py`，额外补入 15 条风华 AM 系列 MLCC 记录，当前 `风华Fenghua` 总数为 7,387 条。
+- 已重新执行 `sync_local_and_public.py`，最新发布提交为 `09fd077e3af10055d3e7c60f9af47966627021fb`，公网 bundle 已更新到这两批新数据。

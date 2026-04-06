@@ -2,27 +2,27 @@
   "members": [
     {
       "path": "components.db",
-      "size": 2432229376,
-      "mtime_ns": 1775455069326118200,
-      "sha256": "4051bbf6b50bfef057d294b2858e5460b56dad5a7485009ee48eeaed93505000"
+      "size": 664985600,
+      "mtime_ns": 1775462568921671900,
+      "sha256": "5a9b3923871defeb2cf200ebd623884d11d06096e7d6f5af85478354d2c7065d"
     },
     {
       "path": "cache/components_search.sqlite",
-      "size": 441544704,
-      "mtime_ns": 1775420309266465100,
-      "sha256": "d1a5068d5ec1b97a9adc59c6ad4dba00ff12a0a5c343d8184f2ba4d1b8d1f6ef"
+      "size": 426434560,
+      "mtime_ns": 1775462445251837400,
+      "sha256": "e268a97581cacb32e0917d87221aafc88f2e4859fc99c5e4d7f392e691abb3fb"
     },
     {
       "path": "cache/components_prepared_v5.parquet",
-      "size": 98022224,
-      "mtime_ns": 1775454731778272700,
-      "sha256": "a699bc9cb72466a6ba094011457829bf4df2a327e50c1fd5730c25f5137ac891"
+      "size": 103369402,
+      "mtime_ns": 1775464312635152000,
+      "sha256": "fce1ff48edd41166b0bb57b61e4a2d994bd425e1ba12e56ea5c71ca8108e5af5"
     },
     {
       "path": "cache/components_prepared_v5_meta.json",
-      "size": 148,
-      "mtime_ns": 1775454731805822900,
-      "sha256": "764f342d69b0b6cb601903208282710d6f00140accb53c94be39774496016c3e"
+      "size": 147,
+      "mtime_ns": 1775464312639146200,
+      "sha256": "f169ff3356909724a2cd8e816434d7d9c0cefcd7dd67ccc4cca07a0832006699"
     },
     {
       "path": "cache/mlcc_lcsc_dimension_cache.json",
