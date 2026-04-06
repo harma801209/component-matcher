@@ -1028,3 +1028,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 新增 `streamlit_auth_state.py`，把 Streamlit/GitHub 登录态统一保存成 `streamlit_cloud_state.json`，下次启动优先加载，减少反复手动授权。
 - `auto_streamlit_deploy.py` 和 `tmp_keep_streamlit_login.py` 现在都基于 saved state 启动；一旦进入 Deploy 页面，会自动刷新 state 文件。
 - 已把 `streamlit_cloud_state.json` 加入 `.gitignore`，避免把登录态文件误提交到仓库。
+
+## 2026-04-06 MLCC 导入根因修复与扩库
+- 在 `component_matcher.py` 里给源文件导入补了默认器件类型推断：`Capacitor/MLCC.xlsx` 这类工作簿现在会在空类型时自动落成 `MLCC`，`系列` 也会从 `??` 回填为可用的通用系列名。
+- 重新跑了整库重建，`components.db` 里的 MLCC 行数提升到 `164,613`，空 `器件类型` 已清零，样例料号 `01R5N0R5B160CT` 现在能正确落到 `MLCC / MLCC`。
+- 已执行 `sync_local_and_public.py`，发布提交为 `ffbe2b0fca2013fcc2764e9805bd198caeaa193c`，对外 bundle 也已同步到最新库。
