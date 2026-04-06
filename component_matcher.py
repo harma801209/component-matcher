@@ -113,8 +113,44 @@ def bundle_member_path_for_local_path(path):
     return rel_path.replace("\\", "/")
 
 
+def _sqlite_table_row_count(path, table_name):
+    if not os.path.exists(path):
+        return 0
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            if cur.fetchone() is None:
+                return 0
+            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+            return int(cur.fetchone()[0] or 0)
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+
+
 def bundle_target_is_valid(path):
     try:
+        abs_path = os.path.abspath(path)
+        if abs_path == os.path.abspath(DB_PATH):
+            return database_has_component_rows()
+        if abs_path == os.path.abspath(SEARCH_DB_PATH):
+            return _sqlite_table_row_count(abs_path, COMPONENTS_SEARCH_CORE_TABLE) > 0
+        if abs_path == os.path.abspath(PREPARED_CACHE_PATH):
+            if pq is None:
+                return os.path.exists(abs_path) and os.path.getsize(abs_path) > 0
+            if not os.path.exists(abs_path) or os.path.getsize(abs_path) <= 0:
+                return False
+            try:
+                parquet_file = pq.ParquetFile(abs_path)
+                return int(parquet_file.metadata.num_rows or 0) > 0
+            except Exception:
+                return False
         return os.path.exists(path) and os.path.getsize(path) > 0
     except Exception:
         return False
