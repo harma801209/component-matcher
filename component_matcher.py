@@ -7613,6 +7613,12 @@ def get_component_display_schema(spec_or_type):
 def get_component_header_labels(spec_or_type):
     labels = {source: label for source, label in get_component_display_schema(spec_or_type)}
     labels["前5个其他品牌型号"] = "其他品牌型号"
+    labels["推荐品牌1"] = "推荐品牌1"
+    labels["推荐型号1"] = "推荐型号1"
+    labels["推荐品牌2"] = "推荐品牌2"
+    labels["推荐型号2"] = "推荐型号2"
+    labels["推荐品牌3"] = "推荐品牌3"
+    labels["推荐型号3"] = "推荐型号3"
     return labels
 
 
@@ -7861,6 +7867,14 @@ def build_component_column_config(columns, spec_or_type=None):
         "推荐等级": "small",
         "品牌": "small",
         "型号": "medium",
+        "推荐品牌": "small",
+        "推荐型号": "medium",
+        "推荐品牌1": "small",
+        "推荐型号1": "medium",
+        "推荐品牌2": "small",
+        "推荐型号2": "medium",
+        "推荐品牌3": "small",
+        "推荐型号3": "medium",
         "品牌1": "small",
         "型号1": "medium",
         "品牌2": "small",
@@ -8444,6 +8458,16 @@ BOM_PREFERRED_SLOT_COLUMNS = tuple(
     for idx in range(1, BOM_PREFERRED_BRAND_SLOTS + 1)
     for col in (f"品牌{idx}", f"型号{idx}")
 )
+BOM_PREFERRED_DISPLAY_COLUMN_MAP = (
+    ("推荐品牌", "推荐品牌"),
+    ("推荐型号", "推荐型号"),
+    ("品牌1", "推荐品牌1"),
+    ("型号1", "推荐型号1"),
+    ("品牌2", "推荐品牌2"),
+    ("型号2", "推荐型号2"),
+    ("品牌3", "推荐品牌3"),
+    ("型号3", "推荐型号3"),
+)
 
 
 def brand_alias_matches(brand, aliases):
@@ -8518,11 +8542,11 @@ def choose_bom_display_match(frame):
     if frame is None or frame.empty:
         return None
     if "品牌" not in frame.columns:
-        return frame.iloc[0]
+        return None
     for _, row in frame.iterrows():
         if match_bom_preferred_brand_label(row.get("品牌", "")) != "":
             return row
-    return frame.iloc[0]
+    return None
 
 
 def collect_brand_models_in_frame(frame, aliases):
@@ -8751,23 +8775,14 @@ def build_bom_display_df(result_df):
         return pd.DataFrame()
 
     display_df = result_df.copy()
-    if "推荐品牌" in display_df.columns:
-        recommend_brand = display_df["推荐品牌"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
-        if "品牌" in display_df.columns:
-            base_brand = display_df["品牌"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
-            display_df["品牌"] = recommend_brand.where(recommend_brand.ne(""), base_brand)
-        else:
-            display_df["品牌"] = recommend_brand
-    if "推荐型号" in display_df.columns:
-        recommend_model = display_df["推荐型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
-        if "型号" in display_df.columns:
-            base_model = display_df["型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
-            display_df["型号"] = recommend_model.where(recommend_model.ne(""), base_model)
-        else:
-            display_df["型号"] = recommend_model
     for col in BOM_PREFERRED_SLOT_COLUMNS:
         if col not in display_df.columns:
             display_df[col] = ""
+    for source_col, display_col in BOM_PREFERRED_DISPLAY_COLUMN_MAP:
+        if source_col in display_df.columns:
+            display_df[display_col] = display_df[source_col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+        else:
+            display_df[display_col] = ""
     if "前5个其他品牌型号" in display_df.columns and "其他品牌型号" not in display_df.columns:
         display_df["其他品牌型号"] = display_df["前5个其他品牌型号"]
     display_df["解析说明"] = display_df.apply(build_bom_parse_summary, axis=1)
@@ -8782,14 +8797,14 @@ def build_bom_display_df(result_df):
         "BOM数量",
         "匹配参数明细",
         "首选推荐等级",
-        "品牌",
-        "型号",
-        "品牌1",
-        "型号1",
-        "品牌2",
-        "型号2",
-        "品牌3",
-        "型号3",
+        "推荐品牌",
+        "推荐型号",
+        "推荐品牌1",
+        "推荐型号1",
+        "推荐品牌2",
+        "推荐型号2",
+        "推荐品牌3",
+        "推荐型号3",
         "其他品牌型号",
         "状态",
         "解析说明",
@@ -13124,7 +13139,7 @@ def style_exact_match_rows(df, spec=None):
 
 def format_display_df(show_df):
     show_df = show_df.copy()
-    for col in ["品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3","推荐品牌","推荐型号","信昌料号","华科料号","前5个其他品牌型号","其他品牌型号","系列","尺寸（inch）","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途","备注1","备注2","备注3","规格参数明细","匹配参数明细","功率","脚距","安规","规格","压敏电压"]:
+    for col in ["品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3","推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3","信昌料号","华科料号","前5个其他品牌型号","其他品牌型号","系列","尺寸（inch）","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途","备注1","备注2","备注3","规格参数明细","匹配参数明细","功率","脚距","安规","规格","压敏电压"]:
         if col in show_df.columns:
             show_df[col] = show_df[col].astype(str).replace("nan", "").replace("None", "")
     for dim_col in ["长度（mm）", "宽度（mm）", "高度（mm）"]:
@@ -13493,9 +13508,9 @@ def estimate_result_table_column_width(col, values, header_label):
             sample_lengths.append(display_text_width(text))
     longest = max(sample_lengths) if sample_lengths else display_text_width(header_text)
     width = longest * 8.4 + 24
-    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("品牌1"), clean_text("品牌2"), clean_text("品牌3"), clean_text("系列"), clean_text("容值单位")}:
+    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("推荐品牌"), clean_text("品牌1"), clean_text("推荐品牌1"), clean_text("品牌2"), clean_text("推荐品牌2"), clean_text("品牌3"), clean_text("推荐品牌3"), clean_text("系列"), clean_text("容值单位")}:
         width = max(width, 92)
-    if col_text in {clean_text("型号"), clean_text("型号1"), clean_text("型号2"), clean_text("型号3"), clean_text("推荐型号")}:
+    if col_text in {clean_text("型号"), clean_text("推荐型号"), clean_text("型号1"), clean_text("推荐型号1"), clean_text("型号2"), clean_text("推荐型号2"), clean_text("型号3"), clean_text("推荐型号3")}:
         width = max(width, 112)
     if col_text in {clean_text("尺寸（inch）"), clean_text("容值"), clean_text("容值误差"), clean_text("耐压（V）")}:
         width = max(width, 92)
@@ -13995,16 +14010,14 @@ html, body {{
                 '安规': 92,
                 '规格': 92,
                 '匹配数量': 92,
-                '品牌': 92,
-                '型号': 112,
-                '品牌1': 92,
-                '型号1': 112,
-                '品牌2': 92,
-                '型号2': 112,
-                '品牌3': 92,
-                '型号3': 112,
                 '推荐品牌': 92,
                 '推荐型号': 112,
+                '推荐品牌1': 92,
+                '推荐型号1': 112,
+                '推荐品牌2': 92,
+                '推荐型号2': 112,
+                '推荐品牌3': 92,
+                '推荐型号3': 112,
                 '信昌料号': 108,
                 '华科料号': 108,
                 '其他品牌型号': 112,
@@ -15152,11 +15165,10 @@ def build_bom_result_row(df, line):
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
     display_match = choose_bom_display_match(matched)
-    if display_match is None:
-        display_match = matched.iloc[0]
     row["匹配数量"] = int(len(matched))
-    row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
-    row["推荐型号"] = clean_text(display_match.get("型号", ""))
+    if display_match is not None:
+        row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
+        row["推荐型号"] = clean_text(display_match.get("型号", ""))
     row.update(
         build_bom_preferred_brand_slots(
             matched,
@@ -15265,41 +15277,40 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
         display_match = choose_bom_display_match(matched)
-        if display_match is None:
-            display_match = matched.iloc[0]
+        detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
-        result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) or best.get("top_match_level", "")
-        result_row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
-        result_row["推荐型号"] = clean_text(display_match.get("型号", ""))
+        result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
+        result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
+        result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
         result_row.update(
             build_bom_preferred_brand_slots(
                 matched,
                 exclude_pairs=[(result_row["推荐品牌"], result_row["推荐型号"])],
             )
         )
-        result_row["匹配参数明细"] = build_component_spec_detail_from_row(display_match, result_row.get("器件类型", ""))
+        result_row["匹配参数明细"] = build_component_spec_detail_from_row(detail_match, result_row.get("器件类型", ""))
         result_row["前5个其他品牌型号"] = format_other_brand_models(
             matched,
             exclude_aliases=BOM_PREFERRED_BRAND_EXCLUDE_ALIASES,
             exclude_pairs=[(result_row["推荐品牌"], result_row["推荐型号"])],
         )
         hit_columns = []
-        if clean_text(result_row["尺寸（inch）"]) != "" and clean_size(display_match.get("尺寸（inch）", "")) == clean_size(result_row["尺寸（inch）"]):
+        if clean_text(result_row["尺寸（inch）"]) != "" and clean_size(detail_match.get("尺寸（inch）", "")) == clean_size(result_row["尺寸（inch）"]):
             hit_columns.append("尺寸（inch）")
-        if clean_text(result_row["材质（介质）"]) != "" and clean_material(display_match.get("材质（介质）", "")) == clean_material(result_row["材质（介质）"]):
+        if clean_text(result_row["材质（介质）"]) != "" and clean_material(detail_match.get("材质（介质）", "")) == clean_material(result_row["材质（介质）"]):
             hit_columns.append("材质（介质）")
-        if clean_text(result_row["容值"]) != "" and clean_text(display_match.get("容值", "")) == clean_text(result_row["容值"]):
+        if clean_text(result_row["容值"]) != "" and clean_text(detail_match.get("容值", "")) == clean_text(result_row["容值"]):
             hit_columns.append("容值")
-        if clean_text(result_row["容值单位"]) != "" and clean_text(display_match.get("容值单位", "")).upper() == clean_text(result_row["容值单位"]).upper():
+        if clean_text(result_row["容值单位"]) != "" and clean_text(detail_match.get("容值单位", "")).upper() == clean_text(result_row["容值单位"]).upper():
             hit_columns.append("容值单位")
-        if clean_text(result_row["容值误差"]) != "" and clean_tol_for_display(display_match.get("容值误差", "")) == clean_text(result_row["容值误差"]):
+        if clean_text(result_row["容值误差"]) != "" and clean_tol_for_display(detail_match.get("容值误差", "")) == clean_text(result_row["容值误差"]):
             hit_columns.append("容值误差")
-        if clean_text(result_row["耐压（V）"]) != "" and voltage_display(display_match.get("耐压（V）", "")) == clean_text(result_row["耐压（V）"]):
+        if clean_text(result_row["耐压（V）"]) != "" and voltage_display(detail_match.get("耐压（V）", "")) == clean_text(result_row["耐压（V）"]):
             hit_columns.append("耐压（V）")
         result_row["匹配命中列"] = "|".join(hit_columns)
-        result_row["备注1"] = clean_text(display_match.get("备注1", ""))
-        result_row["备注2"] = clean_text(display_match.get("备注2", ""))
-        result_row["备注3"] = clean_text(display_match.get("备注3", ""))
+        result_row["备注1"] = clean_text(detail_match.get("备注1", ""))
+        result_row["备注2"] = clean_text(detail_match.get("备注2", ""))
+        result_row["备注3"] = clean_text(detail_match.get("备注3", ""))
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(
