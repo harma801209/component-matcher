@@ -84,10 +84,10 @@ COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
-PREPARED_CACHE_VERSION = 6
-SOURCE_NORMALIZED_CACHE_VERSION = 2
+PREPARED_CACHE_VERSION = 7
+SOURCE_NORMALIZED_CACHE_VERSION = 3
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 5
+QUERY_RESULT_CACHE_VERSION = 6
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -2713,6 +2713,55 @@ def series_looks_missing(value):
     return bool(re.fullmatch(r"[?？]+", text))
 
 
+def mlcc_series_should_replace(current_value, canonical_value):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    if canonical == "":
+        return False
+    if series_looks_missing(current):
+        return True
+    if current == canonical:
+        return False
+    return canonical.startswith(current) and len(canonical) > len(current)
+
+
+MLCC_GENERIC_SIZE_FIRST_EXCLUDED_BRAND_TOKENS = (
+    "TDK",
+    "东电化",
+    "MURATA",
+    "村田",
+    "TAIYO",
+    "太阳诱电",
+    "YAGEO",
+    "国巨",
+    "KYOCERA",
+    "AVX",
+    "晶瓷",
+    "PDC",
+    "信昌",
+    "WALSIN",
+    "华新科",
+    "FENGHUA",
+    "风华",
+    "JIANGHAI",
+    "江海",
+    "SAMSUNG",
+    "三星",
+    "CCTC",
+    "三环",
+)
+
+
+def mlcc_generic_size_first_parser_allowed(brand):
+    brand_text = clean_brand(brand)
+    brand_upper = clean_text(brand_text).upper()
+    if brand_text == "":
+        return True
+    if "HRE" in brand_upper or "芯声微" in brand_text:
+        return True
+    return not any(token in brand_upper or token in brand_text for token in MLCC_GENERIC_SIZE_FIRST_EXCLUDED_BRAND_TOKENS)
+
+
 MURATA_SERIES_PREFIX_PATTERN = re.compile(
     r"^(AVR-M|AVRM|AVRL|AVRH|VAR|S\d{2}K|LS\d{2}K|CN\d{4}|SGN[A-Z0-9]{4}|"
     r"GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|"
@@ -3079,7 +3128,7 @@ def tdk_mlcc_series_profile_from_model(model):
     if compact == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     if compact.startswith("CGA"):
-        series_code_match = re.match(r"^(CGA[0-9A-Z]{3})", compact)
+        series_code_match = re.match(r"^(CGA\d{4})", compact)
         series_code = clean_text(series_code_match.group(1)) if series_code_match else "CGA"
         return {
             "系列": series_code,
@@ -3109,6 +3158,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         "_mlcc_series_class": normalize_mlcc_series_class(special_use),
     }
 
+    profile = {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     if model_key.startswith("AM") or "FENGHUA" in brand_upper or "风华" in brand_text:
         profile = {
             "系列": "AM",
@@ -3132,10 +3182,13 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         elif series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
             profile = tdk_mlcc_series_profile_from_model(series_key)
         else:
-            profile = {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+            generic_profile = parse_generic_size_first_mlcc(model_key, brand=brand_text)
+            if generic_profile is not None:
+                profile = generic_profile
 
-    if result["系列"] == "" and clean_text(profile.get("系列", "")) != "":
-        result["系列"] = clean_text(profile.get("系列", ""))
+    profile_series = clean_text(profile.get("系列", ""))
+    if mlcc_series_should_replace(result["系列"], profile_series):
+        result["系列"] = profile_series
     if result["系列说明"] == "" and clean_text(profile.get("系列说明", "")) != "":
         result["系列说明"] = clean_text(profile.get("系列说明", ""))
     if result["特殊用途"] == "" and clean_text(profile.get("特殊用途", "")) != "":
@@ -4107,6 +4160,20 @@ def fill_missing_series_from_model(df):
         if pdc_desc_mask.any():
             work.loc[pdc_desc_mask, "系列说明"] = pdc_series_desc[pdc_desc_mask]
 
+    mlcc_type_mask = (
+        work["器件类型"].astype(str).apply(normalize_component_type).eq("MLCC")
+        if "器件类型" in work.columns
+        else pd.Series([False] * len(work), index=work.index)
+    )
+    mlcc_family_series = model_clean.astype("string").str.extract(r"^([A-Z]{1,3}\d{4})", expand=False).fillna("").astype("string")
+    if mlcc_type_mask.any() and mlcc_family_series.ne("").any():
+        current_series = work["系列"].astype("string").fillna("").apply(clean_text)
+        canonical_mask = mlcc_type_mask & mlcc_family_series.ne("")
+        canonical_mask &= current_series.combine(mlcc_family_series, mlcc_series_should_replace)
+        if canonical_mask.any():
+            work.loc[canonical_mask, "系列"] = mlcc_family_series[canonical_mask]
+            missing_mask.loc[canonical_mask] = False
+
     if not missing_mask.any():
         return work
 
@@ -4192,8 +4259,7 @@ def fill_missing_series_from_model(df):
         missing_mask.loc[pdc_mask] = False
 
     # MLCC / ceramic families with well-defined official naming prefixes.
-    assign_series(r"^(CGA[0-9A-Z]{3})", brand_clean.str.contains(r"TDK|东电化", case=False, regex=True, na=False))
-    assign_series(r"^(C\d{4})", brand_clean.str.contains(r"TDK|东电化", case=False, regex=True, na=False))
+    assign_series(r"^([A-Z]{1,3}\d{4})", mlcc_type_mask)
     assign_series(r"^((?:GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|ZRA|ZRB|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|YNA))")
     assign_series(r"^(AVR-M)")
     assign_series(r"^(AVRM)")
@@ -7795,6 +7861,12 @@ def build_component_column_config(columns, spec_or_type=None):
         "推荐等级": "small",
         "品牌": "small",
         "型号": "medium",
+        "品牌1": "small",
+        "型号1": "medium",
+        "品牌2": "small",
+        "型号2": "medium",
+        "品牌3": "small",
+        "型号3": "medium",
         "系列": "small",
         "系列说明": "medium",
         "信昌料号": "large",
@@ -8350,6 +8422,28 @@ MLCC_REFERENCE_ALIAS_MAP = {
     "华科料号": ("华新科", "WALSIN", "华科"),
 }
 MLCC_REFERENCE_EXCLUDE_ALIASES = tuple({alias for aliases in MLCC_REFERENCE_ALIAS_MAP.values() for alias in aliases if clean_text(alias) != ""})
+BOM_PREFERRED_BRAND_SLOTS = 3
+BOM_PREFERRED_BRAND_ALIAS_GROUPS = (
+    ("信昌", ("信昌", "PDC")),
+    ("华新科", ("华新科", "WALSIN", "华科")),
+    ("芯声微", ("芯声微", "HRE")),
+    ("厚声", ("厚声", "UNI-ROYAL", "UNIROYAL")),
+    ("江海", ("江海", "JIANGHAI", "NANTONG JIANGHAI")),
+    ("爱普生", ("爱普生", "EPSON")),
+)
+BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
+    {
+        alias
+        for _, aliases in BOM_PREFERRED_BRAND_ALIAS_GROUPS
+        for alias in aliases
+        if clean_text(alias) != ""
+    }
+)
+BOM_PREFERRED_SLOT_COLUMNS = tuple(
+    col
+    for idx in range(1, BOM_PREFERRED_BRAND_SLOTS + 1)
+    for col in (f"品牌{idx}", f"型号{idx}")
+)
 
 
 def brand_alias_matches(brand, aliases):
@@ -8361,6 +8455,74 @@ def brand_alias_matches(brand, aliases):
         if alias_text != "" and alias_text in brand_text:
             return True
     return False
+
+
+def empty_bom_preferred_brand_slots(limit=BOM_PREFERRED_BRAND_SLOTS):
+    slots = {}
+    for idx in range(1, limit + 1):
+        slots[f"品牌{idx}"] = ""
+        slots[f"型号{idx}"] = ""
+    return slots
+
+
+def match_bom_preferred_brand_label(brand):
+    for label, aliases in BOM_PREFERRED_BRAND_ALIAS_GROUPS:
+        if brand_alias_matches(brand, aliases):
+            return label
+    return ""
+
+
+def normalize_brand_model_pair_set(pairs):
+    normalized = set()
+    for item in pairs or []:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        brand = clean_brand(item[0])
+        model = clean_text(item[1])
+        if brand != "" and model != "":
+            normalized.add((brand, model))
+        label = match_bom_preferred_brand_label(brand)
+        if label != "" and model != "":
+            normalized.add((label, model))
+    return normalized
+
+
+def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, exclude_pairs=None):
+    slots = empty_bom_preferred_brand_slots(limit=limit)
+    if frame is None or frame.empty:
+        return slots
+    if "品牌" not in frame.columns or "型号" not in frame.columns:
+        return slots
+    excluded = normalize_brand_model_pair_set(exclude_pairs)
+    items = []
+    seen = set()
+    for brand_value, model_value in zip(frame["品牌"].astype(str).tolist(), frame["型号"].astype(str).tolist()):
+        label = match_bom_preferred_brand_label(brand_value)
+        model = clean_text(model_value)
+        if label == "" or model == "":
+            continue
+        key = (label, model)
+        if key in excluded or key in seen:
+            continue
+        seen.add(key)
+        items.append(key)
+        if len(items) >= limit:
+            break
+    for idx, (brand, model) in enumerate(items, start=1):
+        slots[f"品牌{idx}"] = brand
+        slots[f"型号{idx}"] = model
+    return slots
+
+
+def choose_bom_display_match(frame):
+    if frame is None or frame.empty:
+        return None
+    if "品牌" not in frame.columns:
+        return frame.iloc[0]
+    for _, row in frame.iterrows():
+        if match_bom_preferred_brand_label(row.get("品牌", "")) != "":
+            return row
+    return frame.iloc[0]
 
 
 def collect_brand_models_in_frame(frame, aliases):
@@ -8440,21 +8602,25 @@ def lookup_brand_models_for_spec(df, spec, aliases):
     return ""
 
 
-def format_other_brand_models(frame, limit=None):
+def format_other_brand_models(frame, limit=None, exclude_aliases=None, exclude_pairs=None):
     if frame is None or frame.empty:
         return ""
     if "品牌" not in frame.columns or "型号" not in frame.columns:
         return ""
+    alias_filter = tuple(exclude_aliases or MLCC_REFERENCE_EXCLUDE_ALIASES)
+    excluded_pairs = normalize_brand_model_pair_set(exclude_pairs)
     items = []
     seen = set()
     for brand_value, model_value in zip(frame["品牌"].astype(str).tolist(), frame["型号"].astype(str).tolist()):
         brand = clean_brand(brand_value)
-        if brand_alias_matches(brand, MLCC_REFERENCE_EXCLUDE_ALIASES):
+        if alias_filter and brand_alias_matches(brand, alias_filter):
             continue
         model = clean_text(model_value)
         if model == "":
             continue
         key = (brand, model)
+        if key in excluded_pairs:
+            continue
         if key in seen:
             continue
         seen.add(key)
@@ -8585,6 +8751,23 @@ def build_bom_display_df(result_df):
         return pd.DataFrame()
 
     display_df = result_df.copy()
+    if "推荐品牌" in display_df.columns:
+        recommend_brand = display_df["推荐品牌"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+        if "品牌" in display_df.columns:
+            base_brand = display_df["品牌"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+            display_df["品牌"] = recommend_brand.where(recommend_brand.ne(""), base_brand)
+        else:
+            display_df["品牌"] = recommend_brand
+    if "推荐型号" in display_df.columns:
+        recommend_model = display_df["推荐型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+        if "型号" in display_df.columns:
+            base_model = display_df["型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+            display_df["型号"] = recommend_model.where(recommend_model.ne(""), base_model)
+        else:
+            display_df["型号"] = recommend_model
+    for col in BOM_PREFERRED_SLOT_COLUMNS:
+        if col not in display_df.columns:
+            display_df[col] = ""
     if "前5个其他品牌型号" in display_df.columns and "其他品牌型号" not in display_df.columns:
         display_df["其他品牌型号"] = display_df["前5个其他品牌型号"]
     display_df["解析说明"] = display_df.apply(build_bom_parse_summary, axis=1)
@@ -8599,6 +8782,14 @@ def build_bom_display_df(result_df):
         "BOM数量",
         "匹配参数明细",
         "首选推荐等级",
+        "品牌",
+        "型号",
+        "品牌1",
+        "型号1",
+        "品牌2",
+        "型号2",
+        "品牌3",
+        "型号3",
         "其他品牌型号",
         "状态",
         "解析说明",
@@ -8735,7 +8926,7 @@ def parse_taiyo_new_common(model):
 def parse_generic_size_first_mlcc(model, brand=""):
     model = clean_model(model)
     match = re.fullmatch(
-        r"(?P<prefix>[A-Z]{2,3})(?P<size>\d{4})(?P<mat>C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L|Y5V)(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<volt>(?:6R3|0J|0G|0E|1A|1B|1C|1D|1E|1H|2A|2D|2E|2J|250|500|630|\d{3}))(?P<rest>.*)",
+        r"(?P<prefix>[A-Z]{1,3})(?P<size>\d{4})(?P<mat>C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L|Y5V)(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<volt>(?:6R3|0J|0G|0E|1A|1B|1C|1D|1E|1H|2A|2D|2E|2J|250|500|630|\d{3}))(?P<rest>.*)",
         model,
     )
     if not match:
@@ -8770,6 +8961,7 @@ def parse_generic_size_first_mlcc(model, brand=""):
     return {
         "品牌": display_brand,
         "型号": model,
+        "系列": match.group("prefix") + match.group("size"),
         "尺寸（inch）": size_map.get(match.group("size"), clean_size(match.group("size"))),
         "材质（介质）": clean_material(material_map.get(match.group("mat"), match.group("mat"))),
         "容值_pf": murata_cap_code_to_pf(match.group("cap")),
@@ -9262,10 +9454,10 @@ def parse_model_rule(model, brand="", component_type=""):
         parsed = parse_kyocera_avx_common(m)
         if parsed is not None:
             return parsed
-    if "HRE" in brand_upper or "芯声微" in brand_text:
-        parsed = parse_generic_size_first_mlcc(m, brand=brand_text)
-        if parsed is not None:
-            return parsed
+    if mlcc_generic_size_first_parser_allowed(brand_text):
+        parsed_generic_size_first = parse_generic_size_first_mlcc(m, brand=brand_text)
+        if parsed_generic_size_first is not None:
+            return parsed_generic_size_first
     if FENGHUA_AM_MODEL_PATTERN.fullmatch(m):
         parsed = parse_fenghua_am_series(m)
         if parsed is not None:
@@ -11210,7 +11402,13 @@ def prepare_search_dataframe(df):
             axis=1,
         )
         mlcc_profile_df = pd.DataFrame(list(mlcc_profiles), index=mlcc_profiles.index)
-        for col in ["系列", "系列说明", "特殊用途"]:
+        current_series = work.loc[mlcc_mask, "系列"].astype(str).apply(clean_text)
+        profile_series = mlcc_profile_df["系列"].astype(str).apply(clean_text)
+        series_replace_mask = current_series.combine(profile_series, mlcc_series_should_replace)
+        if series_replace_mask.any():
+            replace_idx = series_replace_mask[series_replace_mask].index
+            work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
+        for col in ["系列说明", "特殊用途"]:
             blank_mask = work.loc[mlcc_mask, col].astype(str).apply(clean_text).eq("")
             if blank_mask.any():
                 blank_idx = blank_mask[blank_mask].index
@@ -12926,7 +13124,7 @@ def style_exact_match_rows(df, spec=None):
 
 def format_display_df(show_df):
     show_df = show_df.copy()
-    for col in ["品牌","型号","推荐品牌","推荐型号","信昌料号","华科料号","前5个其他品牌型号","其他品牌型号","系列","尺寸（inch）","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途","备注1","备注2","备注3","规格参数明细","匹配参数明细","功率","脚距","安规","规格","压敏电压"]:
+    for col in ["品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3","推荐品牌","推荐型号","信昌料号","华科料号","前5个其他品牌型号","其他品牌型号","系列","尺寸（inch）","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途","备注1","备注2","备注3","规格参数明细","匹配参数明细","功率","脚距","安规","规格","压敏电压"]:
         if col in show_df.columns:
             show_df[col] = show_df[col].astype(str).replace("nan", "").replace("None", "")
     for dim_col in ["长度（mm）", "宽度（mm）", "高度（mm）"]:
@@ -13295,8 +13493,10 @@ def estimate_result_table_column_width(col, values, header_label):
             sample_lengths.append(display_text_width(text))
     longest = max(sample_lengths) if sample_lengths else display_text_width(header_text)
     width = longest * 8.4 + 24
-    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("系列"), clean_text("容值单位")}:
+    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("品牌1"), clean_text("品牌2"), clean_text("品牌3"), clean_text("系列"), clean_text("容值单位")}:
         width = max(width, 92)
+    if col_text in {clean_text("型号"), clean_text("型号1"), clean_text("型号2"), clean_text("型号3"), clean_text("推荐型号")}:
+        width = max(width, 112)
     if col_text in {clean_text("尺寸（inch）"), clean_text("容值"), clean_text("容值误差"), clean_text("耐压（V）")}:
         width = max(width, 92)
     if col_text in {clean_text("BOM规格"), clean_text("BOM品名"), clean_text("其他品牌型号"), clean_text("关键规格"), clean_text("差异说明"), clean_text("解析输入"), clean_text("规格参数明细"), clean_text("匹配参数明细")}:
@@ -13795,6 +13995,14 @@ html, body {{
                 '安规': 92,
                 '规格': 92,
                 '匹配数量': 92,
+                '品牌': 92,
+                '型号': 112,
+                '品牌1': 92,
+                '型号1': 112,
+                '品牌2': 92,
+                '型号2': 112,
+                '品牌3': 92,
+                '型号3': 112,
                 '推荐品牌': 92,
                 '推荐型号': 112,
                 '信昌料号': 108,
@@ -14886,6 +15094,12 @@ def build_bom_result_row(df, line):
         "型号": "",
         "推荐品牌": "",
         "推荐型号": "",
+        "品牌1": "",
+        "型号1": "",
+        "品牌2": "",
+        "型号2": "",
+        "品牌3": "",
+        "型号3": "",
         "尺寸（inch）": "",
         "材质（介质）": "",
         "容值": "",
@@ -14937,8 +15151,23 @@ def build_bom_result_row(df, line):
     matched = matched.copy()
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
+    display_match = choose_bom_display_match(matched)
+    if display_match is None:
+        display_match = matched.iloc[0]
     row["匹配数量"] = int(len(matched))
-    row["前5个其他品牌型号"] = format_other_brand_models(matched)
+    row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
+    row["推荐型号"] = clean_text(display_match.get("型号", ""))
+    row.update(
+        build_bom_preferred_brand_slots(
+            matched,
+            exclude_pairs=[(row["推荐品牌"], row["推荐型号"])],
+        )
+    )
+    row["前5个其他品牌型号"] = format_other_brand_models(
+        matched,
+        exclude_aliases=BOM_PREFERRED_BRAND_EXCLUDE_ALIASES,
+        exclude_pairs=[(row["推荐品牌"], row["推荐型号"])],
+    )
     row["状态"] = "匹配成功"
     return row
 
@@ -14967,6 +15196,12 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         "型号": "",
         "推荐品牌": "",
         "推荐型号": "",
+        "品牌1": "",
+        "型号1": "",
+        "品牌2": "",
+        "型号2": "",
+        "品牌3": "",
+        "型号3": "",
         "尺寸（inch）": "",
         "材质（介质）": "",
         "容值": "",
@@ -15029,30 +15264,42 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         matched = matched.copy()
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
-        first_match = matched.iloc[0]
+        display_match = choose_bom_display_match(matched)
+        if display_match is None:
+            display_match = matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
-        result_row["首选推荐等级"] = best.get("top_match_level", "")
-        result_row["推荐品牌"] = clean_text(first_match.get("品牌", ""))
-        result_row["推荐型号"] = clean_text(first_match.get("型号", ""))
-        result_row["匹配参数明细"] = build_component_spec_detail_from_row(first_match, result_row.get("器件类型", ""))
-        result_row["前5个其他品牌型号"] = format_other_brand_models(matched)
+        result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) or best.get("top_match_level", "")
+        result_row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
+        result_row["推荐型号"] = clean_text(display_match.get("型号", ""))
+        result_row.update(
+            build_bom_preferred_brand_slots(
+                matched,
+                exclude_pairs=[(result_row["推荐品牌"], result_row["推荐型号"])],
+            )
+        )
+        result_row["匹配参数明细"] = build_component_spec_detail_from_row(display_match, result_row.get("器件类型", ""))
+        result_row["前5个其他品牌型号"] = format_other_brand_models(
+            matched,
+            exclude_aliases=BOM_PREFERRED_BRAND_EXCLUDE_ALIASES,
+            exclude_pairs=[(result_row["推荐品牌"], result_row["推荐型号"])],
+        )
         hit_columns = []
-        if clean_text(result_row["尺寸（inch）"]) != "" and clean_size(first_match.get("尺寸（inch）", "")) == clean_size(result_row["尺寸（inch）"]):
+        if clean_text(result_row["尺寸（inch）"]) != "" and clean_size(display_match.get("尺寸（inch）", "")) == clean_size(result_row["尺寸（inch）"]):
             hit_columns.append("尺寸（inch）")
-        if clean_text(result_row["材质（介质）"]) != "" and clean_material(first_match.get("材质（介质）", "")) == clean_material(result_row["材质（介质）"]):
+        if clean_text(result_row["材质（介质）"]) != "" and clean_material(display_match.get("材质（介质）", "")) == clean_material(result_row["材质（介质）"]):
             hit_columns.append("材质（介质）")
-        if clean_text(result_row["容值"]) != "" and clean_text(first_match.get("容值", "")) == clean_text(result_row["容值"]):
+        if clean_text(result_row["容值"]) != "" and clean_text(display_match.get("容值", "")) == clean_text(result_row["容值"]):
             hit_columns.append("容值")
-        if clean_text(result_row["容值单位"]) != "" and clean_text(first_match.get("容值单位", "")).upper() == clean_text(result_row["容值单位"]).upper():
+        if clean_text(result_row["容值单位"]) != "" and clean_text(display_match.get("容值单位", "")).upper() == clean_text(result_row["容值单位"]).upper():
             hit_columns.append("容值单位")
-        if clean_text(result_row["容值误差"]) != "" and clean_tol_for_display(first_match.get("容值误差", "")) == clean_text(result_row["容值误差"]):
+        if clean_text(result_row["容值误差"]) != "" and clean_tol_for_display(display_match.get("容值误差", "")) == clean_text(result_row["容值误差"]):
             hit_columns.append("容值误差")
-        if clean_text(result_row["耐压（V）"]) != "" and voltage_display(first_match.get("耐压（V）", "")) == clean_text(result_row["耐压（V）"]):
+        if clean_text(result_row["耐压（V）"]) != "" and voltage_display(display_match.get("耐压（V）", "")) == clean_text(result_row["耐压（V）"]):
             hit_columns.append("耐压（V）")
         result_row["匹配命中列"] = "|".join(hit_columns)
-        result_row["备注1"] = clean_text(first_match.get("备注1", ""))
-        result_row["备注2"] = clean_text(first_match.get("备注2", ""))
-        result_row["备注3"] = clean_text(first_match.get("备注3", ""))
+        result_row["备注1"] = clean_text(display_match.get("备注1", ""))
+        result_row["备注2"] = clean_text(display_match.get("备注2", ""))
+        result_row["备注3"] = clean_text(display_match.get("备注3", ""))
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(
@@ -16421,6 +16668,8 @@ if search_clicked:
                     )
                     show_df = format_display_df(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
+                    if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
+                        show_df = show_df.drop(columns=["特殊用途"])
 
                     part_info_fragment = render_clickable_result_table(
                         part_info_df,
@@ -16473,6 +16722,8 @@ if search_clicked:
                 )
                 show_df = format_display_df(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)
+                if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
+                    show_df = show_df.drop(columns=["特殊用途"])
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,

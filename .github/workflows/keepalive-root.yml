@@ -1,8 +1,8 @@
-name: Keep Streamlit Alive
+name: Keep Streamlit Root Alive
 
 on:
   schedule:
-    - cron: "0 */11 * * *"
+    - cron: "5 */11 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,13 +13,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Wake Streamlit app
+      - name: Wake Streamlit app through root
         shell: bash
         run: |
           set -euo pipefail
 
           cookie_jar="$(mktemp)"
           trap 'rm -f "${cookie_jar}"' EXIT
+
+          curl --fail --silent --show-error --location \
+            --cookie "${cookie_jar}" \
+            --cookie-jar "${cookie_jar}" \
+            --retry 3 --retry-all-errors --max-time 120 --max-redirs 20 \
+            -H "Cache-Control: no-store" \
+            -H "Pragma: no-cache" \
+            "https://fruition-componentmatche.streamlit.app/" >/dev/null
+
+          sleep 15
 
           curl --fail --silent --show-error --location \
             --cookie "${cookie_jar}" \
