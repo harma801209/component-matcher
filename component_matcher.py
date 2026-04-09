@@ -85,7 +85,7 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
-SOURCE_NORMALIZED_CACHE_VERSION = 4
+SOURCE_NORMALIZED_CACHE_VERSION = 5
 SEARCH_INDEX_SCHEMA_VERSION = 5
 QUERY_RESULT_CACHE_VERSION = 7
 MANUAL_CORRECTION_RULES_VERSION = 1
@@ -9872,6 +9872,33 @@ def apply_component_type_inference_overrides_to_dataframe(df):
     return work
 
 
+def normalize_capacitor_value_fields_from_pf(df):
+    if df is None or df.empty or "器件类型" not in df.columns or "容值_pf" not in df.columns:
+        return df
+    work = df.copy()
+    normalized_types = work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+    pf_series = pd.to_numeric(work["容值_pf"], errors="coerce")
+    current_units = work["容值单位"].astype("string").fillna("").apply(lambda value: clean_text(value).upper()) if "容值单位" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    current_values = work["容值"].astype("string").fillna("").apply(clean_text) if "容值" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    candidate_mask = (
+        normalized_types.isin(CAPACITOR_COMPONENT_TYPES)
+        & pf_series.notna()
+        & (
+            current_units.eq("")
+            | ~current_units.isin({"PF", "NF", "UF"})
+            | current_values.eq("")
+        )
+    )
+    if not candidate_mask.any():
+        return work
+    for row_idx in candidate_mask[candidate_mask].index:
+        pf_value = pf_series.at[row_idx]
+        value, unit = pf_to_value_unit(float(pf_value))
+        work.at[row_idx, "容值"] = value
+        work.at[row_idx, "容值单位"] = unit
+    return work
+
+
 LIBRARY_COMMON_COLUMNS = [
     "器件类型", "安装方式", "封装代码", "尺寸（mm）", "规格摘要", "生产状态",
     "长度（mm）", "宽度（mm）", "高度（mm）",
@@ -10075,6 +10102,7 @@ def normalize_imported_component_dataframe(df, source_path=""):
             work.loc[backfill_mask, col] = enriched[col]
     work = apply_model_rule_overrides_to_dataframe(work, override_conflicts=True)
     work = apply_component_type_inference_overrides_to_dataframe(work)
+    work = normalize_capacitor_value_fields_from_pf(work)
     return work
 
 
@@ -11217,6 +11245,84 @@ def backfill_component_types_in_database_in_place(chunk_rows=100000):
             )
             if chunk is not None and not chunk.empty:
                 updates = build_component_type_backfill_updates(chunk)
+                if updates:
+                    conn.executemany(update_sql, updates)
+                    conn.commit()
+                    updated_rows += len(updates)
+            batch_start = batch_end + 1
+        return updated_rows
+    finally:
+        conn.close()
+
+
+def build_capacitor_value_unit_backfill_updates(chunk):
+    if chunk is None or chunk.empty:
+        return []
+    if "__rowid__" not in chunk.columns:
+        raise KeyError("__rowid__")
+    normalized_types = chunk["器件类型"].astype("string").fillna("").apply(normalize_component_type) if "器件类型" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    pf_series = pd.to_numeric(chunk["容值_pf"], errors="coerce") if "容值_pf" in chunk.columns else pd.Series([None] * len(chunk), index=chunk.index, dtype="float64")
+    current_units = chunk["容值单位"].astype("string").fillna("").apply(lambda value: clean_text(value).upper()) if "容值单位" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    current_values = chunk["容值"].astype("string").fillna("").apply(clean_text) if "容值" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    row_ids = pd.to_numeric(chunk["__rowid__"], errors="coerce")
+    candidate_mask = (
+        normalized_types.isin(CAPACITOR_COMPONENT_TYPES)
+        & pf_series.notna()
+        & (
+            current_units.eq("")
+            | ~current_units.isin({"PF", "NF", "UF"})
+            | current_values.eq("")
+        )
+    )
+    if not candidate_mask.any():
+        return []
+    updates = []
+    for row_index in candidate_mask[candidate_mask].index:
+        row_id = row_ids.at[row_index]
+        if pd.isna(row_id):
+            continue
+        value, unit = pf_to_value_unit(float(pf_series.at[row_index]))
+        if value == "" or unit == "":
+            continue
+        if current_values.at[row_index] == value and current_units.at[row_index] == unit:
+            continue
+        updates.append((value, unit, int(row_id)))
+    return updates
+
+
+def backfill_capacitor_value_units_in_database_in_place(chunk_rows=100000):
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(DB_PATH)
+
+    conn = sqlite3.connect(DB_PATH, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    try:
+        min_rowid, max_rowid = conn.execute("SELECT MIN(rowid), MAX(rowid) FROM components").fetchone()
+        if min_rowid is None or max_rowid is None:
+            raise RuntimeError("database contains no component rows")
+
+        batch_size = max(int(chunk_rows), 1000)
+        update_sql = (
+            'UPDATE components SET "容值" = ?, "容值单位" = ? '
+            'WHERE rowid = ?'
+        )
+        updated_rows = 0
+        batch_start = int(min_rowid)
+        final_rowid = int(max_rowid)
+        while batch_start <= final_rowid:
+            batch_end = batch_start + batch_size - 1
+            chunk = pd.read_sql_query(
+                'SELECT rowid AS "__rowid__", * FROM components WHERE rowid BETWEEN ? AND ?',
+                conn,
+                params=[batch_start, batch_end],
+            )
+            if chunk is not None and not chunk.empty:
+                updates = build_capacitor_value_unit_backfill_updates(chunk)
                 if updates:
                     conn.executemany(update_sql, updates)
                     conn.commit()

@@ -1081,3 +1081,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 新增导入阶段的器件类型证据覆盖与数据库 in-place 回灌，已把主库里 `48,884` 条“电阻误挂 MLCC”记录改回电阻家族，并把这批行的 `容值_pf` 清空，避免继续带着伪电容值进入准备层。
 - 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；复核结果为 `MLCC + 来源:resistor/规格摘要电阻` 剩余 `0`，示例 `Bourns CR0805-FX-1000ELF` 已变为 `厚膜电阻`，而 `国巨 AC0201CRNPO8BN1R0` 这类仅单位脏写成 `Ω` 的真实 MLCC 未被误伤。
 - 仍留有一批后续独立问题：主库里约 `842` 条真实 MLCC 的 `容值单位` 被写成 `Ω`，当前未做自动纠偏，避免把真 MLCC 误改类型；这批可在下一轮作为“单位规则清洗”单独处理。
+
+## 2026-04-10 MLCC 容值单位规则清洗（国巨 AC 系列）
+- 延续上一轮审计，补做了 `国巨YAGEO` 真 MLCC 的容值显示清洗：原库里 `914` 条 MLCC 虽然 `容值_pf` 正确，但 `容值/容值单位` 被错误写成了 `Ω / KΩ` 这类电阻单位。
+- 新增 `normalize_capacitor_value_fields_from_pf()`，导入阶段会在电容类器件已具备 `容值_pf` 且显示值/单位为空或非 `PF/NF/UF` 时，按 `容值_pf` 统一回写标准电容值与单位。
+- 同步新增数据库 in-place 回灌，把主库这 `914` 条错误显示值修正为标准电容表示，例如 `AC0201KRX5R6BB104 -> 100 NF`、`AC0201CRNPO9BN1R0 -> 1 PF`、`AC0201JRNPO9BN120 -> 12 PF`。
+- 现有 `components_prepared_v5.parquet` 也已按同规则分块重写并刷新 meta；复核结果为主库与 prepared 层的 `MLCC + 非 PF/NF/UF 单位` 均已清零。
