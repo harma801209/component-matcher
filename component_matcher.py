@@ -8538,38 +8538,6 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
     return slots
 
 
-def build_bom_preferred_brand_option_map(frame):
-    options = {}
-    if frame is None or frame.empty:
-        return options
-    if "品牌" not in frame.columns or "型号" not in frame.columns:
-        return options
-    for label, aliases in BOM_PREFERRED_BRAND_ALIAS_GROUPS:
-        models = []
-        seen = set()
-        for brand_value, model_value in zip(frame["品牌"].astype(str).tolist(), frame["型号"].astype(str).tolist()):
-            if not brand_alias_matches(brand_value, aliases):
-                continue
-            model = clean_text(model_value)
-            if model == "" or model in seen:
-                continue
-            seen.add(model)
-            models.append(model)
-        if models:
-            options[label] = models
-    return options
-
-
-def serialize_bom_preferred_brand_options(frame):
-    option_map = build_bom_preferred_brand_option_map(frame)
-    if not option_map:
-        return ""
-    try:
-        return json.dumps(option_map, ensure_ascii=False, separators=(",", ":"))
-    except Exception:
-        return ""
-
-
 def choose_bom_display_match(frame):
     if frame is None or frame.empty:
         return None
@@ -8844,8 +8812,7 @@ def build_bom_display_df(result_df):
     existing_columns = [col for col in preferred_columns if col in display_df.columns]
     if not existing_columns:
         return display_df
-    hidden_columns = [col for col in ["_推荐选项"] if col in display_df.columns and col not in existing_columns]
-    return display_df[existing_columns + hidden_columns]
+    return display_df[existing_columns]
 
 
 def parse_taiyo_common(model):
@@ -13877,28 +13844,6 @@ html, body {{
     font-size: 13px;
     line-height: 1.4;
 }}
-.bom-rec-select {{
-    width: 100%;
-    min-width: 92px;
-    max-width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    background: #ffffff;
-    color: #0f172a;
-    font-size: 13px;
-    line-height: 1.25;
-    box-sizing: border-box;
-}}
-.bom-rec-select:focus {{
-    outline: none;
-    border-color: #1565c0;
-    box-shadow: 0 0 0 2px rgba(21, 101, 192, 0.12);
-}}
-.bom-rec-cell {{
-    overflow: visible !important;
-    text-overflow: clip !important;
-}}
 .col-resizer {{
     position: absolute;
     top: 0;
@@ -14167,121 +14112,6 @@ html, body {{
     }}
 
     document.querySelectorAll('table.result-table').forEach(initTable);
-
-    function safeParseJson(text) {{
-        try {{
-            return JSON.parse(text || '{{}}');
-        }} catch (err) {{
-            return {{}};
-        }}
-    }}
-
-    function getBomSelect(tr, slot, kind) {{
-        return tr.querySelector('select.bom-rec-select[data-slot=\"' + slot + '\"][data-kind=\"' + kind + '\"]');
-    }}
-
-    function getBomSelections(tr) {{
-        var selections = [];
-        for (var slot = 0; slot < 4; slot += 1) {{
-            var brandSelect = getBomSelect(tr, slot, 'brand');
-            var modelSelect = getBomSelect(tr, slot, 'model');
-            selections.push({{
-                brand: brandSelect ? (brandSelect.value || brandSelect.getAttribute('data-initial-value') || '') : '',
-                model: modelSelect ? (modelSelect.value || modelSelect.getAttribute('data-initial-value') || '') : ''
-            }});
-        }}
-        return selections;
-    }}
-
-    function availableModelsForBrand(optionMap, brand, selections, slot, currentModel) {{
-        if (!brand || !optionMap || !optionMap[brand]) {{
-            return [];
-        }}
-        var used = new Set();
-        selections.forEach(function(selection, idx) {{
-            if (idx === slot) {{
-                return;
-            }}
-            if ((selection.brand || '') === brand && (selection.model || '') !== '') {{
-                used.add(selection.model);
-            }}
-        }});
-        return optionMap[brand].filter(function(model) {{
-            return !used.has(model) || model === currentModel;
-        }});
-    }}
-
-    function availableBrandsForSlot(optionMap, selections, slot) {{
-        if (!optionMap) {{
-            return [];
-        }}
-        var currentBrand = (selections[slot] && selections[slot].brand) || '';
-        return Object.keys(optionMap).filter(function(brand) {{
-            var models = availableModelsForBrand(optionMap, brand, selections, slot, (selections[slot] && selections[slot].model) || '');
-            return models.length > 0 || brand === currentBrand;
-        }});
-    }}
-
-    function setSelectOptions(select, values, selectedValue, blankLabel) {{
-        if (!select) {{
-            return '';
-        }}
-        var current = selectedValue || '';
-        var htmlParts = ['<option value=\"\">' + (blankLabel || '空白') + '</option>'];
-        values.forEach(function(value) {{
-            var safeValue = String(value || '');
-            var selected = safeValue === current ? ' selected' : '';
-            htmlParts.push('<option value=\"' + safeValue.replace(/\"/g, '&quot;') + '\"' + selected + '>' + safeValue + '</option>');
-        }});
-        select.innerHTML = htmlParts.join('');
-        select.value = current;
-        if ((select.value || '') !== current) {{
-            select.value = '';
-        }}
-        return select.value || '';
-    }}
-
-    function syncBomRecommendationRow(tr) {{
-        var optionMap = safeParseJson(tr.getAttribute('data-rec-options') || '{{}}');
-        var selections = getBomSelections(tr);
-        for (var slot = 0; slot < 4; slot += 1) {{
-            var brandSelect = getBomSelect(tr, slot, 'brand');
-            var modelSelect = getBomSelect(tr, slot, 'model');
-            if (!brandSelect || !modelSelect) {{
-                continue;
-            }}
-            var selectedBrand = selections[slot].brand || '';
-            var selectedModel = selections[slot].model || '';
-            var brandOptions = availableBrandsForSlot(optionMap, selections, slot);
-            selectedBrand = setSelectOptions(brandSelect, brandOptions, selectedBrand, '空白');
-            selections[slot].brand = selectedBrand;
-            var modelOptions = availableModelsForBrand(optionMap, selectedBrand, selections, slot, selectedModel);
-            if (selectedBrand !== '' && selectedModel === '' && modelOptions.length > 0) {{
-                selectedModel = modelOptions[0];
-            }}
-            if (selectedBrand === '') {{
-                selectedModel = '';
-            }}
-            selectedModel = setSelectOptions(modelSelect, modelOptions, selectedModel, '空白');
-            selections[slot].model = selectedModel;
-            brandSelect.setAttribute('data-initial-value', selectedBrand);
-            modelSelect.setAttribute('data-initial-value', selectedModel);
-        }}
-        reportFrameHeight();
-    }}
-
-    function initBomRecommendationEditors() {{
-        document.querySelectorAll('tr[data-rec-options]').forEach(function(tr) {{
-            tr.querySelectorAll('select.bom-rec-select').forEach(function(select) {{
-                select.addEventListener('change', function() {{
-                    syncBomRecommendationRow(tr);
-                }});
-            }});
-            syncBomRecommendationRow(tr);
-        }});
-    }}
-
-    initBomRecommendationEditors();
     window.addEventListener('load', function() {{
         window.setTimeout(function() {{
             if (window.Streamlit && typeof window.Streamlit.setFrameHeight === 'function') {{
@@ -14302,15 +14132,12 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
     else:
         display_df = show_df.copy()
 
-    is_bom_recommendation_trial = clean_text(wrapper_class) == clean_text("bom-result-table-wrap") and "_推荐选项" in display_df.columns
     hidden = set(hide_columns or [])
     visible_columns = [col for col in display_df.columns if col != "_量产状态链接" and col not in hidden]
     header_labels = get_component_header_labels(spec)
     multi_model_columns = {"信昌料号", "华科料号", "前5个其他品牌型号", "其他品牌型号"}
     grouped_brand_model_columns = {"前5个其他品牌型号", "其他品牌型号"}
     detail_columns = {"规格参数明细", "匹配参数明细"}
-    recommendation_brand_columns = {"推荐品牌": 0, "推荐品牌1": 1, "推荐品牌2": 2, "推荐品牌3": 3}
-    recommendation_model_columns = {"推荐型号": 0, "推荐型号1": 1, "推荐型号2": 2, "推荐型号3": 3}
     multi_model_columns_norm = {clean_text(col) for col in multi_model_columns}
     grouped_brand_model_columns_norm = {clean_text(col) for col in grouped_brand_model_columns}
     detail_columns_norm = {clean_text(col) for col in detail_columns}
@@ -14347,12 +14174,7 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
         elif level in {"高代低", "可直接替代"}:
             row_class_name = "substitute-row"
         row_class = f' class="{row_class_name}"' if row_class_name else ""
-        row_attrs = row_class
-        if is_bom_recommendation_trial:
-            rec_options = clean_text(row.get("_推荐选项", ""))
-            if rec_options != "":
-                row_attrs += f' data-rec-options="{html.escape(rec_options, quote=True)}"'
-        parts.append(f"<tr{row_attrs}>")
+        parts.append(f"<tr{row_class}>")
         official_link = clean_text(row.get("_量产状态链接", "")) if show_official_status else ""
         if level == "部分参数匹配":
             raw_hit_columns = clean_text(row.get("匹配命中列", ""))
@@ -14369,24 +14191,6 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
                 cell = render_model_list_cell(value, grouped=norm_col in grouped_brand_model_columns_norm)
                 cell_class = ' class="model-list-cell brand-model-cell"' if norm_col in grouped_brand_model_columns_norm else ' class="model-list-cell"'
                 matched_width = column_widths.get(col, 240)
-                td_style = f' style="width: {matched_width}px; min-width: {matched_width}px; max-width: {matched_width}px;"'
-            elif is_bom_recommendation_trial and col in recommendation_brand_columns:
-                slot = recommendation_brand_columns[col]
-                cell = (
-                    f'<select class="bom-rec-select" data-kind="brand" data-slot="{slot}" '
-                    f'data-initial-value="{html.escape(value, quote=True)}"></select>'
-                )
-                cell_class = ' class="bom-rec-cell"'
-                matched_width = column_widths.get(col, 120)
-                td_style = f' style="width: {matched_width}px; min-width: {matched_width}px; max-width: {matched_width}px;"'
-            elif is_bom_recommendation_trial and col in recommendation_model_columns:
-                slot = recommendation_model_columns[col]
-                cell = (
-                    f'<select class="bom-rec-select" data-kind="model" data-slot="{slot}" '
-                    f'data-initial-value="{html.escape(value, quote=True)}"></select>'
-                )
-                cell_class = ' class="bom-rec-cell"'
-                matched_width = column_widths.get(col, 140)
                 td_style = f' style="width: {matched_width}px; min-width: {matched_width}px; max-width: {matched_width}px;"'
             elif norm_col in detail_columns_norm:
                 cell = f'<div class="detail-cell-text">{html.escape(value).replace(chr(10), "<br>")}</div>' if value != "" else "&nbsp;"
@@ -15309,7 +15113,6 @@ def build_bom_result_row(df, line):
         "型号2": "",
         "品牌3": "",
         "型号3": "",
-        "_推荐选项": "",
         "尺寸（inch）": "",
         "材质（介质）": "",
         "容值": "",
@@ -15361,7 +15164,6 @@ def build_bom_result_row(df, line):
     matched = matched.copy()
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
-    row["_推荐选项"] = serialize_bom_preferred_brand_options(matched)
     display_match = choose_bom_display_match(matched)
     row["匹配数量"] = int(len(matched))
     if display_match is not None:
@@ -15412,7 +15214,6 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         "型号2": "",
         "品牌3": "",
         "型号3": "",
-        "_推荐选项": "",
         "尺寸（inch）": "",
         "材质（介质）": "",
         "容值": "",
@@ -15475,7 +15276,6 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         matched = matched.copy()
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
-        result_row["_推荐选项"] = serialize_bom_preferred_brand_options(matched)
         display_match = choose_bom_display_match(matched)
         detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
@@ -17378,16 +17178,13 @@ if uploaded_file is not None:
                     display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
                     export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                     export_filename = f"{export_name_root}_匹配后.xlsx"
-                    footer_html = (
-                        '<div class="result-table-footer"><span class="bom-download-hint">试用版：下拉选择仅影响当前页面显示，下载 Excel 暂不会同步。</span></div>'
-                        + build_bom_download_footer_html(
-                            st.session_state.get("_bom_export_bytes", b""),
-                            export_filename,
-                        )
+                    footer_html = build_bom_download_footer_html(
+                        st.session_state.get("_bom_export_bytes", b""),
+                        export_filename,
                     )
                     clickable_bom_html = render_clickable_result_table(
                         display_bom_result_df,
-                        hide_columns=["_推荐选项"],
+                        hide_columns=[],
                         show_official_status=False,
                         wrapper_class="bom-result-table-wrap",
                         footer_html=footer_html,
