@@ -2729,7 +2729,22 @@ def mlcc_series_should_replace(current_value, canonical_value):
         return True
     if current == canonical:
         return False
-    return canonical.startswith(current) and len(canonical) > len(current)
+    current_upper = current.upper()
+    canonical_upper = canonical.upper()
+    contaminated_patterns = [
+        r"^C\d{4}$",
+        r"^(?:CC|CQ|AC)\d{4}$",
+        r"^CL\d{2}[A-Z]$",
+        r"^(?:TMK|JMK|EMK|LMK|AMK)\d{2,3}$",
+        r"^(?:MAAS|MSAS|MLAS|MCAST|MCAS)\d{2,3}$",
+        r"^TCC\d{4}$",
+        r"^(?:CGA|CSA)[A-Z0-9]{2,6}$",
+    ]
+    current_is_contaminated = any(re.fullmatch(pattern, current_upper) for pattern in contaminated_patterns)
+    canonical_is_contaminated = any(re.fullmatch(pattern, canonical_upper) for pattern in contaminated_patterns)
+    if current_is_contaminated and not canonical_is_contaminated:
+        return True
+    return False
 
 
 MLCC_GENERIC_SIZE_FIRST_EXCLUDED_BRAND_TOKENS = (
@@ -3092,6 +3107,46 @@ TDK_MLCC_SERIES_CLASS = {
     "C": "常规",
     "CGA": "车规",
 }
+GENERIC_MLCC_SERIES_MEANING = {
+    "CL": "常规 / General-purpose MLCC",
+    "CLR1": "常规 / General-purpose MLCC",
+    "CC": "常规 / General-purpose MLCC",
+    "CQ": "常规 / General-purpose MLCC",
+    "AC": "车规 / Automotive MLCC",
+    "TCC": "常规 / General-purpose MLCC",
+    "LMK": "常规 / General-purpose MLCC",
+    "TMK": "常规 / General-purpose MLCC",
+    "JMK": "常规 / General-purpose MLCC",
+    "EMK": "常规 / General-purpose MLCC",
+    "AMK": "常规 / General-purpose MLCC",
+    "MAAS": "常规 / General-purpose MLCC",
+    "MSAS": "常规 / General-purpose MLCC",
+    "MLAS": "常规 / General-purpose MLCC",
+    "MCAST": "常规 / General-purpose MLCC",
+    "MCAS": "常规 / General-purpose MLCC",
+    "CSA": "常规 / General-purpose MLCC",
+    "CGA": "车规 / AEC-Q200",
+}
+GENERIC_MLCC_SERIES_CLASS = {
+    "CL": "常规",
+    "CLR1": "常规",
+    "CC": "常规",
+    "CQ": "常规",
+    "AC": "车规",
+    "TCC": "常规",
+    "LMK": "常规",
+    "TMK": "常规",
+    "JMK": "常规",
+    "EMK": "常规",
+    "AMK": "常规",
+    "MAAS": "常规",
+    "MSAS": "常规",
+    "MLAS": "常规",
+    "MCAST": "常规",
+    "MCAS": "常规",
+    "CSA": "常规",
+    "CGA": "车规",
+}
 
 
 MLCC_SERIES_CLASS_RULES = [
@@ -3130,22 +3185,56 @@ def normalize_mlcc_series_class(value):
     return "/".join(tokens)
 
 
+def generic_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    if compact.startswith("CLR1"):
+        return "CLR1"
+    if compact.startswith(("CGA", "CSA")):
+        return compact[:3]
+    if compact.startswith("CL"):
+        return "CL"
+    if compact.startswith(("CC", "CQ", "AC")):
+        return compact[:2]
+    for prefix in ("LMK", "TMK", "JMK", "EMK", "AMK", "MAAS", "MSAS", "MLAS", "MCAST", "MCAS", "TCC"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def generic_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(GENERIC_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if "车规" in class_text else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(GENERIC_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
+def generic_mlcc_series_profile_from_model(model):
+    return generic_mlcc_series_profile(generic_mlcc_series_code_from_model(model))
+
+
 def tdk_mlcc_series_profile_from_model(model):
     compact = clean_model(model)
     if compact == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     if compact.startswith("CGA"):
-        series_code_match = re.match(r"^(CGA\d{4})", compact)
-        series_code = clean_text(series_code_match.group(1)) if series_code_match else "CGA"
         return {
-            "系列": series_code,
+            "系列": "CGA",
             "系列说明": TDK_MLCC_SERIES_MEANING["CGA"],
             "特殊用途": "车规",
             "_mlcc_series_class": TDK_MLCC_SERIES_CLASS["CGA"],
         }
     if re.match(r"^C\d{4}[A-Z0-9].*", compact):
         return {
-            "系列": compact[:5],
+            "系列": "C",
             "系列说明": TDK_MLCC_SERIES_MEANING["C"],
             "特殊用途": "",
             "_mlcc_series_class": TDK_MLCC_SERIES_CLASS["C"],
@@ -3186,10 +3275,12 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = pdc_mlcc_series_profile(series_key)
         elif series_key in MURATA_SERIES_MEANING:
             profile = murata_series_profile(series_key)
-        elif series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
+        elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
             profile = tdk_mlcc_series_profile_from_model(series_key)
         else:
-            generic_profile = parse_generic_size_first_mlcc(model_key, brand=brand_text)
+            generic_profile = generic_mlcc_series_profile_from_model(model_key or series_key)
+            if clean_text(generic_profile.get("系列", "")) == "":
+                generic_profile = parse_generic_size_first_mlcc(model_key or series_key, brand=brand_text)
             if generic_profile is not None:
                 profile = generic_profile
 
@@ -3228,7 +3319,7 @@ def infer_mlcc_series_class_from_spec(spec):
 
 def mlcc_series_class_requires_filter(value):
     tokens = set(mlcc_series_class_tokens(value))
-    return bool(tokens & MLCC_STRICT_CLASS_TOKENS)
+    return bool(tokens & MLCC_STRICT_CLASS_TOKENS) or "常规" in tokens
 
 
 def mlcc_series_class_matches(candidate, target):
@@ -3236,6 +3327,8 @@ def mlcc_series_class_matches(candidate, target):
     if not target_tokens:
         return True
     candidate_tokens = set(mlcc_series_class_tokens(candidate))
+    if target_tokens <= {"常规"}:
+        return not bool(candidate_tokens & MLCC_STRICT_CLASS_TOKENS)
     if not candidate_tokens:
         return False
     if "车规" in target_tokens and "车规" not in candidate_tokens:
@@ -3254,6 +3347,11 @@ def mlcc_series_class_sort_rank(candidate, target):
     if not target_tokens:
         return 1
     candidate_text = normalize_mlcc_series_class(candidate)
+    candidate_tokens = set(mlcc_series_class_tokens(candidate_text))
+    if target_tokens <= {"常规"}:
+        if candidate_tokens <= {"常规"}:
+            return 0 if candidate_text == "常规" else 1
+        return 3
     if candidate_text != "" and candidate_text == target_text:
         return 0
     if mlcc_series_class_matches(candidate_text, target_text):
@@ -4172,14 +4270,35 @@ def fill_missing_series_from_model(df):
         if "器件类型" in work.columns
         else pd.Series([False] * len(work), index=work.index)
     )
-    mlcc_family_series = model_clean.astype("string").str.extract(r"^([A-Z]{1,3}\d{4})", expand=False).fillna("").astype("string")
-    if mlcc_type_mask.any() and mlcc_family_series.ne("").any():
-        current_series = work["系列"].astype("string").fillna("").apply(clean_text)
-        canonical_mask = mlcc_type_mask & mlcc_family_series.ne("")
-        canonical_mask &= current_series.combine(mlcc_family_series, mlcc_series_should_replace)
-        if canonical_mask.any():
-            work.loc[canonical_mask, "系列"] = mlcc_family_series[canonical_mask]
-            missing_mask.loc[canonical_mask] = False
+    if mlcc_type_mask.any():
+        mlcc_profile_df = work.loc[mlcc_type_mask, ["品牌", "型号", "系列", "系列说明", "特殊用途"]].apply(
+            lambda row: resolve_mlcc_series_profile(
+                brand=row.get("品牌", ""),
+                model=row.get("型号", ""),
+                series=row.get("系列", ""),
+                series_desc=row.get("系列说明", ""),
+                special_use=row.get("特殊用途", ""),
+            ),
+            axis=1,
+            result_type="expand",
+        )
+        current_series = work.loc[mlcc_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
+        profile_series = mlcc_profile_df["系列"].astype("string").fillna("").apply(clean_text)
+        series_replace_mask = current_series.combine(profile_series, mlcc_series_should_replace)
+        if series_replace_mask.any():
+            replace_idx = series_replace_mask[series_replace_mask].index
+            work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
+        for col in ["系列说明", "特殊用途"]:
+            current_col = work.loc[mlcc_type_mask, col].astype("string").fillna("").apply(clean_text)
+            profile_col = mlcc_profile_df[col].astype("string").fillna("").apply(clean_text)
+            blank_mask = current_col.eq("") & profile_col.ne("")
+            if blank_mask.any():
+                replace_idx = blank_mask[blank_mask].index
+                work.loc[replace_idx, col] = profile_col.loc[replace_idx]
+        current_series_after = work.loc[mlcc_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
+        filled_mlcc_mask = mlcc_type_mask & current_series_after.ne("")
+        if filled_mlcc_mask.any():
+            missing_mask.loc[filled_mlcc_mask] = False
 
     if not missing_mask.any():
         return work
@@ -4266,7 +4385,6 @@ def fill_missing_series_from_model(df):
         missing_mask.loc[pdc_mask] = False
 
     # MLCC / ceramic families with well-defined official naming prefixes.
-    assign_series(r"^([A-Z]{1,3}\d{4})", mlcc_type_mask)
     assign_series(r"^((?:GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|ZRA|ZRB|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|YNA))")
     assign_series(r"^(AVR-M)")
     assign_series(r"^(AVRM)")
@@ -4276,10 +4394,13 @@ def fill_missing_series_from_model(df):
     assign_series(r"^(LS\d{2}K)")
     assign_series(r"^(SGN[A-Z0-9]{4})")
     assign_series(r"^(CN\d{4})")
-    assign_series(r"^(CL\d{2}[A-Z])")
-    assign_series(r"^((?:CC|CQ)\d{4})")
-    assign_series(r"^((?:TMK|JMK|EMK|LMK|AMK)\d{2,3})")
-    assign_series(r"^((?:MAAS|MSAS|MLAS|MCAST|MCAS)\d{2,3})")
+    assign_series(r"^(CL)")
+    assign_series(r"^((?:CC|CQ|AC))")
+    assign_series(r"^((?:TMK|JMK|EMK|LMK|AMK))")
+    assign_series(r"^((?:MAAS|MSAS|MLAS|MCAST|MCAS))")
+    assign_series(r"^(TCC)")
+    assign_series(r"^(CGA)")
+    assign_series(r"^(CSA)")
     assign_series(r"^((?:MT|FP|FS|FN|FM|FV|FK|FH))(?:\d{2})")
     assign_series(r"^(ECR\d[A-Z]{3})")
     assign_series(r"^(ECA\d[A-Z]{3})")
@@ -8979,11 +9100,16 @@ def parse_generic_size_first_mlcc(model, brand=""):
     else:
         display_brand = clean_brand(brand) or "未知"
         authority = "generic_size_first_mlcc"
+    series_profile = generic_mlcc_series_profile_from_model(model)
+    series_code = clean_text(series_profile.get("系列", "")) or clean_text(match.group("prefix"))
 
     return {
         "品牌": display_brand,
         "型号": model,
-        "系列": match.group("prefix") + match.group("size"),
+        "系列": series_code,
+        "系列说明": clean_text(series_profile.get("系列说明", "")),
+        "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+        "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
         "尺寸（inch）": size_map.get(match.group("size"), clean_size(match.group("size"))),
         "材质（介质）": clean_material(material_map.get(match.group("mat"), match.group("mat"))),
         "容值_pf": murata_cap_code_to_pf(match.group("cap")),
@@ -10788,9 +10914,21 @@ def prepared_dataframe_looks_sane(df):
 
 
 def replace_file_atomically(src_path, dst_path):
-    if os.path.exists(dst_path):
-        os.remove(dst_path)
-    os.replace(src_path, dst_path)
+    last_error = None
+    for attempt in range(6):
+        try:
+            os.replace(src_path, dst_path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt >= 5:
+                break
+            time.sleep(0.4 * (attempt + 1))
+    raise last_error
+
+
+def build_unique_temp_path(path, label="tmp"):
+    return f"{path}.{label}.{os.getpid()}.{int(time.time() * 1000)}"
 
 
 def rebuild_search_index_table_from_prepared_cache(prepared_path=None):
@@ -10801,9 +10939,7 @@ def rebuild_search_index_table_from_prepared_cache(prepared_path=None):
     search_dir = os.path.dirname(SEARCH_DB_PATH)
     if search_dir:
         os.makedirs(search_dir, exist_ok=True)
-    temp_path = SEARCH_DB_PATH + ".tmp"
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
+    temp_path = build_unique_temp_path(SEARCH_DB_PATH, "tmp")
     conn = sqlite3.connect(temp_path, timeout=60)
     conn.execute("PRAGMA busy_timeout = 60000")
     configure_sqlite_bulk_load(conn)
@@ -10857,10 +10993,8 @@ def rebuild_prepared_cache_from_database(chunk_rows=COMPONENTS_SEARCH_CHUNK_ROWS
     cache_dir = os.path.dirname(PREPARED_CACHE_PATH)
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
-    temp_parquet_path = PREPARED_CACHE_PATH + ".tmp"
-    temp_meta_path = PREPARED_CACHE_META_PATH + ".tmp"
-    if os.path.exists(temp_parquet_path):
-        os.remove(temp_parquet_path)
+    temp_parquet_path = build_unique_temp_path(PREPARED_CACHE_PATH, "tmp")
+    temp_meta_path = build_unique_temp_path(PREPARED_CACHE_META_PATH, "tmp")
     writer = None
     wrote_any = False
     prepared_columns = None
@@ -10914,13 +11048,95 @@ def rebuild_prepared_cache_from_database(chunk_rows=COMPONENTS_SEARCH_CHUNK_ROWS
     clear_data_load_caches()
 
 
+SERIES_BACKFILL_DB_COLUMNS = ("系列", "系列说明", "特殊用途")
+
+
+def normalize_series_backfill_db_value(value):
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    return str(value).strip()
+
+
+def build_series_backfill_updates(chunk):
+    if chunk is None or chunk.empty:
+        return []
+
+    if "__rowid__" not in chunk.columns:
+        raise KeyError("__rowid__")
+
+    original_chunk = chunk.copy()
+    row_ids = pd.to_numeric(original_chunk.pop("__rowid__"), errors="coerce")
+    filled_chunk = fill_missing_series_from_model(original_chunk)
+    updates = []
+    for row_index, row_id in enumerate(row_ids.tolist()):
+        if pd.isna(row_id):
+            continue
+        current_values = tuple(
+            normalize_series_backfill_db_value(chunk.iloc[row_index].get(column, ""))
+            for column in SERIES_BACKFILL_DB_COLUMNS
+        )
+        new_values = tuple(
+            normalize_series_backfill_db_value(filled_chunk.iloc[row_index].get(column, ""))
+            for column in SERIES_BACKFILL_DB_COLUMNS
+        )
+        if new_values != current_values:
+            updates.append((*new_values, int(row_id)))
+    return updates
+
+
+def backfill_series_fields_in_database_in_place(chunk_rows=100000):
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(DB_PATH)
+
+    conn = sqlite3.connect(DB_PATH, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    try:
+        min_rowid, max_rowid = conn.execute("SELECT MIN(rowid), MAX(rowid) FROM components").fetchone()
+        if min_rowid is None or max_rowid is None:
+            raise RuntimeError("database contains no component rows")
+
+        batch_size = max(int(chunk_rows), 1000)
+        update_sql = (
+            'UPDATE components SET "系列" = ?, "系列说明" = ?, "特殊用途" = ? '
+            'WHERE rowid = ?'
+        )
+        updated_rows = 0
+        batch_start = int(min_rowid)
+        final_rowid = int(max_rowid)
+        while batch_start <= final_rowid:
+            batch_end = batch_start + batch_size - 1
+            chunk = pd.read_sql_query(
+                'SELECT rowid AS "__rowid__", * FROM components WHERE rowid BETWEEN ? AND ?',
+                conn,
+                params=[batch_start, batch_end],
+            )
+            if chunk is not None and not chunk.empty:
+                updates = build_series_backfill_updates(chunk)
+                if updates:
+                    conn.executemany(update_sql, updates)
+                    conn.commit()
+                    updated_rows += len(updates)
+            batch_start = batch_end + 1
+        return updated_rows
+    finally:
+        conn.close()
+
+
 def backfill_series_fields_in_database(chunk_rows=100000):
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(DB_PATH)
 
-    temp_db_path = DB_PATH + ".series_backfill.tmp"
-    if os.path.exists(temp_db_path):
-        os.remove(temp_db_path)
+    temp_db_path = build_unique_temp_path(DB_PATH, "series_backfill")
 
     read_conn = sqlite3.connect(DB_PATH, timeout=60)
     read_conn.execute("PRAGMA busy_timeout = 60000")
@@ -10947,7 +11163,21 @@ def backfill_series_fields_in_database(chunk_rows=100000):
         read_conn.close()
         write_conn.close()
 
-    replace_file_atomically(temp_db_path, DB_PATH)
+    try:
+        replace_file_atomically(temp_db_path, DB_PATH)
+    except PermissionError:
+        try:
+            if os.path.exists(temp_db_path):
+                os.remove(temp_db_path)
+        except OSError:
+            pass
+        backfill_series_fields_in_database_in_place(chunk_rows=chunk_rows)
+    else:
+        if os.path.exists(temp_db_path):
+            try:
+                os.remove(temp_db_path)
+            except OSError:
+                pass
     clear_data_load_caches()
     rebuild_prepared_cache_from_database()
 
@@ -12253,10 +12483,43 @@ def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
     return pd.DataFrame()
 
 
+def filter_mlcc_candidate_pairs_by_series_class(pairs, target_class):
+    if not pairs or not mlcc_series_class_requires_filter(target_class):
+        return pairs
+
+    rows = load_component_rows_by_brand_model_pairs(pairs, preferred_component_type="MLCC")
+    if not isinstance(rows, pd.DataFrame) or rows.empty:
+        return pairs
+
+    filtered_pairs = []
+    seen = set()
+    for row in rows.to_dict(orient="records"):
+        brand_key = clean_brand(row.get("品牌", ""))
+        model_key = clean_model(row.get("型号", ""))
+        if brand_key == "" or model_key == "":
+            continue
+        profile = resolve_mlcc_series_profile(
+            brand=brand_key,
+            model=model_key,
+            series=row.get("系列", ""),
+            series_desc=row.get("系列说明", ""),
+            special_use=row.get("特殊用途", ""),
+        )
+        if not mlcc_series_class_matches(profile.get("_mlcc_series_class", ""), target_class):
+            continue
+        key = (brand_key, model_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered_pairs.append(key)
+    return filtered_pairs
+
+
 def fetch_search_candidate_pairs(spec):
     if spec is None:
         return None
     target_type = infer_spec_component_type(spec)
+    target_mlcc_class = infer_mlcc_series_class_from_spec(spec) if target_type == "MLCC" else ""
     compatible_types = compatible_component_types_for_search(target_type)
     search_table_name = search_index_table_for_component_type(target_type)
     if search_table_name == COMPONENTS_SEARCH_CORE_TABLE:
@@ -12500,9 +12763,16 @@ def fetch_search_candidate_pairs(spec):
                 if clean_text(row[1]) != ""
             ]
             if exact_result:
+                if target_type == "MLCC" and mlcc_series_class_requires_filter(target_mlcc_class):
+                    exact_result = filter_mlcc_candidate_pairs_by_series_class(
+                        exact_result,
+                        target_mlcc_class,
+                    )
                 return exact_result
         rows = conn.execute(query, params).fetchall()
         result = [(clean_text(row[0]), clean_text(row[1])) for row in rows if clean_text(row[1]) != ""]
+        if target_type == "MLCC" and mlcc_series_class_requires_filter(target_mlcc_class):
+            result = filter_mlcc_candidate_pairs_by_series_class(result, target_mlcc_class)
         return result if result else None
     except Exception:
         return None
@@ -13031,10 +13301,12 @@ def reverse_spec(df, model):
             "容值误差": clean_tol_for_match(row["容值误差"]),
             "耐压（V）": clean_voltage(row["耐压（V）"]),
             "系列": clean_text(row.get("系列", "")),
+            "系列说明": clean_text(row.get("系列说明", "")),
             "工作温度": normalize_working_temperature_text(row.get("工作温度", "") or extract_working_temperature_from_text(row_text)),
             "寿命（h）": normalize_life_hours_value(row.get("寿命（h）", "") or parse_life_hours_from_text(row_text)),
             "安装方式": normalize_mounting_style(row.get("安装方式", ""), row.get("封装代码", "")),
             "特殊用途": normalize_special_use(row.get("特殊用途", "") or extract_special_use_from_text(row_text)),
+            "_mlcc_series_class": clean_text(row.get("_mlcc_series_class", "")),
             "封装代码": clean_text(row.get("封装代码", "")),
             "尺寸（mm）": clean_text(row.get("尺寸（mm）", "")),
             "规格摘要": clean_text(row.get("规格摘要", "")),
@@ -13056,6 +13328,23 @@ def reverse_spec(df, model):
                 db_spec,
                 parsed_rule,
                 override_conflicts=(not row_is_jianghai),
+            )
+        if component_type == "MLCC":
+            mlcc_profile = resolve_mlcc_series_profile(
+                brand=db_spec.get("品牌", ""),
+                model=db_spec.get("型号", ""),
+                series=db_spec.get("系列", ""),
+                series_desc=db_spec.get("系列说明", ""),
+                special_use=db_spec.get("特殊用途", ""),
+            )
+            if mlcc_series_should_replace(db_spec.get("系列", ""), mlcc_profile.get("系列", "")):
+                db_spec["系列"] = clean_text(mlcc_profile.get("系列", ""))
+            db_spec["系列说明"] = clean_text(db_spec.get("系列说明", "")) or clean_text(mlcc_profile.get("系列说明", ""))
+            db_spec["特殊用途"] = normalize_special_use(
+                db_spec.get("特殊用途", "") or clean_text(mlcc_profile.get("特殊用途", ""))
+            )
+            db_spec["_mlcc_series_class"] = clean_text(db_spec.get("_mlcc_series_class", "")) or clean_text(
+                mlcc_profile.get("_mlcc_series_class", "")
             )
         return db_spec
     return parsed_rule
