@@ -692,7 +692,8 @@ footer {visibility: hidden;}
 .result-table td {
     border: 1px solid #e6e6e6;
     padding: 8px 10px;
-    text-align: left;
+    text-align: center;
+    vertical-align: middle;
     white-space: nowrap;
 }
 .result-table th {
@@ -719,9 +720,15 @@ footer {visibility: hidden;}
     color: #c62828;
     font-weight: 600;
 }
+.result-table td.model-list-cell,
+.result-table th.model-list-cell,
+.result-table td.detail-cell,
+.result-table th.detail-cell {
+    text-align: left;
+    vertical-align: middle;
+}
 .result-table td.model-list-cell {
     white-space: nowrap;
-    vertical-align: top;
 }
 .result-table td.model-list-cell summary {
     cursor: pointer;
@@ -13721,7 +13728,8 @@ html, body {{
 .result-table td {{
     border: 1px solid #e6e6e6;
     padding: 8px 10px;
-    text-align: left;
+    text-align: center;
+    vertical-align: middle;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -13739,16 +13747,19 @@ html, body {{
 .result-table th.model-list-cell {{
     overflow: visible;
     text-overflow: clip;
+    text-align: left;
+    vertical-align: middle;
 }}
 .result-table td.detail-cell,
 .result-table th.detail-cell {{
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
-    vertical-align: top;
+    text-align: left;
+    vertical-align: middle;
 }}
 .result-table td.model-list-cell {{
-    vertical-align: top;
+    vertical-align: middle;
 }}
 .result-table td.detail-cell .detail-cell-text {{
     white-space: nowrap;
