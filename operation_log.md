@@ -1050,3 +1050,13 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 抓取到的官方页已写入 `Crystal/晶振.xlsx` 与 `Crystal/振荡器.xlsx`，共补入 272 条 Epson 记录，主库里 `爱普生Epson` 当前共 272 条，`晶振` 44 条、`振荡器` 228 条。
 - 搜索侧车已先按数据库重建完成；准备层最初尝试全量重建过慢，最终改为把 Epson 这批新增 prepared 行增量追加到现有 `components_prepared_v5.parquet`，并同步更新 meta，避免白跑整库重算。
 - 当前 `components_prepared_v5.parquet` / `components_prepared_v5_meta.json` 已与 `components.db` 对齐，准备缓存状态为 current。
+
+## 2026-04-09 BOM 试做下拉版回退
+- 确认公网主线仍停在 BOM 推荐品牌/型号下拉试做版提交 `b190982f721046d7c1dabdfd0eb98c04928e6ad4`，用户要求回退到试做前版本。
+- 在独立工作树 `C:\Users\zjh\Desktop\data_publish_revert` 上基于 `origin/main` 生成回退提交 `f56ab24`，仅撤销 `component_matcher.py` 中 BOM 下拉试做逻辑，不夹带当前工作区其他未提交文件。
+- 已通过 GitHub deploy key 走 SSH 443 推送到远端 `main`；当前线上主线已从 `b190982` 前进到 `f56ab24`。
+
+## 2026-04-10 单型号查询去除同品牌重复结果
+- 修正了 `component_matcher.py` 中料号精确查询的同品牌兜底逻辑：输入品牌型号时，匹配结果不再把与“匹配料号资料”相同的品牌/型号重新塞回下方结果表。
+- 新增品牌型号对过滤辅助逻辑，并把料号模式展示改成“上方料号资料始终显示；下方只展示其他品牌结果”，若没有其他品牌则仅提示“未找到其他品牌匹配结果”。
+- 同步提升 `QUERY_RESULT_CACHE_VERSION` 到 `7`，避免沿用旧查询缓存继续显示重复结果。

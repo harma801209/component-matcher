@@ -87,7 +87,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 3
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 6
+QUERY_RESULT_CACHE_VERSION = 7
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -13078,6 +13078,46 @@ def exclude_same_brand(df, source_brand):
         return df[~df["品牌"].astype(str).str.contains("TAIYO|太阳诱电", case=False, na=False)]
     return df[df["品牌"].astype(str).apply(clean_brand) != source_brand]
 
+
+def extract_brand_model_pairs(df):
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return []
+    if "品牌" not in df.columns or "型号" not in df.columns:
+        return []
+    pairs = []
+    seen = set()
+    for brand, model in df[["品牌", "型号"]].itertuples(index=False, name=None):
+        brand_key = clean_brand(brand)
+        model_key = clean_model(model)
+        if brand_key == "" or model_key == "":
+            continue
+        key = (brand_key, model_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append(key)
+    return pairs
+
+
+def exclude_brand_model_pairs(df, pairs):
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if "品牌" not in df.columns or "型号" not in df.columns:
+        return df
+    normalized_pairs = {
+        (clean_brand(brand), clean_model(model))
+        for brand, model in pairs
+        if clean_brand(brand) != "" and clean_model(model) != ""
+    }
+    if not normalized_pairs:
+        return df
+    brand_series = df["品牌"].astype(str).apply(clean_brand)
+    model_series = df["型号"].astype(str).apply(clean_model)
+    keep_mask = pd.Series(True, index=df.index)
+    for brand_key, model_key in normalized_pairs:
+        keep_mask &= ~((brand_series == brand_key) & (model_series == model_key))
+    return df.loc[keep_mask].copy()
+
 def match_by_spec(df, spec):
     if spec is None:
         return pd.DataFrame()
@@ -13108,15 +13148,7 @@ def match_by_spec(df, spec):
         mask &= work["_volt_num"].notna() & (spec_volt_num is not None) & work["_volt_num"].ge(spec_volt_num)
 
     out = work[mask].copy()
-    query_model = clean_model(spec.get("型号", ""))
     out = exclude_same_brand(out, spec.get("品牌", ""))
-    if out.empty and query_model != "" and "_model_clean" in work.columns:
-        # 料号直查时，如果跨品牌结果被同品牌过滤清空了，就保留原始候选集里的同型号行做兜底。
-        source_frame = df if isinstance(df, pd.DataFrame) and "_model_clean" in df.columns else work
-        same_model = source_frame[source_frame["_model_clean"].astype(str).apply(clean_model).eq(query_model)].copy()
-        if not same_model.empty:
-            same_model = apply_match_levels_and_sort(same_model, spec)
-            return same_model.drop(columns=[c for c in ["_size", "_mat", "_tol", "_volt", "_pf", "_tol_kind", "_tol_num", "_volt_num", "_component_type", "_res_ohm"] if c in same_model.columns])
     out = apply_match_levels_and_sort(out, spec)
     return out.drop(columns=[c for c in ["_size", "_mat", "_tol", "_volt", "_pf", "_tol_kind", "_tol_num", "_volt_num", "_component_type", "_res_ohm"] if c in out.columns])
 
@@ -16630,6 +16662,94 @@ if search_clicked:
             if mode == "料号":
                 part_info_df = build_part_info_df(query_df, spec, line)
                 matched = cached_run_query_match(query_df, mode, spec, query_text=line)
+                matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
+                part_info_fragment = render_clickable_result_table(
+                    part_info_df,
+                    show_official_status=False,
+                    footer_html="",
+                    wrap_iframe=False,
+                )
+                match_card_header_html = (
+                    '<div style="display:flex; align-items:center; justify-content:flex-start; gap:10px; '
+                    'margin:0 2px 4px 2px; padding:0;">'
+                    '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2;">匹配料号资料</div>'
+                    f'<div style="max-width:48%; padding:8px 14px; border-radius:999px; '
+                    'border:1px solid rgba(59,130,246,0.28); background:linear-gradient(180deg, rgba(59,130,246,0.10) 0%, rgba(59,130,246,0.04) 100%); '
+                    'color:#1d4ed8; font-size:15px; font-weight:700; line-height:1.35; word-break:break-all; text-align:left;">'
+                    f'{html.escape(line)}'
+                    '</div>'
+                    '</div>'
+                )
+                if not matched.empty:
+                    render_search_progress(
+                        line_index - 1,
+                        stage_step=4,
+                        current_text=line,
+                        stage_text="正在整理结果",
+                        note=f"已命中 {len(matched)} 条其他品牌匹配结果，正在生成展示内容",
+                        extra_chips=base_chips + [{"label": "命中数", "value": str(len(matched)), "tone": "success"}],
+                    )
+                    matched = matched.copy()
+                    matched["尺寸（inch）"] = matched["尺寸（inch）"].apply(clean_size)
+                    matched["材质（介质）"] = matched["材质（介质）"].apply(clean_material)
+                    matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
+                    matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
+                    matched = ensure_component_display_columns(matched)
+                    show_df = select_component_display_columns(
+                        matched,
+                        spec,
+                        prefix_columns=["推荐等级", "品牌", "型号", "系列"],
+                        suffix_columns=["备注1", "备注2", "备注3"],
+                    )
+                    show_df = format_display_df(show_df)
+                    show_df = annotate_match_display_gaps(show_df, spec)
+                    if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
+                        show_df = show_df.drop(columns=["特殊用途"])
+
+                    result_fragment = render_clickable_result_table(
+                        show_df,
+                        spec=spec,
+                        footer_html="",
+                        wrap_iframe=False,
+                    )
+                    match_card_html = (
+                        f'{match_card_header_html}'
+                        f'{part_info_fragment}'
+                        '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
+                        '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
+                        f'{result_fragment}'
+                        '<div class="match-card-footer"></div>'
+                    )
+                    components.html(
+                        build_result_table_iframe_html(match_card_html),
+                        height=estimate_match_card_iframe_height(len(part_info_df), len(show_df)),
+                        scrolling=False,
+                    )
+                    st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
+                    search_stats["success"] += 1
+                else:
+                    render_search_progress(
+                        line_index - 1,
+                        stage_step=4,
+                        current_text=line,
+                        stage_text="当前输入已完成",
+                        note="已定位到输入料号资料，但未找到其他品牌匹配结果",
+                        extra_chips=base_chips + [{"label": "命中数", "value": "0", "tone": "warn"}],
+                    )
+                    match_card_html = (
+                        f'{match_card_header_html}'
+                        f'{part_info_fragment}'
+                        '<div class="match-card-footer"></div>'
+                    )
+                    components.html(
+                        build_result_table_iframe_html(match_card_html),
+                        height=estimate_match_card_iframe_height(len(part_info_df), 0),
+                        scrolling=False,
+                    )
+                    st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
+                    st.warning("未找到其他品牌匹配结果")
+                    search_stats["no_match"] += 1
+                continue
             elif mode == "料号片段":
                 st.markdown('<div class="section-title">料号片段反推规格</div>', unsafe_allow_html=True)
                 spec_info_df = build_spec_info_df(spec)
@@ -16664,61 +16784,6 @@ if search_clicked:
                     note=f"已命中 {len(matched)} 条匹配结果，正在生成展示内容",
                     extra_chips=base_chips + [{"label": "命中数", "value": str(len(matched)), "tone": "success"}],
                 )
-                if mode == "料号":
-                    matched = matched.copy()
-                    matched["尺寸（inch）"] = matched["尺寸（inch）"].apply(clean_size)
-                    matched["材质（介质）"] = matched["材质（介质）"].apply(clean_material)
-                    matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
-                    matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
-                    matched = ensure_component_display_columns(matched)
-                    show_df = select_component_display_columns(
-                        matched,
-                        spec,
-                        prefix_columns=["推荐等级", "品牌", "型号", "系列"],
-                        suffix_columns=["备注1", "备注2", "备注3"],
-                    )
-                    show_df = format_display_df(show_df)
-                    show_df = annotate_match_display_gaps(show_df, spec)
-                    if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
-                        show_df = show_df.drop(columns=["特殊用途"])
-
-                    part_info_fragment = render_clickable_result_table(
-                        part_info_df,
-                        show_official_status=False,
-                        footer_html="",
-                        wrap_iframe=False,
-                    )
-                    result_fragment = render_clickable_result_table(
-                        show_df,
-                        spec=spec,
-                        footer_html="",
-                        wrap_iframe=False,
-                    )
-                    match_card_html = (
-                        '<div style="display:flex; align-items:center; justify-content:flex-start; gap:10px; '
-                        'margin:0 2px 4px 2px; padding:0;">'
-                        '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2;">匹配料号资料</div>'
-                        f'<div style="max-width:48%; padding:8px 14px; border-radius:999px; '
-                        'border:1px solid rgba(59,130,246,0.28); background:linear-gradient(180deg, rgba(59,130,246,0.10) 0%, rgba(59,130,246,0.04) 100%); '
-                        'color:#1d4ed8; font-size:15px; font-weight:700; line-height:1.35; word-break:break-all; text-align:left;">'
-                        f'{html.escape(line)}'
-                        '</div>'
-                        '</div>'
-                        f'{part_info_fragment}'
-                        '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
-                        '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
-                        f'{result_fragment}'
-                        '<div class="match-card-footer"></div>'
-                    )
-                    components.html(
-                        build_result_table_iframe_html(match_card_html),
-                        height=estimate_match_card_iframe_height(len(part_info_df), len(show_df)),
-                        scrolling=False,
-                    )
-                    st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
-                    search_stats["success"] += 1
-                    continue
-
                 matched = matched.copy()
                 matched["尺寸（inch）"] = matched["尺寸（inch）"].apply(clean_size)
                 matched["材质（介质）"] = matched["材质（介质）"].apply(clean_material)
