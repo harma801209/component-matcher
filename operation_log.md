@@ -1087,3 +1087,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 新增 `normalize_capacitor_value_fields_from_pf()`，导入阶段会在电容类器件已具备 `容值_pf` 且显示值/单位为空或非 `PF/NF/UF` 时，按 `容值_pf` 统一回写标准电容值与单位。
 - 同步新增数据库 in-place 回灌，把主库这 `914` 条错误显示值修正为标准电容表示，例如 `AC0201KRX5R6BB104 -> 100 NF`、`AC0201CRNPO9BN1R0 -> 1 PF`、`AC0201JRNPO9BN120 -> 12 PF`。
 - 现有 `components_prepared_v5.parquet` 也已按同规则分块重写并刷新 meta；复核结果为主库与 prepared 层的 `MLCC + 非 PF/NF/UF 单位` 均已清零。
+
+## 2026-04-10 MLCC 系列补全与污染系列清洗（Yageo / Taiyo / Murata / Walsin）
+- 修正了 `fill_missing_series_from_model()` 的根因：`MLCC` / `常规` 这类占位系列此前会在 MLCC 画像阶段被当成“非空已完成”，导致后面的真实前缀回填规则完全失效；现在 MLCC 占位会先清空，再继续按品牌规则回填。
+- 进一步把 PDC 系列回填改成品牌受限，不再全局套用，解决了 `太诱Taiyo` 的 `MSAST / MSAY / MSRL / MBARQ` 等型号被误判成 `信昌PDC MS / MBA` 并继承 `车规 / 软端子` 错说明的问题。
+- 补齐并核正了高置信系列规则：`国巨YAGEO AQ / AS / CS`、`太诱Taiyo UMK / HMK / QMK / SMK / QVS / TVS / MSAS / MSART / MSAY / MSRL / MBAS / MBARQ / MCARQ / MMARQ / MCAS / MCAST / MAAS`、`村田Murata RCE / RDE / RHE / ERB / RPE / RHEL / RPER`；同时把 `AQ/AS/CS`、`CQ`、`MCARQ` 等特殊系列的类别画像补到 `车规 / 软端子 / 高Q`。
+- 主库回灌后复核结果：`MLCC + 系列='MLCC'` 已降到 `0`，`太诱Taiyo + 系列='MS'/'MBA'` 已降到 `0`，`华新科Walsin` 这类无法高置信确定真实系列的 size-first 型号不再保留错误 `MLCC` 占位，而是回落为空系列。
+- 现有 `components_prepared_v5.parquet` 已按 row-group 分块重写，`components_search.sqlite` 已从新 prepared 缓存重建，prepared meta 与数据库签名一致；示例已核对：`CS0402KRX7R7BB104 -> CS`、`AQ0402JRNPO9BN100 -> AQ`、`UMK063CG010CT-F -> UMK`、`MSAST021SCG220JWNA01 -> MSAS`、`MSAYE105SSD222KFNA01 -> MSAY`、`RCE5C2A122J0A2H03B -> RCE`。

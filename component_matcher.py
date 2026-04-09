@@ -85,9 +85,9 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
-SOURCE_NORMALIZED_CACHE_VERSION = 5
+SOURCE_NORMALIZED_CACHE_VERSION = 6
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 7
+QUERY_RESULT_CACHE_VERSION = 8
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -2734,16 +2734,21 @@ def mlcc_series_should_replace(current_value, canonical_value):
     canonical_upper = canonical.upper()
     contaminated_patterns = [
         r"^C\d{4}$",
-        r"^(?:CC|CQ|AC)\d{4}$",
+        r"^(?:CC|CQ|AC|AQ|AS|CS)\d{4}$",
         r"^CL\d{2}[A-Z]$",
-        r"^(?:TMK|JMK|EMK|LMK|AMK)\d{2,3}$",
-        r"^(?:MAAS|MSAS|MLAS|MCAST|MCAS)\d{2,3}$",
+        r"^(?:TMK|JMK|EMK|LMK|AMK|UMK|HMK|QMK|SMK|QVS|TVS)\d{2,4}$",
+        r"^(?:MAAS|MBAS|MCAS|MCAST|MLAS|MMAS|MSAS)\d{2,3}$",
         r"^TCC\d{4}$",
         r"^(?:CGA|CSA)[A-Z0-9]{2,6}$",
+        r"^(?:RHEL|RPER|ERB|RCE|RDE|RHE|RPE)[A-Z0-9]{2,}$",
     ]
     current_is_contaminated = any(re.fullmatch(pattern, current_upper) for pattern in contaminated_patterns)
     canonical_is_contaminated = any(re.fullmatch(pattern, canonical_upper) for pattern in contaminated_patterns)
     if current_is_contaminated and not canonical_is_contaminated:
+        return True
+    if current_upper in {"MS", "MBA"} and canonical_upper.startswith(current_upper):
+        return True
+    if current_upper == "AM" and canonical_upper == "AMK":
         return True
     return False
 
@@ -2790,6 +2795,7 @@ MURATA_SERIES_PREFIX_PATTERN = re.compile(
     r"GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|"
     r"LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|"
     r"ZRA|ZRB|Z62|Z63|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|"
+    r"RHEL|RPER|ERB|RCE|RDE|RHE|RPE|"
     r"CLLC|CLLE|CLLG|NCP\d{2}[A-Z]{2}|NCU\d{2}[A-Z]{2}|NCG\d{2}[A-Z]{2}|FTN\d{2}[A-Z]{2}|YNA)"
 )
 
@@ -2852,6 +2858,13 @@ MURATA_SERIES_MEANING = {
     "CNA": "Murata MLCC series",
     "CNC": "Murata MLCC series",
     "CN0": "Murata capacitor / varistor series",
+    "ERB": "Murata MLCC series",
+    "RCE": "车规 / Automotive MLCC",
+    "RDE": "常规 / General-purpose MLCC",
+    "RHE": "车规 / Automotive MLCC",
+    "RPE": "Murata MLCC series",
+    "RHEL": "Murata MLCC series",
+    "RPER": "Murata MLCC series",
     "CLLC": "Murata capacitor series",
     "CLLE": "Murata capacitor series",
     "CLLG": "Murata capacitor series",
@@ -3065,6 +3078,9 @@ MURATA_MLCC_SERIES_CLASS = {
     "GJM": "高Q",
     "GQM": "高Q",
     "NFM": "EMI滤波",
+    "RCE": "车规",
+    "RDE": "常规",
+    "RHE": "车规",
 }
 
 
@@ -3107,6 +3123,58 @@ TDK_MLCC_SERIES_MEANING = {
 TDK_MLCC_SERIES_CLASS = {
     "C": "常规",
     "CGA": "车规",
+}
+YAGEO_MLCC_SERIES_MEANING = {
+    "CC": "常规 / General-purpose MLCC",
+    "CQ": "高Q / High-Q MLCC",
+    "AC": "车规 / Automotive MLCC",
+    "AQ": "车规高Q / Automotive High-Q MLCC",
+    "AS": "车规软端子 / Automotive Soft Termination MLCC",
+    "CS": "软端子 / Soft Termination MLCC",
+}
+YAGEO_MLCC_SERIES_CLASS = {
+    "CC": "常规",
+    "CQ": "高Q",
+    "AC": "车规",
+    "AQ": "车规/高Q",
+    "AS": "车规/软端子",
+    "CS": "软端子",
+}
+TAIYO_MLCC_SERIES_MEANING = {
+    "TMK": "Taiyo Yuden MLCC official series",
+    "JMK": "Taiyo Yuden MLCC official series",
+    "EMK": "Taiyo Yuden MLCC official series",
+    "LMK": "Taiyo Yuden MLCC official series",
+    "AMK": "Taiyo Yuden MLCC official series",
+    "UMK": "Taiyo Yuden MLCC official series",
+    "HMK": "Taiyo Yuden MLCC official series",
+    "QMK": "Taiyo Yuden MLCC official series",
+    "SMK": "Taiyo Yuden MLCC official series",
+    "QVS": "Taiyo Yuden MLCC official series",
+    "TVS": "Taiyo Yuden MLCC official series",
+    "MSAY": "压电噪音抑制 / Piezoelectric Noise Suppression MLCC for General Electronic Equipment",
+    "MSRL": "低电感焊线连接 / Low Inductance Wire-Bonding MLCC for General Electronic Equipment",
+    "MSART": "高Q / High-Q MLCC for General Electronic Equipment",
+    "MBARQ": "高Q / High-Q MLCC for Infrastructure & Industrial Equipment",
+    "MCARQ": "车规高Q / Automotive High-Q MLCC",
+    "MMARQ": "高Q / High-Q MLCC for Medical Devices Class C",
+    "MAAS": "车规 / Automotive Powertrain & Safety MLCC",
+    "MBAS": "工业通信 / Infrastructure & Industrial Equipment MLCC",
+    "MCAS": "车规 / Automotive Body & Chassis / Infotainment MLCC",
+    "MCAST": "车规 / Automotive Body & Chassis / Infotainment MLCC",
+    "MLAS": "医疗 / Medical Devices Class A/B MLCC",
+    "MMAS": "医疗 / Medical Devices Class C MLCC",
+    "MSAS": "常规 / General Electronic Equipment MLCC",
+}
+TAIYO_MLCC_SERIES_CLASS = {
+    "MSART": "高Q/常规",
+    "MBARQ": "高Q",
+    "MCARQ": "车规/高Q",
+    "MMARQ": "高Q",
+    "MAAS": "车规",
+    "MCAS": "车规",
+    "MCAST": "车规",
+    "MSAS": "常规",
 }
 GENERIC_MLCC_SERIES_MEANING = {
     "CL": "常规 / General-purpose MLCC",
@@ -3204,6 +3272,60 @@ def generic_mlcc_series_code_from_model(model):
     return ""
 
 
+def yageo_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in ("AQ", "AS", "CS", "CC", "CQ", "AC"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def yageo_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(YAGEO_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if "车规" in class_text else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(YAGEO_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
+def taiyo_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in (
+        "MSAY", "MSRL",
+        "MSART", "MBARQ", "MCARQ", "MMARQ",
+        "MCAST", "MAAS", "MBAS", "MCAS", "MLAS", "MMAS", "MSAS",
+        "UMK", "HMK", "QMK", "SMK", "QVS", "TVS",
+        "TMK", "JMK", "EMK", "LMK", "AMK",
+    ):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def taiyo_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(TAIYO_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if "车规" in class_text else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(TAIYO_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
 def generic_mlcc_series_profile(series_code):
     code = clean_text(series_code).upper()
     if code == "":
@@ -3248,6 +3370,9 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     brand_upper = clean_text(brand_text).upper()
     model_key = clean_model(model)
     series_key = clean_text(series).upper()
+    is_pdc_brand = "PDC" in brand_upper or "信昌" in brand_text
+    is_yageo_brand = "YAGEO" in brand_upper or "国巨" in brand_text
+    is_taiyo_brand = "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text
     result = {
         "系列": clean_text(series),
         "系列说明": clean_text(series_desc),
@@ -3264,18 +3389,28 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             "_mlcc_series_class": "车规",
         }
     else:
-        pdc_series_code = pdc_general_mlcc_series_code_from_model(model_key)
+        pdc_series_code = pdc_general_mlcc_series_code_from_model(model_key) if is_pdc_brand or brand_text == "" else ""
         murata_series_code = murata_series_code_from_model(model_key)
+        yageo_series_code = yageo_mlcc_series_code_from_model(model_key if is_yageo_brand else "")
+        taiyo_series_code = taiyo_mlcc_series_code_from_model(model_key if is_taiyo_brand else "")
         if pdc_series_code != "":
             profile = pdc_mlcc_series_profile(pdc_series_code)
         elif murata_series_code != "":
             profile = murata_series_profile(murata_series_code)
+        elif yageo_series_code != "":
+            profile = yageo_mlcc_series_profile(yageo_series_code)
+        elif taiyo_series_code != "":
+            profile = taiyo_mlcc_series_profile(taiyo_series_code)
         elif model_key.startswith("CGA") or re.match(r"^C\d{4}[A-Z0-9].*", model_key):
             profile = tdk_mlcc_series_profile_from_model(model_key)
         elif series_key in PDC_MLCC_SERIES_MEANING:
             profile = pdc_mlcc_series_profile(series_key)
         elif series_key in MURATA_SERIES_MEANING:
             profile = murata_series_profile(series_key)
+        elif is_yageo_brand and series_key in YAGEO_MLCC_SERIES_MEANING:
+            profile = yageo_mlcc_series_profile(series_key)
+        elif is_taiyo_brand and series_key in TAIYO_MLCC_SERIES_MEANING:
+            profile = taiyo_mlcc_series_profile(series_key)
         elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
             profile = tdk_mlcc_series_profile_from_model(series_key)
         else:
@@ -4254,8 +4389,9 @@ def fill_missing_series_from_model(df):
         if fenghua_desc_blank.any():
             work.loc[fenghua_mask & fenghua_desc_blank, "系列说明"] = fenghua_am_series_meaning("AM")
 
+    pdc_brand_mask = brand_clean.str.contains(r"PDC|信昌", case=False, regex=True, na=False)
     pdc_series = model_clean.apply(pdc_general_mlcc_series_code_from_model)
-    pdc_mask = pdc_series.ne("")
+    pdc_mask = pdc_brand_mask & pdc_series.ne("")
     if pdc_mask.any():
         work.loc[pdc_mask, "系列"] = pdc_series[pdc_mask]
         if "系列说明" not in work.columns:
@@ -4272,6 +4408,9 @@ def fill_missing_series_from_model(df):
         else pd.Series([False] * len(work), index=work.index)
     )
     if mlcc_type_mask.any():
+        mlcc_placeholder_mask = mlcc_type_mask & work["系列"].astype("string").fillna("").apply(series_looks_missing)
+        if mlcc_placeholder_mask.any():
+            work.loc[mlcc_placeholder_mask, "系列"] = ""
         mlcc_profile_df = work.loc[mlcc_type_mask, ["品牌", "型号", "系列", "系列说明", "特殊用途"]].apply(
             lambda row: resolve_mlcc_series_profile(
                 brand=row.get("品牌", ""),
@@ -4289,15 +4428,52 @@ def fill_missing_series_from_model(df):
         if series_replace_mask.any():
             replace_idx = series_replace_mask[series_replace_mask].index
             work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
+        canonical_profile_df = work.loc[mlcc_type_mask, ["品牌", "型号", "系列"]].apply(
+            lambda row: resolve_mlcc_series_profile(
+                brand=row.get("品牌", ""),
+                model=row.get("型号", ""),
+                series=row.get("系列", ""),
+                series_desc="",
+                special_use="",
+            ),
+            axis=1,
+            result_type="expand",
+        )
+        if series_replace_mask.any():
+            replace_idx = series_replace_mask[series_replace_mask].index
+            work.loc[replace_idx, "系列说明"] = canonical_profile_df.loc[replace_idx, "系列说明"].astype("string").fillna("").apply(clean_text)
+            work.loc[replace_idx, "特殊用途"] = canonical_profile_df.loc[replace_idx, "特殊用途"].astype("string").fillna("").apply(clean_text)
         for col in ["系列说明", "特殊用途"]:
             current_col = work.loc[mlcc_type_mask, col].astype("string").fillna("").apply(clean_text)
-            profile_col = mlcc_profile_df[col].astype("string").fillna("").apply(clean_text)
+            profile_col = canonical_profile_df[col].astype("string").fillna("").apply(clean_text)
             blank_mask = current_col.eq("") & profile_col.ne("")
             if blank_mask.any():
                 replace_idx = blank_mask[blank_mask].index
                 work.loc[replace_idx, col] = profile_col.loc[replace_idx]
         current_series_after = work.loc[mlcc_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
-        filled_mlcc_mask = mlcc_type_mask & current_series_after.ne("")
+        profile_class = canonical_profile_df["_mlcc_series_class"].astype("string").fillna("").apply(clean_text)
+        current_desc_after = work.loc[mlcc_type_mask, "系列说明"].astype("string").fillna("").apply(clean_text)
+        current_use_after = work.loc[mlcc_type_mask, "特殊用途"].astype("string").fillna("").apply(clean_text)
+        current_class_after = pd.Series(
+            [
+                normalize_mlcc_series_class("/".join(part for part in [desc, use] if clean_text(part) != ""))
+                for desc, use in zip(current_desc_after.tolist(), current_use_after.tolist())
+            ],
+            index=current_desc_after.index,
+            dtype="string",
+        ).fillna("").apply(clean_text)
+        class_refresh_mask = (
+            current_series_after.eq(profile_series)
+            & profile_series.ne("")
+            & profile_class.ne("")
+            & current_class_after.ne(profile_class)
+        )
+        if class_refresh_mask.any():
+            refresh_idx = class_refresh_mask[class_refresh_mask].index
+            work.loc[refresh_idx, "系列说明"] = canonical_profile_df.loc[refresh_idx, "系列说明"].astype("string").fillna("").apply(clean_text)
+            work.loc[refresh_idx, "特殊用途"] = canonical_profile_df.loc[refresh_idx, "特殊用途"].astype("string").fillna("").apply(clean_text)
+            current_series_after = work.loc[mlcc_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
+        filled_mlcc_mask = mlcc_type_mask & ~current_series_after.apply(series_looks_missing)
         if filled_mlcc_mask.any():
             missing_mask.loc[filled_mlcc_mask] = False
 
@@ -4375,7 +4551,7 @@ def fill_missing_series_from_model(df):
         pdc_special_desc.ne("") & pdc_series_desc.ne(""),
         pdc_series_desc + " / " + pdc_special_desc,
     )
-    pdc_mask = pdc_series_code.ne("")
+    pdc_mask = pdc_brand_mask & pdc_series_code.ne("")
     if pdc_mask.any():
         work.loc[pdc_mask, "系列"] = pdc_series_code[pdc_mask]
         if "系列说明" not in work.columns:
@@ -4386,7 +4562,7 @@ def fill_missing_series_from_model(df):
         missing_mask.loc[pdc_mask] = False
 
     # MLCC / ceramic families with well-defined official naming prefixes.
-    assign_series(r"^((?:GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|ZRA|ZRB|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|YNA))")
+    assign_series(r"^((?:GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|ZRA|ZRB|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|YNA|RHEL|RPER|ERB|RCE|RDE|RHE|RPE))")
     assign_series(r"^(AVR-M)")
     assign_series(r"^(AVRM)")
     assign_series(r"^(AVRL)")
@@ -4396,9 +4572,9 @@ def fill_missing_series_from_model(df):
     assign_series(r"^(SGN[A-Z0-9]{4})")
     assign_series(r"^(CN\d{4})")
     assign_series(r"^(CL)")
-    assign_series(r"^((?:CC|CQ|AC))")
-    assign_series(r"^((?:TMK|JMK|EMK|LMK|AMK))")
-    assign_series(r"^((?:MAAS|MSAS|MLAS|MCAST|MCAS))")
+    assign_series(r"^((?:CC|CQ|AC|AQ|AS|CS))")
+    assign_series(r"^((?:UMK|HMK|QMK|SMK|QVS|TVS|TMK|JMK|EMK|LMK|AMK))")
+    assign_series(r"^((?:MSAY|MSRL|MSART|MBARQ|MCARQ|MMARQ|MAAS|MBAS|MCAS|MCAST|MLAS|MMAS|MSAS))")
     assign_series(r"^(TCC)")
     assign_series(r"^(CGA)")
     assign_series(r"^(CSA)")
@@ -9018,6 +9194,7 @@ def parse_taiyo_common(model):
         "1E": "25", "1H": "50", "2A": "100", "2D": "200", "2E": "250", "2J": "630",
         "V": "35", "KV": "10"
     }
+    series_profile = taiyo_mlcc_series_profile(prefix)
 
     try:
         size_code = model[3:7]
@@ -9047,6 +9224,10 @@ def parse_taiyo_common(model):
         return {
             "品牌": "太阳诱电Taiyo",
             "型号": model,
+            "系列": clean_text(series_profile.get("系列", "")),
+            "系列说明": clean_text(series_profile.get("系列说明", "")),
+            "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+            "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),
@@ -9060,7 +9241,7 @@ def parse_taiyo_common(model):
 
 def parse_taiyo_new_common(model):
     model = clean_model(model)
-    prefixes = ("MAAS", "MSAS", "MLAS", "MCAST", "MCAS")
+    prefixes = ("MAAS", "MBAS", "MCAS", "MCAST", "MLAS", "MMAS", "MSAS")
     if not model.startswith(prefixes):
         return None
 
@@ -9082,6 +9263,8 @@ def parse_taiyo_new_common(model):
     }
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
     voltage_map = {"F": "4", "P": "6.3", "T": "10", "W": "25", "N": "16", "H": "50"}
+    series_code = taiyo_mlcc_series_code_from_model(model)
+    series_profile = taiyo_mlcc_series_profile(series_code)
 
     match = re.fullmatch(
         r"(?P<prefix>M[A-Z]{4})(?P<size>\d{2,3})(?P<mat>[A-Z0-9]{3})(?P<body>.*)",
@@ -9111,6 +9294,10 @@ def parse_taiyo_new_common(model):
     return {
         "品牌": "太阳诱电Taiyo",
         "型号": model,
+        "系列": clean_text(series_profile.get("系列", "")),
+        "系列说明": clean_text(series_profile.get("系列说明", "")),
+        "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+        "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
         "尺寸（inch）": size,
         "材质（介质）": clean_material(material_map.get(match.group("mat"), "")),
         "容值_pf": cap_pf,
@@ -9210,7 +9397,8 @@ def parse_kyocera_avx_common(model):
 def parse_yageo_common(model):
     model = clean_model(model)
     # 常见国巨：CC0402KRX5R5BB105 / CC0805KKX7R9BB104
-    if not model.startswith(("CC", "CQ")) or len(model) < 16:
+    prefix = yageo_mlcc_series_code_from_model(model)
+    if prefix == "" or len(model) < 16:
         return None
 
     size_map = {
@@ -9226,6 +9414,7 @@ def parse_yageo_common(model):
         "4": "4", "5": "6.3", "6": "10", "7": "16", "8": "25", "9": "50",
         "A": "100", "B": "200", "C": "250", "D": "500", "E": "630"
     }
+    series_profile = yageo_mlcc_series_profile(prefix)
 
     try:
         size_code = model[2:6]
@@ -9235,8 +9424,12 @@ def parse_yageo_common(model):
         cap_code = model[14:17]
 
         return {
-            "品牌": "国巨Yageo",
+            "品牌": "国巨YAGEO",
             "型号": model,
+            "系列": clean_text(series_profile.get("系列", "")),
+            "系列说明": clean_text(series_profile.get("系列说明", "")),
+            "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+            "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),
