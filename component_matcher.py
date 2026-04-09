@@ -85,7 +85,7 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
-SOURCE_NORMALIZED_CACHE_VERSION = 3
+SOURCE_NORMALIZED_CACHE_VERSION = 4
 SEARCH_INDEX_SCHEMA_VERSION = 5
 QUERY_RESULT_CACHE_VERSION = 7
 MANUAL_CORRECTION_RULES_VERSION = 1
@@ -1058,6 +1058,7 @@ INDUCTOR_COMPONENT_TYPES = {"功率电感", "共模电感", "磁珠"}
 TIMING_COMPONENT_TYPES = {"晶振", "振荡器"}
 ALL_RESISTOR_TYPES = RESISTOR_COMPONENT_TYPES | SPECIAL_RESISTOR_COMPONENT_TYPES
 ALL_PASSIVE_COMPONENT_TYPES = CAPACITOR_COMPONENT_TYPES | ALL_RESISTOR_TYPES | INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES
+RESISTOR_SOURCE_EVIDENCE_TOKENS = ("来源:resistor", "source:resistor")
 INDUCTOR_TOLERANCE_CODE_MAP = {"F": "1", "G": "2", "H": "3", "J": "5", "K": "10", "M": "20", "N": "30"}
 
 
@@ -6768,6 +6769,53 @@ def normalize_component_type(value):
         return hint
     return text
 
+
+def resistor_source_evidence_present(value):
+    note = clean_text(value).lower()
+    if note == "":
+        return False
+    return any(token in note for token in RESISTOR_SOURCE_EVIDENCE_TOKENS)
+
+
+def infer_strong_component_type_override(row, direct="", text=""):
+    direct_type = normalize_component_type(direct)
+    if direct_type in ALL_RESISTOR_TYPES or direct_type in INDUCTOR_COMPONENT_TYPES or direct_type in TIMING_COMPONENT_TYPES:
+        return ""
+    summary = clean_text(row.get("规格摘要", ""))
+    notes = clean_text(row.get("校验备注", ""))
+    if summary == "" and notes == "":
+        return ""
+    explicit_resistor_summary = (
+        detect_resistor_subtype_hint(summary) != ""
+        or (
+            looks_like_resistor_context(summary)
+            and not looks_like_varistor_context(summary)
+            and not looks_like_thermistor_context(summary)
+        )
+    )
+    if not resistor_source_evidence_present(notes) and not explicit_resistor_summary:
+        return ""
+    evidence_text = " ".join(
+        part for part in [
+            clean_text(text),
+            summary,
+            notes,
+            clean_text(row.get("品牌", "")),
+            clean_text(row.get("型号", "")),
+            clean_text(row.get("系列", "")),
+            clean_text(row.get("备注1", "")),
+            clean_text(row.get("备注2", "")),
+            clean_text(row.get("备注3", "")),
+        ]
+        if clean_text(part) != ""
+    )
+    resistor_hint = detect_resistor_subtype_hint(evidence_text)
+    if resistor_hint != "":
+        return resistor_hint
+    if looks_like_resistor_context(evidence_text):
+        return "贴片电阻"
+    return ""
+
 def infer_db_component_type(row):
     direct = normalize_component_type(row.get("器件类型", ""))
     raw_unit = clean_text(row.get("容值单位", "")).upper()
@@ -6798,6 +6846,9 @@ def infer_db_component_type(row):
         return "热敏电阻"
     if direct == "MLCC" and looks_like_leaded_ceramic_context(text):
         return "引线型陶瓷电容"
+    strong_override = infer_strong_component_type_override(row, direct=direct, text=text)
+    if strong_override != "":
+        return strong_override
     if direct in INDUCTOR_COMPONENT_TYPES or raw_unit in {"NH", "UH", "MH"}:
         return direct if direct in INDUCTOR_COMPONENT_TYPES else (detect_inductor_subtype_hint(text) or "功率电感")
     if direct in TIMING_COMPONENT_TYPES or raw_unit in {"HZ", "KHZ", "MHZ"}:
@@ -6853,6 +6904,9 @@ def infer_spec_component_type(spec):
         return "压敏电阻"
     if direct == "MLCC" and looks_like_leaded_ceramic_context(spec_text):
         return "引线型陶瓷电容"
+    strong_override = infer_strong_component_type_override(spec, direct=direct, text=spec_text)
+    if strong_override != "":
+        return strong_override
     if direct in INDUCTOR_COMPONENT_TYPES or raw_unit in {"NH", "UH", "MH"}:
         return direct if direct in INDUCTOR_COMPONENT_TYPES else (detect_inductor_subtype_hint(spec_text) or "功率电感")
     if direct in TIMING_COMPONENT_TYPES or raw_unit in {"HZ", "KHZ", "MHZ"}:
@@ -6901,7 +6955,7 @@ def looks_like_thermistor_context(text):
 
 def reverse_lookup_row_priority(row):
     model_text = clean_model(row.get("_model_clean", row.get("型号", "")))
-    row_type = normalize_component_type(row.get("_component_type", "")) or normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
+    row_type = normalize_component_type(row.get("_component_type", "")) or infer_db_component_type(row) or normalize_component_type(row.get("器件类型", ""))
     data_source = clean_text(row.get("数据来源", ""))
     data_status = clean_text(row.get("数据状态", ""))
     series = clean_text(row.get("系列", ""))
@@ -9790,6 +9844,34 @@ def infer_default_component_type_from_source_path(source_path):
     return ""
 
 
+def apply_component_type_inference_overrides_to_dataframe(df):
+    if df is None or df.empty or "器件类型" not in df.columns:
+        return df
+    work = df.copy()
+    current_types = work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+    summary_text = work["规格摘要"].astype("string").fillna("").apply(clean_text) if "规格摘要" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    note_text = work["校验备注"].astype("string").fillna("").apply(clean_text) if "校验备注" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    candidate_mask = (
+        current_types.eq("")
+        | current_types.isin(CAPACITOR_COMPONENT_TYPES)
+        | summary_text.str.contains("电阻", na=False)
+        | note_text.str.contains("resistor", case=False, na=False)
+    )
+    if not candidate_mask.any():
+        return work
+    inferred = work.loc[candidate_mask].apply(infer_db_component_type, axis=1).astype("string").fillna("").apply(normalize_component_type)
+    changed = inferred.ne("") & inferred.ne(current_types.loc[candidate_mask])
+    if not changed.any():
+        return work
+    changed_idx = changed[changed].index
+    work.loc[changed_idx, "器件类型"] = inferred.loc[changed_idx]
+    if "容值_pf" in work.columns:
+        non_cap_idx = inferred.loc[changed_idx][~inferred.loc[changed_idx].isin(CAPACITOR_COMPONENT_TYPES)].index
+        if len(non_cap_idx) > 0:
+            work.loc[non_cap_idx, "容值_pf"] = None
+    return work
+
+
 LIBRARY_COMMON_COLUMNS = [
     "器件类型", "安装方式", "封装代码", "尺寸（mm）", "规格摘要", "生产状态",
     "长度（mm）", "宽度（mm）", "高度（mm）",
@@ -9992,6 +10074,7 @@ def normalize_imported_component_dataframe(df, source_path=""):
         for col in enriched.columns:
             work.loc[backfill_mask, col] = enriched[col]
     work = apply_model_rule_overrides_to_dataframe(work, override_conflicts=True)
+    work = apply_component_type_inference_overrides_to_dataframe(work)
     return work
 
 
@@ -11050,6 +11133,8 @@ def rebuild_prepared_cache_from_database(chunk_rows=COMPONENTS_SEARCH_CHUNK_ROWS
 
 SERIES_BACKFILL_DB_COLUMNS = ("系列", "系列说明", "特殊用途")
 
+COMPONENT_TYPE_BACKFILL_DB_COLUMNS = ("器件类型",)
+
 
 def normalize_series_backfill_db_value(value):
     if value is None:
@@ -11060,6 +11145,86 @@ def normalize_series_backfill_db_value(value):
     except Exception:
         pass
     return str(value).strip()
+
+
+def normalize_component_type_backfill_db_value(value):
+    text = clean_text(value)
+    normalized = normalize_component_type(text)
+    return normalized if normalized != "" else text
+
+
+def build_component_type_backfill_updates(chunk):
+    if chunk is None or chunk.empty:
+        return []
+    if "__rowid__" not in chunk.columns:
+        raise KeyError("__rowid__")
+    row_ids = pd.to_numeric(chunk["__rowid__"], errors="coerce")
+    current_types = chunk["器件类型"].astype("string").fillna("").apply(normalize_component_type) if "器件类型" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    summary_text = chunk["规格摘要"].astype("string").fillna("").apply(clean_text) if "规格摘要" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    note_text = chunk["校验备注"].astype("string").fillna("").apply(clean_text) if "校验备注" in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+    candidate_mask = (
+        current_types.eq("")
+        | current_types.isin(CAPACITOR_COMPONENT_TYPES)
+        | summary_text.str.contains("电阻", na=False)
+        | note_text.str.contains("resistor", case=False, na=False)
+    )
+    if not candidate_mask.any():
+        return []
+    inferred = chunk.loc[candidate_mask].apply(infer_db_component_type, axis=1).astype("string").fillna("").apply(normalize_component_type)
+    updates = []
+    for row_index in inferred.index:
+        new_type = normalize_component_type_backfill_db_value(inferred.at[row_index])
+        current_type = normalize_component_type_backfill_db_value(current_types.at[row_index])
+        if new_type == "" or new_type == current_type:
+            continue
+        row_id = row_ids.at[row_index]
+        if pd.isna(row_id):
+            continue
+        updates.append((new_type, int(row_id)))
+    return updates
+
+
+def backfill_component_types_in_database_in_place(chunk_rows=100000):
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(DB_PATH)
+
+    conn = sqlite3.connect(DB_PATH, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    try:
+        min_rowid, max_rowid = conn.execute("SELECT MIN(rowid), MAX(rowid) FROM components").fetchone()
+        if min_rowid is None or max_rowid is None:
+            raise RuntimeError("database contains no component rows")
+
+        batch_size = max(int(chunk_rows), 1000)
+        update_sql = (
+            'UPDATE components SET "器件类型" = ?, "容值_pf" = NULL '
+            'WHERE rowid = ?'
+        )
+        updated_rows = 0
+        batch_start = int(min_rowid)
+        final_rowid = int(max_rowid)
+        while batch_start <= final_rowid:
+            batch_end = batch_start + batch_size - 1
+            chunk = pd.read_sql_query(
+                'SELECT rowid AS "__rowid__", * FROM components WHERE rowid BETWEEN ? AND ?',
+                conn,
+                params=[batch_start, batch_end],
+            )
+            if chunk is not None and not chunk.empty:
+                updates = build_component_type_backfill_updates(chunk)
+                if updates:
+                    conn.executemany(update_sql, updates)
+                    conn.commit()
+                    updated_rows += len(updates)
+            batch_start = batch_end + 1
+        return updated_rows
+    finally:
+        conn.close()
 
 
 def build_series_backfill_updates(chunk):
@@ -13273,7 +13438,7 @@ def reverse_spec(df, model):
             clean_text(row.get("备注2", "")),
             clean_text(row.get("备注3", "")),
         ])
-        component_type = normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
+        component_type = infer_db_component_type(row) or normalize_component_type(row.get("器件类型", ""))
         raw_value = clean_text(row.get("容值", ""))
         raw_unit = clean_text(row.get("容值单位", "")).upper()
         if component_type in INDUCTOR_COMPONENT_TYPES and (raw_value == "" or raw_unit == ""):

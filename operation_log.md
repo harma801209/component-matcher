@@ -1070,3 +1070,14 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 修正了 `component_matcher.py` 里 MLCC 系列污染问题：`C1005`、`CC0402`、`CL05A`、`LMK105`、`CGA3E2` 这类“系列+尺寸/段码”混合值会统一收敛成纯系列码，如 `C`、`CC`、`CL`、`LMK`、`CGA`。
 - 补齐了 TDK / Samsung / Yageo / Taiyo / CCTC 等 MLCC 的通用系列画像，并把 `reverse_spec()`、快路径候选抓取、MLCC 系列类别过滤串起来，避免“常规料号/规格”继续混入 `车规 / 软端子 / 高容 / 高压` 等特殊系列结果。
 - 同时把数据库系列回填与缓存重建的临时文件改成唯一命名，并在主库文件被 Windows 占用时自动退回原库就地更新，避免系列修复再次被 `.tmp` 文件锁中断。
+
+## 2026-04-10 后续补库 / 命名规则 / 解析规则审计
+- 最高优先级正确性问题不在“缺系列”，而在一批 `MLCC` 错类数据：`威世 CRCW`、`EVER OHMS CR*`、`Bourns CR*`、`Venkel CR*`、`VO CR1/8W*`、`光颉 CR-*`、`TE CRG*` 等型号当前挂在 `MLCC`，但单位是 `Ω` 且规格摘要明确写着厚膜/碳膜电阻。
+- MLCC 规则层下一批高价值目标是系列仍为字面量 `MLCC` 的品牌前缀：`华新科Walsin`、`太诱Taiyo`、`村田Murata`、`国巨YAGEO`、`晶瓷Kyocera AVX`；其中 `AQ/CS`、`MEAS/JMR/LMR`、`KGM/KAM` 等前缀值得优先补，但需按官方规则逐支确认后再落库。
+- 热敏电阻规则也还有明显空白：`Vishay NTCLE/NTCALUG`、`TDK B57861/B57237/NTC*`、Murata 的部分 `NXF*` 仍缺系列说明和命名规则；而 `薄膜电容 / 钽电容` 当前模板文件仍为空，还不能直接扩库，需先补官方源。
+
+## 2026-04-10 MLCC 错类数据清洗（电阻误挂 MLCC）
+- 修正了 `infer_db_component_type()` / `infer_spec_component_type()` 的根因：不再无条件相信库里原有 `器件类型`，当 `校验备注` 含 `来源:resistor` 或 `规格摘要` 明确写出电阻时，会优先按高置信电阻证据纠正类型。
+- 新增导入阶段的器件类型证据覆盖与数据库 in-place 回灌，已把主库里 `48,884` 条“电阻误挂 MLCC”记录改回电阻家族，并把这批行的 `容值_pf` 清空，避免继续带着伪电容值进入准备层。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；复核结果为 `MLCC + 来源:resistor/规格摘要电阻` 剩余 `0`，示例 `Bourns CR0805-FX-1000ELF` 已变为 `厚膜电阻`，而 `国巨 AC0201CRNPO8BN1R0` 这类仅单位脏写成 `Ω` 的真实 MLCC 未被误伤。
+- 仍留有一批后续独立问题：主库里约 `842` 条真实 MLCC 的 `容值单位` 被写成 `Ω`，当前未做自动纠偏，避免把真 MLCC 误改类型；这批可在下一轮作为“单位规则清洗”单独处理。
