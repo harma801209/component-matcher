@@ -692,17 +692,16 @@ footer {visibility: hidden;}
 }
 .bom-tight-anchor {
     height: 0;
-    margin-top: -14px;
-    margin-bottom: -22px;
     padding: 0;
     line-height: 0;
 }
-.bom-manual-toggle-pull {
-    height: 0;
-    margin-top: -34px;
-    margin-bottom: -28px;
-    padding: 0;
-    line-height: 0;
+.element-container:has(.bom-tight-anchor) {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+.element-container:has(.bom-tight-anchor) + div[data-testid="stHorizontalBlock"] {
+    margin-top: -34px !important;
+    margin-bottom: -10px !important;
 }
 .match-card-head {
     display: flex;
@@ -17980,7 +17979,6 @@ if uploaded_file is not None:
             toggle_cols = st.columns([6.2, 3.2], gap="small")
             toggle_cols[0].empty()
             with toggle_cols[1]:
-                st.markdown('<div class="bom-manual-toggle-pull"></div>', unsafe_allow_html=True)
                 st.button(
                     "找不到规格手动定位匹配位置",
                     key=f"bom_manual_mapping_toggle_button_{workbook_signature}",

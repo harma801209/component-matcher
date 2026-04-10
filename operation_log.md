@@ -1129,3 +1129,7 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 ## 2026-04-10 BOM 手动定位按钮贴边微调
 - 在 `BOM原始内容预览` 下方新增独立的 `bom-manual-toggle-pull` 上拉锚点，把 `找不到规格手动定位匹配位置` 按钮单独往上吸附，不修改上方预览表格的显示参数。
 - 手动定位按钮所在列改为单独注入上拉锚点后再渲染 `st.button(...)`，避免只靠外层空白抵消导致间距不稳定。
+
+## 2026-04-10 BOM 手动定位按钮贴边再修正
+- 放弃只拉按钮本体的做法，改为直接给 `BOM原始内容预览` 下方锚点后的整行 `stHorizontalBlock` 加负 `margin-top`，让整颗 `找不到规格手动定位匹配位置` 按钮像下载按钮一样贴近上方气泡框。
+- 保留 `BOM原始内容预览` 的 `st.dataframe(..., height=220)` 不变，只调整按钮行容器的垂直间距，避免再改预览表格参数。
