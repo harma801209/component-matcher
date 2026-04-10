@@ -657,7 +657,7 @@ footer {visibility: hidden;}
     justify-content: flex-end;
     align-items: center;
     gap: 10px;
-    margin-top: 4px;
+    margin-top: 0;
     padding: 0 4px 0 4px;
 }
 .bom-download-btn {
@@ -14489,7 +14489,7 @@ def estimate_result_table_iframe_height(row_count, show_official_status=True, co
 
 def estimate_bom_result_iframe_height(row_count):
     row_count = max(0, int(row_count or 0))
-    visible_rows = min(max(row_count, 1), 10)
+    visible_rows = min(max(row_count, 1), 12)
     base = 118
     per_row = 42
     min_height = 248
