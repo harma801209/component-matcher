@@ -1108,3 +1108,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已执行主库 in-place 系列回灌，共更新 `218` 行；其中 `RHS=191`、`LLM=20`、`LLR=7`，`Murata MLCC` 空系列从 `752` 降到 `534`，`芯声微HRE` 空系列仍为 `10`。
 - 抽查样例已写实到库：`RHS7G2A101J0A2H01B -> RHS / 高温车规引线型 / High-temperature leaded automotive MLCC / 车规`，`LLM215R71C104MA11K -> LLM / 常规低ESL / 10 terminals low ESL MLCC for General Purpose`，`LLR185C70G105ME01K -> LLR / 常规低ESL控ESR / LW reversed controlled ESR low ESL MLCC for General Purpose`。
 - 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；类别筛选复核为 `车规 -> 常规` 不再互相放行，因此 `RHS` 不会再混入常规 MLCC 推荐。
+
+## 2026-04-10 Murata 官方系列补全（DEH / DEJ / DHR）
+- 继续补 `Murata MLCC` 的高置信空系列，这轮新增 `DEH / DEJ / DHR` 三支官方系列画像；其中 `DEHR*` 型号统一回到 `DEH`，`DEJE* / DEJF*` 统一回到 `DEJ`，`DHR*` 保持 `DHR`。
+- 新增 `DEH / DEJ / DHR` 到 `MURATA_SERIES_PREFIX_PATTERN`、`MURATA_SERIES_MEANING` 与 `MURATA_MLCC_SERIES_CLASS`：`DEH / DEJ / DHR` 全部打上 `高压` 类别，避免后续常规 MLCC 继续混出这批高压/超高压料。
+- 已执行主库 in-place 系列回灌，共更新 `168` 行；其中 `DEH=109`、`DEJ=23`、`DHR=36`，`Murata MLCC` 空系列从 `534` 进一步降到 `367`。
+- 抽查样例已写实到库：`DEHR32E152KB2B -> DEH / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. R, C))`，`DEJE3E2102ZC3B -> DEJ / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. D))`，`DHR4E4B101K2BB -> DHR / 超高压 / Ultrahigh Voltage`。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；剩余 `Murata` 空系列主量当前集中在 `DEA / DEB / DEC / DEF / KC / GJ / WBM` 这几支，后续仍需按官方资料逐支确认，不能硬猜。

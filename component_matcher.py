@@ -85,9 +85,9 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
-SOURCE_NORMALIZED_CACHE_VERSION = 7
+SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 9
+QUERY_RESULT_CACHE_VERSION = 10
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -2796,7 +2796,7 @@ MURATA_SERIES_PREFIX_PATTERN = re.compile(
     r"GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|"
     r"LLL|LLF|LLA|LLG|LLC|LLM|LLR|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|"
     r"ZRA|ZRB|Z62|Z63|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|"
-    r"RHEL|RPER|ERB|RCE|RDE|RHE|RHS|RPE|"
+    r"RHEL|RPER|ERB|RCE|RDE|RHE|RHS|RPE|DEH|DEJ|DHR|"
     r"CLLC|CLLE|CLLG|NCP\d{2}[A-Z]{2}|NCU\d{2}[A-Z]{2}|NCG\d{2}[A-Z]{2}|FTN\d{2}[A-Z]{2}|YNA)"
 )
 
@@ -2867,6 +2867,9 @@ MURATA_SERIES_MEANING = {
     "RHE": "车规 / Automotive MLCC",
     "RHS": "高温车规引线型 / High-temperature leaded automotive MLCC",
     "RPE": "Murata MLCC series",
+    "DEH": "高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. R, C))",
+    "DEJ": "高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. D))",
+    "DHR": "超高压 / Ultrahigh Voltage",
     "RHEL": "Murata MLCC series",
     "RPER": "Murata MLCC series",
     "CLLC": "Murata capacitor series",
@@ -3088,6 +3091,9 @@ MURATA_MLCC_SERIES_CLASS = {
     "RHS": "车规",
     "LLM": "常规",
     "LLR": "常规",
+    "DEH": "高压",
+    "DEJ": "高压",
+    "DHR": "高压",
 }
 
 
