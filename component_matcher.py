@@ -696,12 +696,13 @@ footer {visibility: hidden;}
     line-height: 0;
 }
 .element-container:has(.bom-preview-toggle-anchor) {
-    margin-top: -24px !important;
-    margin-bottom: -8px !important;
+    margin-top: -8px !important;
+    margin-bottom: 10px !important;
 }
 .bom-preview-toggle-footer {
     margin-top: 0 !important;
     padding-top: 0 !important;
+    padding-bottom: 0 !important;
 }
 .match-card-head {
     display: flex;
