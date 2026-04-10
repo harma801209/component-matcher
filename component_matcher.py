@@ -2735,6 +2735,7 @@ def mlcc_series_should_replace(current_value, canonical_value):
     contaminated_patterns = [
         r"^C\d{4}$",
         r"^(?:CC|CQ|AC|AQ|AS|CS)\d{4}$",
+        r"^(?:RF|HH|SH|RT|UF)\d{2}$",
         r"^CL\d{2}[A-Z]$",
         r"^(?:TMK|JMK|EMK|LMK|AMK|UMK|HMK|QMK|SMK|QVS|TVS)\d{2,4}$",
         r"^(?:MAAS|MBAS|MCAS|MCAST|MLAS|MMAS|MSAS)\d{2,3}$",
@@ -3140,6 +3141,21 @@ YAGEO_MLCC_SERIES_CLASS = {
     "AS": "车规/软端子",
     "CS": "软端子",
 }
+WALSIN_MLCC_SERIES_MEANING = {
+    "01R5": "超小型 / Ultra-small MLCC",
+    "RF": "微波 / Ultra High Q / Ultra Low ESR MLCC",
+    "HH": "高Q / Low ESR MLCC",
+    "SH": "软端子 / Soft Termination MLCC",
+    "RT": "车规高Q / AEC-Q200 Qualified Automotive High-Q MLCC",
+    "UF": "微波窄容差 / Narrow Tolerance Ultra High Q MLCC",
+}
+WALSIN_MLCC_SERIES_CLASS = {
+    "RF": "高Q",
+    "HH": "高Q",
+    "SH": "软端子",
+    "RT": "车规/高Q",
+    "UF": "高Q",
+}
 TAIYO_MLCC_SERIES_MEANING = {
     "TMK": "Taiyo Yuden MLCC official series",
     "JMK": "Taiyo Yuden MLCC official series",
@@ -3296,6 +3312,32 @@ def yageo_mlcc_series_profile(series_code):
     }
 
 
+def walsin_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    if compact.startswith("01R5"):
+        return "01R5"
+    for prefix in ("RF", "HH", "SH", "RT", "UF"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def walsin_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(WALSIN_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if "车规" in class_text else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(WALSIN_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
 def taiyo_mlcc_series_code_from_model(model):
     compact = clean_model(model)
     if compact == "":
@@ -3372,6 +3414,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     series_key = clean_text(series).upper()
     is_pdc_brand = "PDC" in brand_upper or "信昌" in brand_text
     is_yageo_brand = "YAGEO" in brand_upper or "国巨" in brand_text
+    is_walsin_brand = "WALSIN" in brand_upper or "华新科" in brand_text
     is_taiyo_brand = "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text
     result = {
         "系列": clean_text(series),
@@ -3392,6 +3435,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         pdc_series_code = pdc_general_mlcc_series_code_from_model(model_key) if is_pdc_brand or brand_text == "" else ""
         murata_series_code = murata_series_code_from_model(model_key)
         yageo_series_code = yageo_mlcc_series_code_from_model(model_key if is_yageo_brand else "")
+        walsin_series_code = walsin_mlcc_series_code_from_model(model_key if is_walsin_brand else "")
         taiyo_series_code = taiyo_mlcc_series_code_from_model(model_key if is_taiyo_brand else "")
         if pdc_series_code != "":
             profile = pdc_mlcc_series_profile(pdc_series_code)
@@ -3399,6 +3443,8 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = murata_series_profile(murata_series_code)
         elif yageo_series_code != "":
             profile = yageo_mlcc_series_profile(yageo_series_code)
+        elif walsin_series_code != "":
+            profile = walsin_mlcc_series_profile(walsin_series_code)
         elif taiyo_series_code != "":
             profile = taiyo_mlcc_series_profile(taiyo_series_code)
         elif model_key.startswith("CGA") or re.match(r"^C\d{4}[A-Z0-9].*", model_key):
@@ -3409,6 +3455,8 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = murata_series_profile(series_key)
         elif is_yageo_brand and series_key in YAGEO_MLCC_SERIES_MEANING:
             profile = yageo_mlcc_series_profile(series_key)
+        elif is_walsin_brand and series_key in WALSIN_MLCC_SERIES_MEANING:
+            profile = walsin_mlcc_series_profile(series_key)
         elif is_taiyo_brand and series_key in TAIYO_MLCC_SERIES_MEANING:
             profile = taiyo_mlcc_series_profile(series_key)
         elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
@@ -4560,6 +4608,10 @@ def fill_missing_series_from_model(df):
         if pdc_desc_mask.any():
             work.loc[pdc_desc_mask, "系列说明"] = pdc_series_desc[pdc_desc_mask]
         missing_mask.loc[pdc_mask] = False
+
+    walsin_brand_mask = brand_clean.str.contains(r"WALSIN|华新科", case=False, regex=True, na=False)
+    assign_series(r"^(01R5)", extra_mask=walsin_brand_mask)
+    assign_series(r"^((?:RF|HH|SH|RT|UF))(?:\d{2})", extra_mask=walsin_brand_mask)
 
     # MLCC / ceramic families with well-defined official naming prefixes.
     assign_series(r"^((?:GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|ZRA|ZRB|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|YNA|RHEL|RPER|ERB|RCE|RDE|RHE|RPE))")
@@ -6003,13 +6055,17 @@ def parse_walsin_common(model, brand=""):
     size_map = {
         "0201": "0201", "0402": "0402", "0603": "0603", "0805": "0805",
         "1206": "1206", "1210": "1210", "1808": "1808", "1812": "1812", "2220": "2220",
-        "03": "0201", "05": "0402", "06": "0603", "09": "0805", "12": "1206",
-        "18": "0603", "21": "0805", "31": "1206", "32": "1210"
+        "03": "0201", "05": "0402", "06": "0603", "09": "0805", "11": "0505", "12": "1206",
+        "15": "0402", "18": "0603", "21": "0805", "31": "1206", "32": "1210",
+        "42": "1808", "43": "1812", "56": "2225",
     }
     material_map = {
         "B": "X5R", "X": "X5R", "C": "COG(NPO)", "N": "COG(NPO)", "T": "X7T"
     }
-    tol_map = {"F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
+    tol_map = {
+        "A": "0.25PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
+        "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20",
+    }
 
     special_01005_match = re.fullmatch(
         r"01R5(?P<mat>[BCNXT])(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[FGJKMZ])(?P<volt>(?:6R3|\d{3}))(?P<rest>.*)",
@@ -6018,9 +6074,15 @@ def parse_walsin_common(model, brand=""):
     if special_01005_match:
         volt = special_01005_match.group("volt")
         vmap = {"6R3": "6.3", "100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
+        series_profile = walsin_mlcc_series_profile("01R5")
         return {
             "品牌": "华新科Walsin",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": "01005",
             "材质（介质）": clean_material(material_map.get(special_01005_match.group("mat"), "")),
             "容值_pf": murata_cap_code_to_pf(special_01005_match.group("cap")),
@@ -6030,15 +6092,21 @@ def parse_walsin_common(model, brand=""):
         }
 
     alpha_match = re.fullmatch(
-        r"(?P<prefix>[A-Z]{2})(?P<size>\d{2})(?P<mat>[BCNXT])(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[FGJKMZ])(?P<volt>(?:6R3|\d{3}))(?P<rest>.*)",
+        r"(?P<prefix>[A-Z]{2})(?P<size>\d{2})(?P<mat>[BCNXT])(?P<cap>(?:\d{3,4}|R\d+|\dR\d+))(?P<tol>[ABCDEFGJKMZ])(?P<volt>(?:6R3|\d{3}))(?P<rest>.*)",
         model,
     )
     if alpha_match:
         volt = alpha_match.group("volt")
         vmap = {"6R3": "6.3", "100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
+        series_profile = walsin_mlcc_series_profile(alpha_match.group("prefix"))
         return {
             "品牌": "华新科Walsin",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(alpha_match.group("size"), clean_size(alpha_match.group("size"))),
             "材质（介质）": clean_material(material_map.get(alpha_match.group("mat"), "")),
             "容值_pf": murata_cap_code_to_pf(alpha_match.group("cap")),
@@ -6067,6 +6135,7 @@ def parse_walsin_common(model, brand=""):
         return {
             "品牌": "华新科Walsin",
             "型号": model,
+            "器件类型": "MLCC",
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),

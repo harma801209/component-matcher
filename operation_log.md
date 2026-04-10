@@ -1094,3 +1094,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 补齐并核正了高置信系列规则：`国巨YAGEO AQ / AS / CS`、`太诱Taiyo UMK / HMK / QMK / SMK / QVS / TVS / MSAS / MSART / MSAY / MSRL / MBAS / MBARQ / MCARQ / MMARQ / MCAS / MCAST / MAAS`、`村田Murata RCE / RDE / RHE / ERB / RPE / RHEL / RPER`；同时把 `AQ/AS/CS`、`CQ`、`MCARQ` 等特殊系列的类别画像补到 `车规 / 软端子 / 高Q`。
 - 主库回灌后复核结果：`MLCC + 系列='MLCC'` 已降到 `0`，`太诱Taiyo + 系列='MS'/'MBA'` 已降到 `0`，`华新科Walsin` 这类无法高置信确定真实系列的 size-first 型号不再保留错误 `MLCC` 占位，而是回落为空系列。
 - 现有 `components_prepared_v5.parquet` 已按 row-group 分块重写，`components_search.sqlite` 已从新 prepared 缓存重建，prepared meta 与数据库签名一致；示例已核对：`CS0402KRX7R7BB104 -> CS`、`AQ0402JRNPO9BN100 -> AQ`、`UMK063CG010CT-F -> UMK`、`MSAST021SCG220JWNA01 -> MSAS`、`MSAYE105SSD222KFNA01 -> MSAY`、`RCE5C2A122J0A2H03B -> RCE`。
+
+## 2026-04-10 Walsin 官方系列补全（RF / HH / SH / RT / 01R5）
+- 继续补 `华新科Walsin` 的官方 MLCC 系列规则：新增 `RF / HH / SH / RT / UF / 01R5` 系列画像与类别映射，来源仅采用 Walsin 官网产品家族页面，不对 `1206N... / 0805N...` 这类 numeric size-first 常规料号硬猜系列码。
+- 修正了 `parse_walsin_common()` 对高 Q 两位前缀系列的解析：补入 `RF/HH/SH/RT` 的系列字段、系列说明、类别画像，并补齐 `15 -> 0402`、`11 -> 0505`、`42 -> 1808`、`43 -> 1812`、`56 -> 2225` 等 Walsin 前缀系列尺寸码映射。
+- 同步补齐了 Walsin 高 Q / 软端子系列的容差码解析，`A/B/C/D` 现可正确映射为 `0.25PF / 0.1PF / 0.25PF / 0.5PF`，例如 `RT15N0R6B500CT` 现在能直接反解为 `RT / 0402 / COG(NPO) / 0.6PF / 0.1PF / 50V`。
+- 已执行主库 in-place 系列回灌，共更新 `1,606` 行；其中 `RF=619`、`HH=434`、`SH=496`、`RT=19`、`01R5=38`，并确认污染值 `RF03 / HH15 / SH15 / RT15` 全部清零。
+- 系列筛选联动已复核：`三星Samsung` 常规 `CL05B104KB5NNNC` 与 `CL10A106KP8NNNC` 的目标系列类别不会再命中 Walsin 的 `RF / HH / SH / RT` 候选，只会保留空系列/常规料。
