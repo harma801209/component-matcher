@@ -1133,3 +1133,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 ## 2026-04-10 BOM 手动定位按钮贴边再修正
 - 放弃只拉按钮本体的做法，改为直接给 `BOM原始内容预览` 下方锚点后的整行 `stHorizontalBlock` 加负 `margin-top`，让整颗 `找不到规格手动定位匹配位置` 按钮像下载按钮一样贴近上方气泡框。
 - 保留 `BOM原始内容预览` 的 `st.dataframe(..., height=220)` 不变，只调整按钮行容器的垂直间距，避免再改预览表格参数。
+
+## 2026-04-10 BOM 手动定位按钮改为 HTML 贴底按钮
+- 彻底放弃 `st.button` 方案，改成和 `下载 BOM 匹配后 Excel` 同一套 HTML 按钮样式，避免 Streamlit 组件自身的隐藏留白继续把按钮撑离气泡框底部。
+- 新增 `bom_manual_mapping_toggle` 查询参数切换逻辑：点击按钮后通过 URL 参数触发展开/收起，再立即清掉参数并 `st.rerun()`，从而保留原有手动定位开关行为。
+- `BOM原始内容预览` 下方按钮区改为单独的 HTML footer，并通过 `bom-preview-toggle-anchor` 对应容器直接上拉，让按钮贴近预览表格气泡框底部，同时不修改预览表格的 `height=220` 参数。

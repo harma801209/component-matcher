@@ -690,18 +690,18 @@ footer {visibility: hidden;}
     font-size: 13px;
     line-height: 1.4;
 }
-.bom-tight-anchor {
+.bom-preview-toggle-anchor {
     height: 0;
     padding: 0;
     line-height: 0;
 }
-.element-container:has(.bom-tight-anchor) {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
+.element-container:has(.bom-preview-toggle-anchor) {
+    margin-top: -24px !important;
+    margin-bottom: -8px !important;
 }
-.element-container:has(.bom-tight-anchor) + div[data-testid="stHorizontalBlock"] {
-    margin-top: -34px !important;
-    margin-bottom: -10px !important;
+.bom-preview-toggle-footer {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
 }
 .match-card-head {
     display: flex;
@@ -16460,6 +16460,38 @@ def build_bom_download_footer_html(data_bytes, filename, label="下载 BOM 匹�
 </div>
 '''
 
+
+def get_query_param_text(name):
+    try:
+        value = st.query_params.get(name, "")
+    except Exception:
+        return ""
+    if isinstance(value, list):
+        return clean_text(value[0] if value else "")
+    return clean_text(value)
+
+
+def consume_bom_manual_mapping_toggle(workbook_signature):
+    marker = get_query_param_text("bom_manual_mapping_toggle")
+    if marker == "" or marker != clean_text(workbook_signature):
+        return
+    st.session_state["_bom_manual_mapping_open"] = not bool(st.session_state.get("_bom_manual_mapping_open", False))
+    try:
+        del st.query_params["bom_manual_mapping_toggle"]
+    except Exception:
+        pass
+    st.rerun()
+
+
+def build_bom_manual_mapping_toggle_html(workbook_signature, label="找不到规格手动定位匹配位置"):
+    href = f'?bom_manual_mapping_toggle={urllib.parse.quote(clean_text(workbook_signature), safe="")}#bom-preview-toggle-anchor'
+    return f'''
+<div id="bom-preview-toggle-anchor" class="bom-preview-toggle-anchor"></div>
+<div class="bom-download-footer-outside bom-preview-toggle-footer">
+  <a class="bom-download-btn" href="{html.escape(href, quote=True)}">{html.escape(label)}</a>
+</div>
+'''
+
 def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fallback=False, progress_callback=None):
     if upload_df is None or upload_df.empty:
         return pd.DataFrame()
@@ -17957,7 +17989,6 @@ if uploaded_file is not None:
 
             st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
             st.dataframe(bom_df.head(20), use_container_width=True, hide_index=True, height=220)
-            st.markdown('<div class="bom-tight-anchor"></div>', unsafe_allow_html=True)
 
             guessed_mapping = guess_bom_column_mapping(bom_df)
             bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)
@@ -17970,21 +18001,10 @@ if uploaded_file is not None:
                     sheet_mapping_store[sheet_name] = guess_bom_column_mapping(item.get("df", pd.DataFrame()))
             if "_bom_manual_mapping_open" not in st.session_state:
                 st.session_state["_bom_manual_mapping_open"] = False
+            consume_bom_manual_mapping_toggle(workbook_signature)
             manual_mapping_open = bool(st.session_state.get("_bom_manual_mapping_open", False))
             stored_manual_mapping = sheet_mapping_store.get(selected_sheet_name, guessed_mapping)
-
-            def toggle_bom_manual_mapping():
-                st.session_state["_bom_manual_mapping_open"] = not bool(st.session_state.get("_bom_manual_mapping_open", False))
-
-            toggle_cols = st.columns([6.2, 3.2], gap="small")
-            toggle_cols[0].empty()
-            with toggle_cols[1]:
-                st.button(
-                    "找不到规格手动定位匹配位置",
-                    key=f"bom_manual_mapping_toggle_button_{workbook_signature}",
-                    on_click=toggle_bom_manual_mapping,
-                    use_container_width=True,
-                )
+            st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
 
             def resolve_bom_mapping_value(role, fallback_mapping):
                 value = clean_text(stored_manual_mapping.get(role, ""))
