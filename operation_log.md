@@ -1120,3 +1120,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 调整了 BOM 匹配结果区的布局：`下载 BOM 匹配后 Excel` 按钮不再放在 iframe 气泡框内部，而是改为在气泡框下方单独渲染，紧贴底部显示。
 - 新增页面级 `bom-download-footer-outside` 样式，并保留右对齐按钮布局；iframe 内的 BOM 结果表不再注入下载按钮 footer。
 - 同时下调 `estimate_bom_result_iframe_height()` 的基础高度，让 BOM 结果气泡框只包住表格本体，不再因为底部按钮/冗余留白把气泡框拉长。
+
+## 2026-04-10 BOM 结果可视行数与按钮贴合再调整
+- 进一步把 BOM 结果区改成“同一个 iframe 内：上方气泡框，下方按钮区”的结构，避免 Streamlit 外层组件高度和独立 markdown 块之间再产生大段空白。
+- `render_clickable_result_table()` 新增 `outer_footer_html`，并由 `build_result_table_iframe_html()` 在气泡框外、但仍在同一 iframe 中输出按钮区，这样 `下载 BOM 匹配后 Excel` 会自然紧贴气泡框底边。
+- `estimate_bom_result_iframe_height()` 改为按 10 行数据高度估算，并提高上限，让 BOM 结果表默认能看到 10 行数据（不含标题行）。

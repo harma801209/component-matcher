@@ -14489,11 +14489,11 @@ def estimate_result_table_iframe_height(row_count, show_official_status=True, co
 
 def estimate_bom_result_iframe_height(row_count):
     row_count = max(0, int(row_count or 0))
-    visible_rows = min(max(row_count, 1), 12)
-    base = 118
-    per_row = 42
-    min_height = 248
-    max_height = 620
+    visible_rows = min(max(row_count, 1), 10)
+    base = 92
+    per_row = 60
+    min_height = 320
+    max_height = 700
     height = base + visible_rows * per_row
     return max(min_height, min(max_height, height))
 
@@ -14551,7 +14551,7 @@ def paginate_result_dataframe(df, table_key, page_size=12):
     return df.iloc[start_idx:end_idx].copy(), (selected_page, page_count)
 
 
-def build_result_table_iframe_html(table_fragment):
+def build_result_table_iframe_html(table_fragment, outer_footer_html=""):
     return f"""
 <style>
 html, body {{
@@ -14715,6 +14715,14 @@ html, body {{
     margin-top: 6px;
     padding: 0 2px 2px 2px;
 }}
+.bom-download-footer-outside {{
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-top: 0;
+    padding: 2px 2px 0 2px;
+}}
 .match-card-footer {{
     height: 28px;
     margin-top: 6px;
@@ -14788,6 +14796,7 @@ html, body {{
 <div class="result-section-card">
 {table_fragment}
 </div>
+{outer_footer_html}
 <script>
 (function() {{
     function toNumber(value) {{
@@ -15039,7 +15048,7 @@ html, body {{
 """
 
 
-def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="result-table-wrap", spec=None, show_official_status=True, footer_html="", wrap_iframe=True):
+def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="result-table-wrap", spec=None, show_official_status=True, footer_html="", outer_footer_html="", wrap_iframe=True):
     if show_official_status:
         display_df = append_official_status_column(show_df)
         if "_量产状态链接" not in display_df.columns:
@@ -15128,7 +15137,7 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
         parts.append(footer_html)
     fragment = "".join(parts)
     if wrap_iframe:
-        return build_result_table_iframe_html(fragment)
+        return build_result_table_iframe_html(fragment, outer_footer_html=outer_footer_html)
     return fragment
 
 def build_part_info_df(df, spec, query_model):
@@ -18137,6 +18146,7 @@ if uploaded_file is not None:
                         show_official_status=False,
                         wrapper_class="bom-result-table-wrap",
                         footer_html="",
+                        outer_footer_html=download_footer_html,
                     )
                     if clickable_bom_html:
                         components.html(
@@ -18146,7 +18156,6 @@ if uploaded_file is not None:
                             ),
                             scrolling=False,
                         )
-                        st.markdown(download_footer_html, unsafe_allow_html=True)
                     else:
                         st.markdown(download_footer_html, unsafe_allow_html=True)
                 else:
