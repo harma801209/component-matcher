@@ -652,6 +652,44 @@ footer {visibility: hidden;}
     max-height: min(560px, 52vh);
     margin-bottom: 0;
 }
+.bom-download-footer-outside {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+    padding: 0 4px 0 4px;
+}
+.bom-download-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 190px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(203, 213, 225, 0.98);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    color: #1f2937;
+    font-size: 16px;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 8px 18px rgba(31, 41, 55, 0.08);
+}
+.bom-download-btn:hover {
+    border-color: rgba(148, 163, 184, 0.95);
+    box-shadow: 0 12px 24px rgba(31, 41, 55, 0.12);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.bom-download-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 6px 12px rgba(31, 41, 55, 0.08);
+}
+.bom-download-hint {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.4;
+}
 .match-card-head {
     display: flex;
     align-items: center;
@@ -14452,9 +14490,9 @@ def estimate_result_table_iframe_height(row_count, show_official_status=True, co
 def estimate_bom_result_iframe_height(row_count):
     row_count = max(0, int(row_count or 0))
     visible_rows = min(max(row_count, 1), 10)
-    base = 170
+    base = 118
     per_row = 42
-    min_height = 300
+    min_height = 248
     max_height = 620
     height = base + visible_rows * per_row
     return max(min_height, min(max_height, height))
@@ -16389,13 +16427,13 @@ def build_search_progress_state(
         "summary_lines": summary_lines or [],
     }
 
-def build_bom_download_footer_html(data_bytes, filename, label="下载 BOM 匹配后 Excel"):
+def build_bom_download_footer_html(data_bytes, filename, label="下载 BOM 匹配后 Excel", container_class="result-table-footer"):
     if not data_bytes:
-        return '<div class="result-table-footer"><span class="bom-download-hint">下载文件尚未生成</span></div>'
+        return f'<div class="{html.escape(container_class, quote=True)}"><span class="bom-download-hint">下载文件尚未生成</span></div>'
     href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + base64.b64encode(data_bytes).decode("ascii")
     safe_name = html.escape(clean_text(filename) or "bom_匹配后.xlsx", quote=True)
     return f'''
-<div class="result-table-footer">
+<div class="{html.escape(container_class, quote=True)}">
   <a class="bom-download-btn" href="{href}" download="{safe_name}">{html.escape(label)}</a>
 </div>
 '''
@@ -18088,16 +18126,17 @@ if uploaded_file is not None:
                     display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
                     export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                     export_filename = f"{export_name_root}_匹配后.xlsx"
-                    footer_html = build_bom_download_footer_html(
+                    download_footer_html = build_bom_download_footer_html(
                         st.session_state.get("_bom_export_bytes", b""),
                         export_filename,
+                        container_class="bom-download-footer-outside",
                     )
                     clickable_bom_html = render_clickable_result_table(
                         display_bom_result_df,
                         hide_columns=[],
                         show_official_status=False,
                         wrapper_class="bom-result-table-wrap",
-                        footer_html=footer_html,
+                        footer_html="",
                     )
                     if clickable_bom_html:
                         components.html(
@@ -18107,14 +18146,9 @@ if uploaded_file is not None:
                             ),
                             scrolling=False,
                         )
+                        st.markdown(download_footer_html, unsafe_allow_html=True)
                     else:
-                        st.download_button(
-                            "下载 BOM 匹配后 Excel",
-                            data=st.session_state.get("_bom_export_bytes", b""),
-                            file_name=export_filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True,
-                        )
+                        st.markdown(download_footer_html, unsafe_allow_html=True)
                 else:
                     st.info("正在等待当前自动匹配结果生成。")
 

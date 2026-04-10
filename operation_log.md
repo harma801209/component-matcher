@@ -1115,3 +1115,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已执行主库 in-place 系列回灌，共更新 `168` 行；其中 `DEH=109`、`DEJ=23`、`DHR=36`，`Murata MLCC` 空系列从 `534` 进一步降到 `367`。
 - 抽查样例已写实到库：`DEHR32E152KB2B -> DEH / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. R, C))`，`DEJE3E2102ZC3B -> DEJ / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. D))`，`DHR4E4B101K2BB -> DHR / 超高压 / Ultrahigh Voltage`。
 - 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；剩余 `Murata` 空系列主量当前集中在 `DEA / DEB / DEC / DEF / KC / GJ / WBM` 这几支，后续仍需按官方资料逐支确认，不能硬猜。
+
+## 2026-04-10 BOM 结果气泡框与下载按钮位置调整
+- 调整了 BOM 匹配结果区的布局：`下载 BOM 匹配后 Excel` 按钮不再放在 iframe 气泡框内部，而是改为在气泡框下方单独渲染，紧贴底部显示。
+- 新增页面级 `bom-download-footer-outside` 样式，并保留右对齐按钮布局；iframe 内的 BOM 结果表不再注入下载按钮 footer。
+- 同时下调 `estimate_bom_result_iframe_height()` 的基础高度，让 BOM 结果气泡框只包住表格本体，不再因为底部按钮/冗余留白把气泡框拉长。
