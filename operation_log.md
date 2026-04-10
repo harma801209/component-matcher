@@ -1101,3 +1101,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 同步补齐了 Walsin 高 Q / 软端子系列的容差码解析，`A/B/C/D` 现可正确映射为 `0.25PF / 0.1PF / 0.25PF / 0.5PF`，例如 `RT15N0R6B500CT` 现在能直接反解为 `RT / 0402 / COG(NPO) / 0.6PF / 0.1PF / 50V`。
 - 已执行主库 in-place 系列回灌，共更新 `1,606` 行；其中 `RF=619`、`HH=434`、`SH=496`、`RT=19`、`01R5=38`，并确认污染值 `RF03 / HH15 / SH15 / RT15` 全部清零。
 - 系列筛选联动已复核：`三星Samsung` 常规 `CL05B104KB5NNNC` 与 `CL10A106KP8NNNC` 的目标系列类别不会再命中 Walsin 的 `RF / HH / SH / RT` 候选，只会保留空系列/常规料。
+
+## 2026-04-10 Murata 官方系列补全（RHS / LLM / LLR）
+- 继续清 `Murata MLCC` 的空系列，仅补了有官方一手依据的 `RHS / LLM / LLR` 三支；`DHR / DEHR` 以及 `芯声微HRE` 的 `CAI` 因缺少足够高置信官方规则，本轮保持不动，避免误判。
+- 新增 `RHS / LLM / LLR` 到 `MURATA_SERIES_PREFIX_PATTERN`、`MURATA_SERIES_MEANING` 与 `MURATA_MLCC_SERIES_CLASS`：`RHS` 归为 `车规`，`LLM / LLR` 归为 `常规`，同时提升 `SOURCE_NORMALIZED_CACHE_VERSION` 到 `7`、`QUERY_RESULT_CACHE_VERSION` 到 `9`，强制旧源标准化缓存与旧查询结果缓存失效。
+- 已执行主库 in-place 系列回灌，共更新 `218` 行；其中 `RHS=191`、`LLM=20`、`LLR=7`，`Murata MLCC` 空系列从 `752` 降到 `534`，`芯声微HRE` 空系列仍为 `10`。
+- 抽查样例已写实到库：`RHS7G2A101J0A2H01B -> RHS / 高温车规引线型 / High-temperature leaded automotive MLCC / 车规`，`LLM215R71C104MA11K -> LLM / 常规低ESL / 10 terminals low ESL MLCC for General Purpose`，`LLR185C70G105ME01K -> LLR / 常规低ESL控ESR / LW reversed controlled ESR low ESL MLCC for General Purpose`。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；类别筛选复核为 `车规 -> 常规` 不再互相放行，因此 `RHS` 不会再混入常规 MLCC 推荐。

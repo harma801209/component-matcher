@@ -85,9 +85,9 @@ COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
-SOURCE_NORMALIZED_CACHE_VERSION = 6
+SOURCE_NORMALIZED_CACHE_VERSION = 7
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 8
+QUERY_RESULT_CACHE_VERSION = 9
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -2794,9 +2794,9 @@ def mlcc_generic_size_first_parser_allowed(brand):
 MURATA_SERIES_PREFIX_PATTERN = re.compile(
     r"^(AVR-M|AVRM|AVRL|AVRH|VAR|S\d{2}K|LS\d{2}K|CN\d{4}|SGN[A-Z0-9]{4}|"
     r"GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ|GRJ|GMA|GMD|GCH|GXT|GGM|GC3|GCD|GCE|GGD|"
-    r"LLL|LLF|LLA|LLG|LLC|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|"
+    r"LLL|LLF|LLA|LLG|LLC|LLM|LLR|NFM|KCM|KRT|DK1|GA2|GA3|GR3|GR4|GR7|GJ4|KRM|KR3|KR9|"
     r"ZRA|ZRB|Z62|Z63|NTC|PRF|PTG|NXF|CEU|CGJ|CGB|CKG|CNA|CNC|CN0|"
-    r"RHEL|RPER|ERB|RCE|RDE|RHE|RPE|"
+    r"RHEL|RPER|ERB|RCE|RDE|RHE|RHS|RPE|"
     r"CLLC|CLLE|CLLG|NCP\d{2}[A-Z]{2}|NCU\d{2}[A-Z]{2}|NCG\d{2}[A-Z]{2}|FTN\d{2}[A-Z]{2}|YNA)"
 )
 
@@ -2824,6 +2824,8 @@ MURATA_SERIES_MEANING = {
     "LLA": "Murata MLCC series",
     "LLG": "Murata MLCC series",
     "LLC": "Murata MLCC series",
+    "LLM": "常规低ESL / 10 terminals low ESL MLCC for General Purpose",
+    "LLR": "常规低ESL控ESR / LW reversed controlled ESR low ESL MLCC for General Purpose",
     "NFM": "EMI滤波 / Murata EMI filter series",
     "KCM": "Murata MLCC series",
     "KRT": "Murata MLCC series",
@@ -2863,6 +2865,7 @@ MURATA_SERIES_MEANING = {
     "RCE": "车规 / Automotive MLCC",
     "RDE": "常规 / General-purpose MLCC",
     "RHE": "车规 / Automotive MLCC",
+    "RHS": "高温车规引线型 / High-temperature leaded automotive MLCC",
     "RPE": "Murata MLCC series",
     "RHEL": "Murata MLCC series",
     "RPER": "Murata MLCC series",
@@ -3082,6 +3085,9 @@ MURATA_MLCC_SERIES_CLASS = {
     "RCE": "车规",
     "RDE": "常规",
     "RHE": "车规",
+    "RHS": "车规",
+    "LLM": "常规",
+    "LLR": "常规",
 }
 
 
