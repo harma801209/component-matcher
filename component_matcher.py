@@ -690,6 +690,20 @@ footer {visibility: hidden;}
     font-size: 13px;
     line-height: 1.4;
 }
+.bom-tight-anchor {
+    height: 0;
+    margin-top: -14px;
+    margin-bottom: -22px;
+    padding: 0;
+    line-height: 0;
+}
+.bom-manual-toggle-pull {
+    height: 0;
+    margin-top: -34px;
+    margin-bottom: -28px;
+    padding: 0;
+    line-height: 0;
+}
 .match-card-head {
     display: flex;
     align-items: center;
@@ -17944,6 +17958,7 @@ if uploaded_file is not None:
 
             st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
             st.dataframe(bom_df.head(20), use_container_width=True, hide_index=True, height=220)
+            st.markdown('<div class="bom-tight-anchor"></div>', unsafe_allow_html=True)
 
             guessed_mapping = guess_bom_column_mapping(bom_df)
             bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)
@@ -17962,14 +17977,16 @@ if uploaded_file is not None:
             def toggle_bom_manual_mapping():
                 st.session_state["_bom_manual_mapping_open"] = not bool(st.session_state.get("_bom_manual_mapping_open", False))
 
-            toggle_cols = st.columns([6.2, 3.2])
+            toggle_cols = st.columns([6.2, 3.2], gap="small")
             toggle_cols[0].empty()
-            toggle_cols[1].button(
-                "找不到规格手动定位匹配位置",
-                key=f"bom_manual_mapping_toggle_button_{workbook_signature}",
-                on_click=toggle_bom_manual_mapping,
-                use_container_width=True,
-            )
+            with toggle_cols[1]:
+                st.markdown('<div class="bom-manual-toggle-pull"></div>', unsafe_allow_html=True)
+                st.button(
+                    "找不到规格手动定位匹配位置",
+                    key=f"bom_manual_mapping_toggle_button_{workbook_signature}",
+                    on_click=toggle_bom_manual_mapping,
+                    use_container_width=True,
+                )
 
             def resolve_bom_mapping_value(role, fallback_mapping):
                 value = clean_text(stored_manual_mapping.get(role, ""))
