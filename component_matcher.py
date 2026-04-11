@@ -78,6 +78,8 @@ PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
+STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
+STREAMLIT_CLOUD_BUNDLE_STATE_PATH = os.path.join(BASE_DIR, "cache", "streamlit_cloud_bundle_state.json")
 MANUAL_CORRECTION_RULES_PATH = os.path.join(BASE_DIR, "cache", "manual_correction_rules.csv")
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
@@ -178,6 +180,109 @@ def get_path_signature(path):
         }
 
 
+def load_streamlit_cloud_bundle_manifest():
+    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH):
+        return {}
+    try:
+        with open(STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return {}
+    members = data.get("members", []) if isinstance(data, dict) else []
+    manifest = {}
+    for entry in members:
+        if not isinstance(entry, dict):
+            continue
+        member_path = clean_text(entry.get("path", ""))
+        if member_path == "":
+            continue
+        manifest[member_path] = {
+            "size": int(entry.get("size", 0) or 0),
+            "mtime_ns": int(entry.get("mtime_ns", 0) or 0),
+            "sha256": clean_text(entry.get("sha256", "")),
+        }
+    return manifest
+
+
+def get_streamlit_cloud_bundle_signature():
+    try:
+        if os.path.exists(STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH):
+            with open(STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH, "rb") as handle:
+                return hashlib.sha256(handle.read()).hexdigest()
+    except Exception:
+        pass
+    try:
+        if os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+            stat = os.stat(STREAMLIT_CLOUD_BUNDLE_PATH)
+            return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
+    except Exception:
+        pass
+    return ""
+
+
+def load_streamlit_cloud_bundle_state():
+    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_STATE_PATH):
+        return {}
+    try:
+        with open(STREAMLIT_CLOUD_BUNDLE_STATE_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_streamlit_cloud_bundle_state(signature, extracted_members=None):
+    state = {
+        "bundle_signature": clean_text(signature),
+        "updated_at": time.time(),
+        "members": sorted(
+            {
+                clean_text(member)
+                for member in (extracted_members or [])
+                if clean_text(member) != ""
+            }
+        ),
+    }
+    try:
+        os.makedirs(os.path.dirname(STREAMLIT_CLOUD_BUNDLE_STATE_PATH), exist_ok=True)
+        with open(STREAMLIT_CLOUD_BUNDLE_STATE_PATH, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def streamlit_cloud_bundle_refresh_needed(required_paths=None):
+    if not (is_public_mode() or is_streamlit_cloud_runtime()):
+        return False
+    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        return False
+
+    manifest = load_streamlit_cloud_bundle_manifest()
+    signature = get_streamlit_cloud_bundle_signature()
+    state = load_streamlit_cloud_bundle_state()
+    state_signature = clean_text(state.get("bundle_signature", ""))
+    target_paths = [
+        os.path.abspath(path)
+        for path in (
+            required_paths
+            or [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
+        )
+    ]
+    for target_path in target_paths:
+        member_name = bundle_member_path_for_local_path(target_path)
+        expected = manifest.get(member_name)
+        if expected:
+            try:
+                stat = os.stat(target_path)
+                if int(stat.st_size) != int(expected.get("size", 0) or 0):
+                    return True
+            except Exception:
+                return True
+        elif not bundle_target_is_valid(target_path):
+            return True
+    return signature != "" and signature != state_signature
+
+
 def ensure_streamlit_cloud_data_bundle(required_paths=None):
     target_paths = [
         os.path.abspath(path)
@@ -186,17 +291,19 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
             or [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
         )
     ]
-    if all(bundle_target_is_valid(path) for path in target_paths):
+    refresh_needed = streamlit_cloud_bundle_refresh_needed(required_paths=target_paths)
+    if not refresh_needed and all(bundle_target_is_valid(path) for path in target_paths):
         return True
     if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
         return False
 
     try:
         with STREAMLIT_CLOUD_BUNDLE_LOCK:
+            extracted_members = []
             with zipfile.ZipFile(STREAMLIT_CLOUD_BUNDLE_PATH, "r") as archive:
                 available_members = set(archive.namelist())
                 for target_path in target_paths:
-                    if bundle_target_is_valid(target_path):
+                    if not refresh_needed and bundle_target_is_valid(target_path):
                         continue
                     member_name = bundle_member_path_for_local_path(target_path)
                     if member_name not in available_members:
@@ -218,12 +325,17 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
                         with archive.open(member_name, "r") as source_handle, open(temp_target_path, "wb") as target_handle:
                             shutil.copyfileobj(source_handle, target_handle, length=1024 * 1024)
                         os.replace(temp_target_path, target_path)
+                        extracted_members.append(member_name)
                     finally:
                         if os.path.exists(temp_target_path):
                             try:
                                 os.remove(temp_target_path)
                             except Exception:
                                 pass
+            save_streamlit_cloud_bundle_state(
+                get_streamlit_cloud_bundle_signature(),
+                extracted_members=extracted_members,
+            )
     except Exception as exc:
         logging.getLogger(__name__).warning("failed to extract cloud bundle: %s", exc)
         return False
@@ -245,7 +357,9 @@ def get_search_asset_bundle_paths():
 
 def maybe_start_cloud_search_asset_warmup():
     global CLOUD_SEARCH_ASSET_WARMUP_STARTED
-    if database_has_component_rows() or search_sidecar_assets_available():
+    if not streamlit_cloud_bundle_refresh_needed(required_paths=[DB_PATH] + get_search_asset_bundle_paths()) and (
+        database_has_component_rows() or search_sidecar_assets_available()
+    ):
         return
     if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
         return
@@ -264,11 +378,15 @@ def maybe_start_cloud_search_asset_warmup():
 
 
 def ensure_component_data_ready(action_label=""):
-    if database_has_component_rows():
+    full_bundle_paths = [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
+    if not streamlit_cloud_bundle_refresh_needed(required_paths=full_bundle_paths) and database_has_component_rows():
         return True
 
     action_text = clean_text(action_label)
     search_asset_paths = get_search_asset_bundle_paths()
+    if streamlit_cloud_bundle_refresh_needed(required_paths=full_bundle_paths) and ensure_streamlit_cloud_data_bundle(required_paths=full_bundle_paths):
+        clear_data_load_caches()
+        return database_has_component_rows() or search_sidecar_assets_available()
     if action_text in {"搜索", "BOM 匹配"} and ensure_streamlit_cloud_data_bundle(required_paths=search_asset_paths):
         clear_data_load_caches()
         return search_sidecar_assets_available()
@@ -286,6 +404,14 @@ def ensure_component_data_ready(action_label=""):
 
 def is_public_mode():
     return str(os.getenv(COMPONENT_MATCHER_PUBLIC_MODE_ENV, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_streamlit_cloud_runtime():
+    for env_name in ["STREAMLIT_SHARING_MODE", "IS_STREAMLIT_CLOUD", "STREAMLIT_RUNTIME"]:
+        if clean_text(os.getenv(env_name, "")) != "":
+            return True
+    normalized_base_dir = os.path.abspath(BASE_DIR).replace("\\", "/")
+    return normalized_base_dir == "/mount/src" or normalized_base_dir.startswith("/mount/src/")
 
 
 def get_int_env(name, default_value):

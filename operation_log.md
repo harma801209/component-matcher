@@ -22,6 +22,15 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
 ## Entries
 
+### 2026-04-12 02:25 [direct] 公开版修复 Community Cloud 沿用旧 bundle 数据的问题
+
+- Received / problem: 用户在 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/) 实测 `CM13093CT-102` 仍显示“无法识别输入内容”，说明上一轮公开版发布后，线上运行态没有真正吃到新的正式数据库与搜索缓存。
+- Investigation: 复核 [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py)、[component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 与 [cloudflare-pages-proxy/dist/_worker.js](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js)。确认 `pages.dev` 代理层仍正常指向 `fruition-componentmatche.streamlit.app`，而正式问题出在 `ensure_streamlit_cloud_data_bundle()` 和 `ensure_component_data_ready()`：旧逻辑只检查 `components.db / components_search.sqlite / prepared parquet` 是否“存在且非空”，不会判断这些文件是不是旧部署遗留版本，因此 Streamlit Community Cloud 的持久化文件系统会继续沿用旧库。搜索页在 `搜索` 场景下还只优先刷新搜索侧包，不保证把主 `components.db` 一起更新。
+- Fix / action: 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增 `streamlit_cloud_bundle.manifest.json` 与运行时状态文件 `cache/streamlit_cloud_bundle_state.json` 的比对逻辑，加入 `load_streamlit_cloud_bundle_manifest()`、`get_streamlit_cloud_bundle_signature()`、`load_streamlit_cloud_bundle_state()`、`save_streamlit_cloud_bundle_state()`、`streamlit_cloud_bundle_refresh_needed()`。正式运行态现在只要检测到 bundle manifest 已变化，就会强制重解当前需要的 bundle 成员，而不是只看文件在不在。另补充 `is_streamlit_cloud_runtime()`，即使未显式设置公开模式环境变量，只要运行目录位于 Community Cloud 常见路径，也会启用这套刷新判断。最后把 `ensure_component_data_ready()` 改为：一旦判断 bundle 已更新，就优先刷新整套 `DB + 搜索库 + prepared cache`，而不再只刷搜索侧包。
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_local_and_public.py build_streamlit_cloud_bundle.py` 通过；另外做了最小模拟测试：在临时目录中先放一个旧目标文件、再提供新 zip bundle 与新 manifest，`streamlit_cloud_bundle_refresh_needed()` 返回 `True`，调用 `ensure_streamlit_cloud_data_bundle()` 后目标文件被成功替换为新 bundle 内容，随后刷新判定恢复为 `False`，并写入新的 `streamlit_cloud_bundle_state.json`。
+- Other issues: 这条修复主要解决“正式线上实例不更新”的问题，不直接改变匹配规则本身；仍需重新发布一次公开版，等 Community Cloud 重启后再确认 `CM13093CT-102` 的线上行为是否恢复为精确料号识别。
+- Handoff notes: 下一步应重新执行公开版发布流程，并优先复测 `CM13093CT-102`。若复测仍异常，再继续查 Streamlit Community Cloud 实际运行环境变量与持久化目录状态。
+
 ### 2026-04-12 01:58 [direct] 公开版 CM1309 共模电感系列与温度显示修正
 
 - Received / problem: 用户明确约定“公开版/正式版”指 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)，本轮要求继续只修公开版源码，不动测试版；同时 `CM13093CT-102` 这类公开版精确料号在本地正式链路里虽已入库，但仍存在系列名不统一、错误 `尺寸（inch）` 残留、工作温度显示只剩上限的问题。
