@@ -12185,6 +12185,26 @@ def get_search_index_signature():
     }
 
 
+def bundled_runtime_assets_are_current(required_paths=None):
+    if not (is_public_mode() or is_streamlit_cloud_runtime()):
+        return False
+    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        return False
+    try:
+        return not streamlit_cloud_bundle_refresh_needed(required_paths=required_paths)
+    except Exception:
+        return False
+
+
+def prepared_cache_meta_is_usable(meta):
+    if not isinstance(meta, dict):
+        return False
+    try:
+        return int(meta.get("cache_version", 0) or 0) == PREPARED_CACHE_VERSION
+    except Exception:
+        return False
+
+
 def prepared_cache_is_current():
     if (
         (not os.path.exists(PREPARED_CACHE_PATH) and not os.path.exists(PREPARED_CACHE_FALLBACK_PATH))
@@ -12196,7 +12216,11 @@ def prepared_cache_is_current():
             meta = json.load(handle)
     except Exception:
         return False
-    return meta == get_database_signature()
+    if meta == get_database_signature():
+        return True
+    return prepared_cache_meta_is_usable(meta) and bundled_runtime_assets_are_current(
+        required_paths=[PREPARED_CACHE_PATH]
+    )
 
 
 def optimize_prepared_dataframe_dtypes(df):
@@ -12685,6 +12709,20 @@ def read_search_index_meta(conn):
         return None
 
 
+def search_index_meta_is_usable(meta):
+    if not isinstance(meta, dict):
+        return False
+    try:
+        schema_version = int(meta.get("search_index_schema_version", 0) or 0)
+        cache_version = int(meta.get("cache_version", 0) or 0)
+    except Exception:
+        return False
+    return (
+        schema_version == SEARCH_INDEX_SCHEMA_VERSION
+        and cache_version == PREPARED_CACHE_VERSION
+    )
+
+
 def search_index_is_current(conn, required_columns=None, table_name=COMPONENTS_SEARCH_CORE_TABLE):
     if not search_table_exists(conn, table_name=table_name):
         return False
@@ -12703,6 +12741,13 @@ def search_index_is_current(conn, required_columns=None, table_name=COMPONENTS_S
 def search_index_can_serve_queries(conn, required_columns=None, table_name=COMPONENTS_SEARCH_CORE_TABLE, allow_without_database=False):
     if search_index_is_current(conn, required_columns=required_columns, table_name=table_name):
         return True
+    if bundled_runtime_assets_are_current(required_paths=[SEARCH_DB_PATH]):
+        if not search_table_exists(conn, table_name=table_name):
+            return False
+        if required_columns and not search_table_has_columns(conn, required_columns, table_name=table_name):
+            return False
+        meta = read_search_index_meta(conn)
+        return search_index_meta_is_usable(meta)
     if allow_without_database and not os.path.exists(DB_PATH):
         if not search_table_exists(conn, table_name=table_name):
             return False

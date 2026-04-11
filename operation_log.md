@@ -1263,3 +1263,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已在正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增统一展示字段 `器件类别`，并做成中英双语值，例如 `陶瓷贴片电容（MLCC）`、`热敏电阻（NTC Thermistor）`、`石英晶体（Crystal Unit）`、`晶体振荡器（Oscillator）`、`功率电感（Power Inductor）` 等；该字段只用于前端显示，不改数据库原始 `器件类型` 字段。
 - 该双语器件类别已接到正式版两条主要显示链路：一是精确料号搜索的 `匹配料号资料` 表，二是匹配结果表中的候选型号行。搜索页标题也改成优先显示双语器件类别，例如 `石英晶体（Crystal Unit）匹配结果（含推荐等级）`。
 - 本地实测 `FC2012AN` 现在会显示 `爱普生Epson / FC2012AN / 石英晶体（Crystal Unit） / FC2012 / 32.768kHz / ±20% / 2012`；`NCP02WF104D05RH` 会显示 `热敏电阻（NTC Thermistor）`，确认不是只针对单一品牌生效。
+
+## 2026-04-12 03:02 公开版修复云端搜索索引误判导致卡在预取精确料号
+- 用户在公开版 `https://fruition-component.pages.dev/` 搜索 `CM13093CT-102` 时，页面卡在“正在预取精确料号 / 进度 0/1 / 预取数 1”，没有继续往下返回结果。
+- 继续排查公开版 Streamlit Community Cloud 链路后确认，`cache/components_search.sqlite` 和 prepared cache 的 meta 里记录的是本地 Windows `components.db` 绝对路径；云端运行时路径不同，导致 `search_index_is_current()` / `prepared_cache_is_current()` 误判为过期，并尝试触发整库重建，因此前端会停在预取精确料号阶段。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增公开版 bundle 运行态兜底：当云端 bundle 已是当前版本时，搜索索引和 prepared cache 改按 `schema/cache version + bundle 当前状态` 判断是否可用，不再因为 `db_path` 与本机不同就触发重建。
+- 待完成本地语法校验与公开版重新发布后，再用 `CM13093CT-102` 在正式网页实测，确认不再卡在预取阶段。
