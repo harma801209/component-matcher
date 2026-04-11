@@ -5482,7 +5482,7 @@ def build_generic_model_rule_breakdown(model, parsed=None):
         for label, key in [
             ("品牌", "品牌"),
             ("器件类型", "器件类型"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸", "尺寸（inch）"),
             ("材质（介质）", "材质（介质）"),
             ("参数值", "容值"),
             ("参数单位", "容值单位"),
@@ -7437,6 +7437,16 @@ def format_component_category_display(value):
     return COMPONENT_CATEGORY_DISPLAY_LABELS.get(component_type, component_type)
 
 
+def format_component_size_display_value(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    normalized = text.lower()
+    if "mm" in normalized or "×" in text or "*" in text or re.search(r"\d\s*[xX]\s*\d", text):
+        return text
+    return clean_size(text)
+
+
 def resistor_source_evidence_present(value):
     note = clean_text(value).lower()
     if note == "":
@@ -8529,7 +8539,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("材质（介质）", "材质（介质）"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
@@ -8544,7 +8554,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("容值", "阻值"),
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
@@ -8558,7 +8568,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("阻值@25C", "R25"),
             ("阻值单位", "阻值单位"),
             ("阻值误差", "误差"),
@@ -8573,7 +8583,7 @@ def get_component_display_schema(spec_or_type):
             return [
                 ("系列", "系列"),
                 ("系列说明", "系列说明"),
-                ("尺寸（inch）", "尺寸（inch）"),
+                ("尺寸（inch）", "尺寸"),
                 ("阻抗@100MHz", "阻抗@100MHz"),
                 ("阻抗单位", "阻抗单位"),
                 ("额定电流", "额定电流"),
@@ -8586,7 +8596,7 @@ def get_component_display_schema(spec_or_type):
             return [
                 ("系列", "系列"),
                 ("系列说明", "系列说明"),
-                ("尺寸（inch）", "尺寸（inch）"),
+                ("尺寸（inch）", "尺寸"),
                 ("电感值", "电感值"),
                 ("电感单位", "电感单位"),
                 ("共模阻抗", "共模阻抗"),
@@ -8601,7 +8611,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("电感值", "电感值"),
             ("电感单位", "电感单位"),
             ("电感误差", "误差"),
@@ -8617,7 +8627,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("封装代码", "封装代码"),
             ("容值", "频率"),
             ("容值单位", "频率单位"),
@@ -8633,7 +8643,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("封装代码", "封装代码"),
             ("容值", "输出频率"),
             ("容值单位", "频率单位"),
@@ -8649,7 +8659,7 @@ def get_component_display_schema(spec_or_type):
         if component_type == "贴片压敏电阻":
             return [
                 ("系列", "系列"),
-                ("尺寸（inch）", "尺寸（inch）"),
+                ("尺寸（inch）", "尺寸"),
                 ("压敏电压", "压敏电压"),
                 ("容值误差", "误差"),
                 ("功率", "功率"),
@@ -8690,7 +8700,7 @@ def get_component_display_schema(spec_or_type):
     if component_type == "钽电容":
         return [
             ("系列", "系列"),
-            ("尺寸（inch）", "尺寸（inch）"),
+            ("尺寸（inch）", "尺寸"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
             ("容值误差", "容值误差"),
@@ -8729,7 +8739,7 @@ def get_component_display_schema(spec_or_type):
         ]
     return [
         ("系列", "系列"),
-        ("尺寸（inch）", "尺寸（inch）"),
+        ("尺寸（inch）", "尺寸"),
         ("材质（介质）", "材质（介质）"),
         ("容值", "参数值"),
         ("容值单位", "参数单位"),
@@ -9285,6 +9295,18 @@ def ensure_component_display_columns(df):
     out["器件类别"] = out["器件类别"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
     if "特殊用途" not in out.columns:
         out["特殊用途"] = blank_series()
+    if "尺寸（inch）" not in out.columns:
+        out["尺寸（inch）"] = blank_series()
+    out["尺寸（inch）"] = out["尺寸（inch）"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+    size_fallback = blank_series()
+    for fallback_col in ["尺寸（mm）", "尺寸(mm)", "_body_size"]:
+        if fallback_col in out.columns:
+            size_fallback = out[fallback_col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+            break
+    fill_size_mask = out["尺寸（inch）"].eq("") & size_fallback.ne("")
+    if fill_size_mask.any():
+        out.loc[fill_size_mask, "尺寸（inch）"] = size_fallback.loc[fill_size_mask]
+    out["尺寸（inch）"] = out["尺寸（inch）"].astype(str).replace("nan", "").replace("None", "").apply(format_component_size_display_value)
     timing_value_sources = [col for col in ["输出频率", "频率"] if col in out.columns]
     for source_col in timing_value_sources:
         blank_value_mask = out["容值"].astype(str).apply(clean_text).eq("")
@@ -9387,14 +9409,6 @@ def ensure_component_display_columns(df):
             out.loc[bourns_cm1309_mask, "安装方式"] = "THT"
             if "封装代码" in out.columns:
                 out.loc[bourns_cm1309_mask, "封装代码"] = "CM1309"
-    if "尺寸（inch）" in out.columns and "尺寸（mm）" in out.columns and "器件类型" in out.columns:
-        tht_common_mode_mask = (
-            out["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
-            & out["安装方式"].astype(str).apply(normalize_mounting_style).eq("THT")
-            & out["尺寸（mm）"].astype(str).apply(clean_text).ne("")
-        )
-        if tht_common_mode_mask.any():
-            out.loc[tht_common_mode_mask, "尺寸（inch）"] = ""
     if "压敏电压" not in out.columns:
         if "_varistor_voltage" in out.columns:
             out["压敏电压"] = out["_varistor_voltage"].apply(voltage_display)
@@ -16758,7 +16772,6 @@ def build_part_info_df(df, spec, query_model):
         hit = load_component_rows_by_clean_model(query_model)
     if not hit.empty:
         show_df = ensure_component_display_columns(hit)
-        show_df["尺寸（inch）"] = show_df["尺寸（inch）"].apply(clean_size)
         show_df["材质（介质）"] = show_df["材质（介质）"].apply(clean_material)
         show_df["容值误差"] = show_df["容值误差"].apply(clean_tol_for_match)
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
@@ -16768,7 +16781,7 @@ def build_part_info_df(df, spec, query_model):
         suffix_columns = ["官网链接", "数据来源"]
         display_component_type = resolve_component_display_type(display_target)
         if display_component_type in INDUCTOR_COMPONENT_TYPES:
-            for extra_col in ["尺寸（mm）", "规格摘要", "特殊用途"]:
+            for extra_col in ["规格摘要", "特殊用途"]:
                 if extra_col in show_df.columns:
                     has_value = (
                         show_df[extra_col]

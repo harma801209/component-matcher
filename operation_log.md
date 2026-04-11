@@ -1269,3 +1269,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 继续排查公开版 Streamlit Community Cloud 链路后确认，`cache/components_search.sqlite` 和 prepared cache 的 meta 里记录的是本地 Windows `components.db` 绝对路径；云端运行时路径不同，导致 `search_index_is_current()` / `prepared_cache_is_current()` 误判为过期，并尝试触发整库重建，因此前端会停在预取精确料号阶段。
 - 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增公开版 bundle 运行态兜底：当云端 bundle 已是当前版本时，搜索索引和 prepared cache 改按 `schema/cache version + bundle 当前状态` 判断是否可用，不再因为 `db_path` 与本机不同就触发重建。
 - 待完成本地语法校验与公开版重新发布后，再用 `CM13093CT-102` 在正式网页实测，确认不再卡在预取阶段。
+
+## 2026-04-12 04:05 公开版料号表尺寸栏统一为单列
+- 用户要求把 `尺寸（inch）` 的表头改成 `尺寸`，并把刚刚加出来的 `尺寸（mm）` 后缀列去掉，统一放回前面的尺寸栏。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的展示层做统一尺寸处理：前端表格现在会优先显示 `尺寸（inch）`，若为空则回填 `尺寸（mm）`、`尺寸(mm)` 或 `._body_size`，并把表头改为 `尺寸`。
+- 同时移除了共模电感结果页里额外插入的 `尺寸（mm）` 后缀列，避免表格右侧再出现第二个尺寸栏。
+- 本地验收结果：`CM13093CT-102` 的展示记录现在能显示 `13 x 16 x 9.2 mm` 进入单一尺寸栏，且输出列里不再额外带出 `尺寸（mm）` 后缀。
