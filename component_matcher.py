@@ -696,8 +696,8 @@ footer {visibility: hidden;}
     line-height: 0;
 }
 .element-container:has(.bom-preview-toggle-anchor) {
-    margin-top: -8px !important;
-    margin-bottom: 10px !important;
+    margin-top: -12px !important;
+    margin-bottom: 8px !important;
 }
 .bom-preview-toggle-footer {
     margin-top: 0 !important;
@@ -1112,6 +1112,29 @@ ALL_RESISTOR_TYPES = RESISTOR_COMPONENT_TYPES | SPECIAL_RESISTOR_COMPONENT_TYPES
 ALL_PASSIVE_COMPONENT_TYPES = CAPACITOR_COMPONENT_TYPES | ALL_RESISTOR_TYPES | INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES
 RESISTOR_SOURCE_EVIDENCE_TOKENS = ("来源:resistor", "source:resistor")
 INDUCTOR_TOLERANCE_CODE_MAP = {"F": "1", "G": "2", "H": "3", "J": "5", "K": "10", "M": "20", "N": "30"}
+COMPONENT_CATEGORY_DISPLAY_LABELS = {
+    "MLCC": "陶瓷贴片电容（MLCC）",
+    "薄膜电容": "薄膜电容（Film Capacitor）",
+    "钽电容": "钽电容（Tantalum Capacitor）",
+    "铝电解电容": "铝电解电容（Aluminum Electrolytic Capacitor）",
+    "引线型陶瓷电容": "引线陶瓷电容（Lead Ceramic Capacitor）",
+    "贴片电阻": "贴片电阻（Chip Resistor）",
+    "厚膜电阻": "厚膜电阻（Thick Film Resistor）",
+    "薄膜电阻": "薄膜电阻（Thin Film Resistor）",
+    "合金电阻": "合金电阻（Metal Strip Resistor）",
+    "碳膜电阻": "碳膜电阻（Carbon Film Resistor）",
+    "金属氧化膜电阻": "金属氧化膜电阻（Metal Oxide Film Resistor）",
+    "绕线电阻": "绕线电阻（Wirewound Resistor）",
+    "热敏电阻": "热敏电阻（NTC Thermistor）",
+    "压敏电阻": "压敏电阻（Varistor）",
+    "引线型压敏电阻": "引线压敏电阻（Lead Varistor）",
+    "贴片压敏电阻": "贴片压敏电阻（Chip Varistor）",
+    "功率电感": "功率电感（Power Inductor）",
+    "共模电感": "共模电感（Common Mode Choke）",
+    "磁珠": "磁珠（Ferrite Bead）",
+    "晶振": "石英晶体（Crystal Unit）",
+    "振荡器": "晶体振荡器（Oscillator）",
+}
 
 
 def find_embedded_size(text):
@@ -1152,6 +1175,8 @@ def normalize_pf_tolerance_number(value):
 def normalize_tolerance_text(x):
     s = clean_text(x).upper()
     if s == "":
+        return ""
+    if s in {"NONE", "NAN", "NULL", "N/A", "NA", "-", "--"}:
         return ""
 
     s = s.replace("（", "(").replace("）", ")").replace(" ", "")
@@ -1368,16 +1393,44 @@ def parse_tolerance_token(token):
     return ""
 
 def clean_voltage(x):
-    x = clean_text(x).upper().replace(" ", "").replace("V", "")
-    if x == "":
+    text = html.unescape(clean_text(x))
+    if text == "":
         return ""
-    try:
-        num = float(x)
-    except:
-        return x
-    if num.is_integer():
-        return str(int(num))
-    return f"{num:.6f}".rstrip("0").rstrip(".")
+
+    placeholder_tokens = {"", "none", "nan", "null", "n/a", "na", "n.a.", "-", "--", "/", "\\"}
+
+    def _format_voltage_number(value):
+        try:
+            num = float(value)
+        except Exception:
+            return clean_text(value)
+        if abs(num - round(num)) < 1e-9:
+            return str(int(round(num)))
+        return f"{num:.6f}".rstrip("0").rstrip(".")
+
+    compact_lower = re.sub(r"\s+", "", text).lower()
+    if compact_lower in placeholder_tokens:
+        return ""
+
+    normalized = text.replace("−", "-").replace("–", "-").replace("—", "-")
+    normalized = normalized.replace("～", "~").replace("至", "~")
+    normalized = re.sub(r"(?i)\s*V(?:DC|AC)?\b", "", normalized)
+    compact = re.sub(r"\s+", "", normalized)
+    compact = re.sub(r"(?i)(?<=\d)TO(?=[+\-]?\d)", "~", compact)
+    if compact.lower() in placeholder_tokens:
+        return ""
+
+    range_match = re.fullmatch(r"([+\-]?\d+(?:\.\d+)?)(?:~|-)([+\-]?\d+(?:\.\d+)?)", compact)
+    if range_match:
+        return f"{_format_voltage_number(range_match.group(1))}~{_format_voltage_number(range_match.group(2))}"
+
+    if re.fullmatch(r"[+\-]?\d+(?:\.\d+)?", compact):
+        return _format_voltage_number(compact)
+
+    compact_lower = compact.lower()
+    if compact_lower in placeholder_tokens:
+        return ""
+    return compact
 
 
 def normalize_dimension_mm_value(value):
@@ -2179,7 +2232,11 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
 
 def voltage_display(x):
     x = clean_voltage(x)
-    return f"{x}V" if x != "" else ""
+    if x == "":
+        return ""
+    if re.search(r"[A-Za-z\u4e00-\u9fff]", x):
+        return x
+    return f"{x}V"
 
 def decode_pdc_voltage_code(code):
     code = clean_text(code).upper().replace(" ", "")
@@ -6665,6 +6722,21 @@ def find_inductance_in_text(text):
         return ""
     return f"{match.group(1)}{match.group(2).upper()}"
 
+
+def text_contains_inductance_range(text):
+    upper = clean_text(text).upper().replace("μ", "U").replace("µ", "U").replace("Μ", "U")
+    if upper == "":
+        return False
+    if "INDUCTANCE RANGE" in upper:
+        return True
+    return bool(
+        re.search(
+            r"\d+(?:\.\d+)?\s*(?:-|~|–|TO)\s*\d+(?:\.\d+)?\s*(NH|UH|MH|H)\b",
+            upper,
+            flags=re.I,
+        )
+    )
+
 def find_current_in_text(text):
     upper = clean_text(text).upper()
     matches = CURRENT_PATTERN.findall(upper)
@@ -6676,12 +6748,153 @@ def find_current_in_text(text):
     value, unit = matches[0]
     return f"{value}{unit.upper()}"
 
+
+def text_contains_current_range(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return False
+    if "CURRENT RANGE" in upper:
+        return True
+    return bool(
+        re.search(
+            r"\d+(?:\.\d+)?\s*(?:-|~|–|TO)\s*\d+(?:\.\d+)?\s*(UA|MA|A)\b",
+            upper,
+            flags=re.I,
+        )
+    )
+
+
+def find_labeled_current_in_text(text, labels):
+    upper = clean_text(text).upper().replace("DC MAX.", "DC").replace("DC MAX", "DC")
+    if upper == "":
+        return ""
+    if isinstance(labels, str):
+        labels = [labels]
+    for label in labels or []:
+        label_text = clean_text(label).upper()
+        if label_text == "":
+            continue
+        pattern = re.compile(rf"{re.escape(label_text)}[^0-9]{{0,40}}(\d+(?:\.\d+)?)\s*(UA|MA|A)\b", flags=re.I)
+        match = pattern.search(upper)
+        if match:
+            return f"{match.group(1)}{match.group(2).upper()}"
+    return ""
+
+
 def find_frequency_in_text(text):
     upper = clean_text(text).upper()
     match = FREQUENCY_PATTERN.search(upper)
     if not match:
         return ""
     return f"{match.group(1)}{match.group(2).upper()}"
+
+
+def find_frequency_tolerance_in_text(text):
+    upper = clean_text(text).upper().replace("±", "+/-")
+    if upper == "":
+        return ""
+    match = re.search(r"(\+/-)\s*(\d+(?:\.\d+)?)\s*(PPM|%)", upper, flags=re.I)
+    if match:
+        return f"{match.group(1)}{match.group(2)}{match.group(3).upper()}"
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(PPM)\b", upper, flags=re.I)
+    if match:
+        return f"{match.group(1)}{match.group(2).upper()}"
+    return ""
+
+
+def _find_labeled_resistive_measurement(text, labels):
+    raw = clean_text(text).replace("OHMS", "OHM").replace("ohms", "ohm")
+    if raw == "":
+        return ""
+    if isinstance(labels, str):
+        labels = [labels]
+    for label in labels or []:
+        label_text = clean_text(label)
+        if label_text == "":
+            continue
+        pattern = re.compile(rf"{re.escape(label_text)}[^0-9]{{0,48}}(\d+(?:\.\d+)?)\s*(mΩ|MΩ|KΩ|MOHM|KOHM|OHM|Ω)", flags=re.I)
+        match = pattern.search(raw)
+        if match:
+            return combine_value_and_unit(match.group(1), normalize_library_value_unit(match.group(2)), separator="")
+    return ""
+
+
+def find_dcr_in_text(text):
+    return _find_labeled_resistive_measurement(text, ["DCR", "DC RESISTANCE"])
+
+
+def find_esr_in_text(text):
+    return _find_labeled_resistive_measurement(text, ["ESR"])
+
+
+def text_contains_impedance_range(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return False
+    if "IMPEDANCE RANGE" in upper:
+        return True
+    return bool(
+        re.search(
+            r"\d+(?:,\d{3})*(?:\.\d+)?\s*(OHM|Ω)\s*(?:-|~|–|TO)\s*\d+(?:,\d{3})*(?:\.\d+)?\s*(OHM|Ω)?",
+            upper,
+            flags=re.I,
+        )
+    )
+
+
+def find_impedance_at_100mhz_in_text(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    match = re.search(r"100\s*MHZ[^0-9]{0,24}(\d+(?:\.\d+)?)\s*(OHM|Ω)", upper, flags=re.I)
+    if match:
+        return combine_value_and_unit(match.group(1), normalize_library_value_unit(match.group(2)), separator="")
+    match = re.search(r"IMPEDANCE[^0-9]{0,24}(\d+(?:\.\d+)?)\s*(OHM|Ω)", upper, flags=re.I)
+    if match:
+        return combine_value_and_unit(match.group(1), normalize_library_value_unit(match.group(2)), separator="")
+    return ""
+
+
+def find_b_value_in_text(text):
+    upper = clean_text(text).upper().replace("β", "B")
+    if upper == "":
+        return ""
+    match = re.search(r"(?:B(?:ETA)?(?:25/50|25/85)?|B值)[^0-9]{0,12}(\d{3,5}(?:\.\d+)?)\s*K?", upper, flags=re.I)
+    if not match:
+        return ""
+    return normalize_b_value_text(match.group(1))
+
+
+def find_b_value_condition_in_text(text):
+    upper = clean_text(text).upper().replace("β", "B")
+    if upper == "":
+        return ""
+    match = re.search(r"(25/50|25/85|50/85|25℃/50℃|25℃/85℃)", upper, flags=re.I)
+    if not match:
+        return ""
+    return clean_text(match.group(1)).replace("℃", "℃")
+
+
+def find_circuit_count_in_text(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    match = re.search(r"(\d+)\s*(?:LINES?|CIRCUITS?|回路)", upper, flags=re.I)
+    if not match:
+        return ""
+    return clean_text(match.group(1))
+
+
+def find_shielding_type_in_text(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    if "UNSHIELDED" in upper or "NON-SHIELDED" in upper or "非屏蔽" in upper:
+        return "非屏蔽"
+    if "SHIELDED" in upper or "屏蔽" in upper:
+        return "屏蔽"
+    return ""
+
 
 def find_varistor_voltage_in_text(text):
     explicit = parse_voltage_from_text(text)
@@ -7077,6 +7290,25 @@ def normalize_component_type(value):
     if hint != "":
         return hint
     return text
+
+
+def resolve_component_category_type(value):
+    if isinstance(value, dict):
+        direct_type = normalize_component_type(value.get("器件类型", ""))
+        if direct_type != "":
+            return direct_type
+        inferred_row_type = infer_db_component_type(value)
+        if inferred_row_type != "":
+            return inferred_row_type
+        return infer_spec_component_type(value)
+    return normalize_component_type(value)
+
+
+def format_component_category_display(value):
+    component_type = resolve_component_category_type(value)
+    if component_type == "":
+        return ""
+    return COMPONENT_CATEGORY_DISPLAY_LABELS.get(component_type, component_type)
 
 
 def resistor_source_evidence_present(value):
@@ -7761,6 +7993,33 @@ def build_component_detail_lines(
     life_hours="",
     mounting_style="",
     special_use="",
+    production_status="",
+    package_code="",
+    diameter_mm="",
+    height_mm="",
+    polarity="",
+    esr="",
+    ripple_current="",
+    resistance_25c="",
+    resistance_unit="",
+    resistance_tol="",
+    b_value="",
+    b_value_condition="",
+    common_mode_impedance="",
+    impedance_unit="",
+    rated_current="",
+    dcr="",
+    circuit_count="",
+    inductance_value="",
+    inductance_unit="",
+    inductance_tol="",
+    saturation_current="",
+    shielding="",
+    impedance_100mhz="",
+    load_capacitance="",
+    drive_level="",
+    output_type="",
+    duty_cycle="",
 ):
     lines = []
     component_type = normalize_component_type(component_type)
@@ -7780,6 +8039,33 @@ def build_component_detail_lines(
     life_hours = normalize_life_hours_value(life_hours)
     mounting_style = normalize_mounting_style(mounting_style)
     special_use = normalize_special_use(special_use)
+    production_status = clean_text(production_status)
+    package_code = clean_text(package_code)
+    diameter_mm = normalize_dimension_mm_value(diameter_mm)
+    height_mm = normalize_dimension_mm_value(height_mm)
+    polarity = clean_text(polarity)
+    esr = clean_text(esr)
+    ripple_current = format_current_display(ripple_current)
+    resistance_25c = clean_text(resistance_25c)
+    resistance_unit = normalize_library_value_unit(resistance_unit)
+    resistance_tol = clean_tol_for_display(resistance_tol) if clean_text(resistance_tol) != "" else ""
+    b_value = normalize_b_value_text(b_value)
+    b_value_condition = clean_text(b_value_condition)
+    common_mode_impedance = format_impedance_display(common_mode_impedance, impedance_unit)
+    rated_current = format_current_display(rated_current)
+    dcr = clean_text(dcr)
+    circuit_count = clean_text(circuit_count)
+    inductance_value = clean_text(inductance_value)
+    inductance_unit = clean_text(inductance_unit)
+    inductance_tol = clean_tol_for_display(inductance_tol) if clean_text(inductance_tol) != "" else ""
+    saturation_current = format_current_display(saturation_current)
+    shielding = clean_text(shielding)
+    impedance_100mhz = format_impedance_display(impedance_100mhz, impedance_unit)
+    load_capacitance = clean_text(load_capacitance)
+    drive_level = clean_text(drive_level)
+    output_type = clean_text(output_type)
+    duty_cycle = clean_text(duty_cycle)
+    pitch = format_pitch_display(pitch)
 
     if component_type == "MLCC":
         if size != "":
@@ -7792,6 +8078,10 @@ def build_component_detail_lines(
             lines.append(f"误差: {tol}")
         if volt != "":
             lines.append(f"耐压: {volt}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
         return lines
 
     if component_type in RESISTOR_COMPONENT_TYPES:
@@ -7803,15 +8093,34 @@ def build_component_detail_lines(
             lines.append(f"误差: {tol}")
         if power != "":
             lines.append(f"功率: {power}")
+        if volt != "":
+            lines.append(f"耐压: {volt}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
         return lines
 
     if component_type == "热敏电阻":
         if size != "":
             lines.append(f"尺寸: {size}")
-        if resistance_ohm is not None:
+        if resistance_25c != "":
+            lines.append(f"R25: {combine_value_and_unit(resistance_25c, resistance_unit)}")
+        elif resistance_ohm is not None:
             lines.append(f"阻值: {format_resistance_display(resistance_ohm)}")
-        if tol != "":
+        if resistance_tol != "":
+            lines.append(f"误差: {resistance_tol}")
+        elif tol != "":
             lines.append(f"误差: {tol}")
+        if b_value != "":
+            b_text = f"B值: {b_value}"
+            if b_value_condition != "":
+                b_text = f"{b_text} ({b_value_condition})"
+            lines.append(b_text)
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if mounting_style != "":
+            lines.append(f"安装: {mounting_style}")
         return lines
 
     if component_type in VARISTOR_COMPONENT_TYPES:
@@ -7825,6 +8134,8 @@ def build_component_detail_lines(
             lines.append(f"{pitch}")
         if power != "":
             lines.append(f"功率: {power}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
         return lines
 
     if component_type == "铝电解电容":
@@ -7840,6 +8151,20 @@ def build_component_detail_lines(
             lines.append(f"寿命: {format_life_hours_display(life_hours)}")
         if body_size != "":
             lines.append(f"尺寸: {body_size}")
+        elif diameter_mm != "" or height_mm != "":
+            body_text = " x ".join(part for part in [diameter_mm, height_mm] if part != "")
+            if body_text != "":
+                lines.append(f"尺寸: {body_text}")
+        if diameter_mm != "":
+            lines.append(f"直径: {diameter_mm}mm")
+        if height_mm != "":
+            lines.append(f"高度: {height_mm}mm")
+        if polarity != "":
+            lines.append(f"极性: {polarity}")
+        if esr != "":
+            lines.append(f"ESR: {esr}")
+        if ripple_current != "":
+            lines.append(f"纹波电流: {ripple_current}")
         if mounting_style != "":
             lines.append(f"安装: {mounting_style}")
         if special_use != "":
@@ -7857,6 +8182,8 @@ def build_component_detail_lines(
             lines.append(f"误差: {tol}")
         if volt != "":
             lines.append(f"耐压: {volt}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
         return lines
 
     if component_type == "薄膜电容":
@@ -7872,6 +8199,10 @@ def build_component_detail_lines(
             lines.append(f"安规: {safety_class}")
         if body_size != "":
             lines.append(f"尺寸: {body_size}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if mounting_style != "":
+            lines.append(f"安装: {mounting_style}")
         if pitch != "":
             lines.append(f"{pitch}")
         return lines
@@ -7887,6 +8218,10 @@ def build_component_detail_lines(
             lines.append(f"耐压: {volt}")
         if body_size != "":
             lines.append(f"尺寸: {body_size}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if mounting_style != "":
+            lines.append(f"安装: {mounting_style}")
         if pitch != "":
             lines.append(f"{pitch}")
         return lines
@@ -7894,11 +8229,37 @@ def build_component_detail_lines(
     if component_type in INDUCTOR_COMPONENT_TYPES:
         if size != "":
             lines.append(f"尺寸: {size}")
-        if value != "" and unit != "":
-            label = "阻抗" if component_type == "磁珠" else "电感值"
-            lines.append(f"{label}: {value} {unit}")
-        if tol != "":
-            lines.append(f"误差: {tol}")
+        if component_type == "磁珠":
+            bead_impedance = impedance_100mhz or combine_value_and_unit(value, unit)
+            if bead_impedance != "":
+                lines.append(f"阻抗@100MHz: {bead_impedance}")
+        elif component_type == "共模电感":
+            if common_mode_impedance != "":
+                lines.append(f"共模阻抗: {common_mode_impedance}")
+            elif value != "" and unit != "":
+                lines.append(f"阻抗: {combine_value_and_unit(value, unit)}")
+            if circuit_count != "":
+                lines.append(f"回路数: {circuit_count}")
+        else:
+            induct_text = combine_value_and_unit(inductance_value or value, inductance_unit or unit)
+            if induct_text != "":
+                lines.append(f"电感值: {induct_text}")
+            if inductance_tol != "":
+                lines.append(f"误差: {inductance_tol}")
+            elif tol != "":
+                lines.append(f"误差: {tol}")
+        if rated_current != "":
+            lines.append(f"额定电流: {rated_current}")
+        if saturation_current != "":
+            lines.append(f"饱和电流: {saturation_current}")
+        if dcr != "":
+            lines.append(f"DCR: {dcr}")
+        if shielding != "":
+            lines.append(f"屏蔽: {shielding}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if mounting_style != "":
+            lines.append(f"安装: {mounting_style}")
         return lines
 
     if component_type in TIMING_COMPONENT_TYPES:
@@ -7911,6 +8272,24 @@ def build_component_detail_lines(
             lines.append(f"频差: {tol}")
         if volt != "":
             lines.append(f"工作电压: {volt}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
+        if component_type == "晶振":
+            if load_capacitance != "":
+                lines.append(f"负载电容: {load_capacitance}")
+            if esr != "":
+                lines.append(f"ESR: {esr}")
+            if drive_level != "":
+                lines.append(f"驱动电平: {drive_level}")
+        else:
+            if output_type != "":
+                lines.append(f"输出: {output_type}")
+            if duty_cycle != "":
+                lines.append(f"占空比: {duty_cycle}")
+        if production_status != "":
+            lines.append(f"状态: {production_status}")
         return lines
 
     if size != "":
@@ -7955,6 +8334,33 @@ def build_component_spec_detail_from_spec(spec):
         life_hours=spec.get("寿命（h）", ""),
         mounting_style=spec.get("安装方式", ""),
         special_use=spec.get("特殊用途", ""),
+        production_status=spec.get("生产状态", ""),
+        package_code=spec.get("封装代码", ""),
+        diameter_mm=spec.get("直径（mm）", ""),
+        height_mm=spec.get("高度（mm）", ""),
+        polarity=spec.get("极性", ""),
+        esr=spec.get("ESR", ""),
+        ripple_current=spec.get("纹波电流", ""),
+        resistance_25c=spec.get("阻值@25C", ""),
+        resistance_unit=spec.get("阻值单位", ""),
+        resistance_tol=spec.get("阻值误差", ""),
+        b_value=spec.get("B值", ""),
+        b_value_condition=spec.get("B值条件", ""),
+        common_mode_impedance=spec.get("共模阻抗", ""),
+        impedance_unit=spec.get("阻抗单位", ""),
+        rated_current=spec.get("额定电流", ""),
+        dcr=spec.get("DCR", ""),
+        circuit_count=spec.get("回路数", ""),
+        inductance_value=spec.get("电感值", ""),
+        inductance_unit=spec.get("电感单位", ""),
+        inductance_tol=spec.get("电感误差", ""),
+        saturation_current=spec.get("饱和电流", ""),
+        shielding=spec.get("屏蔽类型", ""),
+        impedance_100mhz=spec.get("阻抗@100MHz", ""),
+        load_capacitance=spec.get("负载电容（pF）", ""),
+        drive_level=spec.get("驱动电平", ""),
+        output_type=spec.get("输出类型", ""),
+        duty_cycle=spec.get("占空比", ""),
     )
     return format_component_detail_inline(lines)
 
@@ -7965,17 +8371,29 @@ def spec_display_value_unit(spec):
     component_type = infer_spec_component_type(spec)
     if component_type in ALL_RESISTOR_TYPES:
         return ohm_to_value_unit(spec.get("_resistance_ohm", None))
-    if component_type in (INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES):
-        return clean_text(spec.get("容值", "")), clean_text(spec.get("容值单位", "")).upper()
+    if component_type in INDUCTOR_COMPONENT_TYPES:
+        raw_value = clean_text(spec.get("电感值", "")) or clean_text(spec.get("容值", ""))
+        raw_unit = clean_text(spec.get("电感单位", "")) or clean_text(spec.get("容值单位", ""))
+        if raw_value != "" and raw_unit != "":
+            return normalize_numeric_range_text(raw_value), raw_unit.upper()
+        return parse_inductance_value_unit(find_inductance_in_text(build_component_context_text(spec)))
+    if component_type in TIMING_COMPONENT_TYPES:
+        raw_value = clean_text(spec.get("输出频率", "")) or clean_text(spec.get("频率", "")) or clean_text(spec.get("容值", ""))
+        raw_unit = clean_text(spec.get("频率单位", "")) or clean_text(spec.get("容值单位", ""))
+        if raw_value != "" and raw_unit != "":
+            return normalize_numeric_range_text(raw_value), raw_unit.upper()
+        return parse_frequency_value_unit(find_frequency_in_text(build_component_context_text(spec)))
     cap_pf = spec.get("容值_pf", None)
     if cap_pf is not None:
         return pf_to_value_unit(cap_pf)
-    return clean_text(spec.get("容值", "")), clean_text(spec.get("容值单位", "")).upper()
+    return normalize_numeric_range_text(clean_text(spec.get("容值", ""))), clean_text(spec.get("容值单位", "")).upper()
 
 
 def resolve_component_display_type(spec_or_type):
     if isinstance(spec_or_type, dict):
-        return normalize_component_type(infer_spec_component_type(spec_or_type))
+        return normalize_component_type(resolve_component_category_type(spec_or_type))
+    if isinstance(spec_or_type, pd.Series):
+        return normalize_component_type(resolve_component_category_type(spec_or_type.to_dict()))
     return normalize_component_type(spec_or_type)
 
 
@@ -7998,80 +8416,165 @@ def get_component_display_schema(spec_or_type):
         ]
     if component_type in RESISTOR_COMPONENT_TYPES:
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸（inch）"),
             ("容值", "阻值"),
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+            ("耐压（V）", "最高工作电压"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     if component_type == "热敏电阻":
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸（inch）"),
-            ("容值", "阻值"),
-            ("容值单位", "阻值单位"),
-            ("容值误差", "误差"),
+            ("阻值@25C", "R25"),
+            ("阻值单位", "阻值单位"),
+            ("阻值误差", "误差"),
+            ("B值", "B值"),
+            ("B值条件", "B值条件"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     if component_type in INDUCTOR_COMPONENT_TYPES:
         if component_type == "磁珠":
             return [
+                ("系列", "系列"),
+                ("系列说明", "系列说明"),
                 ("尺寸（inch）", "尺寸（inch）"),
-                ("容值", "阻抗"),
-                ("容值单位", "阻抗单位"),
-                ("容值误差", "误差"),
+                ("阻抗@100MHz", "阻抗@100MHz"),
+                ("阻抗单位", "阻抗单位"),
+                ("额定电流", "额定电流"),
+                ("DCR", "DCR"),
+                ("工作温度", "工作温度"),
+                ("安装方式", "安装方式"),
+                ("生产状态", "生产状态"),
+            ]
+        if component_type == "共模电感":
+            return [
+                ("系列", "系列"),
+                ("系列说明", "系列说明"),
+                ("尺寸（inch）", "尺寸（inch）"),
+                ("电感值", "电感值"),
+                ("电感单位", "电感单位"),
+                ("共模阻抗", "共模阻抗"),
+                ("阻抗单位", "阻抗单位"),
+                ("额定电流", "额定电流"),
+                ("DCR", "DCR"),
+                ("回路数", "回路数"),
+                ("工作温度", "工作温度"),
+                ("安装方式", "安装方式"),
+                ("生产状态", "生产状态"),
             ]
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸（inch）"),
-            ("容值", "电感值"),
-            ("容值单位", "电感单位"),
-            ("容值误差", "误差"),
+            ("电感值", "电感值"),
+            ("电感单位", "电感单位"),
+            ("电感误差", "误差"),
+            ("额定电流", "额定电流"),
+            ("饱和电流", "饱和电流"),
+            ("DCR", "DCR"),
+            ("屏蔽类型", "屏蔽类型"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
-    if component_type in TIMING_COMPONENT_TYPES:
-        title = "输出频率" if component_type == "振荡器" else "频率"
+    if component_type == "晶振":
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸（inch）"),
-            ("容值", title),
+            ("封装代码", "封装代码"),
+            ("容值", "频率"),
+            ("容值单位", "频率单位"),
+            ("容值误差", "频差"),
+            ("工作温度", "工作温度"),
+            ("负载电容（pF）", "负载电容(pF)"),
+            ("ESR", "ESR"),
+            ("驱动电平", "驱动电平"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type == "振荡器":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("尺寸（inch）", "尺寸（inch）"),
+            ("封装代码", "封装代码"),
+            ("容值", "输出频率"),
             ("容值单位", "频率单位"),
             ("容值误差", "频差"),
             ("耐压（V）", "工作电压（V）"),
+            ("工作温度", "工作温度"),
+            ("输出类型", "输出类型"),
+            ("占空比", "占空比"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     if component_type in VARISTOR_COMPONENT_TYPES:
         if component_type == "贴片压敏电阻":
             return [
+                ("系列", "系列"),
                 ("尺寸（inch）", "尺寸（inch）"),
                 ("压敏电压", "压敏电压"),
                 ("容值误差", "误差"),
                 ("功率", "功率"),
+                ("安装方式", "安装方式"),
+                ("生产状态", "生产状态"),
             ]
         return [
+            ("系列", "系列"),
             ("压敏电压", "压敏电压"),
             ("容值误差", "误差"),
             ("规格", "规格"),
             ("脚距", "脚距"),
             ("功率", "功率"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     if component_type == "铝电解电容":
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
             ("容值误差", "容值误差"),
             ("耐压（V）", "耐压（V）"),
             ("工作温度", "工作温度"),
             ("寿命（h）", "寿命(h)"),
-            ("尺寸(mm)", "尺寸(mm)"),
+            ("直径（mm）", "直径(mm)"),
+            ("高度（mm）", "高度(mm)"),
+            ("尺寸(mm)", "外形(mm)"),
+            ("极性", "极性"),
+            ("ESR", "ESR"),
+            ("纹波电流", "纹波电流"),
             ("安装方式", "安装方式"),
             ("特殊用途", "特殊用途"),
             ("脚距", "脚距"),
+            ("生产状态", "生产状态"),
         ]
     if component_type == "钽电容":
         return [
+            ("系列", "系列"),
             ("尺寸（inch）", "尺寸（inch）"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
             ("容值误差", "容值误差"),
             ("耐压（V）", "耐压（V）"),
+            ("生产状态", "生产状态"),
         ]
     if component_type == "薄膜电容":
         return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("材质（介质）", "材质（介质）"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
@@ -8080,9 +8583,13 @@ def get_component_display_schema(spec_or_type):
             ("安规", "安规"),
             ("尺寸(mm)", "尺寸(mm)"),
             ("脚距", "脚距"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     if component_type == "引线型陶瓷电容":
         return [
+            ("系列", "系列"),
             ("材质（介质）", "材质（介质）"),
             ("容值", "容值"),
             ("容值单位", "容值单位"),
@@ -8090,8 +8597,12 @@ def get_component_display_schema(spec_or_type):
             ("耐压（V）", "耐压（V）"),
             ("尺寸(mm)", "尺寸(mm)"),
             ("脚距", "脚距"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
         ]
     return [
+        ("系列", "系列"),
         ("尺寸（inch）", "尺寸（inch）"),
         ("材质（介质）", "材质（介质）"),
         ("容值", "参数值"),
@@ -8164,11 +8675,16 @@ def enrich_mlcc_dimension_fields_in_dataframe(df, spec_or_type=None, allow_onlin
 def build_component_display_row(spec, allow_online_lookup=False):
     spec = enrich_mlcc_dimension_fields_in_record(spec, allow_online_lookup=allow_online_lookup)
     value, unit = spec_display_value_unit(spec)
+    diameter_mm = normalize_dimension_mm_value(spec.get("直径（mm）", ""))
+    height_mm = normalize_dimension_mm_value(spec.get("高度（mm）", ""))
     body_size = clean_text(spec.get("_body_size", spec.get("尺寸（mm）", "")))
+    if body_size == "" and (diameter_mm != "" or height_mm != ""):
+        body_size = " x ".join(part for part in [diameter_mm, height_mm] if part != "")
     disc_size = clean_text(spec.get("_disc_size", ""))
     series_code = clean_text(spec.get("系列", ""))
     series_desc = clean_text(spec.get("系列说明", ""))
     special_use = clean_text(spec.get("特殊用途", ""))
+    component_type = resolve_component_display_type(spec)
     if resolve_component_display_type(spec) == "MLCC":
         mlcc_profile = resolve_mlcc_series_profile(
             brand=spec.get("品牌", ""),
@@ -8184,10 +8700,20 @@ def build_component_display_row(spec, allow_online_lookup=False):
             series_desc = clean_text(mlcc_profile.get("系列说明", ""))
         if special_use == "":
             special_use = clean_text(mlcc_profile.get("特殊用途", ""))
+    if series_desc == "" and series_code != "":
+        series_desc = build_series_description_fallback(
+            component_type,
+            brand=spec.get("品牌", ""),
+            series=series_code,
+            special_use=special_use,
+        )
+    pitch_display = format_pitch_display(spec.get("_pitch", "") or spec.get("脚距", "") or spec.get("脚距（mm）", ""))
     return {
+        "器件类别": format_component_category_display(component_type),
         "系列": series_code,
         "系列说明": series_desc,
         "尺寸（inch）": clean_size(spec.get("尺寸（inch）", "")),
+        "封装代码": clean_text(spec.get("封装代码", "")),
         "材质（介质）": clean_material(spec.get("材质（介质）", "")),
         "容值": value,
         "容值单位": clean_text(unit).upper(),
@@ -8195,19 +8721,401 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "耐压（V）": voltage_display(spec.get("耐压（V）", "")),
         "长度（mm）": normalize_dimension_mm_value(spec.get("长度（mm）", "")),
         "宽度（mm）": normalize_dimension_mm_value(spec.get("宽度（mm）", "")),
-        "高度（mm）": normalize_dimension_mm_value(spec.get("高度（mm）", "")),
+        "高度（mm）": height_mm,
         "尺寸来源": clean_text(spec.get("尺寸来源", "")),
         "工作温度": normalize_working_temperature_text(spec.get("工作温度", "")),
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
         "功率": format_power_display(spec.get("_power", "")),
-        "安装方式": normalize_mounting_style(spec.get("安装方式", "")),
+        "安装方式": normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")),
         "特殊用途": normalize_special_use(special_use),
-        "脚距": clean_text(spec.get("_pitch", "")),
+        "脚距": pitch_display,
         "安规": clean_text(spec.get("_safety_class", "")),
         "规格": disc_size or body_size,
         "压敏电压": voltage_display(spec.get("_varistor_voltage", spec.get("耐压（V）", ""))),
         "尺寸(mm)": body_size,
+        "生产状态": clean_text(spec.get("生产状态", "")),
+        "直径（mm）": diameter_mm,
+        "极性": clean_text(spec.get("极性", "")),
+        "ESR": clean_text(spec.get("ESR", "")),
+        "纹波电流": format_current_display(spec.get("纹波电流", "")),
+        "阻值@25C": clean_text(spec.get("阻值@25C", "")),
+        "阻值单位": normalize_library_value_unit(spec.get("阻值单位", "")),
+        "阻值误差": clean_tol_for_display(spec.get("阻值误差", "")),
+        "B值": normalize_b_value_text(spec.get("B值", "")),
+        "B值条件": clean_text(spec.get("B值条件", "")),
+        "共模阻抗": clean_text(spec.get("共模阻抗", "")),
+        "阻抗单位": normalize_library_value_unit(spec.get("阻抗单位", "")),
+        "额定电流": format_current_display(spec.get("额定电流", "")),
+        "DCR": clean_text(spec.get("DCR", "")),
+        "回路数": clean_text(spec.get("回路数", "")),
+        "电感值": clean_text(spec.get("电感值", "")),
+        "电感单位": clean_text(spec.get("电感单位", "")).upper(),
+        "电感误差": clean_tol_for_display(spec.get("电感误差", "")),
+        "饱和电流": format_current_display(spec.get("饱和电流", "")),
+        "屏蔽类型": clean_text(spec.get("屏蔽类型", "")),
+        "阻抗@100MHz": clean_text(spec.get("阻抗@100MHz", "")),
+        "负载电容（pF）": clean_text(spec.get("负载电容（pF）", "")),
+        "驱动电平": clean_text(spec.get("驱动电平", "")),
+        "输出类型": clean_text(spec.get("输出类型", "")),
+        "占空比": clean_text(spec.get("占空比", "")),
     }
+
+
+def build_component_context_text(record):
+    fields = [
+        "器件类型", "品牌", "型号", "系列", "系列说明", "安装方式", "封装代码",
+        "尺寸（inch）", "尺寸（mm）", "材质（介质）", "规格摘要", "容值", "容值单位", "容值误差",
+        "工作温度", "寿命（h）", "特殊用途", "生产状态",
+        "备注1", "备注2", "备注3", "官网链接", "数据来源", "校验备注",
+        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+        "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
+        "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
+        "直径（mm）", "高度（mm）", "极性", "ESR", "纹波电流",
+        "输出频率", "频率", "频率单位", "频差（ppm）", "电源电压",
+        "负载电容（pF）", "驱动电平", "输出类型", "占空比",
+    ]
+    return " ".join(clean_text(record.get(field, "")) for field in fields if clean_text(record.get(field, "")) != "")
+
+
+def normalize_official_source_text(text):
+    raw = html.unescape(clean_text(text))
+    if raw == "":
+        return ""
+    normalized = raw.replace("\xa0", " ")
+    normalized = normalized.replace("µ", "u").replace("μ", "u").replace("Μ", "U").replace("Ω", "Ω")
+    normalized = normalized.replace('">', " ").replace("“", '"').replace("”", '"')
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def extract_inductor_series_family_from_text(text):
+    upper = normalize_official_source_text(text).upper()
+    if upper == "":
+        return ""
+    patterns = [
+        r"\b([A-Z]{2,8}(?:-[A-Z0-9]+)?)\s+SERIES\b",
+        r"\bPRODUCT\s+SERIES[:\s]+([A-Z]{2,8}(?:-[A-Z0-9]+)?)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, upper, flags=re.I)
+        if match:
+            return clean_text(match.group(1)).upper()
+    return ""
+
+
+def infer_official_inductor_fields_from_row(row):
+    if row is None:
+        return {}
+    component_type = normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
+    if component_type not in INDUCTOR_COMPONENT_TYPES:
+        return {}
+
+    text_fields = [
+        "规格摘要", "备注1", "备注2", "备注3", "特殊用途", "官网链接",
+        "数据来源", "校验备注", "系列", "型号", "尺寸（mm）",
+    ]
+    row_text = " | ".join(
+        normalize_official_source_text(row.get(field, ""))
+        for field in text_fields
+        if normalize_official_source_text(row.get(field, "")) != ""
+    )
+    if row_text == "":
+        row_text = build_component_context_text(row)
+
+    result = {}
+    brand_text = clean_brand(row.get("品牌", ""))
+    model_text = clean_text(row.get("型号", ""))
+    series_text = clean_text(row.get("系列", ""))
+    special_text = normalize_official_source_text(row.get("特殊用途", ""))
+    source_text = normalize_official_source_text(row.get("数据来源", ""))
+    combined_series_text = " | ".join(part for part in [special_text, source_text, row_text] if part != "")
+
+    inferred_series = extract_inductor_series_family_from_text(combined_series_text)
+    if inferred_series != "" and (series_text == "" or series_text.upper() == model_text.upper()):
+        result["系列"] = inferred_series
+
+    if component_type == "功率电感":
+        has_inductance_range = text_contains_inductance_range(row_text)
+        has_current_range = text_contains_current_range(row_text)
+        if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
+            inductance_value, inductance_unit = parse_inductance_value_unit(find_inductance_in_text(row_text))
+            if clean_text(row.get("电感值", "")) == "" and inductance_value != "":
+                result["电感值"] = inductance_value
+            if clean_text(row.get("电感单位", "")) == "" and inductance_unit != "":
+                result["电感单位"] = inductance_unit
+        if clean_text(row.get("额定电流", "")) == "" and not has_current_range:
+            rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "HEATING CURRENT", "IRMS", "IR", "IDC", "CURRENT RANGE", "CURRENT"])
+            if rated_current != "":
+                result["额定电流"] = rated_current
+        if clean_text(row.get("饱和电流", "")) == "":
+            saturation_current = find_labeled_current_in_text(row_text, ["SATURATION CURRENT", "ISAT", "SAT CURRENT"])
+            if saturation_current != "":
+                result["饱和电流"] = saturation_current
+        if clean_text(row.get("DCR", "")) == "":
+            dcr = find_dcr_in_text(row_text)
+            if dcr != "":
+                result["DCR"] = dcr
+        if clean_text(row.get("屏蔽类型", "")) == "":
+            shielding = find_shielding_type_in_text(row_text)
+            if shielding != "":
+                result["屏蔽类型"] = shielding
+    elif component_type == "共模电感":
+        has_inductance_range = text_contains_inductance_range(row_text)
+        has_current_range = text_contains_current_range(row_text)
+        has_impedance_range = text_contains_impedance_range(row_text)
+        if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
+            inductance_value, inductance_unit = parse_inductance_value_unit(find_inductance_in_text(row_text))
+            if clean_text(row.get("电感值", "")) == "" and inductance_value != "":
+                result["电感值"] = inductance_value
+            if clean_text(row.get("电感单位", "")) == "" and inductance_unit != "":
+                result["电感单位"] = inductance_unit
+        if clean_text(row.get("共模阻抗", "")) == "" and not has_impedance_range:
+            impedance = find_impedance_at_100mhz_in_text(row_text)
+            value, unit = parse_impedance_value_unit(impedance)
+            if value != "":
+                result["共模阻抗"] = value
+            if clean_text(row.get("阻抗单位", "")) == "" and unit != "":
+                result["阻抗单位"] = unit
+        if clean_text(row.get("额定电流", "")) == "" and not has_current_range:
+            rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "IR", "CURRENT"])
+            if rated_current != "":
+                result["额定电流"] = rated_current
+        if clean_text(row.get("DCR", "")) == "":
+            dcr = find_dcr_in_text(row_text)
+            if dcr != "":
+                result["DCR"] = dcr
+    elif component_type == "磁珠":
+        has_impedance_range = text_contains_impedance_range(row_text)
+        if clean_text(row.get("阻抗@100MHz", "")) == "" and not has_impedance_range:
+            impedance = find_impedance_at_100mhz_in_text(row_text)
+            value, unit = parse_impedance_value_unit(impedance)
+            if value != "":
+                result["阻抗@100MHz"] = value
+            if clean_text(row.get("阻抗单位", "")) == "" and unit != "":
+                result["阻抗单位"] = unit
+        if clean_text(row.get("额定电流", "")) == "":
+            rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "IR", "CURRENT"])
+            if rated_current != "":
+                result["额定电流"] = rated_current
+        if clean_text(row.get("DCR", "")) == "":
+            dcr = find_dcr_in_text(row_text)
+            if dcr != "":
+                result["DCR"] = dcr
+
+    if clean_text(row.get("工作温度", "")) == "":
+        working_temp = extract_working_temperature_from_text(row_text)
+        if working_temp != "":
+            result["工作温度"] = working_temp
+    if clean_text(row.get("安装方式", "")) == "":
+        mounting_style = extract_mounting_style_from_text(row_text)
+        if mounting_style != "":
+            result["安装方式"] = mounting_style
+    if clean_text(row.get("生产状态", "")) == "":
+        status_match = re.search(r"\b(ACTIVE|NEW|DISCONTINUED|INACTIVE|PRODUCTION)\b", row_text, flags=re.I)
+        if status_match:
+            result["生产状态"] = status_match.group(1).capitalize()
+
+    display_series = clean_text(result.get("系列", "")) or series_text
+    current_series_desc = clean_text(row.get("系列说明", ""))
+    should_refresh_series_desc = current_series_desc == ""
+    if (
+        not should_refresh_series_desc
+        and display_series != ""
+        and model_text != ""
+        and display_series.upper() != model_text.upper()
+        and re.search(re.escape(model_text), current_series_desc, flags=re.I)
+    ):
+        should_refresh_series_desc = True
+    if should_refresh_series_desc and display_series != "":
+        if component_type == "功率电感":
+            if "RF CHOKE" in row_text.upper():
+                result["系列说明"] = f"{brand_text} {display_series} RF功率电感系列".strip()
+            elif "SHIELDED" in row_text.upper():
+                result["系列说明"] = f"{brand_text} {display_series} 屏蔽功率电感系列".strip()
+            else:
+                result["系列说明"] = f"{brand_text} {display_series} 功率电感系列".strip()
+        elif component_type == "共模电感":
+            if "HIGH VOLTAGE" in row_text.upper():
+                result["系列说明"] = f"{brand_text} {display_series} 高压共模电感系列".strip()
+            elif "FILTER" in row_text.upper():
+                result["系列说明"] = f"{brand_text} {display_series} 共模滤波器系列".strip()
+            else:
+                result["系列说明"] = f"{brand_text} {display_series} 共模电感系列".strip()
+        elif component_type == "磁珠":
+            result["系列说明"] = f"{brand_text} {display_series} 磁珠系列".strip()
+    return result
+
+
+def infer_component_display_fallbacks_from_row(row):
+    if row is None:
+        return {}
+    component_type = normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
+    row_text = build_component_context_text(row)
+    result = {}
+    result.update(infer_official_inductor_fields_from_row(row))
+
+    series_code = clean_text(row.get("系列", ""))
+    if clean_text(row.get("系列说明", "")) == "" and series_code != "":
+        fallback_desc = build_series_description_fallback(
+            component_type,
+            brand=row.get("品牌", ""),
+            series=series_code,
+            special_use=row.get("特殊用途", ""),
+        )
+        if fallback_desc != "":
+            result["系列说明"] = fallback_desc
+    if clean_text(row.get("工作温度", "")) == "":
+        working_temp = extract_working_temperature_from_text(row_text)
+        if working_temp != "":
+            result["工作温度"] = working_temp
+    if clean_text(row.get("寿命（h）", "")) == "":
+        life_hours = parse_life_hours_from_text(row_text)
+        if life_hours != "":
+            result["寿命（h）"] = format_life_hours_display(life_hours)
+    if clean_text(row.get("安装方式", "")) == "":
+        mounting_style = extract_mounting_style_from_text(row_text)
+        if mounting_style != "":
+            result["安装方式"] = mounting_style
+
+    if component_type == "铝电解电容":
+        diameter_mm, height_mm, body_text = extract_electrolytic_dimensions_from_text(row_text)
+        if clean_text(row.get("直径（mm）", "")) == "" and diameter_mm != "":
+            result["直径（mm）"] = diameter_mm
+        if clean_text(row.get("高度（mm）", "")) == "" and height_mm != "":
+            result["高度（mm）"] = height_mm
+        if clean_text(row.get("尺寸(mm)", "")) == "" and body_text != "":
+            result["尺寸(mm)"] = body_text
+        if clean_text(row.get("极性", "")) == "":
+            result["极性"] = "有极性"
+        if clean_text(row.get("ESR", "")) == "":
+            esr = find_esr_in_text(row_text)
+            if esr != "":
+                result["ESR"] = esr
+        if clean_text(row.get("纹波电流", "")) == "":
+            ripple = find_labeled_current_in_text(row_text, ["RIPPLE CURRENT", "RIPPLE"])
+            if ripple != "":
+                result["纹波电流"] = ripple
+
+    if component_type == "热敏电阻":
+        if clean_text(row.get("阻值@25C", "")) == "" or clean_text(row.get("阻值单位", "")) == "":
+            resistance_ohm = find_resistance_in_text(row_text)
+            if resistance_ohm is not None:
+                resistance_value, resistance_unit = ohm_to_library_value_unit(resistance_ohm)
+                if clean_text(row.get("阻值@25C", "")) == "" and resistance_value != "":
+                    result["阻值@25C"] = resistance_value
+                if clean_text(row.get("阻值单位", "")) == "" and resistance_unit != "":
+                    result["阻值单位"] = resistance_unit
+        if clean_text(row.get("阻值误差", "")) == "":
+            tol = clean_tol_for_display(row.get("容值误差", "")) or clean_tol_for_display(find_tolerance_in_text(row_text))
+            if tol != "":
+                result["阻值误差"] = tol
+        if clean_text(row.get("B值", "")) == "":
+            b_value = find_b_value_in_text(row_text)
+            if b_value != "":
+                result["B值"] = b_value
+        if clean_text(row.get("B值条件", "")) == "":
+            b_condition = find_b_value_condition_in_text(row_text)
+            if b_condition != "":
+                result["B值条件"] = b_condition
+
+    if component_type in INDUCTOR_COMPONENT_TYPES:
+        if component_type == "功率电感":
+            has_inductance_range = text_contains_inductance_range(row_text)
+            has_current_range = text_contains_current_range(row_text)
+            if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
+                inductance_value, inductance_unit = parse_inductance_value_unit(find_inductance_in_text(row_text))
+                if clean_text(row.get("电感值", "")) == "" and inductance_value != "":
+                    result["电感值"] = inductance_value
+                if clean_text(row.get("电感单位", "")) == "" and inductance_unit != "":
+                    result["电感单位"] = inductance_unit
+            if clean_text(row.get("电感误差", "")) == "":
+                tol = clean_tol_for_display(find_tolerance_in_text(row_text))
+                if tol != "":
+                    result["电感误差"] = tol
+            if clean_text(row.get("额定电流", "")) == "" and not has_current_range:
+                rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "HEATING CURRENT", "IRMS", "IDC", "CURRENT"])
+                if rated_current != "":
+                    result["额定电流"] = rated_current
+            if clean_text(row.get("饱和电流", "")) == "":
+                saturation_current = find_labeled_current_in_text(row_text, ["SATURATION CURRENT", "ISAT", "SAT CURRENT"])
+                if saturation_current != "":
+                    result["饱和电流"] = saturation_current
+            if clean_text(row.get("DCR", "")) == "":
+                dcr = find_dcr_in_text(row_text)
+                if dcr != "":
+                    result["DCR"] = dcr
+            if clean_text(row.get("屏蔽类型", "")) == "":
+                shielding = find_shielding_type_in_text(row_text)
+                if shielding != "":
+                    result["屏蔽类型"] = shielding
+        elif component_type == "共模电感":
+            has_inductance_range = text_contains_inductance_range(row_text)
+            has_current_range = text_contains_current_range(row_text)
+            has_impedance_range = text_contains_impedance_range(row_text)
+            if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
+                inductance_value, inductance_unit = parse_inductance_value_unit(find_inductance_in_text(row_text))
+                if clean_text(row.get("电感值", "")) == "" and inductance_value != "":
+                    result["电感值"] = inductance_value
+                if clean_text(row.get("电感单位", "")) == "" and inductance_unit != "":
+                    result["电感单位"] = inductance_unit
+            if clean_text(row.get("共模阻抗", "")) == "" and not has_impedance_range:
+                impedance = find_impedance_at_100mhz_in_text(row_text)
+                value, unit = parse_impedance_value_unit(impedance)
+                if value != "":
+                    result["共模阻抗"] = value
+                if clean_text(row.get("阻抗单位", "")) == "" and unit != "":
+                    result["阻抗单位"] = unit
+            if clean_text(row.get("额定电流", "")) == "" and not has_current_range:
+                rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "IR", "CURRENT"])
+                if rated_current != "":
+                    result["额定电流"] = rated_current
+            if clean_text(row.get("DCR", "")) == "":
+                dcr = find_dcr_in_text(row_text)
+                if dcr != "":
+                    result["DCR"] = dcr
+            if clean_text(row.get("回路数", "")) == "":
+                circuit_count = find_circuit_count_in_text(row_text)
+                if circuit_count != "":
+                    result["回路数"] = circuit_count
+        elif component_type == "磁珠":
+            has_impedance_range = text_contains_impedance_range(row_text)
+            if clean_text(row.get("阻抗@100MHz", "")) == "" and not has_impedance_range:
+                impedance = find_impedance_at_100mhz_in_text(row_text)
+                value, unit = parse_impedance_value_unit(impedance)
+                if value != "":
+                    result["阻抗@100MHz"] = value
+                if clean_text(row.get("阻抗单位", "")) == "" and unit != "":
+                    result["阻抗单位"] = unit
+            if clean_text(row.get("额定电流", "")) == "":
+                rated_current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "CURRENT"])
+                if rated_current != "":
+                    result["额定电流"] = rated_current
+            if clean_text(row.get("DCR", "")) == "":
+                dcr = find_dcr_in_text(row_text)
+                if dcr != "":
+                    result["DCR"] = dcr
+
+    if component_type in TIMING_COMPONENT_TYPES:
+        if clean_text(row.get("容值", "")) == "" or clean_text(row.get("容值单位", "")) == "":
+            frequency_value, frequency_unit = parse_frequency_value_unit(find_frequency_in_text(row_text))
+            if clean_text(row.get("容值", "")) == "" and frequency_value != "":
+                result["容值"] = frequency_value
+            if clean_text(row.get("容值单位", "")) == "" and frequency_unit != "":
+                result["容值单位"] = frequency_unit
+        if clean_text(row.get("容值误差", "")) == "":
+            frequency_tol = clean_text(row.get("频差（ppm）", "")) or find_frequency_tolerance_in_text(row_text)
+            if frequency_tol != "":
+                result["容值误差"] = frequency_tol
+        if component_type == "晶振":
+            if clean_text(row.get("ESR", "")) == "":
+                esr = find_esr_in_text(row_text)
+                if esr != "":
+                    result["ESR"] = esr
+        else:
+            if clean_text(row.get("耐压（V）", "")) == "" and clean_text(row.get("电源电压", "")) != "":
+                result["耐压（V）"] = clean_text(row.get("电源电压", ""))
+
+    return result
 
 
 def ensure_component_display_columns(df):
@@ -8220,28 +9128,54 @@ def ensure_component_display_columns(df):
         return pd.Series([""] * row_count, index=out.index, dtype="object")
 
     if "功率" not in out.columns:
-        if "_power" in out.columns:
-            out["功率"] = out["_power"].apply(format_power_display)
-        else:
-            out["功率"] = blank_series()
+        out["功率"] = out["_power"].apply(format_power_display) if "_power" in out.columns else blank_series()
     if "脚距" not in out.columns:
         if "_pitch" in out.columns:
-            out["脚距"] = out["_pitch"].astype(str).apply(clean_text)
+            out["脚距"] = out["_pitch"].astype(str).apply(format_pitch_display)
+        elif "脚距（mm）" in out.columns:
+            out["脚距"] = out["脚距（mm）"].astype(str).apply(format_pitch_display)
         else:
             out["脚距"] = blank_series()
     if "安规" not in out.columns:
-        if "_safety_class" in out.columns:
-            out["安规"] = out["_safety_class"].astype(str).apply(clean_text)
-        else:
-            out["安规"] = blank_series()
+        out["安规"] = out["_safety_class"].astype(str).apply(clean_text) if "_safety_class" in out.columns else blank_series()
+    for col in [
+        "封装代码", "生产状态", "直径（mm）", "极性", "ESR", "纹波电流",
+        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+        "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
+        "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
+        "负载电容（pF）", "驱动电平", "输出类型", "占空比",
+    ]:
+        if col not in out.columns:
+            out[col] = blank_series()
+        out[col] = out[col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
     if "系列" not in out.columns:
         out["系列"] = blank_series()
     out["系列"] = out["系列"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
     if "系列说明" not in out.columns:
         out["系列说明"] = blank_series()
     out["系列说明"] = out["系列说明"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+    if "器件类别" not in out.columns:
+        out["器件类别"] = blank_series()
+    out["器件类别"] = out["器件类别"].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
     if "特殊用途" not in out.columns:
         out["特殊用途"] = blank_series()
+    timing_value_sources = [col for col in ["输出频率", "频率"] if col in out.columns]
+    for source_col in timing_value_sources:
+        blank_value_mask = out["容值"].astype(str).apply(clean_text).eq("")
+        if blank_value_mask.any():
+            out.loc[blank_value_mask, "容值"] = out.loc[blank_value_mask, source_col].astype(str).apply(clean_text)
+    if "频率单位" in out.columns:
+        blank_unit_mask = out["容值单位"].astype(str).apply(clean_text).eq("")
+        if blank_unit_mask.any():
+            out.loc[blank_unit_mask, "容值单位"] = out.loc[blank_unit_mask, "频率单位"].astype(str).apply(clean_text)
+    if "频差（ppm）" in out.columns:
+        blank_tol_mask = out["容值误差"].astype(str).apply(clean_text).eq("")
+        if blank_tol_mask.any():
+            out.loc[blank_tol_mask, "容值误差"] = out.loc[blank_tol_mask, "频差（ppm）"].astype(str).apply(clean_text)
+    if "电源电压" in out.columns:
+        blank_volt_mask = out["耐压（V）"].astype(str).apply(clean_text).eq("")
+        if blank_volt_mask.any():
+            out.loc[blank_volt_mask, "耐压（V）"] = out.loc[blank_volt_mask, "电源电压"].astype(str).apply(clean_text)
     if "型号" in out.columns:
         mlcc_type_mask = (
             out["器件类型"].astype(str).apply(normalize_component_type).eq("MLCC")
@@ -8272,6 +9206,20 @@ def ensure_component_display_columns(df):
                     valid_idx = fill_values[fill_values.ne("")].index
                     if len(valid_idx) > 0:
                         out.loc[valid_idx, col] = fill_values.loc[valid_idx]
+    non_mlcc_series_mask = out["系列说明"].astype(str).apply(clean_text).eq("") & out["系列"].astype(str).apply(clean_text).ne("")
+    if non_mlcc_series_mask.any():
+        filled_desc = out.loc[non_mlcc_series_mask].apply(
+            lambda row: build_series_description_fallback(
+                row.get("器件类型", ""),
+                brand=row.get("品牌", ""),
+                series=row.get("系列", ""),
+                special_use=row.get("特殊用途", ""),
+            ),
+            axis=1,
+        )
+        valid_idx = filled_desc[filled_desc.astype(str).apply(clean_text).ne("")].index
+        if len(valid_idx) > 0:
+            out.loc[valid_idx, "系列说明"] = filled_desc.loc[valid_idx]
     if "规格" not in out.columns:
         if "_disc_size" in out.columns:
             disc_size = out["_disc_size"].astype(str).apply(clean_text)
@@ -8290,10 +9238,37 @@ def ensure_component_display_columns(df):
     if "寿命（h）" not in out.columns:
         out["寿命（h）"] = blank_series()
     out["寿命（h）"] = out["寿命（h）"].astype(str).apply(format_life_hours_display)
+    out["功率"] = out["功率"].astype(str).apply(format_power_display)
     if "安装方式" not in out.columns:
         out["安装方式"] = blank_series()
-    out["安装方式"] = out["安装方式"].astype(str).apply(normalize_mounting_style)
+    if "封装代码" in out.columns:
+        out["安装方式"] = [
+            normalize_mounting_style(value, package_code)
+            for value, package_code in zip(out["安装方式"].astype(str).tolist(), out["封装代码"].astype(str).tolist())
+        ]
+    else:
+        out["安装方式"] = out["安装方式"].astype(str).apply(normalize_mounting_style)
     out["特殊用途"] = out["特殊用途"].astype(str).apply(normalize_special_use)
+    if "品牌" in out.columns and "型号" in out.columns and "器件类型" in out.columns:
+        bourns_cm1309_mask = (
+            out["品牌"].astype(str).apply(clean_brand).str.upper().eq("BOURNS")
+            & out["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
+            & out["型号"].astype(str).apply(clean_model).str.match(r"^CM1309\dCT-\d+$", na=False)
+        )
+        if bourns_cm1309_mask.any():
+            out.loc[bourns_cm1309_mask, "系列"] = "CM1309"
+            out.loc[bourns_cm1309_mask, "系列说明"] = "Bourns CM1309 共模电感系列"
+            out.loc[bourns_cm1309_mask, "安装方式"] = "THT"
+            if "封装代码" in out.columns:
+                out.loc[bourns_cm1309_mask, "封装代码"] = "CM1309"
+    if "尺寸（inch）" in out.columns and "尺寸（mm）" in out.columns and "器件类型" in out.columns:
+        tht_common_mode_mask = (
+            out["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
+            & out["安装方式"].astype(str).apply(normalize_mounting_style).eq("THT")
+            & out["尺寸（mm）"].astype(str).apply(clean_text).ne("")
+        )
+        if tht_common_mode_mask.any():
+            out.loc[tht_common_mode_mask, "尺寸（inch）"] = ""
     if "压敏电压" not in out.columns:
         if "_varistor_voltage" in out.columns:
             out["压敏电压"] = out["_varistor_voltage"].apply(voltage_display)
@@ -8306,12 +9281,66 @@ def ensure_component_display_columns(df):
             out["尺寸(mm)"] = out["尺寸（mm）"].astype(str).apply(clean_text)
         else:
             out["尺寸(mm)"] = blank_series()
+    if "直径（mm）" in out.columns:
+        out["直径（mm）"] = out["直径（mm）"].astype(str).apply(normalize_dimension_mm_value)
     for dim_col in ["长度（mm）", "宽度（mm）", "高度（mm）"]:
         if dim_col not in out.columns:
             out[dim_col] = blank_series()
-        out[dim_col] = out[dim_col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+        out[dim_col] = out[dim_col].astype(str).replace("nan", "").replace("None", "").apply(normalize_dimension_mm_value)
+    out["脚距"] = out["脚距"].astype(str).apply(format_pitch_display)
+    out["容值单位"] = out["容值单位"].astype(str).apply(normalize_library_value_unit)
+    out["容值误差"] = out["容值误差"].astype(str).apply(clean_tol_for_display)
+    out["耐压（V）"] = out["耐压（V）"].astype(str).apply(voltage_display)
+    out["阻值单位"] = out["阻值单位"].astype(str).apply(normalize_library_value_unit)
+    out["阻值误差"] = out["阻值误差"].astype(str).apply(clean_tol_for_display)
+    out["B值"] = out["B值"].astype(str).apply(normalize_b_value_text)
+    out["阻抗单位"] = out["阻抗单位"].astype(str).apply(normalize_library_value_unit)
+    out["电感单位"] = out["电感单位"].astype(str).apply(lambda value: clean_text(value).upper())
+    out["电感误差"] = out["电感误差"].astype(str).apply(clean_tol_for_display)
+    for current_col in ["纹波电流", "额定电流", "饱和电流"]:
+        out[current_col] = out[current_col].astype(str).apply(format_current_display)
     if "尺寸来源" not in out.columns:
         out["尺寸来源"] = blank_series()
+    if row_count > 0 and row_count <= 5000:
+        fallback_series = out.apply(lambda row: infer_component_display_fallbacks_from_row(row), axis=1)
+        fallback_df = pd.DataFrame(list(fallback_series), index=out.index)
+        for col in fallback_df.columns:
+            if col not in out.columns:
+                out[col] = blank_series()
+            fill_values = fallback_df[col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+            blank_mask = out[col].astype(str).replace("nan", "").replace("None", "").apply(clean_text).eq("")
+            valid_mask = fill_values.ne("")
+            target_idx = fill_values[blank_mask & valid_mask].index
+            if len(target_idx) > 0:
+                out.loc[target_idx, col] = fill_values.loc[target_idx]
+        inductor_mask = out["器件类型"].astype(str).apply(normalize_component_type).isin(INDUCTOR_COMPONENT_TYPES) if "器件类型" in out.columns else pd.Series(False, index=out.index)
+        if inductor_mask.any():
+            official_series = out.loc[inductor_mask].apply(lambda row: infer_official_inductor_fields_from_row(row), axis=1)
+            official_df = pd.DataFrame(list(official_series), index=out.loc[inductor_mask].index)
+            for col in official_df.columns:
+                if col not in out.columns:
+                    out[col] = blank_series()
+                fill_values = official_df[col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                if col == "系列":
+                    current_series = out.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                    current_models = out.loc[inductor_mask, "型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text) if "型号" in out.columns else pd.Series("", index=current_series.index)
+                    replace_mask = current_series.eq("") | current_series.eq(current_models)
+                    target_idx = fill_values[replace_mask & fill_values.ne("")].index
+                elif col == "系列说明":
+                    current_desc = out.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                    current_models = out.loc[inductor_mask, "型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text) if "型号" in out.columns else pd.Series("", index=current_desc.index)
+                    replace_mask = current_desc.eq("")
+                    model_tokens = [re.escape(model) for model in current_models[current_models.ne("")].unique()]
+                    if model_tokens:
+                        replace_mask = replace_mask | current_desc.str.contains("|".join(model_tokens), case=False, na=False)
+                    target_idx = fill_values[replace_mask & fill_values.ne("")].index
+                else:
+                    blank_mask = out.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text).eq("")
+                    target_idx = fill_values[blank_mask & fill_values.ne("")].index
+                if len(target_idx) > 0:
+                    out.loc[target_idx, col] = fill_values.loc[target_idx]
+    if row_count > 0:
+        out["器件类别"] = out.apply(lambda row: format_component_category_display(row), axis=1)
     return out
 
 
@@ -8372,6 +9401,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "型号2": "medium",
         "品牌3": "small",
         "型号3": "medium",
+        "器件类别": "medium",
         "系列": "small",
         "系列说明": "medium",
         "信昌料号": "large",
@@ -8383,6 +9413,32 @@ def build_component_column_config(columns, spec_or_type=None):
         "长度（mm）": "small",
         "宽度（mm）": "small",
         "高度（mm）": "small",
+        "封装代码": "small",
+        "生产状态": "small",
+        "直径（mm）": "small",
+        "极性": "small",
+        "ESR": "small",
+        "纹波电流": "small",
+        "阻值@25C": "small",
+        "阻值单位": "small",
+        "阻值误差": "small",
+        "B值": "small",
+        "B值条件": "small",
+        "共模阻抗": "small",
+        "阻抗单位": "small",
+        "额定电流": "small",
+        "DCR": "small",
+        "回路数": "small",
+        "电感值": "small",
+        "电感单位": "small",
+        "电感误差": "small",
+        "饱和电流": "small",
+        "屏蔽类型": "small",
+        "阻抗@100MHz": "small",
+        "负载电容（pF）": "small",
+        "驱动电平": "small",
+        "输出类型": "small",
+        "占空比": "small",
         "尺寸来源": "medium",
         "备注1": "medium",
         "备注2": "medium",
@@ -8400,8 +9456,10 @@ def build_component_column_config(columns, spec_or_type=None):
 
 
 def build_component_section_title(spec, suffix):
-    component_type = resolve_component_display_type(spec)
-    return f"{component_type}{suffix}" if component_type != "" else suffix
+    component_label = format_component_category_display(spec)
+    if component_label == "":
+        component_label = resolve_component_display_type(spec)
+    return f"{component_label}{suffix}" if component_label != "" else suffix
 
 
 def build_component_summary_from_spec(spec):
@@ -8477,11 +9535,14 @@ def build_component_summary_from_spec(spec):
             clean_text(spec.get("_pitch", "")),
         ])
     if component_type in INDUCTOR_COMPONENT_TYPES:
-        return build_other_component_summary([
+        summary = build_other_component_summary([
             f"{value}{unit}" if value != "" and unit != "" else "",
             clean_tol_for_display(spec.get("容值误差", "")),
-            clean_size(spec.get("尺寸（inch）", "")),
+            format_current_display(spec.get("额定电流", "")),
+            clean_text(spec.get("DCR", "")),
+            clean_text(spec.get("尺寸（mm）", "")) or clean_size(spec.get("尺寸（inch）", "")),
         ])
+        return summary or clean_text(spec.get("规格摘要", ""))
     if component_type in TIMING_COMPONENT_TYPES:
         return build_other_component_summary([
             f"{value}{unit}" if value != "" and unit != "" else "",
@@ -8525,6 +9586,22 @@ def _format_compact_number(value):
     return f"{num:.6f}".rstrip("0").rstrip(".")
 
 
+def normalize_numeric_range_text(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    normalized = text.replace("−", "-").replace("–", "-").replace("—", "-")
+    normalized = normalized.replace("～", "~").replace("至", "~")
+    compact = re.sub(r"\s+", "", normalized)
+    compact = re.sub(r"(?i)(?<=\d)TO(?=[+\-]?\d)", "~", compact)
+    range_match = re.fullmatch(r"([+\-]?\d+(?:\.\d+)?)(?:~|-)([+\-]?\d+(?:\.\d+)?)", compact)
+    if range_match:
+        return f"{_format_compact_number(range_match.group(1))}~{_format_compact_number(range_match.group(2))}"
+    if re.fullmatch(r"[+\-]?\d+(?:\.\d+)?", compact):
+        return _format_compact_number(compact)
+    return text
+
+
 def working_temperature_bounds(value):
     text = clean_text(value)
     if text == "":
@@ -8535,7 +9612,10 @@ def working_temperature_bounds(value):
     upper = upper.replace("℃", "C").replace("°C", "C")
     compact = re.sub(r"\s+", "", upper)
 
-    range_match = re.search(r"([+\-]?\d+(?:\.\d+)?)\s*(?:~|-)\s*([+\-]?\d+(?:\.\d+)?)(?:C)?", compact)
+    range_match = re.search(
+        r"([+\-]?\d+(?:\.\d+)?)\s*C?\s*(?:~|-)\s*([+\-]?\d+(?:\.\d+)?)(?:C)?",
+        compact,
+    )
     if range_match:
         try:
             return float(range_match.group(1)), float(range_match.group(2))
@@ -8573,7 +9653,7 @@ def extract_working_temperature_from_text(text):
     if raw == "":
         return ""
     upper = raw.upper().replace("−", "-").replace("–", "-").replace("—", "-")
-    upper = upper.replace("～", "~").replace("至", "~").replace("℃", "C").replace("°C", "C")
+    upper = upper.replace("～", "~").replace("至", "~").replace("TO", "~").replace("℃", "C").replace("°C", "C")
     patterns = [
         r"(?:WORK(?:ING)?|CATEGORY|OPERATING)\s*TEMPERATURE(?:\s*RANGE)?[^0-9+\-]{0,24}([+\-]?\d+(?:\.\d+)?\s*(?:~|-)\s*[+\-]?\d+(?:\.\d+)?)",
         r"(?:工作温度|温度范围)[^0-9+\-]{0,8}([+\-]?\d+(?:\.\d+)?\s*(?:~|-)\s*[+\-]?\d+(?:\.\d+)?)",
@@ -8585,6 +9665,11 @@ def extract_working_temperature_from_text(text):
         if not match:
             continue
         normalized = normalize_working_temperature_text(match.group(1))
+        if normalized != "":
+            return normalized
+    bare_negative_range = re.search(r"(-\d+(?:\.\d+)?)\s*(?:~|-)\s*(\+?\d+(?:\.\d+)?)(?=$|[^0-9A-Z])", upper, flags=re.I)
+    if bare_negative_range:
+        normalized = normalize_working_temperature_text(f"{bare_negative_range.group(1)}~{bare_negative_range.group(2)}℃")
         if normalized != "":
             return normalized
     return ""
@@ -8631,6 +9716,141 @@ def parse_life_hours_from_text(text):
 def format_life_hours_display(value):
     normalized = normalize_life_hours_value(value)
     return f"{normalized}h" if normalized != "" else ""
+
+
+def normalize_b_value_text(value):
+    text = clean_text(value).upper().replace(" ", "")
+    if text == "":
+        return ""
+    if text.endswith("KK"):
+        text = text[:-1]
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(K)?", text)
+    if match:
+        return f"{match.group(1)}K"
+    return clean_text(value)
+
+
+def combine_value_and_unit(value, unit="", separator=" "):
+    value_text = clean_text(value)
+    unit_text = clean_text(unit)
+    if value_text == "":
+        return ""
+    if unit_text == "":
+        return value_text
+    if value_text.upper().endswith(unit_text.upper()):
+        return value_text
+    joiner = "" if unit_text in {"Ω", "KΩ", "MΩ", "mΩ", "A", "mA", "uA", "nH", "uH", "mH", "H", "Hz", "kHz", "MHz", "GHz"} else separator
+    return f"{value_text}{joiner}{unit_text}"
+
+
+def format_current_display(value):
+    text = clean_text(value).replace(" ", "")
+    if text == "":
+        return ""
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(UA|MA|A)", text, flags=re.I)
+    if match:
+        return f"{match.group(1)}{match.group(2).upper()}"
+    return clean_text(value)
+
+
+def format_pitch_display(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    if "脚距" in text or "PITCH" in text.upper():
+        return text
+    normalized = normalize_dimension_mm_value(text)
+    if normalized == "":
+        return text
+    return f"脚距{normalized}mm"
+
+
+def format_impedance_display(value, unit=""):
+    value_text = clean_text(value)
+    unit_text = normalize_library_value_unit(unit)
+    if value_text == "":
+        return ""
+    upper = value_text.upper()
+    if any(token in upper for token in ["Ω", "OHM"]):
+        return value_text.replace("OHMS", "Ω").replace("OHM", "Ω")
+    if unit_text == "":
+        unit_text = "Ω"
+    return combine_value_and_unit(value_text, unit_text, separator=" ")
+
+
+def parse_inductance_value_unit(text):
+    normalized = clean_text(text).upper().replace("Μ", "U").replace("ΜH", "UH").replace("μ", "U").replace("µ", "U").replace(" ", "")
+    if normalized == "":
+        return "", ""
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(NH|UH|MH|H)", normalized, flags=re.I)
+    if not match:
+        return "", ""
+    return clean_text(match.group(1)), clean_text(match.group(2)).upper()
+
+
+def parse_frequency_value_unit(text):
+    normalized = clean_text(text).upper().replace(" ", "")
+    if normalized == "":
+        return "", ""
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(HZ|KHZ|MHZ|GHZ)", normalized, flags=re.I)
+    if not match:
+        return "", ""
+    return clean_text(match.group(1)), clean_text(match.group(2)).upper()
+
+
+def parse_impedance_value_unit(text):
+    normalized = clean_text(text).replace(" ", "")
+    if normalized == "":
+        return "", ""
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(MΩ|KΩ|Ω|mΩ|MOHM|KOHM|OHM)", normalized, flags=re.I)
+    if not match:
+        return "", ""
+    return clean_text(match.group(1)), normalize_library_value_unit(match.group(2))
+
+
+def extract_electrolytic_dimensions_from_text(text):
+    upper = clean_text(text).upper().replace("Φ", "").replace("Ø", "")
+    if upper == "":
+        return "", "", ""
+    match = ELECTROLYTIC_SIZE_PATTERN.search(upper)
+    if not match:
+        return "", "", ""
+    diameter = normalize_dimension_mm_value(match.group(1))
+    height = normalize_dimension_mm_value(match.group(2))
+    body_text = " x ".join(part for part in [diameter, height] if part != "")
+    return diameter, height, body_text
+
+
+def build_series_description_fallback(component_type, brand="", series="", special_use=""):
+    component_type = normalize_component_type(component_type)
+    series_text = clean_text(series)
+    if series_text == "":
+        return ""
+    special_text = normalize_special_use(special_use)
+    brand_text = clean_brand(brand)
+    prefix = f"{brand_text} " if brand_text != "" else ""
+    if component_type == "铝电解电容":
+        return f"{prefix}{series_text} 铝电解电容系列".strip()
+    if component_type == "薄膜电容":
+        return f"{prefix}{series_text} 薄膜电容系列".strip()
+    if component_type == "钽电容":
+        return f"{prefix}{series_text} 钽电容系列".strip()
+    if component_type == "引线型陶瓷电容":
+        return f"{prefix}{series_text} 引线型陶瓷电容系列".strip()
+    if component_type in RESISTOR_COMPONENT_TYPES:
+        return f"{prefix}{series_text} {component_type}系列".strip()
+    if component_type == "热敏电阻":
+        return f"{prefix}{series_text} 热敏电阻系列".strip()
+    if component_type in VARISTOR_COMPONENT_TYPES:
+        return f"{prefix}{series_text} 压敏电阻系列".strip()
+    if component_type in INDUCTOR_COMPONENT_TYPES:
+        suffix = "磁珠系列" if component_type == "磁珠" else f"{component_type}系列"
+        return f"{prefix}{series_text} {suffix}".strip()
+    if component_type in TIMING_COMPONENT_TYPES:
+        return f"{prefix}{series_text} {component_type}系列".strip()
+    if special_text != "":
+        return f"{series_text} / {special_text}"
+    return f"{prefix}{series_text} 系列".strip()
 
 
 def normalize_mounting_style(value, package_code=""):
@@ -8789,8 +10009,8 @@ def build_component_spec_detail_from_row(row, component_type_hint=""):
         volt=row.get("耐压（V）", ""),
         resistance_ohm=find_resistance_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}) else None,
         power=find_power_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES) else "",
-        body_size=extract_body_size_from_text(row_text) if component_type in {"铝电解电容", "薄膜电容"} else "",
-        pitch=extract_pitch_from_text(row_text) if component_type in ({"铝电解电容", "薄膜电容"} | VARISTOR_COMPONENT_TYPES) else "",
+        body_size=clean_text(row.get("尺寸（mm）", "")) or (extract_body_size_from_text(row_text) if component_type in {"铝电解电容", "薄膜电容", "引线型陶瓷电容"} else ""),
+        pitch=row.get("脚距（mm）", "") or (extract_pitch_from_text(row_text) if component_type in ({"铝电解电容", "薄膜电容", "引线型陶瓷电容"} | VARISTOR_COMPONENT_TYPES) else ""),
         safety_class=find_safety_class(row_text) if component_type == "薄膜电容" else "",
         varistor_voltage=find_varistor_voltage_in_text(row_text) if component_type in VARISTOR_COMPONENT_TYPES else "",
         disc_size=find_disc_size_code(row_text) if component_type in VARISTOR_COMPONENT_TYPES else "",
@@ -8798,6 +10018,33 @@ def build_component_spec_detail_from_row(row, component_type_hint=""):
         life_hours=row.get("寿命（h）", "") or parse_life_hours_from_text(row_text),
         mounting_style=row.get("安装方式", "") or extract_mounting_style_from_text(row_text),
         special_use=row.get("特殊用途", "") or extract_special_use_from_text(row_text),
+        production_status=row.get("生产状态", ""),
+        package_code=row.get("封装代码", ""),
+        diameter_mm=row.get("直径（mm）", ""),
+        height_mm=row.get("高度（mm）", ""),
+        polarity=row.get("极性", ""),
+        esr=row.get("ESR", "") or find_esr_in_text(row_text),
+        ripple_current=row.get("纹波电流", "") or find_labeled_current_in_text(row_text, ["RIPPLE CURRENT", "RIPPLE"]),
+        resistance_25c=row.get("阻值@25C", ""),
+        resistance_unit=row.get("阻值单位", ""),
+        resistance_tol=row.get("阻值误差", ""),
+        b_value=row.get("B值", "") or find_b_value_in_text(row_text),
+        b_value_condition=row.get("B值条件", "") or find_b_value_condition_in_text(row_text),
+        common_mode_impedance=row.get("共模阻抗", ""),
+        impedance_unit=row.get("阻抗单位", ""),
+        rated_current=row.get("额定电流", "") or find_labeled_current_in_text(row_text, ["RATED CURRENT", "HEATING CURRENT", "IRMS", "IDC", "CURRENT"]),
+        dcr=row.get("DCR", "") or find_dcr_in_text(row_text),
+        circuit_count=row.get("回路数", "") or find_circuit_count_in_text(row_text),
+        inductance_value=row.get("电感值", ""),
+        inductance_unit=row.get("电感单位", ""),
+        inductance_tol=row.get("电感误差", ""),
+        saturation_current=row.get("饱和电流", "") or find_labeled_current_in_text(row_text, ["SATURATION CURRENT", "ISAT", "SAT CURRENT"]),
+        shielding=row.get("屏蔽类型", "") or find_shielding_type_in_text(row_text),
+        impedance_100mhz=row.get("阻抗@100MHz", "") or find_impedance_at_100mhz_in_text(row_text),
+        load_capacitance=row.get("负载电容（pF）", ""),
+        drive_level=row.get("驱动电平", ""),
+        output_type=row.get("输出类型", ""),
+        duty_cycle=row.get("占空比", ""),
     )
     return format_component_detail_inline(lines)
 
@@ -10229,6 +11476,11 @@ LIBRARY_COMMON_COLUMNS = [
     "器件类型", "安装方式", "封装代码", "尺寸（mm）", "规格摘要", "生产状态",
     "长度（mm）", "宽度（mm）", "高度（mm）",
     "官网链接", "数据来源", "数据状态", "校验时间", "校验备注",
+    "直径（mm）", "脚距（mm）", "极性", "ESR", "纹波电流",
+    "寿命（h）", "工作温度",
+    "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+    "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
+    "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
 ]
 
 
@@ -10333,6 +11585,63 @@ def normalize_imported_component_dataframe(df, source_path=""):
         blank_link_mask = work["备注2"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_link_mask, "备注2"] = work.loc[blank_link_mask, "官网链接"]
 
+    for col in [
+        "容值", "容值单位", "容值误差", "耐压（V）",
+        "阻值", "阻值单位", "阻值误差", "阻值@25C",
+        "电感值", "电感单位", "电感误差", "共模阻抗", "阻抗单位", "阻抗@100MHz",
+        "输出频率", "频率", "频率单位", "频差（ppm）", "电源电压", "最高工作电压", "压敏电压",
+    ]:
+        if col in work.columns and not isinstance(work[col].dtype, pd.CategoricalDtype) and not pd.api.types.is_object_dtype(work[col]):
+            work[col] = work[col].astype("object")
+
+    if "器件类型" in work.columns:
+        inductor_mask = work["器件类型"].astype(str).apply(normalize_component_type).isin(INDUCTOR_COMPONENT_TYPES)
+        if inductor_mask.any():
+            inferred_series = work.loc[inductor_mask].apply(lambda row: infer_official_inductor_fields_from_row(row), axis=1)
+            inferred_df = pd.DataFrame(list(inferred_series), index=work.loc[inductor_mask].index)
+            for col in inferred_df.columns:
+                if col not in work.columns:
+                    work[col] = ""
+                elif not isinstance(work[col].dtype, pd.CategoricalDtype) and not pd.api.types.is_object_dtype(work[col]):
+                    work[col] = work[col].astype("object")
+                fill_values = inferred_df[col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                if col == "系列":
+                    current_series = work.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                    current_models = work.loc[inductor_mask, "型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text) if "型号" in work.columns else pd.Series("", index=current_series.index)
+                    replace_mask = current_series.eq("") | current_series.eq(current_models)
+                    target_idx = fill_values[replace_mask & fill_values.ne("")].index
+                elif col == "系列说明":
+                    current_desc = work.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text)
+                    current_models = work.loc[inductor_mask, "型号"].astype(str).replace("nan", "").replace("None", "").apply(clean_text) if "型号" in work.columns else pd.Series("", index=current_desc.index)
+                    replace_mask = current_desc.eq("")
+                    model_tokens = [re.escape(model) for model in current_models[current_models.ne("")].unique()]
+                    if model_tokens:
+                        replace_mask = replace_mask | current_desc.str.contains("|".join(model_tokens), case=False, na=False)
+                    target_idx = fill_values[replace_mask & fill_values.ne("")].index
+                else:
+                    blank_mask = work.loc[inductor_mask, col].astype(str).replace("nan", "").replace("None", "").apply(clean_text).eq("")
+                    target_idx = fill_values[blank_mask & fill_values.ne("")].index
+                if len(target_idx) > 0:
+                    work.loc[target_idx, col] = fill_values.loc[target_idx]
+            if "容值" in work.columns and "电感值" in work.columns:
+                value_unit_series = work["容值单位"].astype(str).replace("nan", "").replace("None", "").apply(normalize_library_value_unit)
+                inductance_unit_mask = value_unit_series.isin({"NH", "UH", "MH"})
+                blank_inductance_mask = work["电感值"].astype(str).replace("nan", "").replace("None", "").apply(clean_text).eq("")
+                source_inductance_mask = (
+                    inductor_mask
+                    & inductance_unit_mask
+                    & blank_inductance_mask
+                    & work["容值"].astype(str).replace("nan", "").replace("None", "").apply(clean_text).ne("")
+                )
+                if source_inductance_mask.any():
+                    work.loc[source_inductance_mask, "电感值"] = work.loc[source_inductance_mask, "容值"]
+            if "容值单位" in work.columns and "电感单位" in work.columns:
+                value_unit_series = work["容值单位"].astype(str).replace("nan", "").replace("None", "").apply(normalize_library_value_unit)
+                blank_inductance_unit_mask = work["电感单位"].astype(str).replace("nan", "").replace("None", "").apply(clean_text).eq("")
+                source_inductance_unit_mask = inductor_mask & value_unit_series.isin({"NH", "UH", "MH"}) & blank_inductance_unit_mask
+                if source_inductance_unit_mask.any():
+                    work.loc[source_inductance_unit_mask, "电感单位"] = value_unit_series.loc[source_inductance_unit_mask]
+
     if "阻值" in work.columns:
         blank_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_value_mask, "容值"] = work.loc[blank_value_mask, "阻值"]
@@ -10345,6 +11654,39 @@ def normalize_imported_component_dataframe(df, source_path=""):
     if "阻值@25C" in work.columns:
         blank_ntc_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_ntc_value_mask, "容值"] = work.loc[blank_ntc_value_mask, "阻值@25C"]
+    if "电感值" in work.columns:
+        blank_inductor_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_inductor_value_mask, "容值"] = work.loc[blank_inductor_value_mask, "电感值"]
+    if "电感单位" in work.columns:
+        blank_inductor_unit_mask = work["容值单位"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_inductor_unit_mask, "容值单位"] = work.loc[blank_inductor_unit_mask, "电感单位"]
+    if "电感误差" in work.columns:
+        blank_inductor_tol_mask = work["容值误差"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_inductor_tol_mask, "容值误差"] = work.loc[blank_inductor_tol_mask, "电感误差"]
+    if "共模阻抗" in work.columns:
+        blank_common_mode_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_common_mode_value_mask, "容值"] = work.loc[blank_common_mode_value_mask, "共模阻抗"]
+    if "阻抗@100MHz" in work.columns:
+        blank_bead_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_bead_value_mask, "容值"] = work.loc[blank_bead_value_mask, "阻抗@100MHz"]
+    if "阻抗单位" in work.columns:
+        blank_impedance_unit_mask = work["容值单位"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_impedance_unit_mask, "容值单位"] = work.loc[blank_impedance_unit_mask, "阻抗单位"]
+    if "输出频率" in work.columns:
+        blank_osc_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_osc_value_mask, "容值"] = work.loc[blank_osc_value_mask, "输出频率"]
+    if "频率" in work.columns:
+        blank_freq_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_freq_value_mask, "容值"] = work.loc[blank_freq_value_mask, "频率"]
+    if "频率单位" in work.columns:
+        blank_freq_unit_mask = work["容值单位"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_freq_unit_mask, "容值单位"] = work.loc[blank_freq_unit_mask, "频率单位"]
+    if "频差（ppm）" in work.columns:
+        blank_freq_tol_mask = work["容值误差"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_freq_tol_mask, "容值误差"] = work.loc[blank_freq_tol_mask, "频差（ppm）"]
+    if "电源电压" in work.columns:
+        blank_timing_volt_mask = work["耐压（V）"].apply(lambda x: clean_text(x) == "")
+        work.loc[blank_timing_volt_mask, "耐压（V）"] = work.loc[blank_timing_volt_mask, "电源电压"]
     if "最高工作电压" in work.columns:
         blank_resistor_volt_mask = work["耐压（V）"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_resistor_volt_mask, "耐压（V）"] = work.loc[blank_resistor_volt_mask, "最高工作电压"]
@@ -14064,12 +15406,25 @@ def style_exact_match_rows(df, spec=None):
 
 def format_display_df(show_df):
     show_df = show_df.copy()
-    for col in ["品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3","推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3","信昌料号","华科料号","前5个其他品牌型号","其他品牌型号","系列","尺寸（inch）","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途","备注1","备注2","备注3","规格参数明细","匹配参数明细","功率","脚距","安规","规格","压敏电压"]:
+    for col in [
+        "品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3",
+        "推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3",
+        "信昌料号","华科料号","前5个其他品牌型号","其他品牌型号",
+        "器件类别","系列","系列说明","尺寸（inch）","封装代码","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","直径（mm）",
+        "材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途",
+        "备注1","备注2","备注3","规格参数明细","匹配参数明细",
+        "功率","脚距","安规","规格","压敏电压","生产状态","极性","ESR","纹波电流",
+        "阻值@25C","阻值单位","阻值误差","B值","B值条件",
+        "共模阻抗","阻抗单位","额定电流","DCR","回路数","电感值","电感单位","电感误差","饱和电流","屏蔽类型","阻抗@100MHz",
+        "负载电容（pF）","驱动电平","输出类型","占空比",
+    ]:
         if col in show_df.columns:
             show_df[col] = show_df[col].astype(str).replace("nan", "").replace("None", "")
-    for dim_col in ["长度（mm）", "宽度（mm）", "高度（mm）"]:
+    for dim_col in ["长度（mm）", "宽度（mm）", "高度（mm）", "直径（mm）"]:
         if dim_col in show_df.columns:
             show_df[dim_col] = show_df[dim_col].apply(normalize_dimension_mm_value)
+    if "容值" in show_df.columns:
+        show_df["容值"] = show_df["容值"].apply(normalize_numeric_range_text)
     if "容值单位" in show_df.columns:
         show_df["容值单位"] = show_df["容值单位"].apply(normalize_library_value_unit)
     if "容值误差" in show_df.columns:
@@ -14084,10 +15439,27 @@ def format_display_df(show_df):
         show_df["安装方式"] = show_df["安装方式"].apply(normalize_mounting_style)
     if "特殊用途" in show_df.columns:
         show_df["特殊用途"] = show_df["特殊用途"].apply(normalize_special_use)
+    if "脚距" in show_df.columns:
+        show_df["脚距"] = show_df["脚距"].apply(format_pitch_display)
     if "压敏电压" in show_df.columns:
         show_df["压敏电压"] = show_df["压敏电压"].apply(voltage_display)
     if "功率" in show_df.columns:
         show_df["功率"] = show_df["功率"].apply(format_power_display)
+    if "阻值单位" in show_df.columns:
+        show_df["阻值单位"] = show_df["阻值单位"].apply(normalize_library_value_unit)
+    if "阻值误差" in show_df.columns:
+        show_df["阻值误差"] = show_df["阻值误差"].apply(clean_tol_for_display)
+    if "B值" in show_df.columns:
+        show_df["B值"] = show_df["B值"].apply(normalize_b_value_text)
+    if "阻抗单位" in show_df.columns:
+        show_df["阻抗单位"] = show_df["阻抗单位"].apply(normalize_library_value_unit)
+    if "电感单位" in show_df.columns:
+        show_df["电感单位"] = show_df["电感单位"].apply(lambda value: clean_text(value).upper())
+    if "电感误差" in show_df.columns:
+        show_df["电感误差"] = show_df["电感误差"].apply(clean_tol_for_display)
+    for current_col in ["纹波电流", "额定电流", "饱和电流"]:
+        if current_col in show_df.columns:
+            show_df[current_col] = show_df[current_col].apply(format_current_display)
     if "推荐等级" in show_df.columns:
         show_df["推荐等级"] = show_df["推荐等级"].astype(str).replace("nan", "").replace("None", "")
     return show_df
@@ -14508,6 +15880,17 @@ def estimate_bom_result_iframe_height(row_count):
     per_row = 60
     min_height = 320
     max_height = 700
+    height = base + visible_rows * per_row
+    return max(min_height, min(max_height, height))
+
+
+def estimate_bom_preview_iframe_height(row_count):
+    row_count = max(0, int(row_count or 0))
+    visible_rows = min(max(row_count, 1), 5)
+    base = 86
+    per_row = 42
+    min_height = 220
+    max_height = 320
     height = base + visible_rows * per_row
     return max(min_height, min(max_height, height))
 
@@ -15154,6 +16537,46 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
         return build_result_table_iframe_html(fragment, outer_footer_html=outer_footer_html)
     return fragment
 
+
+def render_static_preview_table(show_df, wrapper_class="result-table-wrap", outer_footer_html="", wrap_iframe=True):
+    if show_df is None or show_df.empty:
+        return ""
+
+    display_df = show_df.copy()
+    visible_columns = [clean_text(col) for col in display_df.columns]
+    column_widths = {}
+    for idx, col in enumerate(visible_columns):
+        series = display_df.iloc[:, idx] if idx < display_df.shape[1] else pd.Series(dtype=object)
+        sample_values = series.fillna("").astype(str).head(20).tolist()
+        column_widths[idx] = estimate_result_table_column_width(col, sample_values, col)
+
+    parts = [f'<div class="{html.escape(wrapper_class, quote=True)}"><table class="result-table"><colgroup>']
+    for idx, _ in enumerate(visible_columns):
+        width = column_widths.get(idx, 120)
+        parts.append(f'<col style="width: {width}px;" />')
+    parts.append("</colgroup><thead><tr>")
+    for idx, col in enumerate(visible_columns):
+        matched_width = column_widths.get(idx, 120)
+        parts.append(
+            f'<th style="width: {matched_width}px; min-width: {matched_width}px; max-width: {matched_width}px; text-align: left;">'
+            f"{html.escape(col)}</th>"
+        )
+    parts.append("</tr></thead><tbody>")
+
+    for _, row in display_df.iterrows():
+        parts.append("<tr>")
+        for idx, _ in enumerate(visible_columns):
+            value = clean_text(row.iloc[idx] if idx < len(row) else "")
+            cell = html.escape(value).replace(chr(10), "<br>") if value != "" else "&nbsp;"
+            parts.append(f'<td style="text-align: left;">{cell}</td>')
+        parts.append("</tr>")
+
+    parts.append("</tbody></table></div>")
+    fragment = "".join(parts)
+    if wrap_iframe:
+        return build_result_table_iframe_html(fragment, outer_footer_html=outer_footer_html)
+    return fragment
+
 def build_part_info_df(df, spec, query_model):
     if spec is None:
         return pd.DataFrame()
@@ -15169,14 +16592,43 @@ def build_part_info_df(df, spec, query_model):
         show_df["容值误差"] = show_df["容值误差"].apply(clean_tol_for_match)
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
         show_df = fill_component_display_blanks(show_df, spec)
-        show_df = select_component_display_columns(show_df, spec, prefix_columns=["品牌", "型号"])
+        prioritized_hit = prioritize_component_rows_for_lookup(show_df)
+        display_target = prioritized_hit.iloc[0].to_dict() if prioritized_hit is not None and not prioritized_hit.empty else spec
+        suffix_columns = ["官网链接", "数据来源"]
+        display_component_type = resolve_component_display_type(display_target)
+        if display_component_type in INDUCTOR_COMPONENT_TYPES:
+            for extra_col in ["尺寸（mm）", "规格摘要", "特殊用途"]:
+                if extra_col in show_df.columns:
+                    has_value = (
+                        show_df[extra_col]
+                        .astype(str)
+                        .replace("nan", "")
+                        .replace("None", "")
+                        .apply(clean_text)
+                        .ne("")
+                        .any()
+                    )
+                    if has_value and extra_col not in suffix_columns:
+                        suffix_columns.insert(len(suffix_columns) - 2 if len(suffix_columns) >= 2 else 0, extra_col)
+        show_df = select_component_display_columns(
+            show_df,
+            display_target,
+            prefix_columns=["品牌", "型号", "器件类别"],
+            suffix_columns=suffix_columns,
+        )
         return format_display_df(show_df)
     row = pd.DataFrame([{
         "品牌": spec.get("品牌", ""),
         "型号": spec.get("型号", query_model),
         **build_component_display_row(spec),
     }])
-    row = select_component_display_columns(row, spec, prefix_columns=["品牌", "型号"])
+    row_target = row.iloc[0].to_dict() if not row.empty else spec
+    row = select_component_display_columns(
+        row,
+        row_target,
+        prefix_columns=["品牌", "型号", "器件类别"],
+        suffix_columns=["官网链接", "数据来源"],
+    )
     return format_display_df(row)
 
 
@@ -17539,6 +18991,26 @@ if search_clicked:
                 candidate_rows = int(resolved.get("candidate_rows") or 0)
             except Exception:
                 candidate_rows = 0
+            if mode in {"无法识别", "规格不足"} or spec is None:
+                forced_exact_rows = resolve_prefetched_exact_part_rows(line, exact_part_rows=prefetched_exact_rows)
+                if isinstance(forced_exact_rows, pd.DataFrame) and not forced_exact_rows.empty:
+                    forced_mode, forced_spec = detect_query_mode_and_spec(forced_exact_rows, line)
+                    if forced_mode == "料号" and forced_spec is not None:
+                        query_df = forced_exact_rows
+                        mode = forced_mode
+                        spec = forced_spec
+                        resolution_path = "forced_exact_model_lookup"
+                        candidate_rows = len(forced_exact_rows)
+                        resolved_state.update(
+                            {
+                                "stage_step": 2,
+                                "stage_text": "已锁定数据库原始料号",
+                                "note": "输入已命中正式库原厂料号，按原厂资料继续展示",
+                                "source_label": "数据库直查",
+                                "source_tone": "success",
+                                "candidate_rows": candidate_rows,
+                            }
+                        )
             source_label = clean_text(resolved_state.get("source_label", ""))
             source_tone = clean_text(resolved_state.get("source_tone", ""))
             base_chips = []
@@ -17636,7 +19108,7 @@ if search_clicked:
                     show_df = select_component_display_columns(
                         matched,
                         spec,
-                        prefix_columns=["推荐等级", "品牌", "型号", "系列"],
+                        prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                         suffix_columns=["备注1", "备注2", "备注3"],
                     )
                     show_df = format_display_df(show_df)
@@ -17671,7 +19143,7 @@ if search_clicked:
                         stage_step=4,
                         current_text=line,
                         stage_text="当前输入已完成",
-                        note="已定位到输入料号资料，但未找到其他品牌匹配结果",
+                        note="已定位到原厂料号资料，但暂未找到其他品牌匹配结果",
                         extra_chips=base_chips + [{"label": "命中数", "value": "0", "tone": "warn"}],
                     )
                     match_card_html = (
@@ -17685,8 +19157,12 @@ if search_clicked:
                         scrolling=False,
                     )
                     st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
-                    st.warning("未找到其他品牌匹配结果")
-                    search_stats["no_match"] += 1
+                    if part_info_df is not None and not part_info_df.empty:
+                        st.info("已找到原厂料号资料，暂未找到其他品牌替代结果")
+                        search_stats["success"] += 1
+                    else:
+                        st.warning("未找到其他品牌匹配结果")
+                        search_stats["no_match"] += 1
                 continue
             elif mode == "料号片段":
                 st.markdown('<div class="section-title">料号片段反推规格</div>', unsafe_allow_html=True)
@@ -17731,7 +19207,7 @@ if search_clicked:
                 show_df = select_component_display_columns(
                     matched,
                     spec,
-                    prefix_columns=["推荐等级", "品牌", "型号", "系列"],
+                    prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                     suffix_columns=["备注1", "备注2", "备注3"],
                 )
                 show_df = format_display_df(show_df)
@@ -17989,7 +19465,18 @@ if uploaded_file is not None:
                 )
 
             st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
-            st.dataframe(bom_df.head(20), use_container_width=True, hide_index=True, height=220)
+            preview_df = bom_df.head(20).copy()
+            preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
+            preview_html = render_static_preview_table(
+                preview_df,
+                wrapper_class="bom-result-table-wrap",
+            )
+            if preview_html:
+                components.html(
+                    preview_html,
+                    height=estimate_bom_preview_iframe_height(len(preview_df)),
+                    scrolling=False,
+                )
 
             guessed_mapping = guess_bom_column_mapping(bom_df)
             bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)

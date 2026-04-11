@@ -22,6 +22,15 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
 ## Entries
 
+### 2026-04-12 01:58 [direct] 公开版 CM1309 共模电感系列与温度显示修正
+
+- Received / problem: 用户明确约定“公开版/正式版”指 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)，本轮要求继续只修公开版源码，不动测试版；同时 `CM13093CT-102` 这类公开版精确料号在本地正式链路里虽已入库，但仍存在系列名不统一、错误 `尺寸（inch）` 残留、工作温度显示只剩上限的问题。
+- Investigation: 复核了 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)、[build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py)、[Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 与 [components.db](C:/Users/zjh/Desktop/data/components.db)。确认 `CM1309` 家族四颗料号的数据本体已经存在，但源文件与展示层仍混有旧网页抓取残留，表现为 `系列=CM13093CT-242` 一类错误值、`尺寸（inch）=242/412/872/0102`、以及 `-40℃~+125℃` 在展示时被压缩成单独 `125℃`。
+- Fix / action: 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 修正 `working_temperature_bounds()`，允许温度范围两端中间夹带 `C/℃` 仍能正确解析；同时在 `ensure_component_display_columns()` 中为 Bourns `CM1309` 共模电感家族加了显示层兜底归一化，统一 `系列=CM1309`、`系列说明=Bourns CM1309 共模电感系列`、`安装方式=THT`、`封装代码=CM1309`。在 [build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py) 新增 `canonicalize_bourns_cm1309_rows()`，在官方库生成阶段就把该家族的 `系列 / 系列说明 / 尺寸（inch） / 封装代码 / 工作温度` 清理正确，然后重建 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。之后用 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 只对 `CM13090CT-242 / CM13091CT-872 / CM13092CT-412 / CM13093CT-102` 四条公开版正式数据做了定向回写，并同步刷新 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 与 [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- Verification: `python -m py_compile component_matcher.py build_inductor_official_sources.py sync_inductor_official_to_db.py component_matcher_build.py` 通过；重建脚本输出 `Wrote 438 rows`；定向回写结果 `deleted=4 inserted=4 search_refreshed=True prepared_refreshed=True`。随后再次读取正式库与资料卡，四颗 `CM1309` 料号均显示 `器件类别=共模电感（Common Mode Choke）`、`系列=CM1309`、`尺寸（inch）=` 空白、`尺寸（mm）=13 x 16 x 9.2 mm`、对应 `电感值 / 电感单位 / 额定电流 / DCR / 工作温度 / 安装方式=THT`；本地公开版入口 [http://127.0.0.1:8511](http://127.0.0.1:8511) 返回 `HTTP 200`。
+- Other issues: 本轮仍未把更改部署到 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)，因此线上公开版此刻不应假定已同步这些修正。另一个尚未继续深挖的问题是官方电感导入链路在全量同步时曾出现过个别字段被旧值覆盖的迹象，本轮通过“重建源文件 + 定向回写子集”规避了该风险。
+- Handoff notes: 如果下一轮继续公开版，请先以用户新口径区分“公开版/正式版”和“测试版”，再决定是否把本地公开版修正部署到 `pages.dev`。如需继续扩大官方库修正范围，可沿用这次的“源文件规范化 + 子集回写 + 子集刷新缓存”流程。
+
 ### 2026-03-22 16:13 [inferred] `component_matcher.py` updated for ceramic-capacitor classification
 
 - Received / problem: Passive component type classification was being refined, with strong evidence that `Y5P` or leaded ceramic-capacitor text was being misrouted as `MLCC`.
@@ -1138,3 +1147,110 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 彻底放弃 `st.button` 方案，改成和 `下载 BOM 匹配后 Excel` 同一套 HTML 按钮样式，避免 Streamlit 组件自身的隐藏留白继续把按钮撑离气泡框底部。
 - 新增 `bom_manual_mapping_toggle` 查询参数切换逻辑：点击按钮后通过 URL 参数触发展开/收起，再立即清掉参数并 `st.rerun()`，从而保留原有手动定位开关行为。
 - `BOM原始内容预览` 下方按钮区改为单独的 HTML footer，并通过 `bom-preview-toggle-anchor` 对应容器直接上拉，让按钮贴近预览表格气泡框底部，同时不修改预览表格的 `height=220` 参数。
+
+## 2026-04-10 17:35 BOM 原始内容预览按钮位置对齐结果卡片
+- 按用户给的对照图继续收紧 `BOM原始内容预览` 下方 `找不到规格手动定位匹配位置` 按钮的位置，目标是让它和 `下载 BOM 匹配后 Excel` 一样，贴着上方气泡框底部显示。
+- 这次不再沿用 `st.dataframe(...)` 预览表；已改为复用结果区同一套 iframe 卡片表格渲染，新增 `render_static_preview_table()` 与 `estimate_bom_preview_iframe_height()`，让预览区本身的气泡框和结果区保持一致的壳层结构。
+- 同时把 `bom-preview-toggle-anchor` 所在容器的上拉间距从 `-8px` 收紧到 `-12px`，让手动定位按钮更贴近预览气泡框底边。
+- `python -m py_compile component_matcher.py` 已通过；本轮修改只涉及 `component_matcher.py` 的 BOM 预览显示链路和按钮间距，不影响匹配逻辑与导出逻辑。
+
+## 2026-04-10 21:31 会员系统与错误回报审核流程独立样板
+- 按用户要求试做了一版完全独立的会员/审核原型，不接到当前公版入口，也没有改现有 `streamlit_app.py` / `component_matcher.py` 的正式逻辑；样板文件为 [member_feedback_prototype_app.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_app.py)、[member_feedback_prototype_store.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_store.py) 和说明文档 [MEMBER_FEEDBACK_PROTOTYPE.md](C:/Users/zjh/Desktop/data/MEMBER_FEEDBACK_PROTOTYPE.md)。
+- 原型库单独落在 `prototype_data/member_feedback_prototype.db`，运行时自动创建，里面拆出了 `users / registration_requests / component_rows / feedback_tickets` 四类数据；审核通过后只更新这套原型库，不碰当前正式版 `components.db`。
+- 样板流程已覆盖：注册申请账号、管理员审核开通、会员查看匹配结果样板、结果表最后一栏 `回报错误`、用户直接修改字段并填写备注提交、管理员审核通过/驳回、审核通过后写回原型匹配数据。
+- 已完成的验证包括：`python -m py_compile member_feedback_prototype_store.py member_feedback_prototype_app.py` 通过；临时测试库里验证了 `demo / demo123`、`admin / admin123` 登录成功，注册申请成功，纠错单提交成功，管理员审核通过后原型行数据确实更新。
+- 当前这是“方向样板”，重点是给用户先看会员/审核/纠错的交互闭环；如果后续确认方向没问题，再把权限体系、工单字段、数据库更新规则迁进公版会更稳。
+
+## 2026-04-10 21:42 会员样板登录后 HTML 露出与回报错误按钮无效修复
+- 用户实测发现 `demo` 账号登录后，顶部统计卡片区域直接露出 `<div class=...>` 原始 HTML，同时匹配结果区的 `回报错误` 按钮只是表面链接，点击后无法稳定进入可编辑表单。
+- 根因一是 `metrics_html()` 里拼卡片时沿用了多行缩进 HTML，Streamlit 会把带前导空格的块按 markdown code block 处理，导致部分 HTML 原样显示。根因二是样板最初把操作按钮做成了自定义 HTML 表格里的 `<a href="?edit_row=...">`，在 Streamlit 的自定义块里交互不稳定，不能当成真正的业务按钮依赖。
+- 已改为：新增 `render_html_block()` 做去缩进后的稳定 HTML 渲染；顶部统计卡片改成纯拼接字符串输出，不再把带缩进的 `<div>` 喂给 markdown。匹配结果区则改成原生 Streamlit 行布局 `render_feedback_rows()`，每行最后一栏都使用真正的 `st.button("回报错误")`，点击后通过 `prototype_edit_row_id` 会话态进入下方纠错编辑表单。
+- 同时补了 `set_active_edit_row()` / `get_active_edit_row_id()` / `clear_active_edit_row()`，让编辑态不再只靠 query 参数；点击按钮、提交成功、取消编辑、退出登录都会正确同步清理状态。
+- `python -m py_compile member_feedback_prototype_app.py member_feedback_prototype_store.py` 已再次通过，本地样板服务已重启到 `http://localhost:8510`，可让用户直接刷新复测新的交互版本。
+
+## 2026-04-10 22:40 保留原匹配页面的会员整合原型
+- 用户明确希望样板保留“原本匹配系统页面”，而不是只看独立会员后台，因此额外创建了独立原型副本 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 与入口 [streamlit_member_prototype_app.py](C:/Users/zjh/Desktop/data/streamlit_member_prototype_app.py)，不修改正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)。
+- 原型库 [member_feedback_prototype_store.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_store.py) 已扩成可承接真实匹配结果行：新增 `idx_component_rows_brand_model` 唯一索引，以及 `ensure_component_row_from_payload()`、`get_component_row_by_identity()`、`overlay_component_payload_with_store()`，让匹配结果能落到独立原型库，并在管理员审核通过后覆盖回原型显示层。
+- 在原型副本里补入了会员登录/注册申请/我的回报/管理员注册审核/管理员纠错审核/原型数据页路由；登录后若选择 `匹配系统`，继续走原本搜索与 BOM 页面，不会像前一版那样把匹配系统页面替换掉。
+- 匹配结果表 `render_clickable_result_table()` 已在原型副本中额外插入 `回报错误` 列：每行都会先 `ensure_component_row_from_payload()` 落到原型库，再输出 `target="_top"` 的操作链接，点后会在当前页面底部出现 `回报错误编辑区` 表单，支持直接修改字段并提交备注。
+- 验证情况：`python -m py_compile member_feedback_prototype_store.py component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过；整合原型已启动到 `http://localhost:8512` 并返回 `HTTP 200`。说明文档 [MEMBER_FEEDBACK_PROTOTYPE.md](C:/Users/zjh/Desktop/data/MEMBER_FEEDBACK_PROTOTYPE.md) 也已补充“仅会员样板”和“保留原匹配页整合原型”两种入口说明。
+
+## 2026-04-10 23:41 会员整合原型主页面可见会员区与 BOM 预览按钮回调
+- 用户实测 `http://localhost:8512` 后反馈三件事：登录 `demo` 后上传 BOM 看起来像回到普通版、手动定位按钮又悬在预览表下方、以及会员账号看不到“会员专区 / 当前账号 / 退出会员按钮”。根因确认是整合原型此前把会员入口完全放在侧边栏，而默认侧边栏又是收起状态；同时 `BOM原始内容预览` 的 iframe 高度下限设得过大，导致预览表下面出现明显留白，把按钮继续往下推。
+- 已在 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 中新增主页面可见的 `会员专区` 头部壳层：显示当前账号、登录名、身份、当前页面与团队信息，并把页面切换入口改成主内容区的横向 `radio`，同时保留 `退出会员登录` 按钮，不再依赖用户先展开侧边栏才能看到会员能力。
+- 同时下调 `estimate_bom_preview_iframe_height()` 的基础高度与最小高度，把 `BOM原始内容预览` 根据真实预览行数收紧，减少预览卡片底部空白；并把 `bom-preview-toggle-footer` 再上拉 `2px`，让 `找不到规格手动定位匹配位置` 更贴近预览区底边。
+- 本轮只修改整合原型副本，不触碰公版文件；`python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 已通过，`8512` 进程已重启并返回 `HTTP 200`，等待用户刷新页面复测主页面会员区与 BOM 预览按钮位置。
+
+## 2026-04-12 00:39 正式版原厂料号卡片补充官方规格摘要并加数据库直查兜底
+- 用户继续在正式版实测时指出：搜索 `CM13093CT-102` 虽然应该能认出是 Bourns 原厂料号，但页面却表现成“没有其他品牌匹配”且看不到规格参数，怀疑是不是数据库里根本没有这颗品牌型号。本轮先对正式版搜索链路做了逐层排查。
+- 现场确认结果不是“数据库缺料号”：在正式版 [components.db](C:/Users/zjh/Desktop/data/components.db) 中，`CM13093CT-102` 可被 `型号` 与 clean model 两种方式直接命中；`resolve_prefetched_exact_part_rows()`、`detect_query_mode_and_spec()` 与 `load_component_rows_by_query_model_tokens()` 也都能把它识别成 `料号`，并带出 `Bourns / 共模电感 / 安装方式 / 尺寸(mm) / 规格摘要 / 数据来源`。
+- 真正的问题在于正式版原厂资料卡的展示 schema 以前只盯着 `电感值 / 共模阻抗 / 额定电流 / DCR` 这类结构化列；而 `CM13093CT-102` 当前这批官方来源属于“官网系列页摘要型数据”，关键信息主要存放在 `尺寸（mm） / 规格摘要 / 特殊用途`，因此卡片虽然命中了原厂行，却会视觉上像“没规格”。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `build_part_info_df()` 中补上正式版原厂料号卡片的电感类附加列：当器件类型属于 `功率电感 / 共模电感 / 磁珠` 时，会把 `尺寸（mm） / 规格摘要 / 特殊用途` 一并挂到原厂资料卡尾部，再接 `官网链接 / 数据来源`。这样像 `CM13093CT-102` 现在会直接看到 `13 x 16 x 9.2 mm | 1.0 +50 %/-35 % | 10 Ω – 5,000 Ω | 2.8 A` 这类官方摘要。
+- 同时新增一个正式版搜索兜底：在搜索页主循环里，如果当前输入先被判到 `无法识别 / 规格不足`，但它本身长得像完整料号且数据库能直查到原厂行，就强制切回 `料号` 分支，按数据库原厂资料继续展示，不再把这类真实存在的型号误记到“需要补充或修正输入”。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；函数级验证 `CM13093CT-102` 当前 `resolve_search_query_dataframe_and_spec()` 返回 `mode=料号 / candidate_rows=1`，`build_part_info_df()` 已能输出 `尺寸（mm） / 规格摘要 / 特殊用途 / 数据来源`；正式版 `8511` 已重启并返回 `HTTP 200`。
+
+## 2026-04-11 18:48 正式版电感官方库已同步入正式库并改成增量刷新缓存
+- 用户继续要求正式版往“可工作使用”的方向推进，本轮继续只动正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) / [components.db](C:/Users/zjh/Desktop/data/components.db) / [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) / [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，未触碰已冻结的测试板与会员原型。
+- 先把 [build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py) 扩成真正纳入 Bourns 官方页面抓取：新增并接通 `power inductors / RF chokes / common-mode chokes / EMC chokes` 四类官方页面来源，并在生成阶段做型号清洗与同键合并，去掉 `Series / MDS / 区间文本` 之类脏 token。官方扩展表 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 由 363 条扩到 438 条，现包含 `Bourns 功率电感 230 / Bourns 共模电感 59 / Würth 功率电感 134 / Würth 共模电感 13 / Würth 磁珠 2`。
+- 为了让这批官方数据能持续增量落库，新增正式版同步脚本 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py)：按 `器件类型 + 品牌 + 型号` 替换正式库中对应键，并只刷新受影响型号的搜索侧库与 prepared cache，不再走整库全量重建。
+- 同时补强正式版电感官方推断保护：在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 里新增 `text_contains_inductance_range / text_contains_current_range / text_contains_impedance_range`，并把 `infer_official_inductor_fields_from_row()` 与 `infer_component_display_fallbacks_from_row()` 两层都改成“遇到范围只保留范围摘要，不抠成假精确值”。这次专门修掉了 `CM13093CT-102 / CM13090CT-242 / CM13092CT-412 / CM13091CT-872` 这类共模电感把 `10Ω / 25Ω / 50Ω / 100Ω` 区间下限误写成精确阻抗的问题。
+- 本地执行结果：`python sync_inductor_official_to_db.py` 返回 `source_rows=438 deleted=438 inserted=438`，同步后 `after_summary` 显示 `共模阻抗` 由 3 清到 0、`阻抗单位` 仅保留 2 条有明确值的记录；再做 `official_inductor_expansion.csv` 与正式版 `components.db` 的逐键比对，得到 `mismatch_count=0`，说明这批官方电感键已与正式库完全对齐。
+- 抽样核对：`CM13093CT-102` 现在只保留 `13 x 16 x 9.2 mm | 1.0 +50 %/-35 % | 10 Ω – 5,000 Ω | 2.8 A` 这类范围摘要，不再显示伪造的精确 `共模阻抗=10Ω`；`SDE0403AT` 也仅保留 `1 - 68 µH | 0.4 - 2.7 A` 区间摘要，不再把系列页范围误当成单一规格值。`FC2012AN` 的正式版原厂资料卡片仍保持正常显示 `石英晶体（Crystal Unit） / FC2012 / 32.768kHz / 数据来源`。
+
+## 2026-04-11 18:48 正式版电感官方库已同步入正式库并改成增量刷新缓存
+- 本轮继续推进正式版，不触碰测试板/会员原型；重点把 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 这批官方 `功率电感 / 共模电感 / 磁珠` 数据真正落进正式版数据库与缓存链路，而不是只在前端显示时临时推断。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 补强正式版入库归一化：对电感类官方源，若原始表把电感量放在 `容值 / 容值单位`，现在会自动回填到 `电感值 / 电感单位`，例如 `PQ2614BHA` 在入库阶段就能得到 `2.2 / UH`，不再只有页面展示时才补得出来。
+- 新增正式版定向同步脚本 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py)：会按 `器件类型 + 品牌 + 型号` 精准替换这批 363 条官方电感键到 [components.db](C:/Users/zjh/Desktop/data/components.db)，避免“旧浅数据仍留在正式库里、搜索继续混到旧行”的问题。
+- 同时把缓存刷新逻辑从“全量重建整库”改成“仅刷新受影响键”：
+  正式版搜索侧库 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 现在只删除并回写这批受影响型号对应的 sidecar 行，再重写 meta。
+  正式版 prepared cache [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 现在只替换这批官方电感在 prepared 数据里的旧行，并同步更新 [cache/components_prepared_v5_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_v5_meta.json)。
+- 这样做的原因是前一版全量刷新虽然数据库写入成功，但整库 prepared cache 重建会拖很久；现在已改成适合后续持续拓库的正式版增量刷新方式。
+- 本地执行结果：`source_rows=363 deleted=363 inserted=363`，并确认 `prepared_cache_is_current=True`、`search_index_is_current=True`。抽样检查 `PQ2614BHA / 784831047068 / 7427511 / DR221` 已能在正式库与 prepared cache 中看到更新后的 `系列 / 系列说明 / 电感值 / 电感单位 / 额定电流 / DCR / 工作温度 / 安装方式 / 数据来源` 等字段；正式版 `8511` 也已重启到新缓存进程。
+
+## 2026-04-11 17:28 正式版料号搜索卡片改为按真实器件类型展示
+- 用户反馈正式版搜索 `FC2012AN` 时，页面虽然已能命中原厂料号，但 `匹配料号资料` 仍显示成旧版通用表头，看起来像“还是没有”；根因是这块卡片之前按输入解析出来的 `spec` 决定栏位，而不是按数据库命中的真实器件类型决定栏位，导致晶振/电感等器件被降级成通用显示。
+- 已在正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 调整 `resolve_component_display_type()` 与 `build_part_info_df()`：命中数据库行后会优先按真实器件类型渲染表头，并把 `官网链接 / 数据来源` 接到原厂资料卡片尾部。现在 `FC2012AN` 会显示 `石英晶体（Crystal Unit） / 系列 / 系列说明 / 频率 / 频差 / 工作温度 / 官网来源`，不再只剩品牌型号和空白参数。
+- 同时把“已找到原厂料号资料，但暂无其他品牌替代结果”从失败态改成明确提示，不再把这种情况算成纯 `无匹配`，减少用户看到 `成功 0 / 无匹配 1` 时误以为连原厂资料都没查到的误解。
+- 顺手补齐了正式版电感系列说明刷新逻辑：像 `PQ2614BHA` 这类官方库数据，系列已识别为 `SRP` 时，系列说明也会同步更新为 `Bourns SRP 屏蔽功率电感系列`，不再残留旧的型号文案。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；抽样验证 `FC2012AN / 784831047068 / 7427511 / PQ2614BHA` 的原厂资料卡片均已按真实器件类型输出对应关键字段。正式版 `8511` 也已重启到新代码进程。
+
+## 2026-04-11 10:59 测试板改为更偏工作台的判读视图
+- 用户希望先在测试板按“更适合实际工作”的方向试做一版，但明确要求正式版不要动。本次仅修改 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py)，未触碰公版入口或正式版逻辑文件。
+- 在搜索页加入了“结果建议”卡：会根据当前候选的推荐等级自动归纳成“可优先采用 / 需人工确认 / 建议逐笔判断 / 未找到结果”，并直接给出下一步动作建议，减少用户看完表格还要自己二次判断的成本。
+- 在 BOM 结果页加入了“BOM 工作视图”：先把结果按 `可直接采用 / 需人工确认 / 无匹配 / 解析失败` 四类汇总展示，再提供一组筛选按钮，只看某一类结果时会直接过滤下方表格；同时在表格里新增 `工作判断` 和 `下一步建议` 两列，让每一行的处理方式更直接。
+- 顺手把“找不到规格手动定位匹配位置”按钮改成靠近说明区的工具条样式，不再沿用右下角下载按钮的摆法，避免测试板继续出现“按钮位置像跑掉”的观感。
+- 本地校验结果：`python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过；重启 `8512` 测试板进程后，`http://127.0.0.1:8512` 返回 `HTTP 200`，stderr 日志未出现新的 Python 异常。
+
+## 2026-04-11 00:12 会员整合原型回退到公版 BOM 预览按钮位置
+- 用户指出“按钮问题没解决”，并要求对照公版确认真实位置。已使用 Playwright 对本机公版 `http://localhost:8511` 复测同一份 `阻容-POLED-报价.xlsx`：公版当前实际效果就是 `BOM原始内容预览` 下方留一段明显空白后，按钮才出现在更靠下的位置；之前把原型往上贴近气泡框的判断不准确。
+- 因此已把 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 中与 BOM 预览按钮相关的两处改动回退到公版参数：`estimate_bom_preview_iframe_height()` 恢复到和 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 一致的 `base=86 / per_row=42 / min_height=220 / max_height=320`，`bom-preview-toggle-footer` 也恢复为 `margin-top: 0`，确保整合原型 BOM 预览区与公版布局一致。
+- 同时对 `8511` 和 `8512` 都做了同文件上传复测，发现两者当前都会停在 `已处理 1/64 行 · 2% · 第 2 行` 这一状态；这说明“BOM 卡在 2%”不是会员原型单独引入的回归，而是当前本机匹配链路本身也存在问题。由于用户本轮主要先追按钮基准，当前先保留这个确认结论，后续再单独继续追 BOM 卡住根因更稳。
+
+## 2026-04-11 09:55 8512 本地测试版进程掉线后重新拉起
+- 用户反馈 `http://localhost:8512` 打不开，浏览器报 `ERR_CONNECTION_REFUSED`。现场确认后发现不是页面代码本身报错，而是 `8512` 端口当时没有进程在监听，`8510` 和 `8511` 仍然正常。
+- 通过 `Start-Process python -m streamlit run streamlit_member_prototype_app.py --server.address 127.0.0.1 --server.port 8512 --server.headless true` 重新拉起整合测试版，并将 stdout/stderr 继续写回 `tmp_8512_stdout.log` / `tmp_8512_stderr.log`。
+- 复测结果：`8512` 已恢复监听并返回 `HTTP 200`，可通过 `http://127.0.0.1:8512` 继续访问整合测试版。
+
+## 2026-04-11 10:09 会员整合原型修复登录态恢复缺失辅助函数
+- 用户刷新 `8512` 后又遇到 `NameError: name 'set_query_param' is not defined`，报错点在 `prototype_bootstrap_auth_state()` 和 `prototype_login_user()` 的 query param 写入链路。
+- 已在 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 的 `get_query_param_text()` 后补回 `set_query_param()` 与 `clear_query_param()`，并重新启动 `8512` 进程。
+- 复测结果：`http://127.0.0.1:8512` 返回 `HTTP 200`，语法检查 `python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过。
+
+## 2026-04-11 10:20 BOM 结果表“回报错误”列空白修复
+- 用户指出 BOM 匹配结果表最后一栏标题虽然在，但每一格都没有可点击按钮。排查后确认不是表格列没画出来，而是 [prototype_result_row_payload](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py#L15200) 只认普通匹配表的 `品牌/型号`，而 BOM 结果页实际更多用的是 `推荐品牌/推荐型号`、`推荐品牌1/推荐型号1` 等列。
+- 已将 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 的按钮身份提取改成多字段兜底：优先读 `品牌/型号`，再读 `推荐品牌/推荐型号` 与备选推荐槽位；若仍为空，则用 `BOM行号` 生成临时身份，确保最后一栏不再整列空白。
+- 同时把该函数复用给 `prototype_overlay_row_from_store()`，这样后续管理员审核通过的纠错结果也能继续回写到同一条原型记录。`python -m py_compile component_matcher_member_prototype.py` 已通过，整合测试版 `8512` 仍返回 `HTTP 200`。
+
+## 2026-04-11 11:40 正式版拓库与参数明细显示增强
+- 本轮回到正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)，未触碰已冻结的测试板/会员原型；重点是把“库不够深、系列说明不稳、各器件参数展示不够详细”的问题先往前推进一版。
+- 已扩充正式版展示字段与回填逻辑：新增并接通 `封装代码 / 生产状态 / 直径（mm） / 极性 / ESR / 纹波电流 / 阻值@25C / 阻值单位 / 阻值误差 / B值 / B值条件 / 共模阻抗 / 阻抗单位 / 额定电流 / DCR / 回路数 / 电感值 / 电感单位 / 电感误差 / 饱和电流 / 屏蔽类型 / 阻抗@100MHz / 负载电容（pF） / 驱动电平 / 输出类型 / 占空比` 等明细字段，并补了从备注/规格文本反推这些字段的兜底逻辑。
+- 已增强不同器件的显示 schema：铝电解会优先展示直径/高度、极性、ESR、纹波电流；热敏电阻展示 `R25 / 阻值误差 / B值 / B值条件`；功率电感/共模电感/磁珠各自展示最关键的选型参数；晶振/振荡器分别展示 `负载电容 / ESR / 驱动电平` 与 `输出类型 / 占空比 / 电源电压`。
+- 已同步一批正式库数据到 [components.db](C:/Users/zjh/Desktop/data/components.db)：Murata 官方 NTC 明细、Epson 晶振与振荡器资料，并补齐正式库所需的时间元件扩展列，如 `频率 / 输出频率 / 频率单位 / 频差（ppm） / 电源电压 / 输出类型 / 占空比 / 负载电容（pF） / 驱动电平`。同步后又增量刷新了正式版缓存 [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与搜索侧库 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)，避免正式版还在读旧展示数据。
+- 进一步修正正式版展示清洗：`clean_voltage()` 现在会把 `None / nan / n/a` 这类占位文本清空，不再出现 `NONEV`；同时把 `1.7 to 3.63V`、`13 to 55.2 MHz` 这种范围值规范成 `1.7~3.63V`、`13~55.2` 的正式展示格式，避免参数读起来生硬。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；抽样验证显示链路已能正确得到 Murata NTC 的 `100000Ω / ±0.5% / 4250K / 25/50℃`，以及 Epson 振荡器的 `13~55.2MHz / ±0.5% / 1.7~3.63V / 输出类型 / 工作温度`。
+
+## 2026-04-11 12:05 正式版料号搜索补上中英双语器件类别
+- 用户指出正式版精确料号搜索里，`匹配料号资料` 经常只看得到品牌和型号，看不出这个料号到底是该品牌的哪一种元器件；例如爱普生 `FC2012AN` 之前只能看到 `爱普生Epson / FC2012AN`，却没有明确显示它是晶体产品。
+- 已在正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增统一展示字段 `器件类别`，并做成中英双语值，例如 `陶瓷贴片电容（MLCC）`、`热敏电阻（NTC Thermistor）`、`石英晶体（Crystal Unit）`、`晶体振荡器（Oscillator）`、`功率电感（Power Inductor）` 等；该字段只用于前端显示，不改数据库原始 `器件类型` 字段。
+- 该双语器件类别已接到正式版两条主要显示链路：一是精确料号搜索的 `匹配料号资料` 表，二是匹配结果表中的候选型号行。搜索页标题也改成优先显示双语器件类别，例如 `石英晶体（Crystal Unit）匹配结果（含推荐等级）`。
+- 本地实测 `FC2012AN` 现在会显示 `爱普生Epson / FC2012AN / 石英晶体（Crystal Unit） / FC2012 / 32.768kHz / ±20% / 2012`；`NCP02WF104D05RH` 会显示 `热敏电阻（NTC Thermistor）`，确认不是只针对单一品牌生效。
