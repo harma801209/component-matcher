@@ -1232,7 +1232,8 @@ RESISTOR_COMPONENT_TYPES = {"贴片电阻", "厚膜电阻", "薄膜电阻", "合
 VARISTOR_COMPONENT_TYPES = {"压敏电阻", "引线型压敏电阻", "贴片压敏电阻"}
 SPECIAL_RESISTOR_COMPONENT_TYPES = {"热敏电阻"} | VARISTOR_COMPONENT_TYPES
 CAPACITOR_COMPONENT_TYPES = {"MLCC", "薄膜电容", "钽电容", "铝电解电容", "引线型陶瓷电容"}
-INDUCTOR_COMPONENT_TYPES = {"功率电感", "共模电感", "磁珠"}
+INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感", "共模电感", "磁珠"}
+POWER_INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感"}
 TIMING_COMPONENT_TYPES = {"晶振", "振荡器"}
 ALL_RESISTOR_TYPES = RESISTOR_COMPONENT_TYPES | SPECIAL_RESISTOR_COMPONENT_TYPES
 ALL_PASSIVE_COMPONENT_TYPES = CAPACITOR_COMPONENT_TYPES | ALL_RESISTOR_TYPES | INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES
@@ -1256,6 +1257,7 @@ COMPONENT_CATEGORY_DISPLAY_LABELS = {
     "引线型压敏电阻": "引线压敏电阻（Lead Varistor）",
     "贴片压敏电阻": "贴片压敏电阻（Chip Varistor）",
     "功率电感": "功率电感（Power Inductor）",
+    "射频电感": "射频电感（RF Inductor）",
     "共模电感": "共模电感（Common Mode Choke）",
     "磁珠": "磁珠（Ferrite Bead）",
     "晶振": "石英晶体（Crystal Unit）",
@@ -7203,6 +7205,26 @@ COMPONENT_ALIAS_TOKENS = {
         "compact": ["POWERINDUCTOR", "INDUCTOR", "CHOKE", "WIREWOUNDINDUCTOR", "MOLDEDINDUCTOR"],
         "upper": ["POWER INDUCTOR", "功率电感", "功率电感器", "电感", "電感", "CHOKE"],
     },
+    "射频电感": {
+        "compact": [
+            "RFINDUCTOR",
+            "AIRCORE",
+            "AIRCOIL",
+            "WIREWOUNDINDUCTOR",
+            "CHIPINDUCTOR",
+            "MULTILAYERCHIPINDUCTOR",
+            "RFCHOKE",
+        ],
+        "upper": [
+            "RF INDUCTOR",
+            "AIR CORE",
+            "AIR COIL",
+            "WIREWOUND INDUCTOR",
+            "CHIP INDUCTOR",
+            "MULTILAYER CHIP INDUCTOR",
+            "RF CHOKE",
+        ],
+    },
     "共模电感": {
         "compact": ["COMMONMODE", "COMMONMODECHOKE", "CMCHOKE", "CMC"],
         "upper": ["COMMON MODE", "COMMON-MODE", "COMMON MODE CHOKE", "共模电感", "共模扼流圈", "共模扼流圈"],
@@ -7338,6 +7360,8 @@ def detect_inductor_subtype_hint(text):
     upper = clean_text(text).upper()
     if upper == "":
         return ""
+    if matches_component_alias(text, "射频电感"):
+        return "射频电感"
     if matches_component_alias(text, "共模电感"):
         return "共模电感"
     if matches_component_alias(text, "磁珠"):
@@ -8977,7 +9001,7 @@ def infer_official_inductor_fields_from_row(row):
     if inferred_series != "" and (series_text == "" or series_text.upper() == model_text.upper()):
         result["系列"] = inferred_series
 
-    if component_type == "功率电感":
+    if component_type in POWER_INDUCTOR_COMPONENT_TYPES:
         has_inductance_range = text_contains_inductance_range(row_text)
         has_current_range = text_contains_current_range(row_text)
         if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
@@ -9070,11 +9094,13 @@ def infer_official_inductor_fields_from_row(row):
     ):
         should_refresh_series_desc = True
     if should_refresh_series_desc and display_series != "":
-        if component_type == "功率电感":
+        if component_type in POWER_INDUCTOR_COMPONENT_TYPES:
             if "RF CHOKE" in row_text.upper():
-                result["系列说明"] = f"{brand_text} {display_series} RF功率电感系列".strip()
+                result["系列说明"] = f"{brand_text} {display_series} 射频电感系列".strip()
             elif "SHIELDED" in row_text.upper():
                 result["系列说明"] = f"{brand_text} {display_series} 屏蔽功率电感系列".strip()
+            elif component_type == "射频电感":
+                result["系列说明"] = f"{brand_text} {display_series} 射频电感系列".strip()
             else:
                 result["系列说明"] = f"{brand_text} {display_series} 功率电感系列".strip()
         elif component_type == "共模电感":
@@ -9162,7 +9188,7 @@ def infer_component_display_fallbacks_from_row(row):
                 result["B值条件"] = b_condition
 
     if component_type in INDUCTOR_COMPONENT_TYPES:
-        if component_type == "功率电感":
+        if component_type in POWER_INDUCTOR_COMPONENT_TYPES:
             has_inductance_range = text_contains_inductance_range(row_text)
             has_current_range = text_contains_current_range(row_text)
             if (clean_text(row.get("电感值", "")) == "" or clean_text(row.get("电感单位", "")) == "") and not has_inductance_range:
