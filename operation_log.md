@@ -1275,3 +1275,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的展示层做统一尺寸处理：前端表格现在会优先显示 `尺寸（inch）`，若为空则回填 `尺寸（mm）`、`尺寸(mm)` 或 `._body_size`，并把表头改为 `尺寸`。
 - 同时移除了共模电感结果页里额外插入的 `尺寸（mm）` 后缀列，避免表格右侧再出现第二个尺寸栏。
 - 本地验收结果：`CM13093CT-102` 的展示记录现在能显示 `13 x 16 x 9.2 mm` 进入单一尺寸栏，且输出列里不再额外带出 `尺寸（mm）` 后缀。
+
+## 2026-04-12 18:19 direct Murata 电感家族继续拓库
+- 继续按用户要求扩正式版电感库，新增独立导入脚本 [sync_murata_inductor_family.py](C:/Users/zjh/Desktop/data/sync_murata_inductor_family.py)，一次性抓取 Murata 官方 PIM 的 5 类电感相关数据：`功率电感 / RF 高频电感 / 通用电感 / 共模电感 / 磁珠`。
+- 本轮落库后，Murata 官方家族总计新增 `8086` 条，当前正式库里 Murata 家族相关记录为 `8086` 条，其中功率电感 `6846` 条、共模电感 `185` 条、磁珠 `1055` 条。官方扩展表 [Inductor/murata_inductor_family_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/murata_inductor_family_expansion.csv) 也已写出并合并进 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 这次的导入保留了官网链接、规格摘要、工作温度、额定电流、DCR、共模阻抗、阻抗@100MHz 等字段；同时把尺寸展示统一成物理尺寸 `尺寸（mm）`，`尺寸（inch）` 留空，避免再把 0102 这类包码当作主显示值。
+- `components.db`、搜索侧缓存和 prepared cache 都已经增量刷新完成，本地抽样确认 `LQP01HV0N3B02# / LQH32NH100X23L05 / 50105AC / DFE2MCPHR10MJLLQ` 都能读到新的规格摘要和物理尺寸。
