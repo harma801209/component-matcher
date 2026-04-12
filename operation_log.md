@@ -1281,3 +1281,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 本轮落库后，Murata 官方家族总计新增 `8086` 条，当前正式库里 Murata 家族相关记录为 `8086` 条，其中功率电感 `6846` 条、共模电感 `185` 条、磁珠 `1055` 条。官方扩展表 [Inductor/murata_inductor_family_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/murata_inductor_family_expansion.csv) 也已写出并合并进 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
 - 这次的导入保留了官网链接、规格摘要、工作温度、额定电流、DCR、共模阻抗、阻抗@100MHz 等字段；同时把尺寸展示统一成物理尺寸 `尺寸（mm）`，`尺寸（inch）` 留空，避免再把 0102 这类包码当作主显示值。
 - `components.db`、搜索侧缓存和 prepared cache 都已经增量刷新完成，本地抽样确认 `LQP01HV0N3B02# / LQH32NH100X23L05 / 50105AC / DFE2MCPHR10MJLLQ` 都能读到新的规格摘要和物理尺寸。
+
+## 2026-04-12 20:16 SUMIDA 电感拓库收口
+- 继续按用户要求补胜美达 SUMIDA 官方功率电感库，抓取并规范化 `4890` 条官方料号，品牌统一写入 `胜美达SUMIDA`，器件类型统一为 `功率电感`。
+- 已同步修正 `components.db`、`cache/components_search.sqlite` 与 `cache/components_prepared_v5.parquet`，并清理 prepared cache 里残留的旧 `Sumida` 记录，当前三处数量一致。
+- 这批数据保留了官方尺寸、感量、额定电流、饱和电流、DCR、工作温度与系列说明，后续可直接用于正式版搜索和 BOM 匹配。
