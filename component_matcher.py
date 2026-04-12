@@ -8844,11 +8844,18 @@ def build_component_display_row(spec, allow_online_lookup=False):
             special_use=special_use,
         )
     pitch_display = format_pitch_display(spec.get("_pitch", "") or spec.get("脚距", "") or spec.get("脚距（mm）", ""))
+    size_display = clean_size(spec.get("尺寸（inch）", ""))
+    if (
+        component_type == "共模电感"
+        and normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")) == "THT"
+        and body_size != ""
+    ):
+        size_display = body_size
     return {
         "器件类别": format_component_category_display(component_type),
         "系列": series_code,
         "系列说明": series_desc,
-        "尺寸（inch）": clean_size(spec.get("尺寸（inch）", "")),
+        "尺寸（inch）": format_component_size_display_value(size_display),
         "封装代码": clean_text(spec.get("封装代码", "")),
         "材质（介质）": clean_material(spec.get("材质（介质）", "")),
         "容值": value,
@@ -9306,6 +9313,14 @@ def ensure_component_display_columns(df):
     fill_size_mask = out["尺寸（inch）"].eq("") & size_fallback.ne("")
     if fill_size_mask.any():
         out.loc[fill_size_mask, "尺寸（inch）"] = size_fallback.loc[fill_size_mask]
+    if "器件类型" in out.columns and "安装方式" in out.columns:
+        tht_common_mode_mask = (
+            out["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
+            & out["安装方式"].astype(str).apply(normalize_mounting_style).eq("THT")
+            & size_fallback.ne("")
+        )
+        if tht_common_mode_mask.any():
+            out.loc[tht_common_mode_mask, "尺寸（inch）"] = size_fallback.loc[tht_common_mode_mask]
     out["尺寸（inch）"] = out["尺寸（inch）"].astype(str).replace("nan", "").replace("None", "").apply(format_component_size_display_value)
     timing_value_sources = [col for col in ["输出频率", "频率"] if col in out.columns]
     for source_col in timing_value_sources:

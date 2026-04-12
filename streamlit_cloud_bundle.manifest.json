@@ -9,8 +9,8 @@
     {
       "path": "cache/components_search.sqlite",
       "size": 425558016,
-      "mtime_ns": 1775937633862605200,
-      "sha256": "4697b4dce7c1cd75d4ccc44131293dca08efb52e5a9b490de5a901d7465b647d"
+      "mtime_ns": 1775940210623974300,
+      "sha256": "df4b9623e523d2be858df75b7e835ce301ff5e30396e9637fef79e0b61cd1096"
     },
     {
       "path": "cache/components_prepared_v5.parquet",
