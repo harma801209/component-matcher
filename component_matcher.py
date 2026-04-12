@@ -12273,9 +12273,13 @@ def prepared_cache_is_current():
         return False
     if meta == get_database_signature():
         return True
-    return prepared_cache_meta_is_usable(meta) and bundled_runtime_assets_are_current(
-        required_paths=[PREPARED_CACHE_PATH]
-    )
+    if not prepared_cache_meta_is_usable(meta):
+        return False
+    try:
+        cached = read_prepared_cache()
+    except Exception:
+        return False
+    return prepared_dataframe_looks_sane(cached)
 
 
 def optimize_prepared_dataframe_dtypes(df):
