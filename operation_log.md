@@ -1310,3 +1310,5 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 排查确认 GitHub 上的远端保活 workflow 仍停留在旧版 `curl /_stcore/health` 方案，这种方式只打健康检查，不会像浏览器那样触发睡眠页上的唤醒按钮，也没有覆盖公开站同域代理入口。
 - 已在 [.github/workflows/keepalive.yml](C:/Users/zjh/Desktop/data/.github/workflows/keepalive.yml) 把保活任务改成 Playwright 浏览器方案，按顺序访问 `direct Streamlit -> 公开站同域 iframe 入口 -> 公开站壳页`，并把调度频率从每 11 小时提高到每 6 小时，给 Streamlit 的休眠窗口留出更稳的 buffer。
 - 这次改动的目标是避免“页面看起来可访问，但底层 app 其实已经睡着”的情况；改完后需要把 workflow 推到 GitHub，后续由 Actions 定时执行来维持公开站在线。
+
+2026-04-17：正式版主线已重建为瘦身根提交，保留当前文件树并去除旧历史包袱。
