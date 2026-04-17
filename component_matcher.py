@@ -19168,22 +19168,18 @@ if get_configured_access_code() != "" and st.session_state.get("_app_access_gran
         if st.button("退出访问码", use_container_width=True):
             st.session_state.pop("_app_access_granted", None)
             st.rerun()
-if not is_component_matcher_build_mode() and database_has_component_rows():
+if not is_component_matcher_build_mode() and not is_streamlit_cloud_runtime() and database_has_component_rows():
     try:
         startup_trace("before_maybe_update_database_on_startup")
         maybe_update_database(force=False)
         startup_trace("after_maybe_update_database_on_startup")
-        if not is_component_matcher_build_mode():
-            startup_trace("before_cloud_search_warmup")
-            maybe_start_cloud_search_asset_warmup()
-            startup_trace("after_cloud_search_warmup")
     except Exception as exc:
         startup_trace(f"startup_init_error:{type(exc).__name__}")
         st.error("云端初始化失败，请查看下方错误详情。")
         st.exception(exc)
         st.code(traceback.format_exc())
         st.stop()
-elif not is_component_matcher_build_mode():
+elif not is_component_matcher_build_mode() and not is_streamlit_cloud_runtime():
     try:
         startup_trace("before_cloud_search_warmup")
         maybe_start_cloud_search_asset_warmup()
