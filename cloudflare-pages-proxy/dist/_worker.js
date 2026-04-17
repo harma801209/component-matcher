@@ -32,10 +32,6 @@ async function proxyRequest(request) {
     return buildEmbedShellResponse(request, incomingUrl);
   }
 
-  if (shouldBootstrapSession(request, incomingUrl, dispatchPath)) {
-    return bootstrapStreamlitSession(incomingUrl);
-  }
-
   if (dispatchPath === "/_stcore/health" || dispatchPath === "/_stcore/script-health-check") {
     return buildHealthResponse(request);
   }
