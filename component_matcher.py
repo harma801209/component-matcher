@@ -109,6 +109,19 @@ PRIVATE_BOM_MAX_SHEETS = 25
 STREAMLIT_CLOUD_BUNDLE_LOCK = threading.Lock()
 CLOUD_SEARCH_ASSET_WARMUP_LOCK = threading.Lock()
 CLOUD_SEARCH_ASSET_WARMUP_STARTED = False
+STARTUP_TRACE_ENABLED = str(os.getenv("COMPONENT_MATCHER_STARTUP_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
+STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
+
+
+def startup_trace(message):
+    if not STARTUP_TRACE_ENABLED:
+        return
+    try:
+        os.makedirs(os.path.dirname(STARTUP_TRACE_PATH), exist_ok=True)
+        with open(STARTUP_TRACE_PATH, "a", encoding="utf-8") as handle:
+            handle.write(f"{time.time():.6f} {message}\n")
+    except Exception:
+        pass
 
 
 def bundle_member_path_for_local_path(path):
@@ -438,24 +451,33 @@ def get_search_asset_bundle_paths():
 
 def maybe_start_cloud_search_asset_warmup():
     global CLOUD_SEARCH_ASSET_WARMUP_STARTED
+    startup_trace("cloud_warmup:enter")
     if not streamlit_cloud_bundle_refresh_needed(required_paths=[DB_PATH] + get_search_asset_bundle_paths()) and (
         database_has_component_rows() or search_sidecar_assets_available()
     ):
+        startup_trace("cloud_warmup:skip-ready")
         return
     if not ensure_streamlit_cloud_bundle_archive_available():
+        startup_trace("cloud_warmup:no-bundle-archive")
         return
     with CLOUD_SEARCH_ASSET_WARMUP_LOCK:
         if CLOUD_SEARCH_ASSET_WARMUP_STARTED:
+            startup_trace("cloud_warmup:already-started")
             return
         CLOUD_SEARCH_ASSET_WARMUP_STARTED = True
+        startup_trace("cloud_warmup:started")
 
     def _warm():
         try:
+            startup_trace("cloud_warmup:thread-start")
             ensure_streamlit_cloud_data_bundle(required_paths=get_search_asset_bundle_paths())
+            startup_trace("cloud_warmup:thread-done")
         except Exception:
+            startup_trace("cloud_warmup:thread-error")
             pass
 
     threading.Thread(target=_warm, daemon=True).start()
+    startup_trace("cloud_warmup:thread-launched")
 
 
 def ensure_component_data_ready(action_label=""):
@@ -531,11 +553,14 @@ def get_configured_access_code():
 
 
 def require_app_access():
+    startup_trace("require_app_access:enter")
     access_code = get_configured_access_code()
     if access_code == "":
+        startup_trace("require_app_access:open")
         return True
 
     if st.session_state.get("_app_access_granted", False):
+        startup_trace("require_app_access:granted")
         return True
 
     st.markdown(
@@ -554,8 +579,10 @@ def require_app_access():
     if submitted:
         if entered_code and hmac.compare_digest(entered_code.strip(), access_code):
             st.session_state["_app_access_granted"] = True
+            startup_trace("require_app_access:submit-ok")
             st.rerun()
         st.error("访问码不正确")
+        startup_trace("require_app_access:submit-fail")
     st.stop()
 
 
@@ -12237,23 +12264,30 @@ def load_or_build_normalized_source_dataframe(source_path, force=False):
 
 
 def update_database(force=False):
+    startup_trace(f"update_database:enter force={force}")
     all_files = get_source_workbooks()
+    startup_trace(f"update_database:source-files={len(all_files)}")
     if not force and not database_needs_refresh():
+        startup_trace("update_database:no-refresh-needed")
         return
     all_dfs = []
     for f in all_files:
         try:
+            startup_trace(f"update_database:load-source:{os.path.basename(f)}")
             df = load_or_build_normalized_source_dataframe(f, force=force)
         except Exception:
             df = pd.DataFrame()
         if df is not None and not df.empty:
             all_dfs.append(df)
+    startup_trace(f"update_database:frames={len(all_dfs)}")
     if all_dfs:
         df_all = safe_concat_dataframes(all_dfs, ignore_index=True).drop_duplicates()
         df_all = deduplicate_component_rows(df_all)
         if df_all.empty:
+            startup_trace("update_database:empty-after-dedup")
             return
         prepared = prepare_search_dataframe(df_all)
+        startup_trace(f"update_database:prepared-rows={len(prepared)}")
         conn = sqlite3.connect(DB_PATH)
         df_all.to_sql("components", conn, if_exists="replace", index=False)
         create_database_indexes(conn)
@@ -12267,6 +12301,7 @@ def update_database(force=False):
             write_prepared_cache(prepared)
         except Exception:
             pass
+        startup_trace("update_database:done")
 
 def auto_refresh_db(interval_sec=300):
     def loop():
@@ -13490,21 +13525,26 @@ def clear_data_load_caches():
 
 
 def maybe_update_database(force=False, min_interval_sec=60):
+    startup_trace(f"maybe_update_database:enter force={force}")
     if force:
         update_database(force=True)
+        startup_trace("maybe_update_database:forced-done")
         return
     # Keep app startup responsive: if a usable database already exists,
     # don't block the initial page render with a full source refresh.
     if database_has_component_rows():
+        startup_trace("maybe_update_database:already-has-db")
         return
     try:
         now = time.time()
         last_check = float(st.session_state.get("_db_refresh_checked_at", 0.0))
         if now - last_check < float(min_interval_sec):
+            startup_trace("maybe_update_database:skip-throttle")
             return
     except Exception:
         pass
     update_database(force=False)
+    startup_trace("maybe_update_database:update-done")
     try:
         st.session_state["_db_refresh_checked_at"] = time.time()
     except Exception:
@@ -19120,6 +19160,7 @@ if __name__ == "__main__" and "--backfill-series" in sys.argv:
 
 
 require_app_access()
+startup_trace("after_require_app_access")
 
 if get_configured_access_code() != "" and st.session_state.get("_app_access_granted", False):
     with st.sidebar:
@@ -19127,12 +19168,17 @@ if get_configured_access_code() != "" and st.session_state.get("_app_access_gran
             st.session_state.pop("_app_access_granted", None)
             st.rerun()
 if not is_component_matcher_build_mode() and database_has_component_rows():
+    startup_trace("before_maybe_update_database_on_startup")
     maybe_update_database(force=False)
+    startup_trace("after_maybe_update_database_on_startup")
 if not is_component_matcher_build_mode():
+    startup_trace("before_cloud_search_warmup")
     maybe_start_cloud_search_asset_warmup()
+    startup_trace("after_cloud_search_warmup")
 
 
 logo_b64 = image_to_base64(LOGO_PATH)
+startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
 if logo_b64:
     st.markdown(
         f'''
@@ -19142,14 +19188,17 @@ if logo_b64:
         ''',
         unsafe_allow_html=True
     )
+    startup_trace("after_logo_markdown")
 
 st.markdown('<div class="main-title">富临通元器件匹配系统</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
+startup_trace("after_intro_markdown")
 
 with st.form("manual_query_search_form", clear_on_submit=False):
     query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
     search_clicked = st.form_submit_button("搜索")
+startup_trace("after_search_form")
 
 if search_clicked:
     if not query_input.strip():
@@ -19599,7 +19648,9 @@ if search_clicked:
         )
 
 st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
+startup_trace("after_bom_title")
 uploaded_file = st.file_uploader("上传 BOM Excel/CSV", type=["xlsx", "xls", "csv"])
+startup_trace("after_file_uploader")
 
 if uploaded_file is not None:
     progress_placeholder = st.empty()
@@ -20038,6 +20089,7 @@ st.markdown(
     ''',
     unsafe_allow_html=True
 )
+startup_trace("after_footer")
 
 
 
