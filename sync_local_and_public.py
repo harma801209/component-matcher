@@ -26,7 +26,6 @@ PUBLISH_FILES = [
     ".gitignore",
     "operation_log.md",
     "logo.png",
-    "streamlit_cloud_bundle.zip",
     "streamlit_cloud_bundle.manifest.json",
     "build_streamlit_cloud_bundle.py",
     "sync_local_and_public.py",
