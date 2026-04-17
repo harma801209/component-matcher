@@ -483,6 +483,8 @@ def maybe_start_cloud_search_asset_warmup():
 
 def ensure_component_data_ready(action_label=""):
     full_bundle_paths = [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
+    if prepared_cache_is_current():
+        return True
     if not streamlit_cloud_bundle_refresh_needed(required_paths=full_bundle_paths) and database_has_component_rows():
         return True
 
@@ -9410,6 +9412,9 @@ def ensure_component_display_columns(df):
     if df is None:
         return pd.DataFrame()
     out = df.copy()
+    for col in out.columns:
+        if isinstance(out[col].dtype, pd.CategoricalDtype):
+            out[col] = out[col].astype("object")
     row_count = len(out.index)
 
     def blank_series():
@@ -12406,6 +12411,14 @@ def prepared_cache_is_current():
         cached = read_prepared_cache()
     except Exception:
         return False
+    if not prepared_dataframe_looks_sane(cached):
+        return False
+    # Accept a sane prepared cache even when the main SQLite database has not
+    # been restored yet. Cloud startups often have the cache available before
+    # the larger database comes online, and treating the cache as invalid in
+    # that state forces an unnecessary rebuild path.
+    if not os.path.exists(DB_PATH):
+        return True
     return prepared_dataframe_looks_sane(cached)
 
 
@@ -12948,6 +12961,8 @@ def search_index_can_serve_queries(conn, required_columns=None, table_name=COMPO
 
 def open_search_db_connection(timeout_sec=30):
     if not os.path.exists(SEARCH_DB_PATH):
+        if is_public_mode() or is_streamlit_cloud_runtime():
+            return None
         ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     if not os.path.exists(SEARCH_DB_PATH):
         return None
@@ -14312,7 +14327,29 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
                 table_name=COMPONENTS_SEARCH_CORE_TABLE,
                 allow_without_database=True,
             ):
-                return pd.DataFrame()
+                prepared = None
+                try:
+                    prepared = load_prepared_data()
+                except Exception:
+                    prepared = None
+                if prepared is None or prepared.empty:
+                    return pd.DataFrame()
+                prepared_work = prepare_search_dataframe(prepared)
+                if prepared_work.empty or not {"品牌", "型号", "_model_clean"}.issubset(prepared_work.columns):
+                    return pd.DataFrame()
+                pair_set = set(pairs)
+                filtered = prepared_work[
+                    prepared_work.apply(
+                        lambda row: (
+                            clean_text(row.get("品牌", "")),
+                            clean_text(row.get("型号", "")),
+                        ) in pair_set,
+                        axis=1,
+                    )
+                ]
+                if filtered.empty:
+                    return pd.DataFrame()
+                return prepare_search_dataframe(filtered)
 
         models = sorted({model for _, model in pairs if model != ""})
         pair_set = set(pairs)
@@ -14436,14 +14473,28 @@ def load_component_rows_by_clean_models_map(models):
                 conn.close()
             if os.path.exists(DB_PATH):
                 rebuild_search_index_from_database_fast()
-            conn = open_search_db_connection(timeout_sec=10)
+                conn = open_search_db_connection(timeout_sec=10)
             if conn is None or not search_index_can_serve_queries(
                 conn,
                 required_columns=required_columns,
                 table_name=COMPONENTS_SEARCH_CORE_TABLE,
                 allow_without_database=True,
             ):
-                return {model_clean: pd.DataFrame() for model_clean in unique_models}
+                prepared = None
+                try:
+                    prepared = load_prepared_data()
+                except Exception:
+                    prepared = None
+                if prepared is None or prepared.empty:
+                    return {model_clean: pd.DataFrame() for model_clean in unique_models}
+                prepared_work = prepare_search_dataframe(prepared)
+                if prepared_work.empty or "_model_clean" not in prepared_work.columns:
+                    return {model_clean: pd.DataFrame() for model_clean in unique_models}
+                result_map = {}
+                model_series = prepared_work["_model_clean"].astype(str)
+                for model_clean in unique_models:
+                    result_map[model_clean] = prepared_work[model_series.eq(model_clean)].copy()
+                return result_map
         rows = []
         for model_chunk in chunk_items(unique_models, SEARCH_DB_FETCH_CHUNK):
             placeholders = ",".join(["?"] * len(model_chunk))
@@ -14545,12 +14596,21 @@ def load_component_rows_by_clean_model(model):
 def load_component_rows_by_typed_spec(spec):
     if spec is None:
         return pd.DataFrame()
+    component_type = infer_spec_component_type(spec)
     if not os.path.exists(DB_PATH):
+        prepared = None
+        try:
+            prepared = load_prepared_data()
+        except Exception:
+            prepared = None
+        if prepared is not None and not prepared.empty:
+            scoped = scope_search_dataframe(prepared, spec)
+            if isinstance(scoped, pd.DataFrame) and not scoped.empty:
+                return scoped
         candidate_pairs = fetch_search_candidate_pairs(spec)
         if candidate_pairs:
             return load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type)
         return pd.DataFrame()
-    component_type = infer_spec_component_type(spec)
     supported_types = (
         INDUCTOR_COMPONENT_TYPES
         | TIMING_COMPONENT_TYPES
