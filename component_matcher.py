@@ -12917,10 +12917,12 @@ def search_index_is_current(conn, required_columns=None, table_name=COMPONENTS_S
     meta = read_search_index_meta(conn)
     if not isinstance(meta, dict):
         return False
-    current_signature = get_search_index_signature()
-    for key, value in current_signature.items():
-        if meta.get(key) != value:
-            return False
+    if not search_index_meta_is_usable(meta):
+        return False
+    # Do not compare source DB mtime/size here.
+    # The source database can change size for unrelated data refreshes while the
+    # search sidecar tables remain fully usable. Treating those file-level changes
+    # as a hard invalidation forces an expensive rebuild on every search.
     return True
 
 
