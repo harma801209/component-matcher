@@ -31,6 +31,11 @@ PUBLISH_FILES = [
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
+    # Raw workbook sources required for rebuilding the cloud database.
+    "Capacitor",
+    "Crystal*",
+    "Inductor",
+    "Resistor",
     ".streamlit/config.toml",
     "docs",
 ]
@@ -244,8 +249,43 @@ def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> None
     )
 
 
+def should_skip_publish_file(path: Path) -> bool:
+    file_name = path.name
+    lower_name = file_name.lower()
+    if file_name.startswith("~$"):
+        return True
+    if ".backup_" in lower_name:
+        return True
+    if "backup" in lower_name:
+        return True
+    if "可查看版" in file_name or "view_only" in lower_name or "view-only" in lower_name:
+        return True
+    return False
+
+
 def stage_publish_files() -> list[str]:
-    existing_files = [str(ROOT / rel) for rel in PUBLISH_FILES if (ROOT / rel).exists()]
+    existing_files = []
+    for rel in PUBLISH_FILES:
+        if any(ch in rel for ch in "*?[]"):
+            for path in ROOT.glob(rel):
+                if path.is_dir():
+                    existing_files.extend(
+                        str(child)
+                        for child in path.rglob("*")
+                        if child.is_file() and not should_skip_publish_file(child)
+                    )
+                elif path.is_file() and not should_skip_publish_file(path):
+                    existing_files.append(str(path))
+            continue
+        path = ROOT / rel
+        if path.is_dir():
+            existing_files.extend(
+                str(child)
+                for child in path.rglob("*")
+                if child.is_file() and not should_skip_publish_file(child)
+            )
+        elif path.is_file() and not should_skip_publish_file(path):
+            existing_files.append(str(path))
     if not existing_files:
         raise RuntimeError("No publishable files were found.")
     run_command(["git", "add", "--"] + existing_files, capture_output=False)

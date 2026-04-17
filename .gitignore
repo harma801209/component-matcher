@@ -36,11 +36,6 @@ tmp_*
 _tmp_*
 *_tmp.*
 
-# Heavy local data trees that are not needed in the cloud repo
-Capacitor/
-Crystal*/
-Inductor/
-Resistor/
 backup/
 exports/
 tools/PortableGit/
