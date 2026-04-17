@@ -585,9 +585,12 @@ async function proxyShareJson(url, incomingUrl, responseKind = "") {
   try {
     const payload = JSON.parse(payloadText);
     if (responseKind === "disambiguate" && payload && typeof payload === "object") {
-      // Keep Streamlit's original host/subdomain metadata intact.
-      // Rewriting them to the custom Pages host makes the frontend
-      // recursively build /~/+/~/+... iframe URLs.
+      // Keep the original owner/repo metadata, but point the frontend at the
+      // custom Pages host so it stays on the proxy domain instead of jumping
+      // straight to the upstream Streamlit app.
+      if (payload.host) {
+        payload.host = incomingUrl.host;
+      }
       rewrittenPayload = JSON.stringify(payload);
     } else if (responseKind === "context" && payload && typeof payload === "object") {
       if (payload.app && typeof payload.app === "object") {
