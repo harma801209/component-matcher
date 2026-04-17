@@ -1,0 +1,40 @@
+{
+  "members": [
+    {
+      "path": "components.db",
+      "size": 729255936,
+      "mtime_ns": 1776000587242396500,
+      "sha256": "e4fb27e29fe2f7c378aee4692ab0bd37060879af507afdb1cf394fcd5339ee16"
+    },
+    {
+      "path": "cache/components_search.sqlite",
+      "size": 429617152,
+      "mtime_ns": 1776000720385866500,
+      "sha256": "1d2923c333a799c32adacf8ef829761f463335a4bf6120f7699b4517400de0bf"
+    },
+    {
+      "path": "cache/components_prepared_v5.parquet",
+      "size": 99076433,
+      "mtime_ns": 1776000790993828300,
+      "sha256": "b4519c80ff51700c735c134d66815769358f90d51acae21d50bde2a2c39cf7c0"
+    },
+    {
+      "path": "cache/components_prepared_v5_meta.json",
+      "size": 147,
+      "mtime_ns": 1776000791035943800,
+      "sha256": "83e34ac83769c6e4a9664c59642f963d3bb6c1465719af540565b285b297a011"
+    },
+    {
+      "path": "cache/mlcc_lcsc_dimension_cache.json",
+      "size": 20303,
+      "mtime_ns": 1775937633873606700,
+      "sha256": "3fdf5de58da594cbfa781bf6c8fe95ed56350ff3cda3015fd4dc77aaf8a75039"
+    },
+    {
+      "path": "cache/pdc_findchips_cache.json",
+      "size": 9289,
+      "mtime_ns": 1775937633884679400,
+      "sha256": "9ce555cba3d019c5be50fa24b2f872a1f9d15a0fa845450a8b78ef7ebdf454b0"
+    }
+  ]
+}
