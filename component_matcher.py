@@ -78,6 +78,7 @@ PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
+STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip.part*")
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
 STREAMLIT_CLOUD_BUNDLE_STATE_PATH = os.path.join(BASE_DIR, "cache", "streamlit_cloud_bundle_state.json")
 MANUAL_CORRECTION_RULES_PATH = os.path.join(BASE_DIR, "cache", "manual_correction_rules.csv")
@@ -217,7 +218,87 @@ def get_streamlit_cloud_bundle_signature():
             return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
     except Exception:
         pass
+    part_paths = get_streamlit_cloud_bundle_part_paths()
+    if part_paths:
+        digest = hashlib.sha256()
+        for part_path in part_paths:
+            try:
+                stat = os.stat(part_path)
+            except Exception:
+                continue
+            digest.update(os.path.basename(part_path).encode("utf-8", "ignore"))
+            digest.update(str(int(stat.st_mtime_ns)).encode("utf-8"))
+            digest.update(str(int(stat.st_size)).encode("utf-8"))
+        return f"parts:{digest.hexdigest()}"
     return ""
+
+
+def get_streamlit_cloud_bundle_part_paths():
+    part_paths = [
+        path
+        for path in glob.glob(STREAMLIT_CLOUD_BUNDLE_PART_GLOB)
+        if os.path.isfile(path)
+    ]
+
+    def sort_key(path):
+        base = os.path.basename(path)
+        match = re.search(r"\.part(\d+)$", base)
+        if match:
+            return (0, int(match.group(1)), base)
+        match = re.search(r"part[-_]?(\d+)", base)
+        if match:
+            return (0, int(match.group(1)), base)
+        return (1, base)
+
+    return sorted(part_paths, key=sort_key)
+
+
+def replace_file_with_retry(source_path, target_path, attempts=8, initial_delay_sec=0.2):
+    last_error = None
+    for attempt in range(1, max(1, int(attempts)) + 1):
+        try:
+            os.replace(source_path, target_path)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise
+            time.sleep(initial_delay_sec * attempt)
+    if last_error is not None:
+        raise last_error
+    return False
+
+
+def ensure_streamlit_cloud_bundle_archive_available():
+    if os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        return True
+    part_paths = get_streamlit_cloud_bundle_part_paths()
+    if not part_paths:
+        return False
+
+    temp_target_path = STREAMLIT_CLOUD_BUNDLE_PATH + ".part"
+    if os.path.exists(temp_target_path):
+        try:
+            os.remove(temp_target_path)
+        except Exception:
+            pass
+
+    try:
+        with open(temp_target_path, "wb") as target_handle:
+            for part_path in part_paths:
+                with open(part_path, "rb") as source_handle:
+                    shutil.copyfileobj(source_handle, target_handle, length=8 * 1024 * 1024)
+        replace_file_with_retry(temp_target_path, STREAMLIT_CLOUD_BUNDLE_PATH)
+        return os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("failed to rebuild cloud bundle archive from parts: %s", exc)
+        return False
+    finally:
+        if os.path.exists(temp_target_path):
+            try:
+                os.remove(temp_target_path)
+            except Exception:
+                pass
 
 
 def load_streamlit_cloud_bundle_state():
@@ -254,7 +335,7 @@ def save_streamlit_cloud_bundle_state(signature, extracted_members=None):
 def streamlit_cloud_bundle_refresh_needed(required_paths=None):
     if not (is_public_mode() or is_streamlit_cloud_runtime()):
         return False
-    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+    if not ensure_streamlit_cloud_bundle_archive_available():
         return False
 
     manifest = load_streamlit_cloud_bundle_manifest()
@@ -291,11 +372,11 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
             or [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
         )
     ]
+    if not ensure_streamlit_cloud_bundle_archive_available():
+        return False
     refresh_needed = streamlit_cloud_bundle_refresh_needed(required_paths=target_paths)
     if not refresh_needed and all(bundle_target_is_valid(path) for path in target_paths):
         return True
-    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
-        return False
 
     try:
         with STREAMLIT_CLOUD_BUNDLE_LOCK:
@@ -324,7 +405,7 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
                     try:
                         with archive.open(member_name, "r") as source_handle, open(temp_target_path, "wb") as target_handle:
                             shutil.copyfileobj(source_handle, target_handle, length=1024 * 1024)
-                        os.replace(temp_target_path, target_path)
+                        replace_file_with_retry(temp_target_path, target_path)
                         extracted_members.append(member_name)
                     finally:
                         if os.path.exists(temp_target_path):
@@ -361,7 +442,7 @@ def maybe_start_cloud_search_asset_warmup():
         database_has_component_rows() or search_sidecar_assets_available()
     ):
         return
-    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+    if not ensure_streamlit_cloud_bundle_archive_available():
         return
     with CLOUD_SEARCH_ASSET_WARMUP_LOCK:
         if CLOUD_SEARCH_ASSET_WARMUP_STARTED:
@@ -12253,7 +12334,7 @@ def get_search_index_signature():
 def bundled_runtime_assets_are_current(required_paths=None):
     if not (is_public_mode() or is_streamlit_cloud_runtime()):
         return False
-    if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+    if not ensure_streamlit_cloud_bundle_archive_available():
         return False
     try:
         return not streamlit_cloud_bundle_refresh_needed(required_paths=required_paths)
@@ -18879,7 +18960,7 @@ def resolve_search_query_dataframe_and_spec(
                 "candidate_rows": candidate_rows,
             }
         candidate_note = "按识别到的规格从索引缩小候选范围"
-        if not database_has_component_rows() and os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        if not database_has_component_rows() and ensure_streamlit_cloud_bundle_archive_available():
             candidate_note += "；公网首搜可能需要 5-15 秒预热索引"
         emit(2, "正在载入候选库", candidate_note, "快速索引")
         query_df = load_search_dataframe_for_query(mode, spec, line, exact_part_rows=prefetched_exact_rows)

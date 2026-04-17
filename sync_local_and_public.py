@@ -27,6 +27,7 @@ PUBLISH_FILES = [
     "operation_log.md",
     "logo.png",
     "streamlit_cloud_bundle.manifest.json",
+    "streamlit_cloud_bundle.zip.part*",
     "build_streamlit_cloud_bundle.py",
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
@@ -247,6 +248,33 @@ def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> None
         python_cmd + ["build_streamlit_cloud_bundle.py", "--output", str(DEFAULT_BUNDLE_OUTPUT)],
         capture_output=False,
     )
+    split_cloud_bundle_archive(DEFAULT_BUNDLE_OUTPUT)
+
+
+def split_cloud_bundle_archive(bundle_path: Path, part_size_mb: int = 95) -> None:
+    if not bundle_path.exists():
+        raise FileNotFoundError(f"Cloud bundle not found: {bundle_path}")
+    part_size = int(part_size_mb) * 1024 * 1024
+    if part_size <= 0:
+        raise ValueError("part_size_mb must be positive")
+
+    for part_file in ROOT.glob("streamlit_cloud_bundle.zip.part*"):
+        try:
+            if part_file.is_file():
+                part_file.unlink()
+        except Exception:
+            continue
+
+    total_size = bundle_path.stat().st_size
+    part_count = (total_size + part_size - 1) // part_size
+    write_step(f"Splitting cloud bundle into {part_count} parts (~{part_size_mb}MB each)")
+    with bundle_path.open("rb") as source_handle:
+        for index in range(1, part_count + 1):
+            chunk = source_handle.read(part_size)
+            part_path = ROOT / f"streamlit_cloud_bundle.zip.part{index:02d}"
+            with part_path.open("wb") as target_handle:
+                target_handle.write(chunk)
+            write_step(f"Created {part_path.name} ({part_path.stat().st_size} bytes)")
 
 
 def should_skip_publish_file(path: Path) -> bool:
