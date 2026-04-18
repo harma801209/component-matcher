@@ -1329,3 +1329,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 把“成功查询但返回空候选”的结果区分成空列表，并让 BOM 的快路径在这种情况下直接返回空结果，不再拉起整类数据的慢回退。这样 `PP Cap` 这类本来就没有候选的行会秒级返回，不会再把 64 行 BOM 卡在第 2 行看起来不动。
 - 同时把 Sunlord 官方 `MCL` 系列做成 runtime seed，按官方 PDF 补了 `MCL1608` 和 `MCL2012` 系列的多组型号，`MCL2012H100MT` 现在可以直接被 exact model lookup 命中，品牌统一为 `Sunlord(顺络)`，器件类型统一为 `功率电感`，系列统一为 `MCL2012`。
 - 官方来源已确认：Sunlord 官方 PDF `MCL Series of Multilayer Chip Ferrite Inductor` 明确给出了 `MCL2012H100□T` 的命名规则和 `10uH` 参数，`MCL2012H100MT` 对应 0805 / 10uH / ±20% 这一路径。
+
+## 2026-04-18 14:34 公开版已同步并复测 `MCL2012H100MT`
+- 用户反馈公开版 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 还是搜不到 `MCL2012H100MT`。已确认这不是本地逻辑问题，而是公开站还没吃到最新提交。
+- 已执行 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1) 把最新 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 与 [`operation_log.md`](C:/Users/zjh/Desktop/data/operation_log.md) 推到远端，最新发布提交为 `96ca225`。
+- 使用 Playwright 直接复测公开站后，`MCL2012H100MT` 已能在公开版返回 `成功返回匹配结果 1 条`，并显示 `已找到原厂料号资料，暂未找到其他品牌替代结果`，说明公开版已同步到最新修复。
