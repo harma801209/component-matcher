@@ -1395,3 +1395,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 用户反馈公开版在搜索 `ICM2020-A` 时又掉进了“整库回退”慢路径。复查确认并不是拓库数据丢失，而是 `looks_like_compact_part_query()` 对这类短型号过于保守，`ICM2020-A` 没被当成可直查的紧凑料号，因此前面的 exact lookup 和快速索引都没命中。
 - 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 为短型工业/电感料号补了更宽的判定规则，`ICM2020-A`、`ILHB-1206`、`IHLE-2020CD-5A` 这类型号现在会直接走快速料号路径，不再先掉到“整库回退”。
 - 本地复测已确认 `ICM2020-A` 现在返回 `resolution_path=fast_query`，`resolve_prefetched_exact_part_rows('ICM2020-A')` 也能直接命中 1 条，说明修复已经生效。
+
+## 2026-04-19 公开版发布触发标记补强
+- 用户再次反馈公开版没有及时反映最新修复，复查发现 Streamlit Cloud 端需要一个稳定的 entrypoint 变更来重新检查 checkout，因此仅修改业务逻辑文件有时不够。
+- 已在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 增加 `PUBLIC_RELEASE_STAMP` 作为纯部署触发标记，明确说明这是无行为变化的发布 nudge，不改变任何搜索/匹配逻辑。
+- 同步更新了 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把“公开版没有立刻刷新时顺手更新 stamp”写成固定规则。

@@ -48,6 +48,8 @@
 - `requirements.txt`
 - `runtime.txt`
 
+唯一例外是：如果只是在 `streamlit_app.py` 里更新 `PUBLIC_RELEASE_STAMP` 这种纯发布触发标记，而且不改任何行为逻辑，那它属于允许的无行为变化触发，不算业务改动。
+
 ## 必须遵守的动作
 
 1. 先把改动拆到最小

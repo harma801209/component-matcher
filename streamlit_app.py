@@ -9,7 +9,10 @@ import streamlit as st
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Touch this entrypoint when bundle data changes so Streamlit Cloud rechecks the checkout.
+# Public release nudge:
+# Update this stamp when publishing public-facing changes so Streamlit Cloud
+# rechecks the checkout. This does not change runtime behavior.
+PUBLIC_RELEASE_STAMP = "2026-04-19"
 
 try:
     runpy.run_path(os.path.join(BASE_DIR, "component_matcher.py"), run_name="__main__")
