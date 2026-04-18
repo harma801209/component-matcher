@@ -14220,6 +14220,10 @@ def compatible_component_types_for_search(target_type):
         if target_type == "贴片电阻":
             return sorted(RESISTOR_COMPONENT_TYPES)
         return [target_type, "贴片电阻"]
+    if target_type in INDUCTOR_COMPONENT_TYPES:
+        if target_type in {"功率电感", "射频电感"}:
+            return ["功率电感", "射频电感"]
+        return [target_type]
     if target_type:
         return [target_type]
     return []
@@ -15281,6 +15285,9 @@ def scope_search_dataframe(df, spec):
             same_type_mask = base["_component_type"].isin(compatible_types)
         elif target_type in RESISTOR_COMPONENT_TYPES:
             compatible_types = RESISTOR_COMPONENT_TYPES if target_type == "贴片电阻" else {target_type, "贴片电阻"}
+            same_type_mask = base["_component_type"].isin(compatible_types)
+        elif target_type in INDUCTOR_COMPONENT_TYPES:
+            compatible_types = compatible_component_types_for_search(target_type) or [target_type]
             same_type_mask = base["_component_type"].isin(compatible_types)
         else:
             same_type_mask = base["_component_type"].eq(target_type)
