@@ -1341,6 +1341,12 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
 - 本地候选检索已验证通过：`fetch_search_candidate_pairs()` 对 `0805 / 10μH / ±20%` 能返回 7 条候选，已经包含 Murata、TDK、Wurth 三个品牌。
 
+## 2026-04-18 21:54 三星电感目录拓库
+- 继续按用户要求扩充电感品牌覆盖，新增 [`sync_samsung_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_samsung_power_inductors.py) 作为三星官方 `Power Inductor.pdf` 的专用采集器，按页面分段抽取 `Thin Film General / L / Bottom / Wire Wound General / L` 五类目录。
+- 这批共解析出 `93` 条三星官方功率电感，已写入 [`Inductor/samsung_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/samsung_power_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)，后续还能继续沿同类官方 PDF 扩展更多品牌。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 公开版已重新发布，最新推送提交是 `02879f0`；后续若继续扩三星或同类目录，可直接复用这条“官方 PDF -> CSV -> DB/cache -> 一键发布”的路径。
+
 ## 2026-04-18 16:30 [direct] 公开版发布流程整理为一键规则
 - 用户要求先理清公开版到底需要哪些发布步骤，并把流程记录成规则，避免以后每次修复后还要手动判断该走哪条发布链。
 - 重新梳理了 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1)、[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py)、[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1)、[`PUBLIC_ACCESS.md`](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md) 和 [`README.md`](C:/Users/zjh/Desktop/data/README.md)，确认公开版实际分成两条链路：主应用通过 GitHub / Streamlit Community Cloud 同步，Cloudflare Pages 壳页通过 wrangler 直接部署。
