@@ -1347,6 +1347,11 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
 - 公开版已重新发布，最新推送提交是 `02879f0`；后续若继续扩三星或同类目录，可直接复用这条“官方 PDF -> CSV -> DB/cache -> 一键发布”的路径。
 
+## 2026-04-18 22:24 三星脏行清理与最终回刷
+- 回查三星数据时，发现 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 各有一条 `品牌=三星Samsung / 器件类型=功率电感 / 型号为空` 的脏记录。
+- 已将这条空型号记录从三处运行时数据中删除，并重新确认三星功率电感在正式源里是 `93` 条，且没有空型号残留。
+- 为保持公开版和本地一致，已再次执行公开版同步发布，最终推送提交是 `c607686`。
+
 ## 2026-04-18 16:30 [direct] 公开版发布流程整理为一键规则
 - 用户要求先理清公开版到底需要哪些发布步骤，并把流程记录成规则，避免以后每次修复后还要手动判断该走哪条发布链。
 - 重新梳理了 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1)、[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py)、[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1)、[`PUBLIC_ACCESS.md`](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md) 和 [`README.md`](C:/Users/zjh/Desktop/data/README.md)，确认公开版实际分成两条链路：主应用通过 GitHub / Streamlit Community Cloud 同步，Cloudflare Pages 壳页通过 wrangler 直接部署。
