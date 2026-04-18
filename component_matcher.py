@@ -4768,6 +4768,115 @@ def load_jianghai_seed_rows():
     ]
 
 
+SUNLORD_MCL_OFFICIAL_PDF_URL = "https://www.sunlordinc.com/uploads/files/20221205/MCL%20Series%20of%20Multilayer%20Chip%20Ferrite%20Inductor.pdf"
+
+
+def build_sunlord_mcl_seed_row(
+    model,
+    series,
+    size_inch,
+    size_mm,
+    length_mm,
+    width_mm,
+    height_mm,
+    inductance_uh,
+    tolerance_pct,
+    rated_current_a,
+    dcr_ohm,
+    srf_mhz,
+):
+    inductance_text = clean_text(inductance_uh)
+    tolerance_text = clean_text(tolerance_pct)
+    current_text = clean_text(rated_current_a)
+    dcr_text = clean_text(dcr_ohm)
+    srf_text = clean_text(srf_mhz)
+    summary = build_other_component_summary([
+        f"{inductance_text}uH" if inductance_text else "",
+        f"±{tolerance_text}%" if tolerance_text else "",
+        clean_text(size_inch),
+        f"Ir {current_text}A" if current_text else "",
+        f"DCR {dcr_text}Ω" if dcr_text else "",
+        f"SRF {srf_text}MHz" if srf_text else "",
+        "SMT",
+    ])
+    return {
+        "品牌": "Sunlord(顺络)",
+        "型号": clean_model(model),
+        "系列": clean_text(series).upper(),
+        "系列说明": "Sunlord MCL multilayer chip ferrite inductor",
+        "器件类型": "功率电感",
+        "容值": inductance_text,
+        "容值单位": "UH",
+        "容值误差": tolerance_text,
+        "电感值": inductance_text,
+        "电感单位": "UH",
+        "电感误差": tolerance_text,
+        "耐压（V）": "",
+        "材质（介质）": "",
+        "尺寸（inch）": clean_text(size_inch),
+        "尺寸（mm）": clean_text(size_mm),
+        "长度（mm）": clean_text(length_mm),
+        "宽度（mm）": clean_text(width_mm),
+        "高度（mm）": clean_text(height_mm),
+        "安装方式": "SMT",
+        "封装代码": clean_text(series).upper(),
+        "特殊用途": "Choke",
+        "额定电流": current_text,
+        "DCR": dcr_text,
+        "规格摘要": summary,
+        "生产状态": "Active",
+        "数据来源": "Sunlord official PDF",
+        "数据状态": "官方网页抽取",
+        "官网链接": SUNLORD_MCL_OFFICIAL_PDF_URL,
+        "校验时间": time.strftime("%Y-%m-%d"),
+        "校验备注": "official pdf table",
+        "备注1": f"SRF {srf_text}MHz" if srf_text else "",
+        "备注2": "",
+        "备注3": "",
+        "_model_rule_authority": "sunlord_mcl_seed",
+    }
+
+
+def load_sunlord_mcl_seed_rows():
+    rows = []
+    base_rows = [
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608SR10", "0.1", "0.70", "0.182/0.140", "240"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608SR22", "0.22", "0.55", "0.351/0.270", "150"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608SR47", "0.47", "0.40", "0.546/0.420", "105"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608S1R0", "1.0", "0.19", "0.260/0.200", "75"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608S2R2", "2.2", "0.14", "0.520/0.400", "50"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608S4R7", "4.7", "0.10", "0.780/0.600", "35"),
+        ("MCL1608", "0603", "1.6×0.8×0.8 mm", "1.6", "0.8", "0.8", "MCL1608S100", "10", "0.05", "1.170/0.900", "20"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012SR10", "0.1", "1.00", "0.091/0.070", "235"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012SR22", "0.22", "0.80", "0.169/0.130", "170"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012SR47", "0.47", "0.55", "0.234/0.180", "125"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012S1R0", "1.0", "0.30", "0.260/0.200", "75"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012S2R2", "2.2", "0.22", "0.364/0.280", "50"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012S4R7", "4.7", "0.18", "0.390/0.300", "25"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012S100", "10", "0.06", "0.650/0.500", "15"),
+        ("MCL2012", "0805", "2.0×1.25×0.85 mm", "2.0", "1.25", "0.85", "MCL2012H100", "10", "0.10", "0.650/0.500", "20"),
+    ]
+    for series, size_inch, size_mm, length_mm, width_mm, height_mm, base_model, inductance_uh, current_a, dcr_ohm, srf_mhz in base_rows:
+        for tol_code, tol_pct in (("M", "20"), ("N", "30")):
+            rows.append(
+                build_sunlord_mcl_seed_row(
+                    model=f"{base_model}{tol_code}T",
+                    series=series,
+                    size_inch=size_inch,
+                    size_mm=size_mm,
+                    length_mm=length_mm,
+                    width_mm=width_mm,
+                    height_mm=height_mm,
+                    inductance_uh=inductance_uh,
+                    tolerance_pct=tol_pct,
+                    rated_current_a=current_a,
+                    dcr_ohm=dcr_ohm,
+                    srf_mhz=srf_mhz,
+                )
+            )
+    return rows
+
+
 def fill_missing_series_from_model(df):
     if df is None or df.empty or "型号" not in df.columns:
         return df
@@ -14287,7 +14396,7 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
             conn.close()
     if combined.empty:
         combined = load_search_sidecar_rows_by_brand_model_pairs(pairs, preferred_component_type=preferred_component_type)
-    seed_rows = load_jianghai_seed_rows()
+    seed_rows = load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows()
     if seed_rows:
         combined = concat_component_frames([combined, pd.DataFrame(seed_rows)])
     if combined.empty:
@@ -14520,7 +14629,7 @@ def load_component_rows_by_clean_models_map(models):
         candidate_pairs.append(pair_key)
 
     result_map = {model_clean: pd.DataFrame() for model_clean in unique_models}
-    seed_df = pd.DataFrame(load_jianghai_seed_rows())
+    seed_df = pd.DataFrame(load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows())
     if not seed_df.empty:
         seed_df = prepare_search_dataframe(seed_df)
 
@@ -14598,6 +14707,11 @@ def load_component_rows_by_typed_spec(spec):
         return pd.DataFrame()
     component_type = infer_spec_component_type(spec)
     if not os.path.exists(DB_PATH):
+        candidate_pairs = fetch_search_candidate_pairs(spec)
+        if candidate_pairs is not None:
+            if candidate_pairs:
+                return load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type)
+            return pd.DataFrame()
         prepared = None
         try:
             prepared = load_prepared_data()
@@ -14607,9 +14721,6 @@ def load_component_rows_by_typed_spec(spec):
             scoped = scope_search_dataframe(prepared, spec)
             if isinstance(scoped, pd.DataFrame) and not scoped.empty:
                 return scoped
-        candidate_pairs = fetch_search_candidate_pairs(spec)
-        if candidate_pairs:
-            return load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type)
         return pd.DataFrame()
     supported_types = (
         INDUCTOR_COMPONENT_TYPES
@@ -14640,7 +14751,7 @@ def load_component_rows_by_typed_spec(spec):
         conn.close()
 
     if component_type == "铝电解电容":
-        seed_rows = pd.DataFrame(load_jianghai_seed_rows())
+        seed_rows = pd.DataFrame(load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows())
         if not seed_rows.empty:
             frame = concat_component_frames([frame, seed_rows])
 
@@ -14818,9 +14929,12 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
     component_type = infer_spec_component_type(spec)
     if can_use_fast_search_dataframe(spec):
         candidate_pairs = fetch_search_candidate_pairs(spec)
-        if candidate_pairs is not None and len(candidate_pairs) > 0:
-            frames.append(load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type))
-            used_fast_path = True
+        if candidate_pairs is not None:
+            if len(candidate_pairs) > 0:
+                frames.append(load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type))
+                used_fast_path = True
+            else:
+                return concat_component_frames(frames) if frames else pd.DataFrame()
         else:
             if component_type in (
                 INDUCTOR_COMPONENT_TYPES
@@ -15136,7 +15250,7 @@ def fetch_search_candidate_pairs(spec):
         result = [(clean_text(row[0]), clean_text(row[1])) for row in rows if clean_text(row[1]) != ""]
         if target_type == "MLCC" and mlcc_series_class_requires_filter(target_mlcc_class):
             result = filter_mlcc_candidate_pairs_by_series_class(result, target_mlcc_class)
-        return result if result else None
+        return result if result else []
     except Exception:
         return None
     finally:

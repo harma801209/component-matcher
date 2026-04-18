@@ -1312,3 +1312,20 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 这次改动的目标是避免“页面看起来可访问，但底层 app 其实已经睡着”的情况；改完后需要把 workflow 推到 GitHub，后续由 Actions 定时执行来维持公开站在线。
 
 2026-04-17：正式版主线已重建为瘦身根提交，保留当前文件树并去除旧历史包袱。
+
+## 2026-04-18 公开版同步规则补录
+- 用户确认了后续固定规则：以后每次修复都要同时修公开版 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/)，并且先用本地 Chrome 实测通过后再算完成。
+- 这两天围绕公开版做过的修复动作包含页面空白/唤醒/保活/搜索链路/数据库恢复等，但截至本行之前，`operation_log.md` 只记录到了 2026-04-17，今天的动作尚未补录进来。
+- 后续如果继续修复任何问题，都默认把公开版和当前本地验证一并同步记录，避免再次出现“只改了一边”的情况。
+
+## 2026-04-18 12:27 公开版转圈卡死改为根页直连 upstream iframe
+- 用户反馈公开站 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 打开后一直转圈。继续排查确认：当前同域代理壳页、session bootstrap 和 `host-config` 注入都已正常，但 `/_stcore/stream` 这条 Cloudflare Pages 到 Streamlit 上游的 WebSocket 反代在边缘环境仍失败，`ws-debug` 预览分支可稳定复现 `Server failed WebSocket handshake: missing Upgrade header`。
+- 在不继续卡死在这条代理链路上的前提下，改为重新验证“根页外壳 + 直接 iframe 上游 `https://fruition-componentmatche.streamlit.app/~/+/?embed=true&embed_options=hide_loading_screen`”这条路径。最新实测结果显示，这个跨域 iframe 现在在真实 Chromium 中可以正常加载并完成搜索，不再出现先前记录里的空白页/重定向循环。
+- 已在 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 把根页 iframe 的 `appUrl` 改为直接指向 upstream embed 地址，同时移除了 WebSocket 调试回包里的堆栈暴露，只保留通用错误文本。
+- 已先部署预览分支 `ws-debug` 验证，再部署正式站。部署后用 Playwright 对正式站执行了实测：打开 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 后可进入 iframe 内应用，并成功搜索 `CM13093CT-102`，页面返回 `成功返回匹配结果 1 条`，说明当前用户入口已恢复可用。
+
+## 2026-04-18 13:28 BOM 空候选短路 + Sunlord MCL 种子补库
+- 用户反馈 BOM 匹配在 `PP Cap : 2200pF, 400V, +/-10%,Pitch 10mm` 这类薄膜电容行上会显得“卡住”。复查后确认：这类输入会被解析成 `薄膜电容`，但当前搜索索引里没有对应的薄膜电容候选，原逻辑会继续落到整类数据的慢回退路径，导致每行需要明显更长时间。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 把“成功查询但返回空候选”的结果区分成空列表，并让 BOM 的快路径在这种情况下直接返回空结果，不再拉起整类数据的慢回退。这样 `PP Cap` 这类本来就没有候选的行会秒级返回，不会再把 64 行 BOM 卡在第 2 行看起来不动。
+- 同时把 Sunlord 官方 `MCL` 系列做成 runtime seed，按官方 PDF 补了 `MCL1608` 和 `MCL2012` 系列的多组型号，`MCL2012H100MT` 现在可以直接被 exact model lookup 命中，品牌统一为 `Sunlord(顺络)`，器件类型统一为 `功率电感`，系列统一为 `MCL2012`。
+- 官方来源已确认：Sunlord 官方 PDF `MCL Series of Multilayer Chip Ferrite Inductor` 明确给出了 `MCL2012H100□T` 的命名规则和 `10uH` 参数，`MCL2012H100MT` 对应 0805 / 10uH / ±20% 这一路径。
