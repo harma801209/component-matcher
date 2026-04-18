@@ -14950,7 +14950,7 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
 
 
 def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
-    if isinstance(exact_part_rows, pd.DataFrame):
+    if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty:
         return exact_part_rows
     if not looks_like_compact_part_query(query_text):
         return pd.DataFrame()
