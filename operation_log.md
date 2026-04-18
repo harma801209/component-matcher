@@ -1365,3 +1365,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - `python -m py_compile sync_local_and_public.py` 通过；`publish_public.ps1` 通过 PowerShell 解析器检查，输出 `OK`。
 - Cloudflare Pages 壳页仍然是独立部署链，但现在默认由一键脚本自动判断是否需要补发，只有用户显式跳过时才会手动介入。
 - 以后修公开版默认先跑 `.\publish_public.ps1 -CommitMessage "..."`，再用浏览器复测 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/)。
+
+## 2026-04-19 太诱电官方目录拓库
+- 继续按用户要求扩大电感品牌覆盖，新增 [`sync_taiyo_yuden_inductors.py`](C:/Users/zjh/Desktop/data/sync_taiyo_yuden_inductors.py) 作为太诱电官方 `TY-COMPAS` 的专用采集器，按官方分类批量抓取 `LPOWM / LPOWF / LHF / LSTD / LDAMP / WDLD` 六类目录。
+- 这批共解析出 `7991` 条 `太阳诱电Taiyo Yuden` 官方电感，已写入 [`Inductor/taiyo_yuden_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/taiyo_yuden_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用运行库回刷路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 这轮拓库完成后，太诱电品牌已经可以作为后续继续扩充常规电感与特殊电感系列的官方底座，下一步可以继续往 TDK / Murata / Coilcraft / Sumida 等品牌延伸。
