@@ -3,14 +3,14 @@
     {
       "path": "components.db",
       "size": 1260605440,
-      "mtime_ns": 1776506714800632000,
-      "sha256": "532d8d634b546517bcdde43b53d4c2f76dcd159b54f408ca55bed055d4de5852"
+      "mtime_ns": 1776507255507344300,
+      "sha256": "16c67fd9a7dcf39adc01549f8ed747a239b2d0cc8e748061e4ac24a99f327b79"
     },
     {
       "path": "cache/components_search.sqlite",
       "size": 429625344,
-      "mtime_ns": 1776495936577853200,
-      "sha256": "93e88363d6e3225896daa705cf05dbcf62a169cb37adf76b5810dd09e409f9fc"
+      "mtime_ns": 1776507262972378800,
+      "sha256": "6173e0295445e31ff745bf947c2666cb08939fab0a3c1e4ae3e72ad37aaece07"
     },
     {
       "path": "cache/components_prepared_v5.parquet",
