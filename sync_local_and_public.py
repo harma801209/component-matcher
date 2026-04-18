@@ -33,6 +33,7 @@ PUBLISH_FILES = [
     "sync_tdk_wurth_power_inductors.py",
     "sync_wurth_power_inductors_extended.py",
     "sync_taiyo_yuden_inductors.py",
+    "sync_vishay_power_inductors.py",
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
