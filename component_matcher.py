@@ -6786,6 +6786,15 @@ def looks_like_compact_part_query(line):
     if not (re.search(r"[A-Z]", raw) and re.search(r"\d", raw)):
         return False
 
+    # Short industrial/inductor model names such as ICM2020-A or ILHB-1206
+    # are valid compact part queries, but they used to miss the older length-only
+    # heuristic and fall all the way back to the full dataframe path.
+    if len(raw) >= 8 and (
+        re.fullmatch(r"[A-Z]{2,8}\d{3,6}[A-Z0-9-]*", raw)
+        or re.fullmatch(r"[A-Z]{2,8}-\d{3,6}[A-Z0-9-]*", raw)
+    ):
+        return True
+
     known_prefixes = (
         "CL", "AM", "FP", "FS", "FN", "FM", "FV", "FK", "FH",
         "GRM", "GCM", "GCJ", "GJM", "GQM",

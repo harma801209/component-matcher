@@ -1390,3 +1390,8 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
 - 已将 [`sync_vishay_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_vishay_power_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批新拓库脚本。
 - 本地抽查已验证 `ICM2020-A`、`IHDM-1107BB-xA`、`IHLE-2020CD-5A`、`ILHB-1206` 可直接命中，说明这批 Vishay 数据已经真正进入搜索侧，而不是只停留在 CSV。
+
+## 2026-04-19 修复短型号判定漏网导致公开版整库回退
+- 用户反馈公开版在搜索 `ICM2020-A` 时又掉进了“整库回退”慢路径。复查确认并不是拓库数据丢失，而是 `looks_like_compact_part_query()` 对这类短型号过于保守，`ICM2020-A` 没被当成可直查的紧凑料号，因此前面的 exact lookup 和快速索引都没命中。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 为短型工业/电感料号补了更宽的判定规则，`ICM2020-A`、`ILHB-1206`、`IHLE-2020CD-5A` 这类型号现在会直接走快速料号路径，不再先掉到“整库回退”。
+- 本地复测已确认 `ICM2020-A` 现在返回 `resolution_path=fast_query`，`resolve_prefetched_exact_part_rows('ICM2020-A')` 也能直接命中 1 条，说明修复已经生效。
