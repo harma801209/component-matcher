@@ -1371,3 +1371,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 这批共解析出 `7991` 条 `太阳诱电Taiyo Yuden` 官方电感，已写入 [`Inductor/taiyo_yuden_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/taiyo_yuden_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
 - 已用运行库回刷路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
 - 这轮拓库完成后，太诱电品牌已经可以作为后续继续扩充常规电感与特殊电感系列的官方底座，下一步可以继续往 TDK / Murata / Coilcraft / Sumida 等品牌延伸。
+
+## 2026-04-19 Wurth 电感系列扩展
+- 继续拓宽常规电感覆盖，新增 [`sync_wurth_power_inductors_extended.py`](C:/Users/zjh/Desktop/data/sync_wurth_power_inductors_extended.py) 作为 Würth 官方产品页扩展采集器，批量抓取 `WE-LHMI / WE-XHMI / WE-PMI / WE-PMFI / WE-HCF / WE-HCFAT / WE-LHMD` 七个系列页。
+- 这批共解析出 `507` 条 `Wurth Elektronik` 官方功率电感，已写入 [`Inductor/wurth_power_inductor_extended_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/wurth_power_inductor_extended_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 为了让以后再抓类似的官方表格页更省事，已经把 [`lxml`](C:/Users/zjh/Desktop/data/requirements.txt) 补进依赖清单，并把新的 Wurth 扩展脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。

@@ -31,6 +31,7 @@ PUBLISH_FILES = [
     "build_streamlit_cloud_bundle.py",
     "sync_murata_inductor_family.py",
     "sync_tdk_wurth_power_inductors.py",
+    "sync_wurth_power_inductors_extended.py",
     "sync_taiyo_yuden_inductors.py",
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
