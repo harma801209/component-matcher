@@ -32,6 +32,7 @@ PUBLISH_FILES = [
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
+    "sync_samsung_power_inductors.py",
     "publish_public.ps1",
     "publish_public.cmd",
     # Raw workbook sources required for rebuilding the cloud database.
