@@ -9,6 +9,8 @@ import streamlit as st
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Touch this entrypoint when bundle data changes so Streamlit Cloud rechecks the checkout.
+
 try:
     runpy.run_path(os.path.join(BASE_DIR, "component_matcher.py"), run_name="__main__")
 except Exception as exc:
