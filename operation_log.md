@@ -1340,3 +1340,11 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已把 7 条 exact-match 行写入 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)：Murata `LQM21DH100M70# / LQM21DN100M70# / LQM21FN100M80#`，TDK `MLZ2012M100WT000 / MLZ2012M100HT000 / MLZ2012N100LT000`，Wurth `74479777310A`。
 - 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
 - 本地候选检索已验证通过：`fetch_search_candidate_pairs()` 对 `0805 / 10μH / ±20%` 能返回 7 条候选，已经包含 Murata、TDK、Wurth 三个品牌。
+
+## 2026-04-18 16:30 [direct] 公开版发布流程整理为一键规则
+- 用户要求先理清公开版到底需要哪些发布步骤，并把流程记录成规则，避免以后每次修复后还要手动判断该走哪条发布链。
+- 重新梳理了 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1)、[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py)、[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1)、[`PUBLIC_ACCESS.md`](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md) 和 [`README.md`](C:/Users/zjh/Desktop/data/README.md)，确认公开版实际分成两条链路：主应用通过 GitHub / Streamlit Community Cloud 同步，Cloudflare Pages 壳页通过 wrangler 直接部署。
+- 新增 [`publish_public.ps1`](C:/Users/zjh/Desktop/data/publish_public.ps1) 与 [`publish_public.cmd`](C:/Users/zjh/Desktop/data/publish_public.cmd) 作为公开版默认一键入口；新增 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 记录固定规则；并把公开版代理产物 `cloudflare-pages-proxy/dist/_worker.js`、`cloudflare-pages-proxy/dist/favicon.png`、`cloudflare-pages-proxy/wrangler.jsonc` 以及新的一键脚本加入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的发布清单，保证以后同步主应用时不会漏掉公开版相关文件。
+- `python -m py_compile sync_local_and_public.py` 通过；`publish_public.ps1` 通过 PowerShell 解析器检查，输出 `OK`。
+- Cloudflare Pages 壳页仍然是独立部署链，但现在默认由一键脚本自动判断是否需要补发，只有用户显式跳过时才会手动介入。
+- 以后修公开版默认先跑 `.\publish_public.ps1 -CommitMessage "..."`，再用浏览器复测 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/)。

@@ -2,9 +2,9 @@
   "members": [
     {
       "path": "components.db",
-      "size": 1238708224,
-      "mtime_ns": 1776495853876471500,
-      "sha256": "9fcac7e542cb5368cab8b600d7aae4b87a01b35c8f2a7fc0b439dd4e0514c2cf"
+      "size": 1260605440,
+      "mtime_ns": 1776506714800632000,
+      "sha256": "532d8d634b546517bcdde43b53d4c2f76dcd159b54f408ca55bed055d4de5852"
     },
     {
       "path": "cache/components_search.sqlite",

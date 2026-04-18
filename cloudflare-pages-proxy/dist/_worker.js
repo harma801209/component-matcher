@@ -32,6 +32,10 @@ async function proxyRequest(request) {
     return buildEmbedShellResponse(request, incomingUrl);
   }
 
+  if (shouldBootstrapSession(request, incomingUrl, dispatchPath)) {
+    return bootstrapStreamlitSession(incomingUrl);
+  }
+
   if (dispatchPath === "/_stcore/health" || dispatchPath === "/_stcore/script-health-check") {
     return buildHealthResponse(request);
   }
@@ -135,7 +139,7 @@ function buildEmbedShellResponse(request, incomingUrl) {
     });
   }
 
-  const appUrl = `${APP_RUNTIME_PREFIX}/?embed=true&embed_options=hide_loading_screen`;
+  const appUrl = `${ORIGIN_BASE}/~/+/?embed=true&embed_options=hide_loading_screen`;
   const html = `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -186,34 +190,42 @@ function buildEmbedShellResponse(request, incomingUrl) {
 }
 
 async function proxyWebSocketRequest(request, upstreamUrl, incomingUrl) {
-  const websocketHeaders = buildUpstreamHeaders(request.headers, { allowConnectionHeader: true });
-  websocketHeaders.set("upgrade", "websocket");
-  websocketHeaders.set("x-forwarded-host", incomingUrl.host);
-  websocketHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
-  websocketHeaders.set("x-original-host", incomingUrl.host);
+  try {
+    const websocketHeaders = buildUpstreamHeaders(request.headers, { allowConnectionHeader: true });
+    websocketHeaders.set("upgrade", "websocket");
+    websocketHeaders.set("x-forwarded-host", incomingUrl.host);
+    websocketHeaders.set("x-forwarded-proto", incomingUrl.protocol.replace(":", ""));
+    websocketHeaders.set("x-original-host", incomingUrl.host);
 
-  const upstreamResponse = await fetch(upstreamUrl, {
-    method: request.method,
-    headers: websocketHeaders,
-  });
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method: request.method,
+      headers: websocketHeaders,
+    });
 
-  if (!upstreamResponse.webSocket) {
-    const responseHeaders = new Headers(upstreamResponse.headers);
-    responseHeaders.set("cache-control", "no-store");
-    return new Response(upstreamResponse.body, {
-      status: upstreamResponse.status,
-      statusText: upstreamResponse.statusText,
-      headers: responseHeaders,
+    if (!upstreamResponse.webSocket) {
+      const responseHeaders = new Headers(upstreamResponse.headers);
+      responseHeaders.set("cache-control", "no-store");
+      return new Response(upstreamResponse.body, {
+        status: upstreamResponse.status,
+        statusText: upstreamResponse.statusText,
+        headers: responseHeaders,
+      });
+    }
+
+    // Preserve the upstream websocket handshake as-is. Rebuilding the 101
+    // response with copied headers has been unstable on Pages and can throw
+    // a Worker 1101 during the websocket upgrade path.
+    return upstreamResponse;
+  } catch (error) {
+    console.error("websocket proxy failed", error);
+    return new Response("WebSocket proxy failed", {
+      status: 502,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+      },
     });
   }
-
-  const responseHeaders = new Headers(upstreamResponse.headers);
-  responseHeaders.set("cache-control", "no-store");
-  return new Response(null, {
-    status: 101,
-    webSocket: upstreamResponse.webSocket,
-    headers: responseHeaders,
-  });
 }
 
 function shouldBootstrapSession(request, incomingUrl, dispatchPath) {
@@ -343,6 +355,7 @@ function isWebSocketUpgrade(request) {
 async function buildClientResponse(upstreamResponse, incomingUrl) {
   const responseHeaders = new Headers(upstreamResponse.headers);
   responseHeaders.set("cache-control", "no-store");
+  stripClearingStreamlitCookies(responseHeaders);
 
   const location = responseHeaders.get("location");
   if (location) {
@@ -427,9 +440,12 @@ function buildHostConfigResponse(request) {
     "cache-control": "no-cache",
     "content-type": "application/json; charset=utf-8",
   });
+  const incomingUrl = new URL(request.url);
+  const incomingOrigin = `${incomingUrl.protocol}//${incomingUrl.host}`;
 
   const payload = {
     allowedOrigins: [
+      incomingOrigin,
       "https://devel.streamlit.test",
       "https://*.streamlit.apptest",
       "https://*.streamlitapp.test",
@@ -712,6 +728,40 @@ function serializeCookieForIncomingHost(name, value, options = {}) {
     segments.push(`Max-Age=${options.maxAge}`);
   }
   return segments.join("; ");
+}
+
+function stripClearingStreamlitCookies(headers) {
+  const setCookies = extractSetCookies(headers);
+  if (!setCookies.length) {
+    return;
+  }
+
+  const filteredCookies = setCookies.filter((rawCookie) => {
+    const [pair] = rawCookie.split(";", 1);
+    if (!pair || !pair.includes("=")) {
+      return true;
+    }
+
+    const separator = pair.indexOf("=");
+    const name = pair.slice(0, separator).trim();
+    const value = pair.slice(separator + 1).trim();
+    const lowerRaw = rawCookie.toLowerCase();
+
+    if ((name === "streamlit_session" || name === "_streamlit_csrf") && (value === "" || lowerRaw.includes("max-age=0"))) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filteredCookies.length === setCookies.length) {
+    return;
+  }
+
+  headers.delete("set-cookie");
+  for (const rawCookie of filteredCookies) {
+    headers.append("set-cookie", rawCookie);
+  }
 }
 
 function proxyAuthFailure(reason) {
