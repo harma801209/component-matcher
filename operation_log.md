@@ -1334,3 +1334,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 用户反馈公开版 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 还是搜不到 `MCL2012H100MT`。已确认这不是本地逻辑问题，而是公开站还没吃到最新提交。
 - 已执行 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1) 把最新 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 与 [`operation_log.md`](C:/Users/zjh/Desktop/data/operation_log.md) 推到远端，最新发布提交为 `96ca225`。
 - 使用 Playwright 直接复测公开站后，`MCL2012H100MT` 已能在公开版返回 `成功返回匹配结果 1 条`，并显示 `已找到原厂料号资料，暂未找到其他品牌替代结果`，说明公开版已同步到最新修复。
+
+## 2026-04-18 15:07 `MCL2012H100MT` 同规格替代品牌补库
+- 用户继续要求把 `MCL2012H100MT` 这个系列往下拓库，重点补齐公开版里能稳定返回的替代品牌。
+- 已把 7 条 exact-match 行写入 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)：Murata `LQM21DH100M70# / LQM21DN100M70# / LQM21FN100M80#`，TDK `MLZ2012M100WT000 / MLZ2012M100HT000 / MLZ2012N100LT000`，Wurth `74479777310A`。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 本地候选检索已验证通过：`fetch_search_candidate_pairs()` 对 `0805 / 10μH / ±20%` 能返回 7 条候选，已经包含 Murata、TDK、Wurth 三个品牌。
