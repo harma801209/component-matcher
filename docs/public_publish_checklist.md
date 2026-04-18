@@ -1,6 +1,6 @@
 # 公开版发布后检查清单
 
-每次发布完公开版，只看这 4 项：
+每次发完公开版，只看这 4 项：
 
 1. 打开 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)
 2. 搜一个真实料号，优先搜这次刚补的型号，确认能返回结果

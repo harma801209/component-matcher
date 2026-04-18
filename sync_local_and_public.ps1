@@ -2,6 +2,7 @@ param(
     [string]$CommitMessage = "",
     [switch]$SkipBundleRebuild,
     [switch]$SkipPush,
+    [switch]$AllowPublicRuntimeChange,
     [string]$PublicUrl = "https://fruition-component.pages.dev/"
 )
 
@@ -45,6 +46,9 @@ if ($SkipBundleRebuild) {
 }
 if ($SkipPush) {
     $argsList += "--skip-push"
+}
+if ($AllowPublicRuntimeChange) {
+    $argsList += "--allow-public-runtime-change"
 }
 
 if ($pythonCmd.Length -gt 1) {

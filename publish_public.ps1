@@ -4,6 +4,7 @@ param(
     [switch]$SkipPush,
     [switch]$SkipProxyDeploy,
     [switch]$ForceProxyDeploy,
+    [switch]$AllowPublicRuntimeChange,
     [string]$PublicUrl = "https://fruition-component.pages.dev/"
 )
 
@@ -35,20 +36,22 @@ $proxyChanged = Test-ProxyPublishNeeded
 $shouldDeployProxy = -not $SkipPush -and -not $SkipProxyDeploy -and ($ForceProxyDeploy -or $proxyChanged)
 $proxyChangedLabel = if ($proxyChanged) { "yes" } else { "no" }
 $shouldDeployProxyLabel = if ($shouldDeployProxy) { "yes" } else { "no" }
+$publicRuntimeOverrideLabel = if ($AllowPublicRuntimeChange) { "yes" } else { "no" }
 
 Write-Host ""
 Write-Host "=== Public publish plan ==="
 Write-Host ("App sync: yes")
 Write-Host ("Proxy changes detected: {0}" -f $proxyChangedLabel)
 Write-Host ("Proxy deploy: {0}" -f $shouldDeployProxyLabel)
+Write-Host ("Public runtime override: {0}" -f $publicRuntimeOverrideLabel)
 Write-Host ""
 
 try {
-    if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-        & $syncScript -PublicUrl $PublicUrl -SkipBundleRebuild:$SkipBundleRebuild -SkipPush:$SkipPush
+if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
+        & $syncScript -PublicUrl $PublicUrl -SkipBundleRebuild:$SkipBundleRebuild -SkipPush:$SkipPush -AllowPublicRuntimeChange:$AllowPublicRuntimeChange
     }
     else {
-        & $syncScript -CommitMessage $CommitMessage -PublicUrl $PublicUrl -SkipBundleRebuild:$SkipBundleRebuild -SkipPush:$SkipPush
+        & $syncScript -CommitMessage $CommitMessage -PublicUrl $PublicUrl -SkipBundleRebuild:$SkipBundleRebuild -SkipPush:$SkipPush -AllowPublicRuntimeChange:$AllowPublicRuntimeChange
     }
 }
 catch {

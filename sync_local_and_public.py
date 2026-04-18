@@ -52,6 +52,23 @@ PUBLISH_FILES = [
     "cloudflare-pages-proxy/wrangler.jsonc",
 ]
 
+PUBLIC_RUNTIME_GUARD_FILES = {
+    "build_streamlit_cloud_bundle.py",
+    "cloudflare-pages-proxy/dist/_worker.js",
+    "cloudflare-pages-proxy/wrangler.jsonc",
+    "deploy_cloudflare_pages_proxy.cmd",
+    "deploy_cloudflare_pages_proxy.ps1",
+    "publish_public.cmd",
+    "publish_public.ps1",
+    "requirements.txt",
+    "runtime.txt",
+    "streamlit_app.py",
+    "sync_local_and_public.cmd",
+    "sync_local_and_public.ps1",
+    "sync_local_and_public.py",
+    "component_matcher.py",
+}
+
 
 class CommandError(RuntimeError):
     pass
@@ -96,6 +113,19 @@ def normalize_ssh_public_key(public_key_text: str) -> str:
     if len(parts) >= 2:
         return f"{parts[0]} {parts[1]}"
     return public_key_text.strip()
+
+
+def normalize_git_path(path: str) -> str:
+    return Path(path).as_posix()
+
+
+def detect_public_runtime_changes(staged_files: list[str]) -> list[str]:
+    guarded = []
+    for path in staged_files:
+        normalized = normalize_git_path(path)
+        if normalized in PUBLIC_RUNTIME_GUARD_FILES:
+            guarded.append(normalized)
+    return guarded
 
 
 def resolve_python_command() -> list[str]:
@@ -332,11 +362,21 @@ def stage_publish_files() -> list[str]:
     return [item.strip() for item in staged if item.strip()]
 
 
-def commit_if_needed(message: str) -> str:
+def commit_if_needed(message: str, allow_public_runtime_change: bool) -> str:
     staged = stage_publish_files()
     if not staged:
         write_step("No staged publish changes were found")
         return ""
+    guarded_changes = detect_public_runtime_changes(staged)
+    if guarded_changes and not allow_public_runtime_change:
+        raise CommandError(
+            "This publish touches protected public runtime files:\n"
+            + "\n".join(f"  - {item}" for item in guarded_changes)
+            + "\nTo avoid accidentally breaking the public site, re-run with "
+            "--allow-public-runtime-change only when this is an intentional public release change."
+        )
+    if guarded_changes:
+        write_step("Protected public runtime files changed; explicit override accepted")
     write_step(f"Creating commit: {message}")
     run_command(["git", "commit", "-m", message], capture_output=False)
     return run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
@@ -406,6 +446,11 @@ def main() -> int:
     parser.add_argument("--commit-message", default="", help="Optional custom git commit message.")
     parser.add_argument("--skip-bundle-rebuild", action="store_true", help="Skip rebuilding streamlit_cloud_bundle.zip.")
     parser.add_argument("--skip-push", action="store_true", help="Prepare commit locally but do not push.")
+    parser.add_argument(
+        "--allow-public-runtime-change",
+        action="store_true",
+        help="Allow publishing protected public runtime files such as app entry points and proxy logic.",
+    )
     parser.add_argument("--public-url", default=DEFAULT_PUBLIC_URL, help="Public site URL to display after publish.")
     args = parser.parse_args()
 
@@ -423,7 +468,7 @@ def main() -> int:
     private_key = ensure_repo_deploy_key(token, repo_full_name)
     ssh_env = make_ssh_env(private_key)
 
-    commit_sha = commit_if_needed(commit_message)
+    commit_sha = commit_if_needed(commit_message, args.allow_public_runtime_change)
     remote_sha = fetch_remote_head(repo_full_name, branch, ssh_env)
     publish_sha = create_publish_commit(commit_sha, remote_sha)
 
