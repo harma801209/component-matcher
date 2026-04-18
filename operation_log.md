@@ -1341,6 +1341,12 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
 - 本地候选检索已验证通过：`fetch_search_candidate_pairs()` 对 `0805 / 10μH / ±20%` 能返回 7 条候选，已经包含 Murata、TDK、Wurth 三个品牌。
 
+## 2026-04-18 23:05 公开版拓库规则补强 + TDK/Würth 替代料回刷
+- 用户确认“公开版发布规则”要固定下来，尤其是拓库场景不能只改 `official_inductor_expansion.csv`，还必须把新行同步进 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，否则公开版还是搜不到。
+- 已把这个规则补进 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)：记住“源数据先补，运行库再刷，最后才发布”。
+- 新增 [`sync_tdk_wurth_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_tdk_wurth_power_inductors.py)，补入官方 TDK `MLZ2012M100WT000 / MLZ2012M100HT000 / MLZ2012N100LT000` 和 Würth `74479777310A` 四条 10uH / 0805 / ±20% 功率电感。
+- 已执行增量回刷，只更新这 4 条新料到数据库和搜索缓存，`MCL2012H100MT` 现在的候选集已从 2 条扩大到 6 条，新增的 TDK 和 Würth 替代料都能被本地搜索命中。
+
 ## 2026-04-18 21:54 三星电感目录拓库
 - 继续按用户要求扩充电感品牌覆盖，新增 [`sync_samsung_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_samsung_power_inductors.py) 作为三星官方 `Power Inductor.pdf` 的专用采集器，按页面分段抽取 `Thin Film General / L / Bottom / Wire Wound General / L` 五类目录。
 - 这批共解析出 `93` 条三星官方功率电感，已写入 [`Inductor/samsung_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/samsung_power_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)，后续还能继续沿同类官方 PDF 扩展更多品牌。

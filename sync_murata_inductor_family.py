@@ -50,7 +50,7 @@ CATEGORY_CONFIGS = [
             {"id": "productionStatus", "value": "available"},
             {"id": "targetCircuitClassification", "value": "RFInductor"},
         ],
-        "component_type": "功率电感",
+        "component_type": "射频电感",
         "special_use": "RF Inductor",
         "series_desc_suffix": "RF高频电感系列",
     },
@@ -87,7 +87,7 @@ CATEGORY_CONFIGS = [
     },
 ]
 
-TARGET_TYPES = ("功率电感", "共模电感", "磁珠")
+TARGET_TYPES = ("功率电感", "射频电感", "共模电感", "磁珠")
 KEY_COLUMNS = ["品牌", "型号", "器件类型"]
 
 
@@ -494,6 +494,23 @@ def merge_into_official_csv(new_rows: pd.DataFrame) -> tuple[int, int]:
 
     existing = existing.reindex(columns=columns, fill_value="")
     new_rows = new_rows.reindex(columns=columns, fill_value="")
+
+    if {"品牌", "型号"}.issubset(existing.columns) and {"品牌", "型号"}.issubset(new_rows.columns):
+        incoming_keys = {
+            (clean_text(brand), clean_text(model))
+            for brand, model in zip(new_rows["品牌"].astype(str), new_rows["型号"].astype(str))
+            if clean_text(brand) and clean_text(model)
+        }
+        if incoming_keys:
+            existing = existing[
+                ~existing.apply(
+                    lambda row: (
+                        clean_text(row.get("品牌", "")),
+                        clean_text(row.get("型号", "")),
+                    ) in incoming_keys,
+                    axis=1,
+                )
+            ]
 
     merged = pd.concat([existing, new_rows], ignore_index=True).fillna("")
     merged = merged.drop_duplicates(subset=KEY_COLUMNS, keep="first").reset_index(drop=True)

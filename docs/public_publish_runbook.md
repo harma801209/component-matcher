@@ -24,6 +24,19 @@
 - 只改 Cloudflare Pages 代理壳时，直接跑 `deploy_cloudflare_pages_proxy.ps1`。
 - 只想先本地准备、不真正发布时，跑 `publish_public.ps1 -SkipPush`。
 
+## 如果这次是拓库
+
+如果改动的是元件库数据，而不是单纯的页面文案，按这个顺序走：
+
+1. 先把新料号写进对应的官方扩展源，比如 `Inductor/official_inductor_expansion.csv`
+2. 再把这些新增行同步进 `components.db`、`cache/components_search.sqlite`、`cache/components_prepared_v5.parquet`
+3. 如果只是少量新增，优先用“增量刷新”脚本，只更新这几个品牌/型号
+4. 如果是大批量拓库，再用完整同步脚本重建
+5. 最后再跑 `publish_public.ps1` 发到公开版
+
+一句话记法：
+**源数据先补，运行库再刷，最后才发布。**
+
 ## 以后新增发布产物时的规则
 
 以后如果又增加新的公开版产物，记住两步：

@@ -29,6 +29,8 @@ PUBLISH_FILES = [
     "streamlit_cloud_bundle.manifest.json",
     "streamlit_cloud_bundle.zip.part*",
     "build_streamlit_cloud_bundle.py",
+    "sync_murata_inductor_family.py",
+    "sync_tdk_wurth_power_inductors.py",
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
