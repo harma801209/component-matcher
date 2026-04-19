@@ -14,7 +14,6 @@ BUNDLE_PATH = ROOT / "streamlit_cloud_bundle.zip"
 MANIFEST_PATH = ROOT / "streamlit_cloud_bundle.manifest.json"
 
 REQUIRED_MEMBERS = [
-    "components.db",
     "cache/components_search.sqlite",
     "cache/components_prepared_v5.parquet",
     "cache/components_prepared_v5_meta.json",
