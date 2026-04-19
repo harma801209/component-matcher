@@ -5,6 +5,7 @@ import runpy
 import traceback
 
 import streamlit as st
+from streamlit.runtime.scriptrunner_utils.exceptions import RerunException, StopException
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +17,13 @@ PUBLIC_RELEASE_STAMP = "2026-04-19T20:16:56+08:00"
 
 try:
     runpy.run_path(os.path.join(BASE_DIR, "component_matcher.py"), run_name="__main__")
+except (StopException, RerunException):
+    raise
 except Exception as exc:
     st.error("应用启动失败，请查看下方错误详情。")
+    st.exception(exc)
+    st.code(traceback.format_exc())
+except BaseException as exc:
+    st.error("应用启动被意外终止，请查看下方错误详情。")
     st.exception(exc)
     st.code(traceback.format_exc())
