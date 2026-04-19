@@ -61,6 +61,7 @@ PUBLISH_FILES = [
 ]
 
 PUBLIC_RUNTIME_GUARD_FILES = {
+    ".streamlit/config.toml",
     "build_streamlit_cloud_bundle.py",
     "cloudflare-pages-proxy/dist/_worker.js",
     "cloudflare-pages-proxy/wrangler.jsonc",

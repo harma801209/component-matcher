@@ -1,9 +1,12 @@
 [server]
 fileWatcherType = "none"
 headless = true
-enableCORS = false
+enableCORS = true
 enableXsrfProtection = true
+cookieSecret = "PzMluwj7CN6UDYHFJhoNwe1m7sG31KbUueQtWYMOJgDKRpT1OjQfwePhu_P7e571"
 maxUploadSize = 100
 
 [browser]
+serverAddress = "fruition-componentmatche.streamlit.app"
+serverPort = 443
 gatherUsageStats = false
