@@ -12505,10 +12505,20 @@ def get_database_signature():
     }
 
 
+def get_public_bundle_signature_for_cache():
+    if not (is_public_mode() or is_streamlit_cloud_runtime()):
+        return ""
+    try:
+        return get_streamlit_cloud_bundle_signature()
+    except Exception:
+        return ""
+
+
 def get_search_index_signature():
     db_signature = get_database_signature()
+    bundle_signature = get_public_bundle_signature_for_cache()
     if db_signature.get("db_missing"):
-        return {
+        signature = {
             "db_missing": True,
             "db_path": DB_PATH,
             "db_mtime": 0.0,
@@ -12516,13 +12526,19 @@ def get_search_index_signature():
             "cache_version": PREPARED_CACHE_VERSION,
             "search_index_schema_version": SEARCH_INDEX_SCHEMA_VERSION,
         }
-    return {
+        if bundle_signature:
+            signature["bundle_signature"] = bundle_signature
+        return signature
+    signature = {
         "db_path": db_signature.get("db_path", DB_PATH),
         "db_mtime": db_signature.get("db_mtime", 0),
         "db_size": db_signature.get("db_size", 0),
         "cache_version": PREPARED_CACHE_VERSION,
         "search_index_schema_version": SEARCH_INDEX_SCHEMA_VERSION,
     }
+    if bundle_signature:
+        signature["bundle_signature"] = bundle_signature
+    return signature
 
 
 def bundled_runtime_assets_are_current(required_paths=None):
@@ -12560,6 +12576,11 @@ def prepared_cache_is_current():
         return True
     if not prepared_cache_meta_is_usable(meta):
         return False
+    bundle_signature = get_public_bundle_signature_for_cache()
+    if bundle_signature:
+        meta_bundle_signature = clean_text(meta.get("bundle_signature", ""))
+        if meta_bundle_signature != bundle_signature:
+            return False
     try:
         cached = read_prepared_cache()
     except Exception:
@@ -12616,8 +12637,12 @@ def write_prepared_cache(df):
         prepared.to_pickle(PREPARED_CACHE_FALLBACK_PATH)
         if os.path.exists(PREPARED_CACHE_PATH):
             os.remove(PREPARED_CACHE_PATH)
+    meta = dict(get_database_signature())
+    bundle_signature = get_public_bundle_signature_for_cache()
+    if bundle_signature:
+        meta["bundle_signature"] = bundle_signature
     with open(PREPARED_CACHE_META_PATH, "w", encoding="utf-8") as handle:
-        json.dump(get_database_signature(), handle, ensure_ascii=False, indent=2)
+        json.dump(meta, handle, ensure_ascii=False, indent=2)
 
 
 def read_prepared_cache():
@@ -13085,6 +13110,11 @@ def search_index_is_current(conn, required_columns=None, table_name=COMPONENTS_S
         return False
     if not search_index_meta_is_usable(meta):
         return False
+    bundle_signature = get_public_bundle_signature_for_cache()
+    if bundle_signature:
+        meta_bundle_signature = clean_text(meta.get("bundle_signature", ""))
+        if meta_bundle_signature != bundle_signature:
+            return False
     # Do not compare source DB mtime/size here.
     # The source database can change size for unrelated data refreshes while the
     # search sidecar tables remain fully usable. Treating those file-level changes
@@ -13805,6 +13835,9 @@ def add_path_signature_fields(signature, label, path):
 
 def build_data_cache_signature():
     signature = dict(get_database_signature())
+    bundle_signature = get_public_bundle_signature_for_cache()
+    if bundle_signature:
+        signature["bundle_signature"] = bundle_signature
     add_path_signature_fields(signature, "prepared_cache", PREPARED_CACHE_PATH)
     add_path_signature_fields(signature, "prepared_meta", PREPARED_CACHE_META_PATH)
     return signature
