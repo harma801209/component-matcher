@@ -345,6 +345,9 @@ def stage_publish_files() -> list[str]:
     existing_files = []
     for rel in PUBLISH_FILES:
         if any(ch in rel for ch in "*?[]"):
+            if rel == "streamlit_cloud_bundle.zip.part*":
+                run_command(["git", "add", "-A", "--", rel], capture_output=False)
+                continue
             for path in ROOT.glob(rel):
                 if path.is_dir():
                     existing_files.extend(
