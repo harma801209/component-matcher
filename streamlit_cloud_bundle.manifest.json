@@ -1,6 +1,12 @@
 {
   "members": [
     {
+      "path": "components.db",
+      "size": 1277956096,
+      "mtime_ns": 1776600413533894000,
+      "sha256": "5c2bf3b346e1d87550a5f87081576d89b10719d11221786350807ba1a7d79dba"
+    },
+    {
       "path": "cache/components_search.sqlite",
       "size": 433664000,
       "mtime_ns": 1776600438917827400,
