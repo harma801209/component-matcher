@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parent
 BUNDLE_PATH = ROOT / "streamlit_cloud_bundle.zip"
 MANIFEST_PATH = ROOT / "streamlit_cloud_bundle.manifest.json"
 
-REQUIRED_MEMBERS = [
-    "components.db",
+PUBLIC_BUNDLE_MEMBERS = [
     "cache/components_search.sqlite",
     "cache/components_prepared_v5.parquet",
     "cache/components_prepared_v5_meta.json",
@@ -75,8 +74,10 @@ def add_file_to_zip(archive: zipfile.ZipFile, source_path: Path) -> None:
         archive.writestr(info, handle.read(), compresslevel=6)
 
 
-def resolve_member_paths(extra_members: list[str] | None = None) -> list[Path]:
-    member_paths = [ROOT / rel for rel in REQUIRED_MEMBERS]
+def resolve_member_paths(include_database: bool = False, extra_members: list[str] | None = None) -> list[Path]:
+    member_paths = [ROOT / rel for rel in PUBLIC_BUNDLE_MEMBERS]
+    if include_database:
+        member_paths.insert(0, ROOT / "components.db")
     for rel in extra_members or []:
         candidate = ROOT / rel
         if candidate not in member_paths:
@@ -120,13 +121,21 @@ def main() -> int:
         default=[],
         help="Additional relative file to include in the bundle.",
     )
+    parser.add_argument(
+        "--include-components-db",
+        action="store_true",
+        help="Include components.db in the bundle. Off by default for public releases.",
+    )
     args = parser.parse_args()
 
     output_path = Path(args.output)
     if not output_path.is_absolute():
         output_path = (ROOT / output_path).resolve()
 
-    member_paths = resolve_member_paths(extra_members=args.extra_member)
+    member_paths = resolve_member_paths(
+        include_database=args.include_components_db,
+        extra_members=args.extra_member,
+    )
     rebuilt, manifest = build_bundle(output_path, member_paths)
 
     total_size = sum(entry["size"] for entry in manifest["members"])

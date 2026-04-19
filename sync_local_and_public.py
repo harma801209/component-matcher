@@ -293,7 +293,7 @@ def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> None
     if skip_bundle_rebuild:
         write_step("Skipping cloud bundle rebuild by request")
         return
-    write_step("Building streamlit_cloud_bundle.zip from the current local database and caches")
+    write_step("Building streamlit_cloud_bundle.zip from the current search-side assets and caches")
     run_command(
         python_cmd + ["build_streamlit_cloud_bundle.py", "--output", str(DEFAULT_BUNDLE_OUTPUT)],
         capture_output=False,

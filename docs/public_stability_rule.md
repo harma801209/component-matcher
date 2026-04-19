@@ -63,3 +63,9 @@
 - 不在没有验证时宣布正式版已修好
 - 不把临时调试路径当成正式方案
 - 不让公开版入口带着未确认的实验逻辑上线
+## 公开版 bundle 规则
+
+- 公开版默认只打包搜索侧资产，不打包 `components.db`
+- 公开版启动只允许依赖 `cache/components_search.sqlite`、`cache/components_prepared_v5.parquet` 和少量小缓存
+- 任何把 `components.db` 加回公开 bundle 的改动，都必须视为正式版高风险改动
+- 只有明确要恢复“全量维护模式”时，才允许重新引入全量库

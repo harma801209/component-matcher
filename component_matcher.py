@@ -450,11 +450,16 @@ def get_search_asset_bundle_paths():
     ]
 
 
+def get_public_runtime_bundle_paths():
+    return get_search_asset_bundle_paths()
+
+
 def maybe_start_cloud_search_asset_warmup():
     global CLOUD_SEARCH_ASSET_WARMUP_STARTED
     startup_trace("cloud_warmup:enter")
-    if not streamlit_cloud_bundle_refresh_needed(required_paths=[DB_PATH] + get_search_asset_bundle_paths()) and (
-        database_has_component_rows() or search_sidecar_assets_available()
+    runtime_bundle_paths = get_public_runtime_bundle_paths()
+    if not streamlit_cloud_bundle_refresh_needed(required_paths=runtime_bundle_paths) and (
+        search_sidecar_assets_available() or prepared_cache_is_current()
     ):
         startup_trace("cloud_warmup:skip-ready")
         return
@@ -482,24 +487,30 @@ def maybe_start_cloud_search_asset_warmup():
 
 
 def ensure_component_data_ready(action_label=""):
+    public_runtime = is_public_mode() or is_streamlit_cloud_runtime()
     full_bundle_paths = [DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH]
+    runtime_bundle_paths = get_public_runtime_bundle_paths() if public_runtime else full_bundle_paths
     if prepared_cache_is_current():
         return True
-    if not streamlit_cloud_bundle_refresh_needed(required_paths=full_bundle_paths) and database_has_component_rows():
+    if not streamlit_cloud_bundle_refresh_needed(required_paths=runtime_bundle_paths) and (
+        database_has_component_rows() or search_sidecar_assets_available()
+    ):
         return True
 
     action_text = clean_text(action_label)
     search_asset_paths = get_search_asset_bundle_paths()
-    if streamlit_cloud_bundle_refresh_needed(required_paths=full_bundle_paths) and ensure_streamlit_cloud_data_bundle(required_paths=full_bundle_paths):
+    if streamlit_cloud_bundle_refresh_needed(required_paths=runtime_bundle_paths) and ensure_streamlit_cloud_data_bundle(required_paths=runtime_bundle_paths):
         clear_data_load_caches()
-        return database_has_component_rows() or search_sidecar_assets_available()
+        return database_has_component_rows() or search_sidecar_assets_available() or prepared_cache_is_current()
+    if public_runtime:
+        return search_sidecar_assets_available() or prepared_cache_is_current()
     if action_text in {"搜索", "BOM 匹配"} and ensure_streamlit_cloud_data_bundle(required_paths=search_asset_paths):
         clear_data_load_caches()
-        return search_sidecar_assets_available()
+        return database_has_component_rows() or search_sidecar_assets_available() or prepared_cache_is_current()
 
     if ensure_streamlit_cloud_data_bundle():
         clear_data_load_caches()
-        return database_has_component_rows() or search_sidecar_assets_available()
+        return database_has_component_rows() or search_sidecar_assets_available() or prepared_cache_is_current()
 
     try:
         maybe_update_database(force=False)

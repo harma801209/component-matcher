@@ -1441,3 +1441,4 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已使用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)；官方汇总从 `37551` 行涨到 `37720` 行。
 - 已将 [`sync_coilcraft_inductors.py`](C:/Users/zjh/Desktop/data/sync_coilcraft_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批 Coilcraft 拓库结果。
 - 本地验收确认 Coilcraft 数据已进入搜索侧，说明这次拓库已经真正落库完成。
+2026-04-20 公开版稳定模式更新：默认公开 bundle 改为搜索侧资产，不再打包 `components.db`；公开启动路径也改为只依赖搜索侧缓存，避免全量库拖垮 Streamlit Cloud 启动。
