@@ -1,8 +1,9 @@
 [server]
 fileWatcherType = "none"
 headless = true
-enableCORS = true
-enableXsrfProtection = true
+# Public embed mode needs relaxed browser security so the iframe can open cleanly.
+enableCORS = false
+enableXsrfProtection = false
 cookieSecret = "PzMluwj7CN6UDYHFJhoNwe1m7sG31KbUueQtWYMOJgDKRpT1OjQfwePhu_P7e571"
 maxUploadSize = 100
 
