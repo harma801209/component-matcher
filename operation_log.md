@@ -1444,3 +1444,4 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 2026-04-20 公开版稳定模式更新：默认公开 bundle 改为搜索侧资产，不再打包 `components.db`；公开启动路径也改为只依赖搜索侧缓存，避免全量库拖垮 Streamlit Cloud 启动。
 2026-04-20 公开版运行时修复：Cloud 端 `api/v1/app/event/open` 返回 `403 Forbidden - CSRF token invalid`，已把 `.streamlit/config.toml` 切到公开嵌入模式（`enableXsrfProtection = false`、`enableCORS = false`），并记录为正式版变更规则。
 2026-04-20 公开版 MCL 同步核查：本地 `MCL2012H100MT` 已在 `Inductor/official_inductor_expansion.csv`、`components.db` 和 `cache/components_search.sqlite` 中可直接命中，但公开页仍可能停留在旧快照；因此追加一次仅含日志的安全提交，作为 Streamlit Cloud 重新拉取最新版本的触发点，避免再把问题误判成料号本身没入库。
+2026-04-20 公开版重新触发发布：由于手动 SSH 推送未授权成功，改用仓库自带同步脚本走 SSH 443 发布通道，目标仅是让 Streamlit Cloud 重新拉取最新快照并刷新 MCL2012H100MT 搜索结果，不改任何匹配逻辑。
