@@ -284,9 +284,22 @@ def replace_file_with_retry(source_path, target_path, attempts=8, initial_delay_
 
 
 def ensure_streamlit_cloud_bundle_archive_available():
-    if os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
-        return True
     part_paths = get_streamlit_cloud_bundle_part_paths()
+    if os.path.exists(STREAMLIT_CLOUD_BUNDLE_PATH):
+        if not part_paths:
+            return True
+        current_signature = get_streamlit_cloud_bundle_signature()
+        state = load_streamlit_cloud_bundle_state()
+        state_signature = clean_text(state.get("bundle_signature", ""))
+        if current_signature != "" and current_signature == state_signature:
+            return True
+        # If the deployment already has a bundle zip but the recorded bundle
+        # version has changed, rebuild the archive from the freshly deployed
+        # parts so the runtime cannot keep serving stale search data.
+        try:
+            os.remove(STREAMLIT_CLOUD_BUNDLE_PATH)
+        except Exception:
+            pass
     if not part_paths:
         return False
 

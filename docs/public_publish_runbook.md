@@ -86,3 +86,4 @@
 
 - 默认只打公开版搜索侧资产，不把 `components.db` 放进云端 bundle
 - 如果公开版又出现空白或启动失败，先确认 bundle 里是否混入了全量库，再看搜索侧缓存是否完好
+- 如果公开版已经存在旧的 `streamlit_cloud_bundle.zip`，但 `.part` 或 manifest 已更新，先强制重建 zip 再启动，不要让旧压缩包继续复用

@@ -70,3 +70,4 @@
 - 任何把 `components.db` 加回公开 bundle 的改动，都必须视为正式版高风险改动
 - 只有明确要恢复“全量维护模式”时，才允许重新引入全量库
 - 公开版在信任 `prepared_cache_is_current()` 之前，必须先检查公开 bundle 是否仍然最新；只要 bundle 需要刷新，就不能直接继续使用现成 prepared cache
+- 公开版如果发现 `streamlit_cloud_bundle.zip` 还是旧版本，必须先用 `.part` 文件重建压缩包，再继续解包搜索侧资产，不能让旧 zip 一直留在运行环境里
