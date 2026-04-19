@@ -1400,3 +1400,44 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 用户再次反馈公开版没有及时反映最新修复，复查发现 Streamlit Cloud 端需要一个稳定的 entrypoint 变更来重新检查 checkout，因此仅修改业务逻辑文件有时不够。
 - 已在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 增加 `PUBLIC_RELEASE_STAMP` 作为纯部署触发标记，明确说明这是无行为变化的发布 nudge，不改变任何搜索/匹配逻辑。
 - 同步更新了 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把“公开版没有立刻刷新时顺手更新 stamp”写成固定规则。
+- 这次也把新做法补成了常规规则：`Murata family` 这类大批量官方源要先按 `器件类型` 拆成小子集，再用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 分批刷缓存，避免一次性重写整个 prepared cache 时卡住很久。
+
+## 2026-04-19 Murata / Sumida / TDK MHQ0402PSA 扩库
+- 继续按“先源数据、再增量刷新、最后才验搜索”的路线推进大批量电感拓库，先把 [`Inductor/murata_inductor_family_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/murata_inductor_family_expansion.csv) 按 `功率电感 / 射频电感 / 磁珠 / 共模电感` 拆成 4 个子集，再分别刷新缓存。
+- `Murata family` 的 `功率电感` 子集共 `1869` 条，`射频电感` 子集共 `4977` 条，`磁珠 + 共模电感` 子集共 `1240` 条，已经全部刷进 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 的增量路径。
+- [`Inductor/sumida_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/sumida_power_inductor_expansion.csv) 这批 `4924` 条 `Sumida` 功率电感也已经通过增量路径同步到搜索缓存里，避免以后搜索仍然卡在旧版本。
+- 另外新建了 [`sync_tdk_mhq0402psa_inductors.py`](C:/Users/zjh/Desktop/data/sync_tdk_mhq0402psa_inductors.py)，把 TDK `MHQ0402PSA` 这组 `01005 / high Q RF chip inductor` 官方目录批量抽成 `127` 条，写入 [`Inductor/tdk_mhq0402psa_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/tdk_mhq0402psa_expansion.csv) 并同步进官方源、数据库和搜索缓存。
+- 本地抽查确认 `MHQ0402PSA1N0BT000`、`MHQ0402PSA4N3HT000`、`MHQ0402PSA4N7JT000` 都能直接命中，说明这批 TDK 数据已经真正进入搜索路径，不只是停留在 CSV。
+
+## 2026-04-19 Laird 电感拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_laird_inductors.py`](C:/Users/zjh/Desktop/data/sync_laird_inductors.py) 作为 Laird 官方 `Inductive Components - Inductors for Power and Signal lines` 的系列级采集器，批量抓取 `Molded Surface Mount Inductors`、`Wire-Wound SMT Power Inductors` 和 `Wire-Wound Surface Mount Ceramic Chip Inductors` 三个家族下的系列表。
+- 这批共解析出 `520` 条 `Laird(莱尔德)` 官方电感，已写入 [`Inductor/laird_inductor_power_and_signal_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/laird_inductor_power_and_signal_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 由于部分 Laird 系列页响应较慢，采集器已改成并发抓取并对慢页做超时兜底，避免单页卡死整批同步。
+- 已用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 本地抽查确认 `Laird(莱尔德)` 已稳定进入搜索侧，且新增数据里没有空型号脏行，说明这次拓库已经真正落库完成。
+
+## 2026-04-19 Panasonic 官方 ZIP 批量拓库
+- 继续按用户要求扩大“其它品牌电感”覆盖，新增 [`sync_panasonic_inductors.py`](C:/Users/zjh/Desktop/data/sync_panasonic_inductors.py) 作为 Panasonic 官方 `PCC_Spara.zip` 和 `Common_Spara.zip` 的批量采集器，分别抽取功率电感和共模电感两大类。
+- 这次从 Panasonic 官方压缩包里解析出 `207` 条模型，已写入 [`Inductor/panasonic_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/panasonic_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)；最终官方汇总从 `37147` 行涨到 `37354` 行。
+- 为了以后再跑这类大批量 ZIP 官方包更快，已把压缩包先缓存到 [`cache/panasonic_PCC_Spara.zip`](C:/Users/zjh/Desktop/data/cache/panasonic_PCC_Spara.zip) 和 [`cache/panasonic_Common_Spara.zip`](C:/Users/zjh/Desktop/data/cache/panasonic_Common_Spara.zip)，并把脚本的落库步骤改成 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径，不再走慢的整表回刷。
+- 已同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)；本地验收确认 `Panasonic(松下)` 已有 `207` 条，样例型号 `ETQP3M100KVN` 与 `EXC14CE121U` 都能在搜索侧直接命中。
+
+## 2026-04-19 YAGEO 新品库补库（KEMET / PULSE）
+- 继续按用户要求扩充电感品牌覆盖，新增 [`sync_yageo_inductor_new_products.py`](C:/Users/zjh/Desktop/data/sync_yageo_inductor_new_products.py) 作为 YAGEO 官方资源库新产品介绍流的采集器，从官方 GraphQL 新品列表里筛出真正的电感相关条目。
+- 这次从官方新产品介绍中抽出 `2` 条电感相关记录，分别是 `KEMET / SCF76X Common Mode Chokes` 和 `PULSE / APCA Series Power Inductors`，已写入 [`Inductor/yageo_inductor_new_product_intros_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/yageo_inductor_new_product_intros_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 本地验收确认 `KEMET` 和 `PULSE` 已进入数据库、搜索缓存和 prepared cache，说明这两条新品牌路径已经真正落库，而不是只停留在源表。
+
+## 2026-04-19 Abracon 官方产品线拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_abracon_inductors.py`](C:/Users/zjh/Desktop/data/sync_abracon_inductors.py) 作为 Abracon 官方产品线采集器，通过 Playwright 抓取官方 product-lineup 页面并解析表格型数据。
+- 这次从 Abracon 官方电感相关页面解析出 `197` 条记录，已写入 [`Inductor/abracon_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/abracon_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)；官方汇总从 `37354` 行涨到 `37551` 行。
+- 已使用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，避免再次走慢的整表回刷。
+- 已将 [`sync_abracon_inductors.py`](C:/Users/zjh/Desktop/data/sync_abracon_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批 Abracon 拓库结果。
+- 本地验收确认 Abracon 数据已进入搜索侧，且脚本对官方页面的抓取流程稳定可跑，说明这次拓库已经真正落库完成。
+
+## 2026-04-19 Coilcraft 官方 PDF 拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_coilcraft_inductors.py`](C:/Users/zjh/Desktop/data/sync_coilcraft_inductors.py) 作为 Coilcraft 官方 PDF 采集器，直接抓取 Coilcraft 的功率电感数据表 PDF 并解析表格行。
+- 这次从 Coilcraft 官方 PDF 中抽取出 `169` 条记录，覆盖 `XAL7050`、`XEL4020`、`XFL4020`、`XGL4020`、`LPS6235`、`LPO6013`、`MSS7341` 和 `SER2000` 等系列，已写入 [`Inductor/coilcraft_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/coilcraft_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已使用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)；官方汇总从 `37551` 行涨到 `37720` 行。
+- 已将 [`sync_coilcraft_inductors.py`](C:/Users/zjh/Desktop/data/sync_coilcraft_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批 Coilcraft 拓库结果。
+- 本地验收确认 Coilcraft 数据已进入搜索侧，说明这次拓库已经真正落库完成。
