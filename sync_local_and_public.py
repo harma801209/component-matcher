@@ -9,6 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 
@@ -289,16 +290,40 @@ def make_ssh_env(private_key: Path) -> dict:
     return env
 
 
-def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> None:
+def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> bool:
     if skip_bundle_rebuild:
         write_step("Skipping cloud bundle rebuild by request")
-        return
+        return False
     write_step("Building streamlit_cloud_bundle.zip from the current search-side assets and caches")
-    run_command(
+    completed = run_command(
         python_cmd + ["build_streamlit_cloud_bundle.py", "--output", str(DEFAULT_BUNDLE_OUTPUT)],
-        capture_output=False,
+        capture_output=True,
     )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
     split_cloud_bundle_archive(DEFAULT_BUNDLE_OUTPUT)
+    return "[bundle] rebuilt:" in (completed.stdout or "")
+
+
+def refresh_public_release_stamp() -> bool:
+    streamlit_app_path = ROOT / "streamlit_app.py"
+    if not streamlit_app_path.exists():
+        return False
+
+    current_text = streamlit_app_path.read_text(encoding="utf-8")
+    current_stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    pattern = re.compile(r'^(PUBLIC_RELEASE_STAMP\s*=\s*")[^"]*(")$', re.MULTILINE)
+    refreshed_text, replacements = pattern.subn(rf'\g<1>{current_stamp}\g<2>', current_text, count=1)
+    if replacements == 0:
+        raise RuntimeError("PUBLIC_RELEASE_STAMP line not found in streamlit_app.py")
+    if refreshed_text == current_text:
+        return False
+
+    streamlit_app_path.write_text(refreshed_text, encoding="utf-8")
+    write_step(f"Refreshed public release stamp in streamlit_app.py -> {current_stamp}")
+    return True
 
 
 def split_cloud_bundle_archive(bundle_path: Path, part_size_mb: int = 95) -> None:
@@ -381,17 +406,45 @@ def commit_if_needed(message: str, allow_public_runtime_change: bool) -> str:
         return ""
     guarded_changes = detect_public_runtime_changes(staged)
     if guarded_changes and not allow_public_runtime_change:
-        raise CommandError(
-            "This publish touches protected public runtime files:\n"
-            + "\n".join(f"  - {item}" for item in guarded_changes)
-            + "\nTo avoid accidentally breaking the public site, re-run with "
-            "--allow-public-runtime-change only when this is an intentional public release change."
-        )
-    if guarded_changes:
+        if guarded_changes == ["streamlit_app.py"] and is_stamp_only_public_release_change():
+            write_step("Public release stamp change detected; treating it as a safe release nudge")
+        else:
+            raise CommandError(
+                "This publish touches protected public runtime files:\n"
+                + "\n".join(f"  - {item}" for item in guarded_changes)
+                + "\nTo avoid accidentally breaking the public site, re-run with "
+                "--allow-public-runtime-change only when this is an intentional public release change."
+            )
+    if guarded_changes and allow_public_runtime_change:
         write_step("Protected public runtime files changed; explicit override accepted")
     write_step(f"Creating commit: {message}")
     run_command(["git", "commit", "-m", message], capture_output=False)
     return run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
+
+
+def is_stamp_only_public_release_change() -> bool:
+    diff = run_command(
+        ["git", "diff", "--cached", "--unified=0", "--", "streamlit_app.py"],
+        check=False,
+    ).stdout
+    if not diff.strip():
+        return False
+
+    stamp_line_pattern = re.compile(r'^PUBLIC_RELEASE_STAMP\s*=\s*"[^\n"]*"$')
+    changed_lines = []
+    for line in diff.splitlines():
+        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "@@")):
+            continue
+        if line.startswith(("+", "-")):
+            changed_lines.append(line)
+            continue
+        if line.strip() == "":
+            continue
+        return False
+
+    if len(changed_lines) != 2:
+        return False
+    return all(stamp_line_pattern.match(line[1:].strip()) for line in changed_lines)
 
 
 def fetch_remote_head(repo_full_name: str, branch: str, ssh_env: dict) -> str:
@@ -473,7 +526,9 @@ def main() -> int:
     repo_full_name = parse_repo_full_name(repo_remote)
     commit_message = args.commit_message.strip() or f"Sync local and public release {time.strftime('%Y-%m-%d %H:%M')}"
 
-    build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
+    bundle_rebuilt = build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
+    if bundle_rebuilt:
+        refresh_public_release_stamp()
     validate_python_files(python_cmd)
 
     token = get_github_token()

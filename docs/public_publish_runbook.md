@@ -54,7 +54,9 @@
 这个参数只给真正要改正式版入口和运行逻辑的任务用，平时不要随手加。
 
 ### 1.1 如果这次改动后公开版没有立刻刷新
-如果这次改动会影响 `component_matcher.py`、拓库数据，或者其他公开版可见结果，但浏览器里还是旧状态，就顺手更新一次 `streamlit_app.py` 里的 `PUBLIC_RELEASE_STAMP`。
+如果这次改动会影响 `component_matcher.py`、拓库数据，或者其他公开版可见结果，`sync_local_and_public.py` 会在公开 bundle 重新生成时自动刷新一次 `streamlit_app.py` 里的 `PUBLIC_RELEASE_STAMP`。
+
+如果浏览器里还是旧状态，再手动更新一次这个 stamp 作为补充 nudge。
 
 这个动作只是部署触发，不改业务逻辑，但它能让 Streamlit Cloud 重新检查 checkout。
 

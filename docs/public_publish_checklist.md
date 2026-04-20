@@ -6,7 +6,7 @@
 2. 搜一个真实料号，优先搜这次刚补的型号，确认能返回结果
 3. 如果这次改了 BOM，再测一条 BOM，确认流程跑完
 4. 如果这次改了公开壳页，再确认页面没有空白、转圈或报错
-5. 如果这次改了 `component_matcher.py` 或拓库数据，但页面还是旧状态，确认 `streamlit_app.py` 里的 `PUBLIC_RELEASE_STAMP` 已更新
+5. 如果这次改了 `component_matcher.py` 或拓库数据，但页面还是旧状态，先确认 `sync_local_and_public.py` 是否已经自动刷新过 `streamlit_app.py` 里的 `PUBLIC_RELEASE_STAMP`；如果还旧，再手动补一次 stamp
 
 如果这次是拓库，额外看一眼刚补的相近替代料有没有出现在候选里。
 

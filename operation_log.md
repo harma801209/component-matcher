@@ -1449,3 +1449,12 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 2026-04-20 公开版旧 bundle zip 强制重建：进一步确认云端实例可能在重启后继续复用旧的 `streamlit_cloud_bundle.zip`，即使 `.part` 与 manifest 已更新也不会主动重拼。已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 让公开版在 bundle 版本不一致时先删除旧 zip，再用 `.part` 重新构建后解包搜索侧资产；并把这条规则补进 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md) 与 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md)。
 2026-04-20 公开版缓存 current 判定再收紧：发现搜索索引和 prepared cache 仍可能把旧数据误判成 current，导致 `MCL2012H100MT` 即使已入库也继续走旧结果。已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 里把 `bundle_signature` 绑进 `prepared_cache_is_current()`、`search_index_is_current()`、`build_data_cache_signature()` 和 `get_query_cache_signature()`，公开 bundle 一变化就会让缓存失效重建；同时顺手再 bump 一次 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 的发布戳，确保 Cloud 重新拉取这次修复。
 2026-04-20 公开版全量重建触发：考虑到 Streamlit Cloud 可能仍在沿用旧构建环境，已在 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部补一个无行为影响的注释，专门触发依赖文件变更带来的全量重建，目标是清掉旧的运行时/媒体缓存并让最新 bundle 与缓存失效逻辑真正生效。
+
+## 2026-04-21 公开版同步脚本自动刷新发布戳
+- 用户把“公开版同步一致性”列为第一优先级，希望本地更新后公网能够更稳地吃到最新快照，而不是继续依赖手工记得去 bump `PUBLIC_RELEASE_STAMP`。
+- 已检查公开版发布手册、稳定性规则和同步脚本，确认当前最薄弱的一环仍然是 `streamlit_app.py` 的发布戳更新还偏手工，虽然 bundle 和 cache 已经有 signature 失效逻辑，但 Cloud 仍可能需要额外的 entrypoint 变化来重新检查 checkout。
+- 已在 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 增加 `refresh_public_release_stamp()`，让公开 bundle 重新生成时自动刷新一次 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 里的 `PUBLIC_RELEASE_STAMP`；同时加了 `is_stamp_only_public_release_change()` 白名单，确保只有这个纯发布触发变化时不必再手动加 `--allow-public-runtime-change`。
+- 还同步更新了 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把“自动刷戳 + 旧状态再手动补一次”写成固定规则。
+- Verification: `python -m py_compile sync_local_and_public.py streamlit_app.py component_matcher.py build_streamlit_cloud_bundle.py` 通过；`git diff --check` 仅提示工作区行尾风格会在 Git 介入时归一化，没有发现语法或补丁级错误。
+- Other issues: 这次先补的是发布链路的自动 nudge，不会单独证明 Streamlit Cloud 已经完成重新拉取。
+- Handoff notes: 下一步最好跑一次真实公开发布，再用浏览器验证公开站是否已经稳定看到新快照；如果仍然卡旧状态，再继续追 Cloud 端是否还需要更强的入口触发。

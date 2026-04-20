@@ -1,5 +1,4 @@
 {
-  "bundle_epoch": "2026-04-20-mcl-refresh-1",
   "members": [
     {
       "path": "cache/components_search.sqlite",
