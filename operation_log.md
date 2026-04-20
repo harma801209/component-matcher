@@ -1472,3 +1472,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 同时把 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md) 补充成固定规则：`PUBLIC_CODE_STAMP` 不只是部署触发信号，也会一起打掉公开版查询会话缓存。
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_local_and_public.py build_streamlit_cloud_bundle.py` 通过；本地 `resolve_search_query_dataframe_and_spec('MCL2012H100MT')` 仍然返回 `mode=料号 / resolution_path=fast_query / candidate_rows=41`。
 - Handoff notes: 下一步重新跑一次真实公开发布，再用浏览器验证公网是否已经从 `0` 条恢复为 `1` 条。
+
+## 2026-04-21 公开版入口戳再刷新
+- 复测公开站后，`MCL2012H100MT` 在 fresh browser context 里仍然返回 `成功返回匹配结果 0 条`，说明这一轮还没有等到线上实例完成真正重载。
+- 已把 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 的 `PUBLIC_RELEASE_STAMP` 和 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `PUBLIC_CODE_STAMP` 都刷新到 `2026-04-21T01:50:50+08:00`，作为更直接的公开版重载 nudge。
+- 这次刷新不改变匹配逻辑，只是把发布信号再推一遍，目标是让 Streamlit Cloud 再次拉取最新入口和最新查询缓存签名。
+- Handoff notes: 需要在这次新戳推送后再做一次公开站复测，重点还是 `MCL2012H100MT` 是否终于恢复为 `1` 条。
