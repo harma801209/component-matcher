@@ -112,6 +112,9 @@ CLOUD_SEARCH_ASSET_WARMUP_LOCK = threading.Lock()
 CLOUD_SEARCH_ASSET_WARMUP_STARTED = False
 STARTUP_TRACE_ENABLED = str(os.getenv("COMPONENT_MATCHER_STARTUP_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
 STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
+# Public code nudge:
+# Update this marker when the public deployment needs a stronger reload signal.
+PUBLIC_CODE_STAMP = "2026-04-21T01:11:16+08:00"
 
 
 def startup_trace(message):

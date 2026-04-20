@@ -1458,3 +1458,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - Verification: `python -m py_compile sync_local_and_public.py streamlit_app.py component_matcher.py build_streamlit_cloud_bundle.py` 通过；`git diff --check` 仅提示工作区行尾风格会在 Git 介入时归一化，没有发现语法或补丁级错误。
 - Other issues: 这次先补的是发布链路的自动 nudge，不会单独证明 Streamlit Cloud 已经完成重新拉取。
 - Handoff notes: 下一步最好跑一次真实公开发布，再用浏览器验证公开站是否已经稳定看到新快照；如果仍然卡旧状态，再继续追 Cloud 端是否还需要更强的入口触发。
+
+## 2026-04-21 公开版主应用代码戳补强
+- 公开站在前两轮发布后仍能打开，但 `MCL2012H100MT` 还是返回 `成功返回匹配结果 0 条`，说明云端还没有真正吃到最新的 app 代码或缓存刷新没有触发到位。
+- 已确认本地 `components.db`、`components_search.sqlite`、`components_prepared_v5.parquet` 以及 `streamlit_cloud_bundle.zip` 内部都已经包含 `MCL2012H100MT`，而且本地 `resolve_search_query_dataframe_and_spec('MCL2012H100MT')` 返回 `mode=料号 / resolution_path=fast_query / candidate_rows=41`，所以问题不在本地数据本身。
+- 为了给 Streamlit Cloud 一个更强的重载信号，已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部加入纯无行为变化的 `PUBLIC_CODE_STAMP` 标记，作为比 `streamlit_app.py` 更直接的主应用代码 nudge。
+- Verification pending: 还需要再跑一次公开发布和公网复测，确认这次主应用代码戳是否真的能让 `MCL2012H100MT` 从 0 条变成可命中。
+- Handoff notes: 如果这次仍然不行，下一步就该从 Streamlit Cloud 实际构建/拉取状态查起，而不是继续怀疑本地数据链路。
