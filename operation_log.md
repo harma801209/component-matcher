@@ -1478,3 +1478,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已把 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 的 `PUBLIC_RELEASE_STAMP` 和 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `PUBLIC_CODE_STAMP` 都刷新到 `2026-04-21T01:50:50+08:00`，作为更直接的公开版重载 nudge。
 - 这次刷新不改变匹配逻辑，只是把发布信号再推一遍，目标是让 Streamlit Cloud 再次拉取最新入口和最新查询缓存签名。
 - Handoff notes: 需要在这次新戳推送后再做一次公开站复测，重点还是 `MCL2012H100MT` 是否终于恢复为 `1` 条。
+
+## 2026-04-21 公开版 bundle manifest 增加发布 epoch
+- 继续追查后确认，光靠 app 入口戳和查询缓存 key 还不够，云端仍可能把旧 bundle 当成 current 继续复用。
+- 已在 [`build_streamlit_cloud_bundle.py`](C:/Users/zjh/Desktop/data/build_streamlit_cloud_bundle.py) 的 manifest 里加入 `build_epoch_ns`，让每次正式发布都产生新的 bundle 签名，即使 bundle 内的搜索资产没变，Cloud 也会把旧抽取结果视为过期。
+- 这一层改动只影响发布/刷新判定，不改匹配逻辑；目标是把公开版从“偶尔能刷新”变成“每次发版都能强制刷新 bundle state”。
+- Verification pending: 需要重新 build / publish 后再做一次公网复测，确认这次 manifest 签名变化能否把 `MCL2012H100MT` 真正拉回可命中状态。

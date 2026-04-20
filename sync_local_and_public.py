@@ -307,6 +307,27 @@ def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> bool
     return "[bundle] rebuilt:" in (completed.stdout or "")
 
 
+def replace_text_file_atomically(target_path: Path, text: str) -> None:
+    temp_path = target_path.with_suffix(target_path.suffix + ".part")
+    if temp_path.exists():
+        try:
+            temp_path.unlink()
+        except Exception:
+            pass
+    temp_path.write_text(text, encoding="utf-8")
+    last_error = None
+    for attempt in range(6):
+        try:
+            os.replace(temp_path, target_path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt >= 5:
+                break
+            time.sleep(0.4 * (attempt + 1))
+    raise last_error
+
+
 def refresh_public_release_stamp() -> bool:
     streamlit_app_path = ROOT / "streamlit_app.py"
     if not streamlit_app_path.exists():
@@ -321,7 +342,7 @@ def refresh_public_release_stamp() -> bool:
     if refreshed_text == current_text:
         return False
 
-    streamlit_app_path.write_text(refreshed_text, encoding="utf-8")
+    replace_text_file_atomically(streamlit_app_path, refreshed_text)
     write_step(f"Refreshed public release stamp in streamlit_app.py -> {current_stamp}")
     return True
 

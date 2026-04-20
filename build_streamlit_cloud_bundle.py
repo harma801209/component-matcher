@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -42,7 +43,10 @@ def build_manifest(paths: list[Path]) -> dict:
                 "sha256": sha256_file(path),
             }
         )
-    return {"members": entries}
+    return {
+        "build_epoch_ns": time.time_ns(),
+        "members": entries,
+    }
 
 
 def load_manifest(path: Path) -> dict | None:
