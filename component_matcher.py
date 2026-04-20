@@ -91,7 +91,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 10
+QUERY_RESULT_CACHE_VERSION = 11
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -113,7 +113,8 @@ CLOUD_SEARCH_ASSET_WARMUP_STARTED = False
 STARTUP_TRACE_ENABLED = str(os.getenv("COMPONENT_MATCHER_STARTUP_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
 STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # Public code nudge:
-# Update this marker when the public deployment needs a stronger reload signal.
+# This marker also participates in public query cache keys so stale session
+# search results are invalidated when we ship a new public build.
 PUBLIC_CODE_STAMP = "2026-04-21T01:11:16+08:00"
 
 
@@ -13863,6 +13864,7 @@ def get_raw_data_cache_signature():
 def get_query_cache_signature():
     try:
         signature = build_data_cache_signature()
+        signature["public_code_stamp"] = PUBLIC_CODE_STAMP
         for path_key, path_value in (
             ("search_db", SEARCH_DB_PATH),
             ("mlcc_lcsc_dimension_cache", MLCC_LCSC_DIMENSION_CACHE_PATH),

@@ -58,7 +58,7 @@
 
 如果浏览器里还是旧状态，再手动更新一次这个 stamp 作为补充 nudge。
 
-如果还是旧状态，并且需要更强的 app-code 触发，再补一次 `component_matcher.py` 顶部的 `PUBLIC_CODE_STAMP`。
+如果还是旧状态，并且需要更强的 app-code 触发，再补一次 `component_matcher.py` 顶部的 `PUBLIC_CODE_STAMP`。这个标记会一起刷新公开版查询缓存 key，所以很适合用来打掉同一个浏览器会话里残留的旧搜索结果。
 
 这个动作只是部署触发，不改业务逻辑，但它能让 Streamlit Cloud 重新检查 checkout。
 

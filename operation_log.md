@@ -1465,3 +1465,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 为了给 Streamlit Cloud 一个更强的重载信号，已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部加入纯无行为变化的 `PUBLIC_CODE_STAMP` 标记，作为比 `streamlit_app.py` 更直接的主应用代码 nudge。
 - Verification pending: 还需要再跑一次公开发布和公网复测，确认这次主应用代码戳是否真的能让 `MCL2012H100MT` 从 0 条变成可命中。
 - Handoff notes: 如果这次仍然不行，下一步就该从 Streamlit Cloud 实际构建/拉取状态查起，而不是继续怀疑本地数据链路。
+
+## 2026-04-21 公开版查询缓存跟随 `PUBLIC_CODE_STAMP` 失效
+- 继续追查 `MCL2012H100MT` 在公开页还回 `0` 条的问题后，确认另一条高概率路径是同一个浏览器会话里残留了旧的 query/session cache，而不是本地数据本身有缺口。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中把 `PUBLIC_CODE_STAMP` 纳入 `get_query_cache_signature()`，并把 `QUERY_RESULT_CACHE_VERSION` 提升到 `11`，让旧的搜索结果缓存不会再和新发布共用同一个 key。
+- 同时把 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md) 补充成固定规则：`PUBLIC_CODE_STAMP` 不只是部署触发信号，也会一起打掉公开版查询会话缓存。
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_local_and_public.py build_streamlit_cloud_bundle.py` 通过；本地 `resolve_search_query_dataframe_and_spec('MCL2012H100MT')` 仍然返回 `mode=料号 / resolution_path=fast_query / candidate_rows=41`。
+- Handoff notes: 下一步重新跑一次真实公开发布，再用浏览器验证公网是否已经从 `0` 条恢复为 `1` 条。
