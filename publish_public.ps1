@@ -4,6 +4,7 @@ param(
     [switch]$SkipPush,
     [switch]$SkipProxyDeploy,
     [switch]$ForceProxyDeploy,
+    [switch]$TriggerStreamlitDeploy,
     [switch]$AllowPublicRuntimeChange,
     [string]$PublicUrl = "https://fruition-component.pages.dev/"
 )
@@ -14,6 +15,26 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
 $syncScript = Join-Path $scriptRoot "sync_local_and_public.ps1"
 $proxyScript = Join-Path $scriptRoot "deploy_cloudflare_pages_proxy.ps1"
+$deployScript = Join-Path $scriptRoot "auto_streamlit_deploy.py"
+
+function Resolve-PythonInvocation {
+    $venvPython = Join-Path $scriptRoot ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        return @($venvPython)
+    }
+
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) {
+        return @("python")
+    }
+
+    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyCmd) {
+        return @("py", "-3")
+    }
+
+    throw "Python not found. Install Python or create .venv first."
+}
 
 function Test-ProxyPublishNeeded {
     try {
@@ -34,8 +55,10 @@ if (-not (Test-Path $proxyScript)) {
 
 $proxyChanged = Test-ProxyPublishNeeded
 $shouldDeployProxy = -not $SkipPush -and -not $SkipProxyDeploy -and ($ForceProxyDeploy -or $proxyChanged)
+$shouldTriggerStreamlitDeploy = $TriggerStreamlitDeploy
 $proxyChangedLabel = if ($proxyChanged) { "yes" } else { "no" }
 $shouldDeployProxyLabel = if ($shouldDeployProxy) { "yes" } else { "no" }
+$shouldTriggerStreamlitDeployLabel = if ($shouldTriggerStreamlitDeploy) { "yes" } else { "no" }
 $publicRuntimeOverrideLabel = if ($AllowPublicRuntimeChange) { "yes" } else { "no" }
 
 Write-Host ""
@@ -43,11 +66,12 @@ Write-Host "=== Public publish plan ==="
 Write-Host ("App sync: yes")
 Write-Host ("Proxy changes detected: {0}" -f $proxyChangedLabel)
 Write-Host ("Proxy deploy: {0}" -f $shouldDeployProxyLabel)
+Write-Host ("Streamlit browser deploy: {0}" -f $shouldTriggerStreamlitDeployLabel)
 Write-Host ("Public runtime override: {0}" -f $publicRuntimeOverrideLabel)
 Write-Host ""
 
 try {
-if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
+    if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
         & $syncScript -PublicUrl $PublicUrl -SkipBundleRebuild:$SkipBundleRebuild -SkipPush:$SkipPush -AllowPublicRuntimeChange:$AllowPublicRuntimeChange
     }
     else {
@@ -67,6 +91,24 @@ elseif ($proxyChanged) {
     Write-Host ""
     Write-Host "Proxy files changed, but proxy deploy was skipped."
     Write-Host "Run deploy_cloudflare_pages_proxy.ps1 if you need to publish the Cloudflare Pages shell."
+}
+
+if ($shouldTriggerStreamlitDeploy) {
+    Write-Host ""
+    Write-Host "=== Streamlit Cloud browser deploy ==="
+    if (-not (Test-Path $deployScript)) {
+        throw "auto_streamlit_deploy.py not found in $scriptRoot"
+    }
+    $pythonCmd = @(Resolve-PythonInvocation)
+    if ($pythonCmd.Length -gt 1) {
+        & $pythonCmd[0] @($pythonCmd[1..($pythonCmd.Length - 1)]) $deployScript
+    }
+    else {
+        & $pythonCmd[0] $deployScript
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "auto_streamlit_deploy.py exited with code $LASTEXITCODE"
+    }
 }
 
 Write-Host ""

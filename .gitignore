@@ -14,6 +14,10 @@ __pycache__/
 .selenium-profile*/
 edge_profile_tmp*/
 streamlit_cloud_state.json
+streamlit_cloud_profile/
+chrome_deploy_profile_20260421/
+chrome_headless_profile*/
+cloudflare_account_api_token.txt
 public_tunnel*.log
 public_tunnel_token.txt
 public_fixed_url.txt
