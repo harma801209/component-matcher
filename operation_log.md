@@ -1591,3 +1591,7 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - 但 `RMS04JT105` 的厚声候选行在线上仍显示旧值 `NQ02WGJ`，没有吃到本地已修正的 `NQ / 抗硫化汽车级晶片电阻器`。
 - 这说明问题不在本地规则或数据库，而在 Streamlit Cloud 当前运行态/数据包没有完全切到最新版本。由于自动部署脚本 [`auto_streamlit_deploy.py`](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py) 进入 [`https://share.streamlit.io/deploy`](https://share.streamlit.io/deploy) 后仍停在登录页，无法自动点击 Deploy，所以暂时不能通过账号侧强制手动重建。
 - 为了继续逼近自动生效路径，已把 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 注释刷新到 `2026-04-22`；这不会改变依赖版本，只是增加一次“依赖文件发生变化”的信号，尽量促使 Streamlit Cloud 执行完整 redeploy。
+- 随后重新发布并等待新的运行态稳定后再次用 Playwright 复测，最终结果已全部通过：
+  - `RMS04JT105` 在线结果中，厚声 `NQ02WGJ0105TCE` 现已显示为 `系列=NQ`、`系列说明=抗硫化汽车级晶片电阻器`；
+  - `CGA2B3X7R1H104KT0Y0F` 在线结果前列品牌顺序仍为 `华新科Walsin -> 芯声微HRE -> 芯声微HRE -> 村田Murata ...`，排序要求成立；
+  - footer 元素复测仍为 `position: static`，说明当前正式版确实是普通页面底部元素，不是 fixed/sticky 底栏。
