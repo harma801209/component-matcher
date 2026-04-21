@@ -163,9 +163,9 @@ function buildEmbedShellResponse(request, incomingUrl) {
         top: 0;
         left: 0;
         right: 0;
-        bottom: -40px;
+        bottom: 0;
         width: 100vw;
-        height: calc(100vh + 40px);
+        height: 100vh;
         border: 0;
         display: block;
         background: #ffffff;

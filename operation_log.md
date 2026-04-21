@@ -1520,3 +1520,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 同时把 `.block-container` 底部留白调大，避免固定页脚遮住最底部内容。
 - 本地已复测，100% 视口下页脚可见且不再是气泡卡片。
 - Verification: `python -m py_compile component_matcher.py` 通过；Playwright 本地截图 `local_footer_plain_wait.png` 通过确认。
+
+## 2026-04-21 Pages 代理 iframe 裁切修复
+- 进一步复测发现主应用的 `embed=true` 页面里页脚已经正常可见，但 `pages.dev` 代理页仍然把底部裁掉，说明问题不在应用本身，而在 Cloudflare Pages proxy 外壳的 iframe 尺寸。
+- 已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中的 `.app-frame` 从 `bottom: -40px; height: calc(100vh + 40px);` 改成严格贴合视口的 `bottom: 0; height: 100vh;`，避免固定页脚被 iframe 底边裁切。
+- 这次改动只影响 `pages.dev` 代理壳，不改主应用内容；目标是让代理页在 100% 缩放下也能显示纯文字页脚，而不是只在 75% 缩放时露出一角。
+- Verification pending: 需要把代理壳重新发布到 Cloudflare Pages 并复测 `fruition-component.pages.dev`。
