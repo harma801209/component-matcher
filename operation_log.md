@@ -1507,3 +1507,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 同时保留了页脚的卡片样式和中心对齐，让它在短页面里依旧贴近底部，在长页面里也会进入正常文档流，不再依赖 fixed 定位。
 - 本地已用 Playwright 复测，100% 视口下页脚可以稳定看到管理员邮箱。
 - Verification: `python -m py_compile component_matcher.py` 通过；本地截图 `local_after_patch_viewport.png` 通过人工确认。
+
+## 2026-04-21 公开站启动依赖补齐
+- 公开站复测时发现应用直接报 `ModuleNotFoundError: No module named 'resistor_series_rules'`，说明前一轮只推了主文件，没把新增的系列规则模块一起带上。
+- 已确认 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部确实在 import [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py)，而该文件此前仍停留在本地未入库状态。
+- 这次修复要把 `resistor_series_rules.py` 一并纳入发布，避免远端实例启动阶段直接中断，连页脚都渲染不到。
+- Verification pending: 需要重新把依赖文件推送到远端，再验证公共站是否恢复正常加载并显示页脚。
