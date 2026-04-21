@@ -14,7 +14,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Update this stamp when publishing public-facing changes so Streamlit Cloud
 # rechecks the checkout. This does not change runtime behavior.
 # The sync script may refresh this automatically when the public bundle is rebuilt.
-PUBLIC_RELEASE_STAMP = "2026-04-22T03:58:33+08:00"
+PUBLIC_RELEASE_STAMP = "2026-04-22T05:58:08+08:00"
 
 try:
     runpy.run_path(os.path.join(BASE_DIR, "component_matcher.py"), run_name="__main__")

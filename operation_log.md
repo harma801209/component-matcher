@@ -1574,3 +1574,12 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 排查确认根因不在提示气泡本身，而在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `estimate_match_card_iframe_height()`：即使 `result_row_count = 0`，无替代结果场景仍然沿用普通结果卡的最小高度 `576px`，导致 `components.html(...)` 外层保留了一大块空白，进而把后面的 `st.info(...)` 提示气泡整体向下推开。
 - 已将 `estimate_match_card_iframe_height()` 改为对 `0` 个匹配结果走紧凑高度分支，仅保留原厂资料表和卡片收尾所需空间；有实际匹配结果的场景仍然保持原有高度策略，不影响正常结果表浏览体验。
 - 预期效果：无替代结果时，提示气泡会紧跟在“匹配料号资料”卡片下方出现，不再出现大段无意义空白。
+
+## 2026-04-22 长尾系列规则收尾并清零数据库缺口
+- 继续按“先量化缺口、再补最小规则、最后全库回填”的方式处理剩余系列缺失。先直接从 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 统计 `系列/系列说明` 为空的行，确认主缺口集中在 `Littelfuse` 贴片压敏、`Bourns` 贴片压敏、`风华Fenghua` 热敏、`晶瓷Kyocera AVX` MLCC。
+- 核心排查结果：这四类主缺口并不是解析函数不会识别，而是此前数据库/缓存还没有吃到最新规则；完成一次全库 `--backfill-series` 后，这四大块已全部归零。
+- 在此基础上，又补了最后一层长尾兜底规则到 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py)：
+  - 热敏新增 `WBP-TR`、`WMF21`、`TS08`、`CT103`、`HCT`、`SCL5D`、`2.5D` 等 family-code 识别；
+  - 压敏新增 `K0603ESDA`、`KESD0603/0805/1206`、`CNR-10N/V`、`MGUG/VCUG`、`0603` 尺寸前缀、`5D` / `2.5D` 等 family-code 识别。
+- 用“当前数据库剩余缺口样本”直接跑 [`fill_missing_series_from_model()`](C:/Users/zjh/Desktop/data/component_matcher.py) 复核后，理论剩余缺口已从 `21` 条降为 `0`；随后再次执行全库 `python component_matcher.py --backfill-series`，把新规则同步写回数据库、prepared parquet 和 search sqlite。
+- 当前本地数据库结果：`TRIM(型号) <> '' AND (系列='' OR 系列说明='')` 的剩余行数已为 `0`，表示现有库内所有带型号的元器件都已至少具备可展示的系列和系列说明。
