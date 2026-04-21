@@ -172,20 +172,25 @@ function buildEmbedShellResponse(request, incomingUrl) {
         background: #ffffff;
       }
       .proxy-footer {
-        flex: 0 0 auto;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 9999;
         display: flex;
         justify-content: center;
         align-items: center;
         gap: 0.5rem;
         padding: 8px 12px 12px;
         border-top: 1px solid rgba(226, 232, 240, 0.9);
-        background: #ffffff;
+        background: rgba(255, 255, 255, 0.98);
         color: #5f6b7a;
         font-size: 13px;
         line-height: 1.4;
         box-sizing: border-box;
         text-align: center;
         white-space: normal;
+        box-shadow: 0 -4px 14px rgba(148, 163, 184, 0.16);
       }
       .proxy-footer a {
         color: #1565c0;

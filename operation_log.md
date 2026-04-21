@@ -1533,3 +1533,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已在 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中把代理页改成上下布局：iframe 负责承载主应用，底部单独渲染一条纯文字页脚栏，并给 iframe 加了缓存版本号 `v=20260421-footer-1`。
 - 这个方案的目标是让 `pages.dev` 上的管理员邮箱永远贴在网页底部显示，不依赖页面缩放，也不再使用气泡卡片样式。
 - Verification pending: 需要重新发布 Cloudflare Pages，并在浏览器里验证底栏是否在 100% 缩放时稳定可见。
+
+## 2026-04-21 Cloudflare token vault + 代理底栏最终版
+- 已创建并持久化本地 Cloudflare token vault：[`cloudflare_account_api_token.txt`](C:/Users/zjh/Desktop/data/cloudflare_account_api_token.txt)，并将其加入 [`.gitignore`](C:/Users/zjh/Desktop/data/.gitignore)；[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1) 现在会自动读取该 vault，并注入 `CF_API_TOKEN` / `CF_ACCOUNT_ID` 给 Wrangler，后续 Cloudflare Pages 发布不再依赖网页登录。
+- 为了避免 iframe 内部页脚和外层代理页脚同时出现，已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 调整为固定底栏覆盖式布局：主应用继续走 Streamlit iframe，底部只保留一条纯文字固定页脚。
+- 已重新部署 Cloudflare Pages，并用 Playwright 在 100% 视口下复测 `https://fruition-component.pages.dev/`：主内容正常显示，管理员邮箱固定在页面底部，未再出现气泡框，也没有 75% 缩放才露出的情况。
+- Verification: `deploy_cloudflare_pages_proxy.ps1` 成功完成 Pages deploy；`verify_public_final_footer.png` 通过人工确认。
