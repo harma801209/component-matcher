@@ -674,11 +674,8 @@ footer {visibility: hidden;}
 
 .block-container {
     max-width: 1180px;
-    min-height: calc(100vh - 5.5rem);
-    display: flex;
-    flex-direction: column;
     padding-top: 0.8rem;
-    padding-bottom: 1.2rem;
+    padding-bottom: 4.2rem;
 }
 .main-title {
     text-align: center;
@@ -1002,25 +999,29 @@ footer {visibility: hidden;}
     background: linear-gradient(180deg, rgba(248, 250, 255, 0.18) 0%, rgba(248, 250, 255, 0.72) 100%);
 }
 .app-footer-shell {
-    margin-top: auto;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 10px;
+    z-index: 9999;
     display: flex;
     justify-content: center;
-    width: 100%;
-    padding-top: 1.25rem;
+    pointer-events: none;
 }
 .app-footer {
+    pointer-events: auto;
     width: min(1180px, calc(100vw - 24px));
-    margin-top: 0;
-    padding: 8px 14px;
-    border: 1px solid #e6e6e6;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.97);
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
     text-align: center;
-    color: #666;
+    color: #5f6b7a;
     font-size: 13px;
-    line-height: 1.45;
+    line-height: 1.4;
     box-sizing: border-box;
+    white-space: normal;
 }
 .match-card-query-pill {
     display: inline-flex;

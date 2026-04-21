@@ -1513,3 +1513,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已确认 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部确实在 import [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py)，而该文件此前仍停留在本地未入库状态。
 - 这次修复要把 `resistor_series_rules.py` 一并纳入发布，避免远端实例启动阶段直接中断，连页脚都渲染不到。
 - Verification pending: 需要重新把依赖文件推送到远端，再验证公共站是否恢复正常加载并显示页脚。
+
+## 2026-04-21 页脚改为固定纯文字
+- 用户确认 100% 缩放下页脚仍然看不见，且不希望邮箱行被气泡框包住。
+- 已把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的页脚重新改回 `position: fixed`，但移除了边框、背景、圆角、阴影和卡片式包裹，只保留一行居中的纯文字链接。
+- 同时把 `.block-container` 底部留白调大，避免固定页脚遮住最底部内容。
+- 本地已复测，100% 视口下页脚可见且不再是气泡卡片。
+- Verification: `python -m py_compile component_matcher.py` 通过；Playwright 本地截图 `local_footer_plain_wait.png` 通过确认。
