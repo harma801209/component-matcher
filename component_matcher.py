@@ -697,7 +697,7 @@ footer {visibility: hidden;}
 .block-container {
     max-width: 1180px;
     padding-top: 0.8rem;
-    padding-bottom: 4.2rem;
+    padding-bottom: 1.6rem;
 }
 .main-title {
     text-align: center;
@@ -1021,20 +1021,14 @@ footer {visibility: hidden;}
     background: linear-gradient(180deg, rgba(248, 250, 255, 0.18) 0%, rgba(248, 250, 255, 0.72) 100%);
 }
 .app-footer-shell {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 10px;
-    z-index: 9999;
-    display: flex;
-    justify-content: center;
-    pointer-events: none;
+    margin-top: 20px;
+    margin-bottom: 4px;
+    display: block;
 }
 .app-footer {
-    pointer-events: auto;
-    width: min(1180px, calc(100vw - 24px));
+    width: 100%;
     margin: 0;
-    padding: 0;
+    padding: 14px 0 10px;
     border: 0;
     background: transparent;
     box-shadow: none;
@@ -2937,6 +2931,8 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     if not re.match(r"^(AA|AC|AF|AR|AT|RC|RT)\d{4}[A-Z]", compact):
         return None
     series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
+    resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type) or "厚膜电阻"
+    resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     size = clean_size(compact[2:6])
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(compact[6], ""))
     right_segment = compact.rsplit("-", 1)[-1] if "-" in compact else compact[7:]
@@ -2948,9 +2944,10 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     return {
         "品牌": clean_brand(brand),
         "型号": compact,
-        "器件类型": normalize_component_type(component_type),
+        "器件类型": resolved_component_type,
         "系列": series_profile["系列"],
         "系列说明": series_profile["系列说明"],
+        "特殊用途": resolved_special_use,
         "尺寸（inch）": size,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
@@ -2966,6 +2963,8 @@ def parse_murata_mhr_resistor_model(model, brand="", component_type=""):
     if not match:
         return None
     series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
+    resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type) or "厚膜电阻"
+    resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     resistance_ohm = parse_resistor_value_code(match.group(2))
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group(3), ""))
     if resistance_ohm is None:
@@ -2973,9 +2972,10 @@ def parse_murata_mhr_resistor_model(model, brand="", component_type=""):
     return {
         "品牌": clean_brand(brand),
         "型号": compact,
-        "器件类型": normalize_component_type(component_type) or "厚膜电阻",
+        "器件类型": resolved_component_type,
         "系列": series_profile["系列"],
         "系列说明": series_profile["系列说明"],
+        "特殊用途": resolved_special_use,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
         "_model_rule_authority": "murata_mhr_model",
@@ -2989,6 +2989,8 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
         return None
     compact = clean_model(model)
     series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
+    resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type)
+    resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     size = infer_resistor_size_from_model(compact)
     tol = infer_resistor_tolerance_from_model(compact, size_hint=size)
     resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
@@ -2997,9 +2999,10 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
     return {
         "品牌": clean_brand(brand),
         "型号": compact,
-        "器件类型": normalize_component_type(component_type),
+        "器件类型": resolved_component_type,
         "系列": series_profile["系列"],
         "系列说明": series_profile["系列说明"],
+        "特殊用途": resolved_special_use,
         "尺寸（inch）": size,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
@@ -3163,6 +3166,20 @@ def series_looks_missing(value):
     if text.upper() in SERIES_PLACEHOLDER_TOKENS:
         return True
     return bool(re.fullmatch(r"[?？]+", text))
+
+
+def resistor_series_should_replace(current_value, canonical_value):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    if canonical == "":
+        return False
+    if series_looks_missing(current):
+        return True
+    if current == canonical:
+        return False
+    current_upper = current.upper()
+    canonical_upper = canonical.upper()
+    return current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper)
 
 
 def mlcc_series_should_replace(current_value, canonical_value):
@@ -3612,6 +3629,15 @@ WALSIN_MLCC_SERIES_CLASS = {
     "RT": "车规/高Q",
     "UF": "高Q",
 }
+WALSIN_NUMERIC_MLCC_DIELECTRIC = {
+    "A": "",
+    "B": "X7R",
+    "F": "Y5V",
+    "N": "COG(NPO)",
+    "S": "X6S",
+    "T": "X7T",
+    "X": "X5R",
+}
 TAIYO_MLCC_SERIES_MEANING = {
     "TMK": "Taiyo Yuden MLCC official series",
     "JMK": "Taiyo Yuden MLCC official series",
@@ -3637,6 +3663,15 @@ TAIYO_MLCC_SERIES_MEANING = {
     "MLAS": "医疗 / Medical Devices Class A/B MLCC",
     "MMAS": "医疗 / Medical Devices Class C MLCC",
     "MSAS": "常规 / General Electronic Equipment MLCC",
+    "UP": "Taiyo Yuden UP MLCC official series",
+    "TP": "Taiyo Yuden TP MLCC official series",
+    "JMR": "Taiyo Yuden JMR MLCC official series",
+    "LMR": "Taiyo Yuden LMR MLCC official series",
+    "HMR": "Taiyo Yuden HMR MLCC official series",
+    "EMR": "Taiyo Yuden EMR MLCC official series",
+    "MEASL": "Taiyo Yuden MEASL MLCC official series",
+    "MEAST": "Taiyo Yuden MEAST MLCC official series",
+    "MEASJ": "Taiyo Yuden MEASJ MLCC official series",
 }
 TAIYO_MLCC_SERIES_CLASS = {
     "MSART": "高Q/常规",
@@ -3647,6 +3682,12 @@ TAIYO_MLCC_SERIES_CLASS = {
     "MCAS": "车规",
     "MCAST": "车规",
     "MSAS": "常规",
+    "UP": "常规",
+    "TP": "常规",
+    "JMR": "常规",
+    "LMR": "常规",
+    "HMR": "常规",
+    "EMR": "常规",
 }
 GENERIC_MLCC_SERIES_MEANING = {
     "CL": "常规 / General-purpose MLCC",
@@ -3667,6 +3708,7 @@ GENERIC_MLCC_SERIES_MEANING = {
     "MCAS": "常规 / General-purpose MLCC",
     "CSA": "常规 / General-purpose MLCC",
     "CGA": "车规 / AEC-Q200",
+    "CAI": "车规 / AEC-Q200",
 }
 GENERIC_MLCC_SERIES_CLASS = {
     "CL": "常规",
@@ -3687,6 +3729,7 @@ GENERIC_MLCC_SERIES_CLASS = {
     "MCAS": "常规",
     "CSA": "常规",
     "CGA": "车规",
+    "CAI": "车规",
 }
 
 
@@ -3734,13 +3777,42 @@ def generic_mlcc_series_code_from_model(model):
         return "CLR1"
     if compact.startswith(("CGA", "CSA")):
         return compact[:3]
+    if compact.startswith("CAI"):
+        return "CAI"
     if compact.startswith("CL"):
         return "CL"
     if compact.startswith(("CC", "CQ", "AC")):
         return compact[:2]
-    for prefix in ("LMK", "TMK", "JMK", "EMK", "AMK", "MAAS", "MSAS", "MLAS", "MCAST", "MCAS", "TCC"):
+    for prefix in ("MEASL", "MEAST", "MEASJ", "LMR", "HMR", "EMR", "JMR", "LMK", "TMK", "JMK", "EMK", "AMK", "MAAS", "MSAS", "MLAS", "MCAST", "MCAS", "TCC", "UP", "TP"):
         if compact.startswith(prefix):
             return prefix
+    return ""
+
+
+def extract_leading_alpha_series_code(model, min_len=2, max_len=6):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    match = re.match(rf"^([A-Z]{{{min_len},{max_len}}})(?=\d)", compact)
+    if not match:
+        return ""
+    return clean_text(match.group(1)).upper()
+
+
+def extract_size_prefixed_mlcc_series_code(model, size_len=4):
+    compact = clean_model(model)
+    if compact == "" or len(compact) <= size_len or not compact[:size_len].isdigit():
+        return ""
+    rest = compact[size_len:]
+    for token_len in (3, 2, 1):
+        if len(rest) <= token_len:
+            continue
+        token = clean_text(rest[:token_len]).upper()
+        tail = clean_text(rest[token_len:]).upper()
+        if not any(ch.isalpha() for ch in token):
+            continue
+        if re.match(r"^(?:\d{3,4}|R\d+)", tail):
+            return f"{compact[:size_len]}{token}"
     return ""
 
 
@@ -3777,6 +3849,9 @@ def walsin_mlcc_series_code_from_model(model):
     for prefix in ("RF", "HH", "SH", "RT", "UF"):
         if compact.startswith(prefix):
             return prefix
+    numeric_family = extract_size_prefixed_mlcc_series_code(compact)
+    if numeric_family != "":
+        return numeric_family
     return ""
 
 
@@ -3799,14 +3874,20 @@ def taiyo_mlcc_series_code_from_model(model):
     if compact == "":
         return ""
     for prefix in (
+        "MEASL", "MEAST", "MEASJ",
+        "JMR", "LMR", "HMR", "EMR",
         "MSAY", "MSRL",
         "MSART", "MBARQ", "MCARQ", "MMARQ",
         "MCAST", "MAAS", "MBAS", "MCAS", "MLAS", "MMAS", "MSAS",
+        "UP", "TP",
         "UMK", "HMK", "QMK", "SMK", "QVS", "TVS",
         "TMK", "JMK", "EMK", "LMK", "AMK",
     ):
         if compact.startswith(prefix):
             return prefix
+    generic_prefix = extract_leading_alpha_series_code(compact, min_len=3, max_len=6)
+    if generic_prefix != "":
+        return generic_prefix
     return ""
 
 
@@ -5098,45 +5179,150 @@ def fill_missing_series_from_model(df):
         else pd.Series([False] * len(work), index=work.index)
     )
     if resistor_type_mask.any():
-        resistor_series_blank = work["系列"].astype("string").fillna("").apply(series_looks_missing)
-        resistor_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
-        resistor_target_mask = resistor_type_mask & (resistor_series_blank | resistor_desc_blank)
-        if resistor_target_mask.any():
-            def resolve_resistor_profile(row):
-                current_series = clean_text(row.get("系列", ""))
-                current_desc = clean_text(row.get("系列说明", ""))
-                profile = infer_resistor_series_profile(
-                    row.get("型号", ""),
-                    brand=row.get("品牌", ""),
-                    component_type=row.get("器件类型", ""),
-                    special_use=row.get("特殊用途", ""),
-                )
-                inferred_series = clean_text(profile.get("系列", ""))
-                series = current_series or inferred_series
-                series_desc = current_desc or build_resistor_series_description(
-                    brand=row.get("品牌", ""),
-                    series=series,
-                    component_type=row.get("器件类型", ""),
-                    special_use=row.get("特殊用途", ""),
-                )
-                return pd.Series({"系列": series, "系列说明": series_desc})
+        if "特殊用途" not in work.columns:
+            work["特殊用途"] = ""
 
-            resistor_profile_df = work.loc[
-                resistor_target_mask,
-                ["品牌", "型号", "器件类型", "特殊用途", "系列", "系列说明"],
-            ].apply(resolve_resistor_profile, axis=1, result_type="expand")
-            if not resistor_profile_df.empty:
-                resistor_profile_df["系列"] = resistor_profile_df["系列"].astype("string").fillna("").apply(clean_text)
-                resistor_profile_df["系列说明"] = resistor_profile_df["系列说明"].astype("string").fillna("").apply(clean_text)
-                series_fill_mask = resistor_series_blank.loc[resistor_profile_df.index] & resistor_profile_df["系列"].ne("")
-                if series_fill_mask.any():
-                    fill_idx = series_fill_mask[series_fill_mask].index
-                    work.loc[fill_idx, "系列"] = resistor_profile_df.loc[fill_idx, "系列"]
-                    missing_mask.loc[fill_idx] = False
-                desc_fill_mask = resistor_desc_blank.loc[resistor_profile_df.index] & resistor_profile_df["系列说明"].ne("")
-                if desc_fill_mask.any():
-                    fill_idx = desc_fill_mask[desc_fill_mask].index
-                    work.loc[fill_idx, "系列说明"] = resistor_profile_df.loc[fill_idx, "系列说明"]
+        def resolve_resistor_profile(row):
+            profile = infer_resistor_series_profile(
+                row.get("型号", ""),
+                brand=row.get("品牌", ""),
+                component_type=row.get("器件类型", ""),
+                special_use=row.get("特殊用途", ""),
+            )
+            inferred_series = clean_text(profile.get("系列", ""))
+            inferred_desc = clean_text(profile.get("系列说明", "")) or build_resistor_series_description(
+                brand=row.get("品牌", ""),
+                series=inferred_series,
+                component_type=row.get("器件类型", ""),
+                special_use=row.get("特殊用途", ""),
+            )
+            inferred_special_use = clean_text(profile.get("特殊用途", ""))
+            return pd.Series(
+                {
+                    "系列": inferred_series,
+                    "系列说明": inferred_desc,
+                    "特殊用途": inferred_special_use,
+                }
+            )
+
+        resistor_profile_df = work.loc[
+            resistor_type_mask,
+            ["品牌", "型号", "器件类型", "特殊用途", "系列", "系列说明"],
+        ].apply(resolve_resistor_profile, axis=1, result_type="expand")
+        if not resistor_profile_df.empty:
+            resistor_profile_df["系列"] = resistor_profile_df["系列"].astype("string").fillna("").apply(clean_text)
+            resistor_profile_df["系列说明"] = resistor_profile_df["系列说明"].astype("string").fillna("").apply(clean_text)
+            resistor_profile_df["特殊用途"] = resistor_profile_df["特殊用途"].astype("string").fillna("").apply(clean_text)
+
+            current_series = work.loc[resistor_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
+            current_desc = work.loc[resistor_type_mask, "系列说明"].astype("string").fillna("").apply(clean_text)
+            current_special = work.loc[resistor_type_mask, "特殊用途"].astype("string").fillna("").apply(clean_text)
+            profile_series = resistor_profile_df["系列"]
+            profile_desc = resistor_profile_df["系列说明"]
+            profile_special = resistor_profile_df["特殊用途"]
+
+            series_replace_mask = current_series.combine(profile_series, resistor_series_should_replace)
+            if series_replace_mask.any():
+                replace_idx = series_replace_mask[series_replace_mask].index
+                work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
+                missing_mask.loc[replace_idx] = False
+
+            desc_fill_mask = (
+                series_replace_mask
+                | (current_desc.eq("") & profile_desc.ne(""))
+            )
+            if desc_fill_mask.any():
+                replace_idx = desc_fill_mask[desc_fill_mask].index
+                work.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
+
+            special_fill_mask = (
+                series_replace_mask
+                | (current_special.eq("") & profile_special.ne(""))
+            ) & profile_special.ne("")
+            if special_fill_mask.any():
+                replace_idx = special_fill_mask[special_fill_mask].index
+                work.loc[replace_idx, "特殊用途"] = profile_special.loc[replace_idx]
+
+            current_series_after = work.loc[resistor_type_mask, "系列"].astype("string").fillna("").apply(clean_text)
+            filled_resistor_mask = resistor_type_mask & ~current_series_after.apply(series_looks_missing)
+            if filled_resistor_mask.any():
+                missing_mask.loc[filled_resistor_mask] = False
+
+    series_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
+    special_use_blank = work["特殊用途"].astype("string").fillna("").apply(clean_text).eq("")
+    component_type_series = (
+        work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+        if "器件类型" in work.columns
+        else pd.Series([""] * len(work), index=work.index, dtype="string")
+    )
+    series_profile_candidate_mask = (
+        model_clean.ne("")
+        & component_type_series.isin(ALL_PASSIVE_COMPONENT_TYPES)
+        & (
+            missing_mask
+            | series_desc_blank
+            | (
+                special_use_blank
+                & component_type_series.isin({"热敏电阻", "铝电解电容"} | VARISTOR_COMPONENT_TYPES)
+            )
+        )
+    )
+    if series_profile_candidate_mask.any():
+        profile_df = work.loc[
+            series_profile_candidate_mask,
+            ["品牌", "型号", "器件类型", "系列", "系列说明", "特殊用途"],
+        ].apply(
+            lambda row: resolve_official_series_profile(
+                brand=row.get("品牌", ""),
+                model=row.get("型号", ""),
+                component_type=row.get("器件类型", ""),
+                series=row.get("系列", ""),
+                series_desc=row.get("系列说明", ""),
+                special_use=row.get("特殊用途", ""),
+            ),
+            axis=1,
+            result_type="expand",
+        )
+        if not profile_df.empty:
+            profile_df = profile_df.reindex(columns=["系列", "系列说明", "特殊用途", "器件类型"]).fillna("")
+            current_series = work.loc[series_profile_candidate_mask, "系列"].astype("string").fillna("").apply(clean_text)
+            current_desc = work.loc[series_profile_candidate_mask, "系列说明"].astype("string").fillna("").apply(clean_text)
+            current_special = work.loc[series_profile_candidate_mask, "特殊用途"].astype("string").fillna("").apply(clean_text)
+            current_type = component_type_series.loc[series_profile_candidate_mask].astype("string").fillna("").apply(normalize_component_type)
+
+            profile_series = profile_df["系列"].astype("string").fillna("").apply(clean_text)
+            profile_desc = profile_df["系列说明"].astype("string").fillna("").apply(clean_text)
+            profile_special = profile_df["特殊用途"].astype("string").fillna("").apply(clean_text)
+            profile_type = profile_df["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+
+            series_replace_mask = pd.Series(
+                [
+                    passive_series_should_replace(current, canonical, model=model_clean.at[idx])
+                    for idx, current, canonical in zip(current_series.index, current_series.tolist(), profile_series.tolist())
+                ],
+                index=current_series.index,
+                dtype="bool",
+            )
+            if series_replace_mask.any():
+                replace_idx = series_replace_mask[series_replace_mask].index
+                work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
+                missing_mask.loc[replace_idx] = False
+
+            desc_fill_mask = (current_desc.eq("") | series_replace_mask) & profile_desc.ne("")
+            if desc_fill_mask.any():
+                replace_idx = desc_fill_mask[desc_fill_mask].index
+                work.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
+
+            special_fill_mask = (current_special.eq("") | series_replace_mask) & profile_special.ne("")
+            if special_fill_mask.any():
+                replace_idx = special_fill_mask[special_fill_mask].index
+                work.loc[replace_idx, "特殊用途"] = profile_special.loc[replace_idx]
+
+            if "器件类型" in work.columns:
+                type_fill_mask = current_type.eq("") & profile_type.ne("")
+                if type_fill_mask.any():
+                    replace_idx = type_fill_mask[type_fill_mask].index
+                    work.loc[replace_idx, "器件类型"] = profile_type.loc[replace_idx]
 
     if not missing_mask.any():
         return work
@@ -6703,7 +6889,7 @@ def parse_walsin_common(model, brand=""):
         "42": "1808", "43": "1812", "56": "2225",
     }
     material_map = {
-        "B": "X5R", "X": "X5R", "C": "COG(NPO)", "N": "COG(NPO)", "T": "X7T"
+        "B": "X7R", "C": "COG(NPO)", "F": "Y5V", "N": "COG(NPO)", "S": "X6S", "T": "X7T", "X": "X5R"
     }
     tol_map = {
         "A": "0.25PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
@@ -6779,6 +6965,8 @@ def parse_walsin_common(model, brand=""):
             "品牌": "华新科Walsin",
             "型号": model,
             "器件类型": "MLCC",
+            "系列": f"{size_code}{mat_code}",
+            "系列说明": f"华新科Walsin {size_code}{mat_code} {clean_material(material_map.get(mat_code, '')) or 'MLCC'}系列",
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),
@@ -9258,21 +9446,24 @@ def build_component_display_row(spec, allow_online_lookup=False):
     series_desc = clean_text(spec.get("系列说明", ""))
     special_use = clean_text(spec.get("特殊用途", ""))
     component_type = resolve_component_display_type(spec)
-    if resolve_component_display_type(spec) == "MLCC":
-        mlcc_profile = resolve_mlcc_series_profile(
-            brand=spec.get("品牌", ""),
-            model=spec.get("型号", ""),
-            series=series_code,
-            series_desc=series_desc,
-            special_use=special_use,
-        )
-        profile_series = clean_text(mlcc_profile.get("系列", ""))
-        if profile_series != "":
-            series_code = profile_series
-        if series_desc == "":
-            series_desc = clean_text(mlcc_profile.get("系列说明", ""))
-        if special_use == "":
-            special_use = clean_text(mlcc_profile.get("特殊用途", ""))
+    series_profile = resolve_official_series_profile(
+        brand=spec.get("品牌", ""),
+        model=spec.get("型号", ""),
+        component_type=component_type,
+        series=series_code,
+        series_desc=series_desc,
+        special_use=special_use,
+    )
+    profile_type = normalize_component_type(series_profile.get("器件类型", ""))
+    if profile_type != "":
+        component_type = profile_type
+    profile_series = clean_text(series_profile.get("系列", ""))
+    if profile_series != "":
+        series_code = profile_series
+    if series_desc == "":
+        series_desc = clean_text(series_profile.get("系列说明", ""))
+    if special_use == "":
+        special_use = clean_text(series_profile.get("特殊用途", ""))
     if series_desc == "" and series_code != "":
         series_desc = build_series_description_fallback(
             component_type,
@@ -9534,10 +9725,26 @@ def infer_component_display_fallbacks_from_row(row):
         return {}
     component_type = normalize_component_type(row.get("器件类型", "")) or infer_db_component_type(row)
     row_text = build_component_context_text(row)
-    result = {}
+    series_profile = resolve_official_series_profile(
+        brand=row.get("品牌", ""),
+        model=row.get("型号", ""),
+        component_type=component_type,
+        series=row.get("系列", ""),
+        series_desc=row.get("系列说明", ""),
+        special_use=row.get("特殊用途", ""),
+    )
+    result = {
+        key: clean_text(series_profile.get(key, ""))
+        for key in ["系列", "系列说明", "特殊用途"]
+        if clean_text(series_profile.get(key, "")) != ""
+    }
+    if normalize_component_type(series_profile.get("器件类型", "")) != "":
+        component_type = normalize_component_type(series_profile.get("器件类型", ""))
     result.update(infer_official_inductor_fields_from_row(row))
 
     series_code = clean_text(row.get("系列", ""))
+    if clean_text(result.get("系列", "")) != "":
+        series_code = clean_text(result.get("系列", ""))
     if clean_text(row.get("系列说明", "")) == "" and series_code != "":
         fallback_desc = build_series_description_fallback(
             component_type,
@@ -10462,6 +10669,553 @@ def build_series_description_fallback(component_type, brand="", series="", speci
     return f"{prefix}{series_text} 系列".strip()
 
 
+THERMISTOR_SERIES_RULES = [
+    (re.compile(r"^(NTCLE\d{3}[A-Z]\d)", flags=re.I), "NTC thermistor series", "测温"),
+    (re.compile(r"^(B\d{5}[A-Z])", flags=re.I), "NTC thermistor series", ""),
+    (re.compile(r"^(MF73T)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+    (re.compile(r"^(MF72)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+    (re.compile(r"^(MF58[A-Z]?)", flags=re.I), "NTC thermistor series", "测温"),
+    (re.compile(r"^(MF52[A-Z]?)", flags=re.I), "NTC thermistor series", "测温"),
+    (re.compile(r"^(MF25)", flags=re.I), "NTC thermistor series", "测温"),
+    (re.compile(r"^(MF11)", flags=re.I), "NTC thermistor series", "测温"),
+    (re.compile(r"^(SL\d{2})", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+    (re.compile(r"^(CL-\d{2}|CL\d{2})", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+    (re.compile(r"^(NTC\d+D)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+    (re.compile(r"^(\d+D)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
+]
+VARISTOR_SERIES_RULES = [
+    (re.compile(r"^(FNR)", flags=re.I), lambda m: "FNR", "氧化锌压敏电阻系列"),
+    (re.compile(r"^(?:[A-Z]+-)?(\d{1,2}D)(?=\d|[A-Z]|$)", flags=re.I), lambda m: f"{int(m.group(1)[:-1]):02d}D", "氧化锌压敏电阻系列"),
+    (re.compile(r"^\d{3}(KD)(\d{2})(?:[A-Z]|-|$)", flags=re.I), lambda m: f"{m.group(1).upper()}{m.group(2)}", "金属氧化物压敏电阻系列"),
+    (re.compile(r"^(STE)(\d{2}D)", flags=re.I), lambda m: m.group(2).upper(), "氧化锌压敏电阻系列"),
+    (re.compile(r"^(B722)(\d{2})([A-Z])", flags=re.I), lambda m: f"{m.group(3).upper()}{m.group(2)}K", "TDK/EPCOS SIOV 压敏电阻系列"),
+    (re.compile(r"^(ERZ[A-Z0-9]{1,2})", flags=re.I), lambda m: m.group(1).upper(), "Panasonic 压敏电阻系列"),
+    (re.compile(r"^(MLV\d{4})", flags=re.I), lambda m: m.group(1).upper(), "多层贴片压敏电阻系列"),
+    (re.compile(r"^(V\d{4})", flags=re.I), lambda m: m.group(1).upper(), "贴片压敏电阻系列"),
+]
+TIMING_SERIES_PREFIX_MEANING = {
+    "TG": "温补晶体振荡器 / TCXO",
+    "SG": "石英晶体振荡器 / SPXO",
+    "VG": "压控晶体振荡器 / VCXO",
+    "FC": "石英晶体单元 / Crystal Unit",
+    "FA": "石英晶体单元 / Crystal Unit",
+}
+PANASONIC_ALUMINUM_SERIES_PATTERNS = [
+    re.compile(r"^(ECR\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(ECA\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(EEE\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(EEU\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(ECL\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(EKX\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(EKY\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(ECP\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(FCS\d[A-Z]{3})", flags=re.I),
+    re.compile(r"^(FCR\d[A-Z]{3})", flags=re.I),
+]
+
+
+def passive_series_should_replace(current_value, canonical_value, model=""):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    model_text = clean_model(model)
+    if canonical == "":
+        return False
+    if series_looks_missing(current):
+        return True
+    if current == canonical:
+        return False
+    current_upper = current.upper()
+    canonical_upper = canonical.upper()
+    if model_text != "" and current_upper == model_text.upper():
+        return True
+    if current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper):
+        return True
+    return False
+
+
+def merge_series_profile_values(result, profile, model=""):
+    if not isinstance(profile, dict):
+        return dict(result)
+    merged = dict(result)
+    profile_series = clean_text(profile.get("系列", ""))
+    series_replaced = False
+    if passive_series_should_replace(merged.get("系列", ""), profile_series, model=model):
+        merged["系列"] = profile_series
+        series_replaced = True
+    for col in ("系列说明", "特殊用途"):
+        profile_value = clean_text(profile.get(col, ""))
+        if profile_value == "":
+            continue
+        if clean_text(merged.get(col, "")) == "" or series_replaced:
+            merged[col] = profile_value
+    profile_type = normalize_component_type(profile.get("器件类型", ""))
+    if normalize_component_type(merged.get("器件类型", "")) == "" and profile_type != "":
+        merged["器件类型"] = profile_type
+    return merged
+
+
+def resolve_aluminum_electrolytic_series_profile(brand="", model="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    brand_upper = brand_text.upper()
+    model_text = clean_model(model)
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": "铝电解电容",
+    }
+    if model_text == "":
+        return result
+    if "JIANGHAI" in brand_upper or "江海" in brand_text or jianghai_series_code_from_model(model_text) != "":
+        series_code = jianghai_series_code_from_model(model_text)
+        if series_code != "":
+            profile = jianghai_series_profile(series_code, model_text)
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": jianghai_series_meaning(series_code, model_text),
+                    "特殊用途": clean_text(profile.get("特殊用途", "")),
+                    "器件类型": "铝电解电容",
+                },
+                model=model_text,
+            )
+    if "NICHICON" in brand_upper or "尼吉康" in brand_text:
+        series_code = nichicon_series_code_from_model(model_text)
+        if series_code != "":
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Nichicon {series_code} 铝电解电容系列",
+                    "器件类型": "铝电解电容",
+                },
+                model=model_text,
+            )
+    if any(token in brand_upper for token in ("CHEMI-CON", "CHEMICON")) or "贵弥功" in brand_text:
+        series_code = chemi_con_series_code_from_model(model_text)
+        if series_code != "":
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Chemi-Con {series_code} 铝电解电容系列",
+                    "器件类型": "铝电解电容",
+                },
+                model=model_text,
+            )
+    if "PANASONIC" in brand_upper or "松下" in brand_text:
+        for pattern in PANASONIC_ALUMINUM_SERIES_PATTERNS:
+            match = pattern.match(model_text)
+            if match:
+                series_code = clean_text(match.group(1)).upper()
+                return merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": f"Panasonic {series_code} 铝电解电容系列",
+                        "器件类型": "铝电解电容",
+                    },
+                    model=model_text,
+                )
+    if clean_text(result.get("系列", "")) != "" and clean_text(result.get("系列说明", "")) == "":
+        result["系列说明"] = build_series_description_fallback("铝电解电容", brand=brand_text, series=result["系列"], special_use=result.get("特殊用途", ""))
+    return result
+
+
+def resolve_thermistor_series_profile(brand="", model="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    model_text = clean_model(model)
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": "热敏电阻",
+    }
+    if model_text == "":
+        return result
+    murata_profile = murata_ntc_series_profile_from_model(model_text)
+    murata_series = clean_text(murata_profile.get("系列", ""))
+    if murata_series != "":
+        return merge_series_profile_values(
+            result,
+            {
+                "系列": murata_series,
+                "系列说明": clean_text(murata_profile.get("系列说明", "")),
+                "特殊用途": clean_text(murata_profile.get("特殊用途", "")),
+                "器件类型": "热敏电阻",
+            },
+            model=model_text,
+        )
+    for pattern, desc_suffix, inferred_use in THERMISTOR_SERIES_RULES:
+        match = pattern.match(model_text)
+        if not match:
+            continue
+        series_code = clean_text(match.group(1)).upper()
+        series_brand = "TDK/EPCOS" if series_code.startswith("B") else brand_text
+        return merge_series_profile_values(
+            result,
+            {
+                "系列": series_code,
+                "系列说明": f"{series_brand} {series_code} {desc_suffix}".strip(),
+                "特殊用途": normalize_special_use("/".join(part for part in [result.get("特殊用途", ""), inferred_use] if clean_text(part) != "")),
+                "器件类型": "热敏电阻",
+            },
+            model=model_text,
+        )
+    if "FENGHUA" in brand_text.upper() or "风华" in brand_text:
+        fenghua_match = re.match(r"^(CMF[A-Z])", model_text)
+        if fenghua_match:
+            series_code = clean_text(fenghua_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{brand_text} {series_code} NTC thermistor series",
+                    "器件类型": "热敏电阻",
+                },
+                model=model_text,
+            )
+    if clean_text(result.get("系列", "")) != "" and clean_text(result.get("系列说明", "")) == "":
+        result["系列说明"] = build_series_description_fallback("热敏电阻", brand=brand_text, series=result["系列"], special_use=result.get("特殊用途", ""))
+    return result
+
+
+def resolve_varistor_series_profile(brand="", model="", component_type="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    model_text = clean_model(model)
+    normalized_type = normalize_component_type(component_type) or "压敏电阻"
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": normalized_type,
+    }
+    if model_text == "":
+        return result
+    for pattern, code_builder, desc_suffix in VARISTOR_SERIES_RULES:
+        match = pattern.match(model_text)
+        if not match:
+            continue
+        return merge_series_profile_values(
+            result,
+            {
+                "系列": clean_text(code_builder(match)),
+                "系列说明": f"{brand_text} {clean_text(code_builder(match))} {desc_suffix}".strip(),
+                "器件类型": normalized_type,
+            },
+            model=model_text,
+        )
+    if "LITTELFUSE" in brand_text.upper():
+        littelfuse_match = re.match(r"^(V(?:\d{2}P|8Z[A-Z]))", model_text)
+        if littelfuse_match:
+            series_code = clean_text(littelfuse_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{brand_text} {series_code} multilayer varistor series",
+                    "器件类型": normalized_type,
+                },
+                model=model_text,
+            )
+    if "BOURNS" in brand_text.upper():
+        bourns_match = re.match(r"^(CG\d{4}ML[A-Z])", model_text)
+        if bourns_match:
+            series_code = clean_text(bourns_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{brand_text} {series_code} chip varistor series",
+                    "器件类型": normalized_type,
+                },
+                model=model_text,
+            )
+    if clean_text(result.get("系列", "")) != "" and clean_text(result.get("系列说明", "")) == "":
+        result["系列说明"] = build_series_description_fallback(normalized_type, brand=brand_text, series=result["系列"], special_use=result.get("特殊用途", ""))
+    return result
+
+
+def resolve_timing_series_profile(brand="", model="", component_type="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    model_text = clean_model(model)
+    normalized_type = normalize_component_type(component_type)
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": normalized_type,
+    }
+    if model_text == "":
+        return result
+    series_code = clean_text(series)
+    if series_code == "":
+        match = re.match(r"^([A-Z]{2}\d{3,6})", model_text)
+        if match:
+            series_code = clean_text(match.group(1)).upper()
+    if series_code == "":
+        return result
+    series_desc_text = clean_text(series_desc)
+    if series_desc_text == "":
+        prefix_match = re.match(r"^[A-Z]{2}", series_code)
+        prefix_key = clean_text(prefix_match.group(0)).upper() if prefix_match else ""
+        family_desc = TIMING_SERIES_PREFIX_MEANING.get(prefix_key, "")
+        if family_desc != "":
+            series_desc_text = f"{brand_text} {series_code} {family_desc}".strip()
+        elif normalized_type in TIMING_COMPONENT_TYPES:
+            series_desc_text = build_series_description_fallback(normalized_type, brand=brand_text, series=series_code, special_use=result.get("特殊用途", ""))
+    return merge_series_profile_values(
+        result,
+        {
+            "系列": series_code,
+            "系列说明": series_desc_text,
+            "器件类型": normalized_type,
+        },
+        model=model_text,
+    )
+
+
+def resolve_generic_mlcc_brand_series_profile(brand="", model="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    brand_upper = brand_text.upper()
+    model_text = clean_model(model)
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": "MLCC",
+        "_mlcc_series_class": "",
+    }
+    if model_text == "":
+        return result
+    if "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text:
+        series_code = taiyo_mlcc_series_code_from_model(model_text)
+        if series_code != "":
+            profile = taiyo_mlcc_series_profile(series_code)
+            if clean_text(profile.get("系列说明", "")) == "":
+                profile["系列说明"] = f"Taiyo Yuden {series_code} MLCC official series"
+            return merge_series_profile_values(result, profile, model=model_text)
+    if "WALSIN" in brand_upper or "华新科" in brand_text:
+        series_code = walsin_mlcc_series_code_from_model(model_text) or extract_size_prefixed_mlcc_series_code(model_text)
+        if series_code != "":
+            profile = walsin_mlcc_series_profile(series_code)
+            if clean_text(profile.get("系列说明", "")) == "":
+                dielectric = clean_text(WALSIN_NUMERIC_MLCC_DIELECTRIC.get(series_code[-1], ""))
+                if dielectric != "":
+                    profile["系列说明"] = f"{brand_text} {series_code} {dielectric} MLCC系列"
+                else:
+                    profile["系列说明"] = f"{brand_text} {series_code} MLCC系列"
+            return merge_series_profile_values(result, profile, model=model_text)
+    if "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text:
+        match = re.match(r"^([A-Z]{2,4})(?=\d)", model_text)
+        series_code = clean_text(match.group(1)).upper() if match else extract_size_prefixed_mlcc_series_code(model_text)
+        if series_code == "":
+            fallback_patterns = (
+                r"^(M39014)",
+                r"^(\d{3}[A-Z])",
+                r"^([A-Z]{5,8})(?=[0-9/])",
+            )
+            for pattern in fallback_patterns:
+                fallback_match = re.match(pattern, model_text)
+                if fallback_match:
+                    series_code = clean_text(fallback_match.group(1)).upper()
+                    break
+        if series_code:
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Kyocera AVX {series_code} MLCC official series",
+                    "器件类型": "MLCC",
+                },
+                model=model_text,
+            )
+    if "MURATA" in brand_upper or "村田" in brand_text:
+        series_code = murata_series_code_from_model(model_text)
+        if series_code == "":
+            murata_generic_match = re.match(r"^(DEA|DE[12]|DEBB|DEBE|DEBF|DECB|DECE|DEC|DEF|DESD|KCA|KC|LLD|WBM|RHDL|EVA|GCB|GJ)", model_text)
+            series_code = clean_text(murata_generic_match.group(1)).upper() if murata_generic_match else extract_leading_alpha_series_code(model_text, min_len=2, max_len=4)
+        if series_code != "":
+            series_desc_text = murata_series_meaning(series_code)
+            if series_desc_text in {"Murata 官方系列代码", ""}:
+                series_desc_text = f"Murata {series_code} capacitor official series"
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": series_desc_text,
+                    "器件类型": "MLCC",
+                },
+                model=model_text,
+            )
+    if "HRE" in brand_upper or "芯声微" in brand_text:
+        parsed = parse_generic_size_first_mlcc(model_text, brand=brand_text)
+        if parsed is not None:
+            series_code = clean_text(parsed.get("系列", ""))
+            if series_code != "":
+                return merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": clean_text(parsed.get("系列说明", "")) or f"{brand_text} {series_code} MLCC系列",
+                        "特殊用途": clean_text(parsed.get("特殊用途", "")),
+                        "器件类型": "MLCC",
+                    },
+                    model=model_text,
+                )
+    if "VIIYONG" in brand_upper or "微容" in brand_text:
+        match = re.match(r"^V[0-9R]+[A-Z](?P<size>\d{4})(?P<family>C0G|COG|HQC|NP0|NPO|X5R|X6S|X7R|X7S|X8R|Y5V)", model_text)
+        if match:
+            series_code = f"{clean_text(match.group('size'))}{clean_text(match.group('family')).upper()}"
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{brand_text} {series_code} MLCC系列",
+                    "器件类型": "MLCC",
+                },
+                model=model_text,
+            )
+    if "FOJAN" in brand_upper or "富捷" in brand_text:
+        series_code = extract_leading_alpha_series_code(model_text, min_len=2, max_len=6)
+        if series_code != "":
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{brand_text} {series_code} MLCC系列",
+                    "器件类型": "MLCC",
+                },
+                model=model_text,
+            )
+    return result
+
+
+def resolve_official_series_profile(brand="", model="", component_type="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    model_text = clean_model(model)
+    normalized_type = normalize_component_type(component_type)
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": normalized_type,
+    }
+    parsed = None
+    if model_text != "":
+        try:
+            parsed = parse_model_rule(model_text, brand=brand_text, component_type=normalized_type)
+        except Exception:
+            parsed = None
+    if isinstance(parsed, dict):
+        result = merge_series_profile_values(
+            result,
+            {
+                "系列": clean_text(parsed.get("系列", "")),
+                "系列说明": clean_text(parsed.get("系列说明", "")),
+                "特殊用途": clean_text(parsed.get("特殊用途", "")),
+                "器件类型": normalize_component_type(parsed.get("器件类型", "")),
+            },
+            model=model_text,
+        )
+    resolved_type = normalize_component_type(result.get("器件类型", "")) or normalized_type
+    if resolved_type == "MLCC":
+        result = merge_series_profile_values(
+            result,
+            resolve_mlcc_series_profile(
+                brand=brand_text,
+                model=model_text,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+        result = merge_series_profile_values(
+            result,
+            resolve_generic_mlcc_brand_series_profile(
+                brand=brand_text,
+                model=model_text,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type in RESISTOR_COMPONENT_TYPES:
+        result = merge_series_profile_values(
+            result,
+            infer_resistor_series_profile(
+                model_text,
+                brand=brand_text,
+                component_type=resolved_type,
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type == "热敏电阻":
+        result = merge_series_profile_values(
+            result,
+            resolve_thermistor_series_profile(
+                brand=brand_text,
+                model=model_text,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type == "铝电解电容":
+        result = merge_series_profile_values(
+            result,
+            resolve_aluminum_electrolytic_series_profile(
+                brand=brand_text,
+                model=model_text,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type in VARISTOR_COMPONENT_TYPES:
+        result = merge_series_profile_values(
+            result,
+            resolve_varistor_series_profile(
+                brand=brand_text,
+                model=model_text,
+                component_type=resolved_type,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type in TIMING_COMPONENT_TYPES:
+        result = merge_series_profile_values(
+            result,
+            resolve_timing_series_profile(
+                brand=brand_text,
+                model=model_text,
+                component_type=resolved_type,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    if clean_text(result.get("系列说明", "")) == "" and clean_text(result.get("系列", "")) != "":
+        fallback_desc = build_series_description_fallback(
+            normalize_component_type(result.get("器件类型", "")) or resolved_type,
+            brand=brand_text,
+            series=result.get("系列", ""),
+            special_use=result.get("特殊用途", ""),
+        )
+        if fallback_desc != "":
+            result["系列说明"] = fallback_desc
+    return result
+
+
 def normalize_mounting_style(value, package_code=""):
     text = " ".join([clean_text(value), clean_text(package_code)]).upper()
     if text == "":
@@ -11375,6 +12129,8 @@ def parse_kyocera_avx_common(model):
     return {
         "品牌": "晶瓷Kyocera AVX",
         "型号": model,
+        "系列": extract_size_prefixed_mlcc_series_code(model),
+        "系列说明": f"Kyocera AVX {extract_size_prefixed_mlcc_series_code(model)} MLCC official series" if extract_size_prefixed_mlcc_series_code(model) else "",
         "尺寸（inch）": size_map.get(match.group("size"), clean_size(match.group("size"))),
         "材质（介质）": clean_material(material_map.get(match.group("mat"), "")),
         "容值_pf": murata_cap_code_to_pf(match.group("cap")),
@@ -11948,6 +12704,18 @@ def fill_missing_spec_fields_from_model(df):
             parsed_type = normalize_component_type(infer_spec_component_type(parsed))
         if "器件类型" in df.columns and clean_text(df.at[idx, "器件类型"]) == "" and parsed_type != "":
             df.at[idx, "器件类型"] = parsed_type
+        if "系列" in df.columns and clean_text(df.at[idx, "系列"]) == "":
+            parsed_series = clean_text(parsed.get("系列", ""))
+            if parsed_series != "":
+                df.at[idx, "系列"] = parsed_series
+        if "系列说明" in df.columns and clean_text(df.at[idx, "系列说明"]) == "":
+            parsed_series_desc = clean_text(parsed.get("系列说明", ""))
+            if parsed_series_desc != "":
+                df.at[idx, "系列说明"] = parsed_series_desc
+        if "特殊用途" in df.columns and clean_text(df.at[idx, "特殊用途"]) == "":
+            parsed_special_use = clean_text(parsed.get("特殊用途", ""))
+            if parsed_special_use != "":
+                df.at[idx, "特殊用途"] = parsed_special_use
         if clean_text(df.at[idx, "尺寸（inch）"]) == "":
             df.at[idx, "尺寸（inch）"] = parsed.get("尺寸（inch）", "")
         if clean_text(df.at[idx, "材质（介质）"]) == "":
@@ -17521,6 +18289,21 @@ def brand_priority_value(brand, component_type=""):
             ("旺诠", 10), ("RALEC", 10),
             ("KOA", 11), ("BOURNS", 12), ("STACKPOLE", 13), ("SUSUMU", 14), ("PANASONIC", 15),
         ]
+    elif ctype in CAPACITOR_COMPONENT_TYPES:
+        priorities = [
+            ("信昌", 1), ("PDC", 1),
+            ("华新科", 2), ("WALSIN", 2), ("华科", 2),
+            ("芯声微", 3), ("HRE", 3),
+            ("风华", 4), ("FENGHUA", 4), ("FENGHUA ADVANCED", 4),
+            ("村田", 5), ("MURATA", 5),
+            ("TDK", 6), ("东电化", 6),
+            ("国巨", 7), ("YAGEO", 7), ("YEGO", 7),
+            ("三环", 8), ("CCTC", 8),
+            ("太阳诱电", 9), ("TAIYO", 9),
+            ("三星", 10), ("SAMSUNG", 10),
+            ("三和", 11), ("SAMWHA", 11),
+            ("江海", 12), ("JIANGHAI", 12), ("NANTONG JIANGHAI", 12),
+        ]
     else:
         priorities = [
             ("信昌", 1), ("PDC", 1),
@@ -17787,11 +18570,20 @@ def apply_match_levels_and_sort(df, spec):
     if "_mlcc_class_rank" in work.columns:
         sort_cols.append("_mlcc_class_rank")
         ascending.append(True)
-    if "_matched_param_count" in work.columns:
-        sort_cols.append("_matched_param_count")
-        ascending.append(False)
-    sort_cols.extend(["_brand_rank", "品牌", "型号"])
-    ascending.extend([True, True, True])
+    if target_type in CAPACITOR_COMPONENT_TYPES:
+        sort_cols.append("_brand_rank")
+        ascending.append(True)
+        if "_matched_param_count" in work.columns:
+            sort_cols.append("_matched_param_count")
+            ascending.append(False)
+        sort_cols.extend(["品牌", "型号"])
+        ascending.extend([True, True])
+    else:
+        if "_matched_param_count" in work.columns:
+            sort_cols.append("_matched_param_count")
+            ascending.append(False)
+        sort_cols.extend(["_brand_rank", "品牌", "型号"])
+        ascending.extend([True, True, True])
     work = work.sort_values(by=sort_cols, ascending=ascending)
     return work.drop(columns=["_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
 

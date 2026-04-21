@@ -1539,3 +1539,31 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 为了避免 iframe 内部页脚和外层代理页脚同时出现，已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 调整为固定底栏覆盖式布局：主应用继续走 Streamlit iframe，底部只保留一条纯文字固定页脚。
 - 已重新部署 Cloudflare Pages，并用 Playwright 在 100% 视口下复测 `https://fruition-component.pages.dev/`：主内容正常显示，管理员邮箱固定在页面底部，未再出现气泡框，也没有 75% 缩放才露出的情况。
 - Verification: `deploy_cloudflare_pages_proxy.ps1` 成功完成 Pages deploy；`verify_public_final_footer.png` 通过人工确认。
+
+## 2026-04-21 电容品牌排序优先级调整
+- 用户确认电容匹配结果的品牌优先顺序应为 `信昌 > 华新科 > 芯声微`，现有通用非电阻排序没有把 `芯声微/HRE` 提前，导致 MLCC 结果页里优先品牌被村田、TDK、国巨等品牌压到后面。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `brand_priority_value()` 中拆出电容专用分支，对 `CAPACITOR_COMPONENT_TYPES` 单独应用品牌优先级：`信昌/PDC -> 华新科/Walsin/华科 -> 芯声微/HRE`，其余品牌保持原有后续顺序。
+- 这次改动只影响电容类结果表的 `_brand_rank`，不改电阻、热敏、电感、晶振等其它器件的排序规则。
+- Verification pending: 需要运行本地校验并在下一次公开发布后复测 `CL05B472KB5VPNC` 这类 MLCC 查询结果顺序。
+
+## 2026-04-22 厚声电阻系列改为官方系列码
+- 用户指出厚声 `NQ02WGJ0105TCE` 在结果表里被显示成 `NQ02WGJ`，这不是官方系列码，而是把型号片段直接截断后当作系列；厚声官方资料明确把 `NQ` 定义为“抗硫化汽车级晶片电阻器”系列。
+- 已在 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 中加入厚声官方系列字典，并让 `infer_resistor_series_profile()` 优先按品牌 + 型号前缀回官方系列码；当前已覆盖 `NQ / CQ / TC / LE` 及一批厚声官网已公开的电阻系列。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中把电阻解析结果改成携带官方 `系列 / 系列说明 / 特殊用途`，同时把电阻系列回填逻辑从“只补空白”改成“必要时可把 `NQ02WGJ` 这种错误型号片段纠正回 `NQ` 官方系列码”。
+- 本地验证通过：`infer_resistor_series_profile('NQ02WGJ0105TCE', brand='厚声UNI-ROYAL')` 现返回 `系列=NQ`、`系列说明=抗硫化汽车级晶片电阻器`、`特殊用途=车规 | 抗硫化`；查询 `RMS04JT105` 时，厚声候选行也已显示为该官方系列信息。
+- 说明：全库 `--backfill-series` 与 `--rebuild-prepared-cache` 在当前机器上运行超过 1 小时超时，已停止，避免继续空转；但当前本地查询链路已经能即时显示修正后的厚声系列信息。
+
+## 2026-04-22 电容结果排序将品牌优先级前置
+- 用户反馈电容型号查询中，芯声微 `HRE` 虽然品牌优先级已设在华新科之后、村田/TDK 之前，但页面结果里仍然被排到最下面。
+- 本地排查确认原因不在品牌映射，而在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `apply_match_levels_and_sort()`：旧逻辑对电容也是先按 `_matched_param_count` 排，再按 `_brand_rank` 排，导致芯声微即使品牌优先级更高，也会被命中数或旧顺序压到后面。
+- 已把电容类（`CAPACITOR_COMPONENT_TYPES`）排序改为：`_seed_rank -> _level_rank -> _mlcc_class_rank -> _brand_rank -> _matched_param_count -> 品牌 -> 型号`；其它器件保持原排序，不受影响。
+- 本地用 `CGA2B3X7R1H104KT0Y0F` 验证后，排序结果已变为 `华新科Walsin -> 芯声微HRE -> 村田Murata -> 东电化TDK -> 国巨YAGEO -> 太诱Taiyo`，符合“华新科优先、芯声微在村田/TDK 前”的要求。
+
+## 2026-04-22 系列解析统一扩到多品牌多器件 + 正式版默认发布规则
+- 记录新的协作规则：除非用户明确说明“先做测试版 / 不发布正式版”，否则默认流程是 `先抓根因 -> 用最短路径修复 -> 做必要验证 -> 直接发布公开正式版`；这条规则已同步写入 [`docs/codex_working_rules.md`](C:/Users/zjh/Desktop/data/docs/codex_working_rules.md)。
+- 已把“按型号命名规则回官方系列”的逻辑从厚声电阻扩到更多品牌与器件类型，核心收口点在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `resolve_official_series_profile()` 与 `fill_missing_series_from_model()`。
+- 本次新增或补强的系列解析覆盖了：华新科 `0201B/0402N/...` 数字前缀 MLCC、太诱 `AWK/EMF/...` MLCC、晶瓷 Kyocera AVX `0201YC/04023C/100A/600F/...` MLCC、富捷 `FCC` MLCC、微容 `0402X7R/0201HQC/...` MLCC、村田 `DEA/DE1/DE2/...` 长尾电容系列、Littelfuse `V05P/V10P/...` 贴片压敏、Bourns `CG0402MLC/...` 贴片压敏、风华 `CMFA/CMFB/...` 热敏电阻。
+- 已执行数据库原地系列回填与缓存重建：调用 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 内置 `backfill_series_fields_in_database()` 完成 `components.db`、`cache/components_prepared_v5.parquet`、`cache/components_search.sqlite` 同步刷新。
+- 回填后主缺口已显著下降：原先大批量缺失的 `华新科Walsin / 太诱Taiyo / 富捷FOJAN / 微容VIIYONG / 村田Murata` 等 MLCC 系列已基本补齐，当前数据库剩余未覆盖主要集中在少量长尾 `Kyocera AVX`、`Littelfuse/Bourns` 压敏与极少数第三方热敏品牌。
+- 已同时把页面管理员邮箱改回“普通页面底部元素”方案：[`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 不再用固定定位页脚；[`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 也移除了外层固定代理底栏，避免出现双页脚或始终悬浮在视口底部的效果。
+- 本地样例验证通过：`0201B101J160CT -> 0201B`、`AWK105BJ105MPHF -> AWK`、`04023C104KAT2A -> 04023C`、`FCC0402B472K500AT -> FCC`、`V104K0402X7R250NBT -> 0402X7R`、`DEA1X3A220JC1B -> DEA`、`V10P25PL1T7 -> V10P`、`CG0402MLC-05LGA -> CG0402MLC`、`CMFA104J4150HANT -> CMFA`。
