@@ -1568,3 +1568,9 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已同时把页面管理员邮箱改回“普通页面底部元素”方案：[`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 不再用固定定位页脚；[`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 也移除了外层固定代理底栏，避免出现双页脚或始终悬浮在视口底部的效果。
 - 本地样例验证通过：`0201B101J160CT -> 0201B`、`AWK105BJ105MPHF -> AWK`、`04023C104KAT2A -> 04023C`、`FCC0402B472K500AT -> FCC`、`V104K0402X7R250NBT -> 0402X7R`、`DEA1X3A220JC1B -> DEA`、`V10P25PL1T7 -> V10P`、`CG0402MLC-05LGA -> CG0402MLC`、`CMFA104J4150HANT -> CMFA`。
 - 进一步排查正式版发布链路时发现根因之一：[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开发布白名单之前遗漏了 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py)，这会导致电阻系列官方规则在本地已生效、但公开正式版仍可能沿用旧文件。现已补入白名单，后续公开发布会自动携带该规则文件。
+
+## 2026-04-22 无替代结果提示气泡与料号资料卡距离过远
+- 用户反馈：当型号查询已命中原厂料号资料、但未找到其他品牌替代结果时，页面会显示 `已找到原厂料号资料，暂未找到其他品牌替代结果` 提示气泡；当前这个气泡距离“匹配料号资料”卡片过远，视觉上像被推到了下一段内容。
+- 排查确认根因不在提示气泡本身，而在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `estimate_match_card_iframe_height()`：即使 `result_row_count = 0`，无替代结果场景仍然沿用普通结果卡的最小高度 `576px`，导致 `components.html(...)` 外层保留了一大块空白，进而把后面的 `st.info(...)` 提示气泡整体向下推开。
+- 已将 `estimate_match_card_iframe_height()` 改为对 `0` 个匹配结果走紧凑高度分支，仅保留原厂资料表和卡片收尾所需空间；有实际匹配结果的场景仍然保持原有高度策略，不影响正常结果表浏览体验。
+- 预期效果：无替代结果时，提示气泡会紧跟在“匹配料号资料”卡片下方出现，不再出现大段无意义空白。

@@ -17544,9 +17544,12 @@ def estimate_match_card_iframe_height(part_row_count, result_row_count):
     # ten visible rows before scrolling internally, then reserve extra space for
     # a visible rounded footer so the single-model bubble closes cleanly.
     part_height = 124 + (part_visible_rows - 1) * 34
-    result_height = 118 + result_visible_rows * 34
     footer_height = 28
     chrome_height = 28
+    if result_row_count <= 0:
+        compact_total = part_height + footer_height + chrome_height + 28
+        return max(228, min(300, compact_total))
+    result_height = 118 + result_visible_rows * 34
     total = part_height + result_height + footer_height + chrome_height
     return max(576, min(676, total))
 
