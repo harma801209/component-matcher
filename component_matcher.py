@@ -595,6 +595,28 @@ def get_configured_access_code():
     return str(os.getenv(APP_ACCESS_CODE_ENV, "")).strip()
 
 
+def get_query_param_value(name):
+    try:
+        value = st.query_params.get(name, "")
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        return str(value).strip()
+    except Exception:
+        try:
+            params = st.experimental_get_query_params()
+            value = params.get(name, [""])
+            if isinstance(value, list):
+                value = value[0] if value else ""
+            return str(value).strip()
+        except Exception:
+            return ""
+
+
+def should_render_inline_footer():
+    embed_value = get_query_param_value("embed").lower()
+    return embed_value not in {"1", "true", "yes", "on"}
+
+
 def require_app_access():
     startup_trace("require_app_access:enter")
     access_code = get_configured_access_code()
@@ -20599,18 +20621,19 @@ if uploaded_file is not None:
         st.error(f"BOM 处理失败：{e}")
 
 
-st.markdown(
-    '''
-    <div class="app-footer-shell">
-    <div class="app-footer">
-        网站管理员：Terry Wu　　
-        系统问题请与管理员联系：
-        <a href="mailto:terry@fruition-sz.com" style="color: #1565c0; text-decoration: none;">terry@fruition-sz.com</a>
-    </div>
-    </div>
-    ''',
-    unsafe_allow_html=True
-)
+if should_render_inline_footer():
+    st.markdown(
+        '''
+        <div class="app-footer-shell">
+        <div class="app-footer">
+            网站管理员：Terry Wu　　
+            系统问题请与管理员联系：
+            <a href="mailto:terry@fruition-sz.com" style="color: #1565c0; text-decoration: none;">terry@fruition-sz.com</a>
+        </div>
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
 startup_trace("after_footer")
 
 

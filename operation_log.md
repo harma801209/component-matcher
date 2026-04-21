@@ -1526,3 +1526,10 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中的 `.app-frame` 从 `bottom: -40px; height: calc(100vh + 40px);` 改成严格贴合视口的 `bottom: 0; height: 100vh;`，避免固定页脚被 iframe 底边裁切。
 - 这次改动只影响 `pages.dev` 代理壳，不改主应用内容；目标是让代理页在 100% 缩放下也能显示纯文字页脚，而不是只在 75% 缩放时露出一角。
 - Verification pending: 需要把代理壳重新发布到 Cloudflare Pages 并复测 `fruition-component.pages.dev`。
+
+## 2026-04-21 页脚拆分为代理壳底栏
+- 用户进一步确认想要的是“网页底部固定显示”，不是跟随内容滚动的页尾，因此把页脚拆成两层实现。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中加入 `embed=true` 判断，嵌入模式下不再渲染应用内页脚，避免和外层代理壳重复。
+- 已在 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中把代理页改成上下布局：iframe 负责承载主应用，底部单独渲染一条纯文字页脚栏，并给 iframe 加了缓存版本号 `v=20260421-footer-1`。
+- 这个方案的目标是让 `pages.dev` 上的管理员邮箱永远贴在网页底部显示，不依赖页面缩放，也不再使用气泡卡片样式。
+- Verification pending: 需要重新发布 Cloudflare Pages，并在浏览器里验证底栏是否在 100% 缩放时稳定可见。
