@@ -35,6 +35,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
+from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile
 
 
 def quiet_nonessential_console_noise():
@@ -673,8 +674,11 @@ footer {visibility: hidden;}
 
 .block-container {
     max-width: 1180px;
+    min-height: calc(100vh - 5.5rem);
+    display: flex;
+    flex-direction: column;
     padding-top: 0.8rem;
-    padding-bottom: 2rem;
+    padding-bottom: 1.2rem;
 }
 .main-title {
     text-align: center;
@@ -996,6 +1000,27 @@ footer {visibility: hidden;}
     border-top: 1px solid rgba(191, 219, 254, 0.42);
     border-radius: 0 0 14px 14px;
     background: linear-gradient(180deg, rgba(248, 250, 255, 0.18) 0%, rgba(248, 250, 255, 0.72) 100%);
+}
+.app-footer-shell {
+    margin-top: auto;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding-top: 1.25rem;
+}
+.app-footer {
+    width: min(1180px, calc(100vw - 24px));
+    margin-top: 0;
+    padding: 8px 14px;
+    border: 1px solid #e6e6e6;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    text-align: center;
+    color: #666;
+    font-size: 13px;
+    line-height: 1.45;
+    box-sizing: border-box;
 }
 .match-card-query-pill {
     display: inline-flex;
@@ -2888,6 +2913,7 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
     if not re.match(r"^(AA|AC|AF|AR|AT|RC|RT)\d{4}[A-Z]", compact):
         return None
+    series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
     size = clean_size(compact[2:6])
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(compact[6], ""))
     right_segment = compact.rsplit("-", 1)[-1] if "-" in compact else compact[7:]
@@ -2900,6 +2926,8 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
         "品牌": clean_brand(brand),
         "型号": compact,
         "器件类型": normalize_component_type(component_type),
+        "系列": series_profile["系列"],
+        "系列说明": series_profile["系列说明"],
         "尺寸（inch）": size,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
@@ -2914,6 +2942,7 @@ def parse_murata_mhr_resistor_model(model, brand="", component_type=""):
     match = re.fullmatch(r"MHR(\d{4})SA(\d{3})([BCDFGJKM])([A-Z0-9]{2,})", compact)
     if not match:
         return None
+    series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
     resistance_ohm = parse_resistor_value_code(match.group(2))
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group(3), ""))
     if resistance_ohm is None:
@@ -2922,6 +2951,8 @@ def parse_murata_mhr_resistor_model(model, brand="", component_type=""):
         "品牌": clean_brand(brand),
         "型号": compact,
         "器件类型": normalize_component_type(component_type) or "厚膜电阻",
+        "系列": series_profile["系列"],
+        "系列说明": series_profile["系列说明"],
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
         "_model_rule_authority": "murata_mhr_model",
@@ -2934,6 +2965,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
     if not resistor_model_rule_candidate(model, brand=brand, component_type=component_type):
         return None
     compact = clean_model(model)
+    series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
     size = infer_resistor_size_from_model(compact)
     tol = infer_resistor_tolerance_from_model(compact, size_hint=size)
     resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
@@ -2943,6 +2975,8 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
         "品牌": clean_brand(brand),
         "型号": compact,
         "器件类型": normalize_component_type(component_type),
+        "系列": series_profile["系列"],
+        "系列说明": series_profile["系列说明"],
         "尺寸（inch）": size,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
@@ -4934,6 +4968,8 @@ def fill_missing_series_from_model(df):
 
     if "系列说明" not in work.columns:
         work["系列说明"] = ""
+    if "特殊用途" not in work.columns:
+        work["特殊用途"] = ""
     fenghua_model_mask = model_clean.str.match(r"^AM\d{2}[A-Z].*", na=False)
     fenghua_brand_mask = brand_clean.str.contains(r"FENGHUA|风华", case=False, regex=True, na=False)
     fenghua_mask = fenghua_model_mask | (fenghua_brand_mask & fenghua_model_mask)
@@ -5032,6 +5068,52 @@ def fill_missing_series_from_model(df):
         filled_mlcc_mask = mlcc_type_mask & ~current_series_after.apply(series_looks_missing)
         if filled_mlcc_mask.any():
             missing_mask.loc[filled_mlcc_mask] = False
+
+    resistor_type_mask = (
+        work["器件类型"].astype(str).apply(normalize_component_type).isin(RESISTOR_COMPONENT_TYPES)
+        if "器件类型" in work.columns
+        else pd.Series([False] * len(work), index=work.index)
+    )
+    if resistor_type_mask.any():
+        resistor_series_blank = work["系列"].astype("string").fillna("").apply(series_looks_missing)
+        resistor_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
+        resistor_target_mask = resistor_type_mask & (resistor_series_blank | resistor_desc_blank)
+        if resistor_target_mask.any():
+            def resolve_resistor_profile(row):
+                current_series = clean_text(row.get("系列", ""))
+                current_desc = clean_text(row.get("系列说明", ""))
+                profile = infer_resistor_series_profile(
+                    row.get("型号", ""),
+                    brand=row.get("品牌", ""),
+                    component_type=row.get("器件类型", ""),
+                    special_use=row.get("特殊用途", ""),
+                )
+                inferred_series = clean_text(profile.get("系列", ""))
+                series = current_series or inferred_series
+                series_desc = current_desc or build_resistor_series_description(
+                    brand=row.get("品牌", ""),
+                    series=series,
+                    component_type=row.get("器件类型", ""),
+                    special_use=row.get("特殊用途", ""),
+                )
+                return pd.Series({"系列": series, "系列说明": series_desc})
+
+            resistor_profile_df = work.loc[
+                resistor_target_mask,
+                ["品牌", "型号", "器件类型", "特殊用途", "系列", "系列说明"],
+            ].apply(resolve_resistor_profile, axis=1, result_type="expand")
+            if not resistor_profile_df.empty:
+                resistor_profile_df["系列"] = resistor_profile_df["系列"].astype("string").fillna("").apply(clean_text)
+                resistor_profile_df["系列说明"] = resistor_profile_df["系列说明"].astype("string").fillna("").apply(clean_text)
+                series_fill_mask = resistor_series_blank.loc[resistor_profile_df.index] & resistor_profile_df["系列"].ne("")
+                if series_fill_mask.any():
+                    fill_idx = series_fill_mask[series_fill_mask].index
+                    work.loc[fill_idx, "系列"] = resistor_profile_df.loc[fill_idx, "系列"]
+                    missing_mask.loc[fill_idx] = False
+                desc_fill_mask = resistor_desc_blank.loc[resistor_profile_df.index] & resistor_profile_df["系列说明"].ne("")
+                if desc_fill_mask.any():
+                    fill_idx = desc_fill_mask[desc_fill_mask].index
+                    work.loc[fill_idx, "系列说明"] = resistor_profile_df.loc[fill_idx, "系列说明"]
 
     if not missing_mask.any():
         return work
@@ -5727,7 +5809,23 @@ def build_resistor_rule_breakdown(model, parsed=None):
     model_clean = clean_model(model)
     rows = [{"段位": "型号", "原始片段": model_clean, "含义": "电阻命名通常以尺寸、阻值、容差、功率等字段组成", "结果": ""}]
     if parsed is not None:
+        series = clean_text(parsed.get("系列", ""))
+        series_desc = clean_text(parsed.get("系列说明", ""))
+        if series == "":
+            series_profile = infer_resistor_series_profile(model_clean, brand=parsed.get("品牌", ""), component_type=parsed.get("器件类型", ""))
+            series = series_profile["系列"]
+            if series_desc == "":
+                series_desc = series_profile["系列说明"]
+        if series_desc == "":
+            series_desc = build_series_description_fallback(
+                parsed.get("器件类型", ""),
+                brand=parsed.get("品牌", ""),
+                series=series,
+                special_use=parsed.get("特殊用途", ""),
+            )
         rows.extend([
+            {"段位": "系列前缀", "原始片段": series, "含义": "电阻系列代码 / 命名前缀", "结果": series},
+            {"段位": "系列说明", "原始片段": series_desc, "含义": "系列类别 / 产品定位", "结果": series_desc},
             {"段位": "尺寸（inch）", "原始片段": clean_size(parsed.get("尺寸（inch）", "")), "含义": "封装尺寸", "结果": clean_size(parsed.get("尺寸（inch）", ""))},
             {"段位": "阻值", "原始片段": clean_text(parsed.get("容值", "")) + clean_text(parsed.get("容值单位", "")), "含义": "按系列命名规则反推的阻值", "结果": f"{clean_text(parsed.get('容值', ''))}{clean_text(parsed.get('容值单位', ''))}"},
             {"段位": "容差", "原始片段": clean_tol_for_match(parsed.get("容值误差", "")), "含义": "阻值容差", "结果": clean_tol_for_match(parsed.get("容值误差", ""))},
@@ -5824,7 +5922,14 @@ def build_model_naming_interpretation(model, brand="", component_type=""):
         series_desc = clean_text(parsed.get("系列说明", "")) or fenghua_am_series_meaning(series_label)
         summary = f"按风华 {series_label} 系列（{series_desc}）官方命名规则拆分。"
     elif family == "resistor":
-        summary = "按电阻系列命名规则反推阻值、容差与封装。"
+        series_label = clean_text(parsed.get("系列", ""))
+        series_desc = clean_text(parsed.get("系列说明", ""))
+        if series_label != "" and series_desc != "":
+            summary = f"按电阻 {series_label} 系列（{series_desc}）命名规则反推阻值、容差与封装。"
+        elif series_label != "":
+            summary = f"按电阻 {series_label} 系列命名规则反推阻值、容差与封装。"
+        else:
+            summary = "按电阻系列命名规则反推阻值、容差与封装。"
     else:
         summary = f"已按 {resolved_type or '已知'} 命名规则解析。"
     if family.startswith("pdc_"):
@@ -9112,6 +9217,13 @@ def enrich_mlcc_dimension_fields_in_dataframe(df, spec_or_type=None, allow_onlin
 
 def build_component_display_row(spec, allow_online_lookup=False):
     spec = enrich_mlcc_dimension_fields_in_record(spec, allow_online_lookup=allow_online_lookup)
+    display_fallbacks = infer_display_fallback_fields_from_record(spec)
+    if display_fallbacks:
+        merged_spec = dict(spec)
+        for col, value in display_fallbacks.items():
+            if clean_text(merged_spec.get(col, "")) == "" and clean_text(value) != "":
+                merged_spec[col] = value
+        spec = merged_spec
     value, unit = spec_display_value_unit(spec)
     diameter_mm = normalize_dimension_mm_value(spec.get("直径（mm）", ""))
     height_mm = normalize_dimension_mm_value(spec.get("高度（mm）", ""))
@@ -9153,6 +9265,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         and body_size != ""
     ):
         size_display = body_size
+    power_source = clean_text(spec.get("_power", "")) or clean_text(spec.get("功率", ""))
     return {
         "器件类别": format_component_category_display(component_type),
         "系列": series_code,
@@ -9170,7 +9283,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "尺寸来源": clean_text(spec.get("尺寸来源", "")),
         "工作温度": normalize_working_temperature_text(spec.get("工作温度", "")),
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
-        "功率": format_power_display(spec.get("_power", "")),
+        "功率": format_power_display(power_source),
         "安装方式": normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")),
         "特殊用途": normalize_special_use(special_use),
         "脚距": pitch_display,
@@ -9423,6 +9536,11 @@ def infer_component_display_fallbacks_from_row(row):
         mounting_style = extract_mounting_style_from_text(row_text)
         if mounting_style != "":
             result["安装方式"] = mounting_style
+
+    display_fallbacks = infer_display_fallback_fields_from_record(row)
+    for col, value in display_fallbacks.items():
+        if col not in result and clean_text(value) != "":
+            result[col] = value
 
     if component_type == "铝电解电容":
         diameter_mm, height_mm, body_text = extract_electrolytic_dimensions_from_text(row_text)
@@ -10300,10 +10418,16 @@ def build_series_description_fallback(component_type, brand="", series="", speci
     if component_type == "引线型陶瓷电容":
         return f"{prefix}{series_text} 引线型陶瓷电容系列".strip()
     if component_type in RESISTOR_COMPONENT_TYPES:
+        if special_text != "":
+            return f"{prefix}{series_text} {special_text} {component_type}系列".strip()
         return f"{prefix}{series_text} {component_type}系列".strip()
     if component_type == "热敏电阻":
+        if special_text != "":
+            return f"{prefix}{series_text} {special_text} 热敏电阻系列".strip()
         return f"{prefix}{series_text} 热敏电阻系列".strip()
     if component_type in VARISTOR_COMPONENT_TYPES:
+        if special_text != "":
+            return f"{prefix}{series_text} {special_text} 压敏电阻系列".strip()
         return f"{prefix}{series_text} 压敏电阻系列".strip()
     if component_type in INDUCTOR_COMPONENT_TYPES:
         suffix = "磁珠系列" if component_type == "磁珠" else f"{component_type}系列"
@@ -10348,6 +10472,7 @@ def extract_mounting_style_from_text(text):
 
 SPECIAL_USE_RULES = [
     ("车规", [r"AEC[- ]?Q200", r"AUTOMOTIVE", r"车规"]),
+    ("抗硫化", [r"抗硫", r"ANTI[- ]?SULFUR", r"SULFUR"]),
     ("消费", [r"CONSUMER", r"NOTEBOOK", r"CPU", r"消费"]),
     ("工业", [r"INDUSTRIAL", r"工业"]),
     ("耐腐蚀", [r"CORROSION", r"耐腐蚀"]),
@@ -14381,6 +14506,103 @@ def build_working_temperature_from_sidecar_bounds(low_value, high_value):
     return ""
 
 
+RESISTOR_POWER_BY_SIZE = {
+    "01005": "1/32W",
+    "0201": "1/20W",
+    "0402": "1/16W",
+    "0603": "1/10W",
+    "0805": "1/8W",
+    "1206": "1/4W",
+    "1210": "1/2W",
+    "2010": "3/4W",
+    "2512": "1W",
+    "3225": "2W",
+}
+
+RESISTOR_MAX_WORKING_VOLTAGE_BY_SIZE = {
+    "01005": "15",
+    "0201": "25",
+    "0402": "50",
+    "0603": "75",
+    "0805": "150",
+    "1206": "200",
+    "1210": "200",
+    "2010": "400",
+    "2512": "500",
+    "3225": "500",
+}
+
+RESISTOR_DEFAULT_WORKING_TEMPERATURE = "-55~155℃"
+
+
+def infer_display_fallback_fields_from_record(record):
+    if record is None:
+        return {}
+
+    component_type = normalize_component_type(record.get("器件类型", "")) or infer_db_component_type(record)
+    row_text = build_component_context_text(record)
+    size_code = clean_size(record.get("尺寸（inch）", "")) or infer_resistor_size_from_model(record.get("型号", ""))
+    result = {}
+
+    power_text = clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
+    if power_text == "":
+        power_watt = record.get("_power_watt", "")
+        if power_watt is not None and not pd.isna(power_watt):
+            power_text = f"{format_sidecar_numeric_display(power_watt)}W"
+    if power_text == "":
+        power_text = find_power_in_text(row_text)
+    if power_text == "" and component_type in RESISTOR_COMPONENT_TYPES:
+        power_text = RESISTOR_POWER_BY_SIZE.get(size_code, "")
+    if power_text != "":
+        result["功率"] = format_power_display(power_text)
+
+    voltage_text = clean_text(record.get("耐压（V）", "")) or clean_text(record.get("最高工作电压", ""))
+    if voltage_text == "" and component_type in VARISTOR_COMPONENT_TYPES:
+        voltage_text = clean_text(record.get("_varistor_voltage", ""))
+    if voltage_text == "":
+        volt_num = record.get("_volt_num", "")
+        if volt_num is not None and not pd.isna(volt_num):
+            voltage_text = format_sidecar_numeric_display(volt_num)
+    if voltage_text == "":
+        voltage_text = parse_voltage_from_text(row_text)
+    if voltage_text == "" and component_type in RESISTOR_COMPONENT_TYPES:
+        voltage_text = RESISTOR_MAX_WORKING_VOLTAGE_BY_SIZE.get(size_code, "")
+    if voltage_text != "":
+        result["耐压（V）"] = clean_voltage(voltage_text)
+
+    work_temp_text = normalize_working_temperature_text(record.get("工作温度", ""))
+    if work_temp_text == "":
+        work_temp_text = extract_working_temperature_from_text(row_text)
+    if work_temp_text == "" and component_type in RESISTOR_COMPONENT_TYPES:
+        work_temp_text = RESISTOR_DEFAULT_WORKING_TEMPERATURE
+    if work_temp_text != "":
+        result["工作温度"] = work_temp_text
+
+    special_use_text = clean_text(record.get("特殊用途", "")) or clean_text(record.get("_special_use_norm", ""))
+    if special_use_text == "":
+        special_use_text = extract_special_use_from_text(row_text)
+    if special_use_text != "":
+        result["特殊用途"] = normalize_special_use(special_use_text)
+
+    mount_text = normalize_mounting_style(record.get("安装方式", ""), record.get("封装代码", ""))
+    if mount_text == "":
+        mount_text = extract_mounting_style_from_text(row_text)
+    if mount_text != "":
+        result["安装方式"] = normalize_mounting_style(mount_text, record.get("封装代码", ""))
+
+    status_text = clean_text(record.get("生产状态", "")) or clean_text(record.get("量产状态", ""))
+    if status_text == "":
+        for candidate in [record.get("备注1", ""), record.get("备注3", ""), row_text]:
+            if looks_like_official_status_text(candidate):
+                status_text = extract_official_status(candidate)
+                if status_text != "":
+                    break
+    if status_text != "":
+        result["生产状态"] = status_text
+
+    return result
+
+
 def query_search_sidecar_table_by_models(conn, table_name, models):
     model_list = [clean_text(model) for model in (models or []) if clean_text(model) != ""]
     if conn is None or not model_list:
@@ -15515,7 +15737,7 @@ def match_other_passive_spec(df, spec):
             work["_seed_rank"] = work["_model_rule_authority"].astype(str).apply(lambda value: 0 if clean_text(value) == "jianghai_seed" else 1)
         else:
             work["_seed_rank"] = 1
-        work["_brand_rank"] = work["品牌"].apply(brand_priority_value) if "品牌" in work.columns else 99
+        work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
         sort_cols = ["_seed_rank", "_brand_rank", "品牌", "型号"] if "品牌" in work.columns else ["_seed_rank"]
         ascending = [True] * len(sort_cols)
         work = work.sort_values(by=sort_cols, ascending=ascending)
@@ -17259,21 +17481,37 @@ def build_part_info_df(df, spec, query_model):
 
 
 
-def brand_priority_value(brand):
+def brand_priority_value(brand, component_type=""):
     b = clean_brand(brand).upper()
-    priorities = [
-        ("信昌", 1), ("PDC", 1),
-        ("华新科", 2), ("WALSIN", 2),
-        ("风华", 2), ("FENGHUA", 2), ("FENGHUA ADVANCED", 2),
-        ("村田", 3), ("MURATA", 3),
-        ("TDK", 4), ("东电化", 4),
-        ("国巨", 5), ("YAGEO", 5), ("YEGO", 5),
-        ("三环", 6), ("CCTC", 6),
-        ("太阳诱电", 7), ("TAIYO", 7),
-        ("三星", 8), ("SAMSUNG", 8),
-        ("三和", 9), ("SAMWHA", 9),
-        ("江海", 10), ("JIANGHAI", 10), ("NANTONG JIANGHAI", 10),
-    ]
+    ctype = normalize_component_type(component_type)
+    if ctype in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+        priorities = [
+            ("华新科", 1), ("WALSIN", 1), ("华科", 1),
+            ("信昌", 2), ("PDC", 2),
+            ("厚声", 3), ("UNI-ROYAL", 3), ("UNIROYAL", 3),
+            ("大毅", 4), ("TA-I", 4), ("TAI", 4),
+            ("光颉", 5), ("VIKING", 5),
+            ("国巨", 6), ("YAGEO", 6), ("YEGO", 6),
+            ("TE", 7), ("泰科", 7), ("TE CONNECTIVITY", 7),
+            ("RESI", 8), ("开步睿思", 8),
+            ("威世", 9), ("VISHAY", 9),
+            ("旺诠", 10), ("RALEC", 10),
+            ("KOA", 11), ("BOURNS", 12), ("STACKPOLE", 13), ("SUSUMU", 14), ("PANASONIC", 15),
+        ]
+    else:
+        priorities = [
+            ("信昌", 1), ("PDC", 1),
+            ("华新科", 2), ("WALSIN", 2),
+            ("风华", 2), ("FENGHUA", 2), ("FENGHUA ADVANCED", 2),
+            ("村田", 3), ("MURATA", 3),
+            ("TDK", 4), ("东电化", 4),
+            ("国巨", 5), ("YAGEO", 5), ("YEGO", 5),
+            ("三环", 6), ("CCTC", 6),
+            ("太阳诱电", 7), ("TAIYO", 7),
+            ("三星", 8), ("SAMSUNG", 8),
+            ("三和", 9), ("SAMWHA", 9),
+            ("江海", 10), ("JIANGHAI", 10), ("NANTONG JIANGHAI", 10),
+        ]
     for key, val in priorities:
         if key in b:
             return val
@@ -17437,7 +17675,8 @@ def apply_match_levels_and_sort(df, spec):
     if df.empty:
         return df
     work = df.copy()
-    if infer_spec_component_type(spec) == "MLCC":
+    target_type = infer_spec_component_type(spec)
+    if target_type == "MLCC":
         spec_size = clean_size(spec.get("尺寸（inch）", ""))
         spec_mat = clean_material(spec.get("材质（介质）", ""))
         spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
@@ -17519,7 +17758,7 @@ def apply_match_levels_and_sort(df, spec):
         work["_seed_rank"] = work["_model_rule_authority"].astype(str).apply(lambda value: 0 if clean_text(value) == "jianghai_seed" else 1)
     else:
         work["_seed_rank"] = 1
-    work["_brand_rank"] = work["品牌"].apply(brand_priority_value)
+    work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
     sort_cols = ["_seed_rank", "_level_rank"]
     ascending = [True, True]
     if "_mlcc_class_rank" in work.columns:
@@ -20361,10 +20600,12 @@ if uploaded_file is not None:
 
 st.markdown(
     '''
-    <div style="margin-top: 32px; padding-top: 14px; border-top: 1px solid #e6e6e6; text-align: center; color: #666; font-size: 14px;">
-        网站管理员：Terry Wu　
+    <div class="app-footer-shell">
+    <div class="app-footer">
+        网站管理员：Terry Wu　　
         系统问题请与管理员联系：
         <a href="mailto:terry@fruition-sz.com" style="color: #1565c0; text-decoration: none;">terry@fruition-sz.com</a>
+    </div>
     </div>
     ''',
     unsafe_allow_html=True

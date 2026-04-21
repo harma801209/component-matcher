@@ -22,6 +22,15 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
 ## Entries
 
+### 2026-04-21 03:05 [direct] Streamlit deploy auth vault standardized
+
+- Received / problem: User wants future releases to publish without repeated manual login, and asked to preserve previous login records so the deployment can become a standard process instead of a one-off rescue flow.
+- Investigation: Confirmed the repo already had a local auth snapshot helper in [streamlit_auth_state.py](C:/Users/zjh/Desktop/data/streamlit_auth_state.py), a manual login watcher in [tmp_keep_streamlit_login.py](C:/Users/zjh/Desktop/data/tmp_keep_streamlit_login.py), and a browser-deploy helper in [auto_streamlit_deploy.py](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py). Also verified that the dedicated Chromium profile directory [streamlit_cloud_profile](C:/Users/zjh/Desktop/data/streamlit_cloud_profile) already exists and contains persistent cookies, local storage, and session data, but the current session still falls back to sign-in on `share.streamlit.io/deploy`.
+- Fix / action: Standardized the deploy auth vault around the persistent profile directory plus the exported JSON snapshot. Updated [streamlit_auth_state.py](C:/Users/zjh/Desktop/data/streamlit_auth_state.py) to define the vault location and summarize it cleanly, changed [auto_streamlit_deploy.py](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py) and [tmp_keep_streamlit_login.py](C:/Users/zjh/Desktop/data/tmp_keep_streamlit_login.py) to launch Chrome with `launch_persistent_context()` against the local profile instead of only using transient storage state, and added an optional `-TriggerStreamlitDeploy` path in [publish_public.ps1](C:/Users/zjh/Desktop/data/publish_public.ps1) so the sync/push flow can also nudge Streamlit Cloud when needed.
+- Verification: Inspected the local Chrome cookie store and confirmed the profile vault already contains Streamlit, GitHub, and Google cookies; the login data tables do not show a usable saved password for those services, so the remaining manual step is still external account verification rather than a missing local script.
+- Other issues: The current Google sign-in path still requires the user to confirm on a trusted phone, so the vault cannot be fully refreshed in this session.
+- Handoff notes: Once the user can complete one more successful sign-in on a trusted device, the current scripts should keep the auth state locally and make future publishes a repeatable, low-friction workflow.
+
 ### 2026-04-12 02:25 [direct] 公开版修复 Community Cloud 沿用旧 bundle 数据的问题
 
 - Received / problem: 用户在 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/) 实测 `CM13093CT-102` 仍显示“无法识别输入内容”，说明上一轮公开版发布后，线上运行态没有真正吃到新的正式数据库与搜索缓存。
@@ -1484,3 +1493,17 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 - 已在 [`build_streamlit_cloud_bundle.py`](C:/Users/zjh/Desktop/data/build_streamlit_cloud_bundle.py) 的 manifest 里加入 `build_epoch_ns`，让每次正式发布都产生新的 bundle 签名，即使 bundle 内的搜索资产没变，Cloud 也会把旧抽取结果视为过期。
 - 这一层改动只影响发布/刷新判定，不改匹配逻辑；目标是把公开版从“偶尔能刷新”变成“每次发版都能强制刷新 bundle state”。
 - Verification pending: 需要重新 build / publish 后再做一次公网复测，确认这次 manifest 签名变化能否把 `MCL2012H100MT` 真正拉回可命中状态。
+
+## 2026-04-21 参数回填补强
+- 补了组件展示层的统一回填逻辑，把 `_power`、`_temp_low/_temp_high`、`_special_use_norm`、`_volt_num`、`_varistor_voltage` 这些内部字段统一回到 `功率`、`耐压（V）`、`工作温度`、`特殊用途`、`安装方式` 等可见列。
+- 电阻再加了尺寸级默认规则，当前 0402 / 0603 / 0805 这类常见封装会自动补 `耐压（V）` 和默认工作温度，避免空栏位长期挂着。
+- 本地已经用 `RMS04FT1003` 和 `RMS04JT222` 做过回归，`build_spec_info_df()` 和 `build_part_info_df()` 现在都能正确显示 `功率=1/16W`、`耐压（V）=50V`、`工作温度=-55~155℃`。
+- Verification: `python -m py_compile component_matcher.py` 通过。
+- Handoff notes: 下一步如果还看到其它器件类型大片空栏，再按同样模式把它们的内部推断字段补进展示层或解析层。
+
+## 2026-04-21 页脚改成流式底部卡片
+- 用户反馈公共站最底部的管理员邮箱在 100% 缩放下仍不稳定可见，尤其在页面被嵌入或容器裁切时更容易消失。
+- 已把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的页脚从 fixed 底栏改成页面流里的底部卡片，并让 `.block-container` 变成纵向 flex 容器，通过 `margin-top: auto` 把页脚稳定推到内容末尾。
+- 同时保留了页脚的卡片样式和中心对齐，让它在短页面里依旧贴近底部，在长页面里也会进入正常文档流，不再依赖 fixed 定位。
+- 本地已用 Playwright 复测，100% 视口下页脚可以稳定看到管理员邮箱。
+- Verification: `python -m py_compile component_matcher.py` 通过；本地截图 `local_after_patch_viewport.png` 通过人工确认。
