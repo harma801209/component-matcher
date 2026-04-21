@@ -1583,3 +1583,11 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - 压敏新增 `K0603ESDA`、`KESD0603/0805/1206`、`CNR-10N/V`、`MGUG/VCUG`、`0603` 尺寸前缀、`5D` / `2.5D` 等 family-code 识别。
 - 用“当前数据库剩余缺口样本”直接跑 [`fill_missing_series_from_model()`](C:/Users/zjh/Desktop/data/component_matcher.py) 复核后，理论剩余缺口已从 `21` 条降为 `0`；随后再次执行全库 `python component_matcher.py --backfill-series`，把新规则同步写回数据库、prepared parquet 和 search sqlite。
 - 当前本地数据库结果：`TRIM(型号) <> '' AND (系列='' OR 系列说明='')` 的剩余行数已为 `0`，表示现有库内所有带型号的元器件都已至少具备可展示的系列和系列说明。
+
+## 2026-04-22 公开站验收状态与 Streamlit 全量重建 nudge
+- 用 Playwright 直接验证公开正式站 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 后，当前线上状态分成两部分：
+  - `CGA2B3X7R1H104KT0Y0F` 的电容排序已经生效，前列品牌顺序为 `华新科Walsin -> 芯声微HRE -> 村田Murata ...`；
+  - footer 元素当前是普通文档流元素，计算样式为 `position: static`，不再是固定底栏；
+  - 但 `RMS04JT105` 的厚声候选行在线上仍显示旧值 `NQ02WGJ`，没有吃到本地已修正的 `NQ / 抗硫化汽车级晶片电阻器`。
+- 这说明问题不在本地规则或数据库，而在 Streamlit Cloud 当前运行态/数据包没有完全切到最新版本。由于自动部署脚本 [`auto_streamlit_deploy.py`](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py) 进入 [`https://share.streamlit.io/deploy`](https://share.streamlit.io/deploy) 后仍停在登录页，无法自动点击 Deploy，所以暂时不能通过账号侧强制手动重建。
+- 为了继续逼近自动生效路径，已把 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 注释刷新到 `2026-04-22`；这不会改变依赖版本，只是增加一次“依赖文件发生变化”的信号，尽量促使 Streamlit Cloud 执行完整 redeploy。
