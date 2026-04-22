@@ -1713,3 +1713,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 HRE MLCC 规则进一步收紧为：`CGA = 渠道常规 / General-purpose MLCC`，`CSA = 常规 / General-purpose MLCC`。
 - 新增 HRE `CGA* -> CSA*` 行复制逻辑，放在源数据规范化阶段，保证数据库、prepared cache、search sidecar 以及后续重建流程都会同时保留 `CGA` 和 `CSA` 两个前缀的同规格料号。
 - 更新 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json) 的 HRE 查询说明，明确 `CGA` 作为渠道常规变体、`CSA` 作为标准常规料号的配对关系。
+
+## 2026-04-23 HRE 查询缓存失效修复
+- 用户反馈在正式站搜索 `GCM155R71H333KE02D` 时，页面仍旧显示旧版排序，未把 `芯声微HRE CAI0402X7R333K500GT` 提到结果首位。
+- 本地复现后确认：`CAI0402X7R333K500GT` 已经在候选集与最终匹配结果中，问题不是数据库缺行，而是公开查询缓存没有随着排序/系列规则变化及时失效。
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 从 `11` 提升到 `12`，并同步刷新 `PUBLIC_CODE_STAMP`，强制让公开站的会话缓存和查询结果缓存重算。
+- 本地验证：同一条 `GCM155R71H333KE02D` 现在重新排序后，`芯声微HRE CAI0402X7R333K500GT` 排在结果第 1 位。
