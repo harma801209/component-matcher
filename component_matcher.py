@@ -3845,7 +3845,7 @@ HRE_MLCC_SERIES_MEANING = {
     "CAA": "车规 / Automotive MLCC",
     "CAI": "车规 / Automotive MLCC",
     "CIA": "工业 / Industrial MLCC",
-    "CGA": "常规 MLCC/渠道",
+    "CGA": "渠道常规 / General-purpose MLCC",
     "CSA": "常规 / General-purpose MLCC",
     "CSS": "常规 / Soft-termination MLCC",
     "CSO": "常规 / General-purpose MLCC",
@@ -4081,6 +4081,40 @@ def hre_mlcc_series_profile(series_code):
 
 def hre_mlcc_series_profile_from_model(model):
     return hre_mlcc_series_profile(hre_mlcc_series_code_from_model(model))
+
+
+def expand_hre_cga_rows_to_csa(df):
+    if df is None or df.empty or "型号" not in df.columns:
+        return df
+    work = df.copy()
+    model_clean = work["型号"].astype("string").fillna("").apply(clean_model)
+    if "品牌" in work.columns:
+        brand_clean = work["品牌"].astype("string").fillna("").apply(clean_brand)
+    else:
+        brand_clean = pd.Series([""] * len(work), index=work.index, dtype="string")
+    if "器件类型" in work.columns:
+        component_type_clean = work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+    else:
+        component_type_clean = pd.Series([""] * len(work), index=work.index, dtype="string")
+    hre_mask = (
+        brand_clean.str.contains(r"HRE|芯声微", case=False, regex=True, na=False)
+        & model_clean.str.startswith("CGA", na=False)
+        & (component_type_clean.eq("") | component_type_clean.eq("MLCC"))
+    )
+    if not hre_mask.any():
+        return work
+    clones = work.loc[hre_mask].copy()
+    clones["型号"] = clones["型号"].astype("string").fillna("").apply(clean_model).str.replace(r"^CGA", "CSA", regex=True)
+    clones["系列"] = "CSA"
+    clones["系列说明"] = "常规 / General-purpose MLCC"
+    if "特殊用途" in clones.columns:
+        clones["特殊用途"] = ""
+    if "_mlcc_series_class" in clones.columns:
+        clones["_mlcc_series_class"] = "常规"
+    if "_model_rule_authority" in clones.columns:
+        clones["_model_rule_authority"] = "hre_cga_to_csa_clone"
+    combined = pd.concat([work, clones], ignore_index=True, sort=False)
+    return combined
 
 
 def generic_mlcc_series_profile_from_model(model, brand=""):
@@ -13500,6 +13534,7 @@ def read_source_component_dataframe(source_path):
         if df.empty:
             return df
         df = normalize_imported_component_dataframe(df, source_path=source_path)
+        df = expand_hre_cga_rows_to_csa(df)
         if df is None or df.empty:
             return pd.DataFrame()
         return deduplicate_component_rows(df)
@@ -13526,6 +13561,7 @@ def read_source_component_dataframe(source_path):
                     if clean_text(df.at[row_idx, "备注2"]) == "" and clean_text(url) != "":
                         df.at[row_idx, "备注2"] = url
             df = normalize_imported_component_dataframe(df, source_path=source_path)
+            df = expand_hre_cga_rows_to_csa(df)
             if not df.empty:
                 all_dfs.append(df)
         except Exception:
@@ -13609,6 +13645,9 @@ def update_database(force=False):
         except Exception:
             pass
         startup_trace("update_database:done")
+
+if clean_text(os.getenv("COMPONENT_MATCHER_SKIP_AUTO_UPDATE", "")) not in {"1", "true", "yes", "on"}:
+    update_database()
 
 def auto_refresh_db(interval_sec=300):
     def loop():

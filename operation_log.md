@@ -1708,3 +1708,8 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
   - `CGA`：市场在流通但未出现在公开品牌页的渠道专用常规 MLCC 变体
 - 已把上述规则补进 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py)，并让 HRE 行在解析时直接按品牌官方系列码回填 `系列 / 系列说明 / 特殊用途`，避免继续使用截前缀的占位描述。
 - 已回填芯声微 HRE 相关数据库行并重建缓存。
+
+## 2026-04-23 芯声微 HRE CGA/CSA 双前缀复制与系列说明收口
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 HRE MLCC 规则进一步收紧为：`CGA = 渠道常规 / General-purpose MLCC`，`CSA = 常规 / General-purpose MLCC`。
+- 新增 HRE `CGA* -> CSA*` 行复制逻辑，放在源数据规范化阶段，保证数据库、prepared cache、search sidecar 以及后续重建流程都会同时保留 `CGA` 和 `CSA` 两个前缀的同规格料号。
+- 更新 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json) 的 HRE 查询说明，明确 `CGA` 作为渠道常规变体、`CSA` 作为标准常规料号的配对关系。

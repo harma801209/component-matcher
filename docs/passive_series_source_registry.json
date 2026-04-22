@@ -418,7 +418,7 @@
           "url": "https://datasheet.lcsc.com/lcsc/2208051100_HRE-CSA0805X7R223K500KT_C3015147.pdf"
         }
       ],
-      "lookup_method": "Official site plus authorized brand page and series guides; use model prefix rules for CAA/CAI/CIA/CSA/CSS/CSO, and treat CGA as a channel-specific common MLCC variant",
+      "lookup_method": "Official site plus authorized brand page and series guides; use model prefix rules for CAA/CAI/CIA/CSA/CSS/CSO, and treat CGA as the channel-common MLCC variant paired with CSA as the standard common MLCC",
       "status": "partial"
     }
   ]
