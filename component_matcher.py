@@ -1384,8 +1384,26 @@ RESISTOR_EIA96_MULTIPLIERS = {
     "E": 10000,
     "F": 100000,
 }
+TAI_RESISTOR_PREFIXES = ("RASS", "RMSV", "RMH", "RBA", "RMS", "RLS", "RB", "RM")
+TAI_RESISTOR_SIZE_MAP = {
+    "01": "01005",
+    "02": "0201",
+    "04": "0402",
+    "06": "0603",
+    "10": "0805",
+    "12": "1206",
+    "13": "1210",
+    "20": "2010",
+    "25": "2512",
+}
+TAI_RLS_OFFICIAL_PROFILE = {
+    "系列": "RLS",
+    "系列说明": "金属箔电流检测电阻",
+    "器件类型": "合金电阻",
+    "特殊用途": "车规 | 电流检测",
+}
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|AT|RC|RT|WR|WF|MR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
     "02": "01005",
@@ -2833,6 +2851,70 @@ def parse_resistor_value_code(code):
     return parse_eia96_resistor_code(token)
 
 
+def match_tai_resistor_prefix(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in TAI_RESISTOR_PREFIXES:
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def parse_tai_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    prefix = match_tai_resistor_prefix(compact)
+    if prefix == "":
+        return None
+    rest = compact[len(prefix):]
+    if len(rest) < 4:
+        return None
+    size_code = clean_text(rest[:2])
+    size = clean_size(TAI_RESISTOR_SIZE_MAP.get(size_code, ""))
+    tol_code = clean_text(rest[2:3]).upper()
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(tol_code, ""))
+    if size == "" or tol == "":
+        return None
+    packaging_code = clean_text(rest[3:4]).upper()
+    tail = rest[4:] if len(rest) > 4 else ""
+    resistance_ohm, value_code = extract_resistor_value_from_model(tail or rest, size_hint=size)
+    if resistance_ohm is None:
+        resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
+    if resistance_ohm is None:
+        return None
+
+    brand_hint = clean_brand(brand) or "大毅科技"
+    fallback_component_type = "合金电阻" if prefix == "RLS" else (normalize_component_type(component_type) or "厚膜电阻")
+    if prefix == "RLS":
+        series_profile = dict(TAI_RLS_OFFICIAL_PROFILE)
+    else:
+        series_profile = infer_resistor_series_profile(
+            compact,
+            brand=brand_hint,
+            component_type=fallback_component_type,
+        )
+    resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or fallback_component_type
+    resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
+    power_text = RESISTOR_POWER_BY_SIZE.get(size, "")
+
+    return {
+        "品牌": clean_brand(brand),
+        "型号": compact,
+        "器件类型": resolved_component_type,
+        "系列": clean_text(series_profile.get("系列", "")) or prefix,
+        "系列说明": clean_text(series_profile.get("系列说明", "")),
+        "特殊用途": resolved_special_use,
+        "尺寸（inch）": size,
+        "容值误差": tol,
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": "tai_resistor_model",
+        "_value_code": value_code,
+        "_packaging_code": packaging_code,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0]),
+    }
+
+
 def extract_resistor_value_from_model(model, size_hint=""):
     compact = clean_model(model)
     if compact == "":
@@ -2871,6 +2953,12 @@ def infer_resistor_size_from_model(model):
     compact = clean_model(model)
     if compact == "":
         return ""
+    tai_prefix = match_tai_resistor_prefix(compact)
+    if tai_prefix != "":
+        size_code = compact[len(tai_prefix):len(tai_prefix) + 2]
+        mapped = clean_size(TAI_RESISTOR_SIZE_MAP.get(size_code, ""))
+        if mapped != "":
+            return mapped
     size = find_embedded_size(compact)
     if size != "":
         return size
@@ -2894,6 +2982,13 @@ def infer_resistor_tolerance_from_model(model, size_hint=""):
     compact = clean_model(model)
     if compact == "":
         return ""
+    tai_prefix = match_tai_resistor_prefix(compact)
+    if tai_prefix != "":
+        tol_idx = len(tai_prefix) + 2
+        if tol_idx < len(compact):
+            tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(compact[tol_idx], ""))
+            if tol != "":
+                return tol
     if len(compact) >= 7 and compact[2:6].isdigit() and compact[6] in RESISTOR_TOLERANCE_CODE_MAP:
         return clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP[compact[6]])
     value_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size_hint)
@@ -3013,7 +3108,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 
 
 def parse_resistor_model_rule(model, brand="", component_type=""):
-    for parser in (parse_murata_mhr_resistor_model, parse_yageo_chip_resistor_model, parse_generic_resistor_model):
+    for parser in (parse_murata_mhr_resistor_model, parse_yageo_chip_resistor_model, parse_tai_resistor_model, parse_generic_resistor_model):
         parsed = parser(model, brand=brand, component_type=component_type)
         if parsed is not None:
             return parsed
@@ -12506,6 +12601,9 @@ def reverse_spec_partial(model):
         return parse_yageo_partial(m)
     if m.startswith("C"):
         return parse_tdk_partial(m)
+    parsed = parse_model_rule(m, brand="", component_type="")
+    if isinstance(parsed, dict) and parsed:
+        return parsed
     return None
 
 def normalize_header(col):
@@ -20766,16 +20864,15 @@ if search_clicked:
                     line_index - 1,
                     stage_step=2,
                     current_text=line,
-                    stage_text="完整元件库为空",
-                    note="数据库为空，请先确认 Excel 数据",
+                    stage_text="整库回退未就绪",
+                    note="当前输入未命中快速索引，且当前环境未加载整库回退数据；已跳过这一条并继续后续输入",
                     extra_chips=base_chips or [{"label": "路径", "value": "整库回退", "tone": "warn"}],
                 )
                 if not database_empty_warned:
-                    st.warning("数据库为空，请先确认 Excel 数据")
+                    st.warning("当前环境未加载整库回退数据；本条输入已跳过，后续输入会继续处理。")
                     database_empty_warned = True
                 search_stats["warning"] += 1
-                aborted_reason = "数据库为空，搜索已提前停止"
-                break
+                continue
 
             if mode == "无法识别" or spec is None:
                 render_search_progress(

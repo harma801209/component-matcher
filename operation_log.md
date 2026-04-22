@@ -1625,3 +1625,27 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - `RB04BTP1001 -> 系列=RB / 系列说明=薄膜晶片电阻器`
 - 将更新推到 `main` 后，Playwright 直接读取公开正式站内层 `srcdoc` 仍发现旧值 `0402WGJ / RMS04J / AS02J / AA0402JR`，说明问题已从“本地规则/缓存未更新”转移为“Streamlit Cloud 运行态尚未重拉最新仓库内容”。
 - 已再次刷新 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 时间戳，作为最小化的完整重建触发信号，不改任何依赖版本，仅用于催促 Streamlit Cloud 强制重新部署并加载最新系列规则与 bundle 分片。
+
+## 2026-04-22 批量型号查询在 `RMS04FT1242` 后提前中断的根因修复
+- 用户提供一组连续的电阻型号批量输入后，公开站在显示到 `RMS04FT1242` 之后就不再继续，并错误提示“数据库为空，请先确认 Excel 数据”。根因不是数据库真的空，而是第 6 条开始的若干大毅型号（如 `RMS04FT7682 / RMS04FT1622 / RMSV10JT100 / RLS10FTSR015`）没有被当前型号规则识别，误走到 `full_dataframe` 整库回退分支；而公网环境这条整库分支本来就可能暂时不可用，导致原逻辑直接 `break` 掉整批搜索。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中新增大毅官方电阻编码解析器 `parse_tai_resistor_model()`，按官方命名位解析 `RMS / RMSV / RMH / RASS / RBA / RB / RM / RLS` 这批系列的 `系列 / 尺寸 / 容值误差 / 阻值 / 功率`。其中：
+  - `RMS04FT7682 / RMS04FT1622 / RMS04FT6040 / RMS04FT8202 / RMS06FT2R00 / RMS12FT60R4` 现在都能直接按大毅规则反推为 `料号`；
+  - `RMSV10JT100` 现在会解析为 `系列=RMSV / 系列说明=高功率抗硫化车载晶片电阻 / 尺寸=0805 / 误差=±5%`；
+  - `RLS10FTSR015 / RLS12FTSR015` 现在会解析为 `系列=RLS / 系列说明=金属箔电流检测电阻 / 器件类型=合金电阻`，并以 `料号片段` 继续匹配。
+- 同时把 `reverse_spec_partial()` 扩成通用兜底：除 MLCC 外，凡是 [`parse_model_rule()`](C:/Users/zjh/Desktop/data/component_matcher.py) 能直接按型号反推出规格的器件，都会进入批量路径继续搜索，不再因为“不是 MLCC/TDK/Murata 旧分支”而被落回无法识别。
+- 最关键的流程修复是把批量循环里 `resolution_path == "full_dataframe" and query_df empty` 的处理从“整批提前停止”改成“当前行警告并继续后续输入”。这避免了单个型号未命中快速索引时，把后续几十条已存在数据的型号一起拦截掉。
+- 本地复测用户给出的 32 条输入后，结果已全部跑通，不再在第 6 条中断。当前逐条解析结果摘要：
+  - `01-05` 继续按既有 `fast_query` 返回；
+  - `06 RMS04FT7682 -> fast_query / 料号 / 7 rows`
+  - `11 RMS04FT1622 -> fast_query / 料号 / 9 rows`
+  - `17 RMS04FT6040 -> fast_query / 料号 / 12 rows`
+  - `18 RMS04FT8202 -> fast_query / 料号 / 19 rows`
+  - `26 RMS06FT2R00 -> fast_query / 料号 / 34 rows`
+  - `28 RMSV10JT100 -> fast_query / 料号 / 54 rows`
+  - `29 RLS10FTSR015 -> exact_model_lookup / 料号片段 / 1 row`
+  - `30 RMS12FT60R4 -> fast_query / 料号 / 34 rows`
+  - `32 RLS12FTSR015 -> exact_model_lookup / 料号片段 / 1 row`
+- 这次修复使用的大毅官方依据为：
+  - [`RMS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMS.pdf)
+  - [`RMSV.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMSV.pdf)
+  - [`RLS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RLS.pdf)
