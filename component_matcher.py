@@ -3179,7 +3179,21 @@ def resistor_series_should_replace(current_value, canonical_value):
         return False
     current_upper = current.upper()
     canonical_upper = canonical.upper()
+    if canonical == "普通厚膜" and re.fullmatch(r"\d{4,5}[A-Z0-9]{2,}", current_upper):
+        return True
     return current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper)
+
+
+def resistor_series_desc_should_replace(current_value, canonical_value):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    if canonical == "":
+        return False
+    if current == "":
+        return True
+    if current == canonical:
+        return False
+    return current.endswith("电阻系列")
 
 
 def mlcc_series_should_replace(current_value, canonical_value):
@@ -5227,10 +5241,8 @@ def fill_missing_series_from_model(df):
                 work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
                 missing_mask.loc[replace_idx] = False
 
-            desc_fill_mask = (
-                series_replace_mask
-                | (current_desc.eq("") & profile_desc.ne(""))
-            )
+            desc_refresh_mask = current_desc.combine(profile_desc, resistor_series_desc_should_replace)
+            desc_fill_mask = series_replace_mask | desc_refresh_mask
             if desc_fill_mask.any():
                 replace_idx = desc_fill_mask[desc_fill_mask].index
                 work.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]

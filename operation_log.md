@@ -1599,3 +1599,27 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - `RMS04JT105` 在线结果中，厚声 `NQ02WGJ0105TCE` 现已显示为 `系列=NQ`、`系列说明=抗硫化汽车级晶片电阻器`；
   - `CGA2B3X7R1H104KT0Y0F` 在线结果前列品牌顺序仍为 `华新科Walsin -> 芯声微HRE -> 芯声微HRE -> 村田Murata ...`，排序要求成立；
   - footer 元素复测仍为 `position: static`，说明当前正式版确实是普通页面底部元素，不是 fixed/sticky 底栏。
+
+## 2026-04-22 电阻官方系列码继续扩到厚声 / 大毅 / 光颉 / 国巨
+- 用户新增指出一批“系列列被型号片段污染”的典型错误：`0402WGJ0000TCE -> 0402WGJ`、`HP02WAJ0000TCE -> HP02WAJ`、`RMS04JTN0 -> RMS04J`、`AS02JT-R0R0 -> AS02J`。共同根因不是单一型号 bug，而是 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 仍主要依赖通用截前缀逻辑，缺少品牌级官方 family resolver。
+- 已将 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 重构为“品牌 token -> 官方系列表 -> 型号前缀解析器”的表驱动结构，并新增以下官方 family 映射：
+  - 厚声 `普通厚膜 / CQ / HP / NM / NQ`；
+  - 大毅 `RM / RB / RBA / RMH / RMS / RMSV / RASS`；
+  - 光颉 `CR / AR / AS / ASG`；
+  - 国巨 `AA / AC / AF / AT / RC / RT`。
+- 同时修正了两个数据回填根因：
+  - [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `resistor_series_should_replace()` 新增“尺寸码污染系列列”替换规则，允许把 `0402WGJ / 0603SAF / 010500J...` 这类尺寸前缀错误系列回写为 `普通厚膜`；
+  - 同文件新增 `resistor_series_desc_should_replace()`，即使 `系列` 已经是正确官方 family code，也会把旧的“品牌 + 截断系列 + 厚膜/薄膜电阻系列”占位说明刷新为官方系列说明。
+- 期间还抓到一个隐藏 bug：`normalize_series_code()` 以前会无脑去掉结尾 `T`，导致合法官方系列码 `AT / RT` 被误砍成 `A / R`；现已改为仅对长度大于 `2` 的尾部 `T` 做兼容清洗，避免破坏真实系列码。
+- 为了避免再次跑整库 1 小时级别回填，采取了更短路径：直接用 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 对已识别品牌家族的电阻数据做定向数据库更新，两次共更新 `52488 + 55343` 行，然后仅重建 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与 [`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)。
+- 当前主库与 prepared cache 抽样验证均已通过：
+  - `0402WGJ0000TCE -> 系列=普通厚膜 / 系列说明=普通厚膜晶片电阻器`
+  - `CQ02WGJ0000TCE -> 系列=CQ / 系列说明=汽车级晶片电阻器`
+  - `HP02WAJ0000TCE -> 系列=HP / 系列说明=高功率厚膜晶片电阻器`
+  - `NM02WGJ0000TCE -> 系列=NM / 系列说明=无磁厚膜晶片电阻器`
+  - `RMS04JTN0 -> 系列=RMS / 系列说明=抗硫化车载晶片电阻`
+  - `AS02JT-R0R0 -> 系列=AS / 系列说明=抗硫化厚膜晶片电阻器`
+  - `AR02BTC1000 -> 系列=AR / 系列说明=薄膜精密晶片电阻器`
+  - `AA0402JR-070RL -> 系列=AA / 系列说明=汽车级抗硫化厚膜晶片电阻器`
+  - `AT0603DRD074K99L -> 系列=AT / 系列说明=车规薄膜晶片电阻器`
+  - `RB04BTP1001 -> 系列=RB / 系列说明=薄膜晶片电阻器`
