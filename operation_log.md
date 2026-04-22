@@ -1678,3 +1678,11 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
     - `KOA 厚膜电阻 -> SG73P / RS73G / RS73F / SG73S / RK73H`
     - `Panasonic 厚膜电阻 -> ERJ-S06F / ERJ-U08F / ERJ-S08F / ERJ-S02F`
 - 这套基础设施的作用是把后续“补官方系列规则”变成有顺序的执行队列：每次只需要从报告顶部拿一个 `品牌 / 器件类型 / 前缀簇`，再按登记的官网入口去补 family rule，然后重跑报告，观察缺口是否下降。
+
+## 2026-04-22 KAMAYA 官方系列补齐并回填
+- 根据 KAMAYA 官方电阻产品页补入官方系列表，新增 [`KAMAYA_OFFICIAL_SERIES_PROFILES`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 和品牌 token 映射，覆盖 `RMC / RMCU / RGC / RNC / RMPC / RMCH / TWMC / RMGW / RMAW / FCR / RVC / RZC / RVAC / RPC / RPCH / RBX / RPGW / RCC / RLC / RLP / MLP / MLP63C / WLP63 / TWLC / RAC / RAAW / LTC / LPT` 等常见前缀。
+- 已将 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json) 中 `KAMAYA(釜屋電機)` 的状态从 `missing` 提升为 `partial`，并登记官网查询入口。
+- 对 `KAMAYA(釜屋電機)` 做了定向数据库回填，`18,250 / 18,251` 条原未收口行已写入官方系列信息，主要命中：
+  - `RPC63185JTE -> RPC / 车规抗浪涌厚膜芯片电阻器`
+  - `RMC10JPTH -> RMC / 车规/通用厚膜芯片电阻器`
+- 重新生成 [`docs/passive_series_gap_report.json`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.json) 与 [`docs/passive_series_gap_report.md`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md) 后，系列未收口行数从 `433,712` 进一步降到 `415,462`。

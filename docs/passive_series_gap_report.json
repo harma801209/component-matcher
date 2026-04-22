@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-04-22T15:04:57+08:00",
+  "generated_at": "2026-04-22T18:40:07+08:00",
   "summary": {
     "total_passive_rows": 1341695,
-    "unresolved_rows": 1198518,
-    "resolved_rows": 143177,
+    "unresolved_rows": 415462,
+    "resolved_rows": 926233,
     "distinct_unresolved_brands": 177,
-    "distinct_unresolved_brand_type_pairs": 375
+    "distinct_unresolved_brand_type_pairs": 370
   },
   "top_unresolved_brands": [
     {
       "brand": "威世Vishay",
       "total_rows": 464712,
-      "unresolved_rows": 464712,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
+      "unresolved_rows": 134033,
+      "coverage_rate": 0.7116,
+      "registry_status": "partial",
       "lookup_method": "Official resistor family pages and datasheets",
       "official_sources": [
         {
@@ -31,51 +31,6 @@
         "绕线电阻",
         "金属氧化膜电阻",
         "热敏电阻"
-      ]
-    },
-    {
-      "brand": "KOA",
-      "total_rows": 257740,
-      "unresolved_rows": 257740,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
-      "lookup_method": "KOA catalog family tables and product series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.koaspeer.com/"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
-        }
-      ],
-      "passive_types": [
-        "薄膜电阻",
-        "厚膜电阻",
-        "碳膜电阻",
-        "金属氧化膜电阻"
-      ]
-    },
-    {
-      "brand": "Stackpole",
-      "total_rows": 92327,
-      "unresolved_rows": 92327,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
-      "lookup_method": "Official resistor series catalog and datasheets",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.seielect.com/"
-        }
-      ],
-      "passive_types": [
-        "薄膜电阻",
-        "厚膜电阻",
-        "绕线电阻",
-        "金属氧化膜电阻",
-        "碳膜电阻"
       ]
     },
     {
@@ -105,35 +60,32 @@
       ]
     },
     {
-      "brand": "Panasonic",
-      "total_rows": 71250,
-      "unresolved_rows": 71250,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
-      "lookup_method": "Official resistor catalog and part-number family pages",
+      "brand": "Stackpole",
+      "total_rows": 92327,
+      "unresolved_rows": 29496,
+      "coverage_rate": 0.6805,
+      "registry_status": "partial",
+      "lookup_method": "Official resistor series catalog and datasheets",
       "official_sources": [
         {
-          "kind": "product-page",
-          "url": "https://industrial.panasonic.com/ww/products/resistors"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
+          "kind": "official-site",
+          "url": "https://www.seielect.com/"
         }
       ],
       "passive_types": [
-        "厚膜电阻",
         "薄膜电阻",
-        "贴片压敏电阻",
-        "铝电解电容"
+        "厚膜电阻",
+        "绕线电阻",
+        "金属氧化膜电阻",
+        "碳膜电阻"
       ]
     },
     {
       "brand": "TE Connectivity(泰科电子)",
       "total_rows": 40218,
-      "unresolved_rows": 40218,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
+      "unresolved_rows": 17492,
+      "coverage_rate": 0.5651,
+      "registry_status": "partial",
       "lookup_method": "TE passive product pages and passive product datasheets",
       "official_sources": [
         {
@@ -146,58 +98,6 @@
         "厚膜电阻",
         "金属氧化膜电阻",
         "碳膜电阻"
-      ]
-    },
-    {
-      "brand": "进工业Susumu",
-      "total_rows": 23331,
-      "unresolved_rows": 23331,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
-      "lookup_method": "Official product families and datasheet model tables",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www1.susumu.co.jp/en/"
-        },
-        {
-          "kind": "datasheet",
-          "url": "https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf"
-        }
-      ],
-      "passive_types": [
-        "薄膜电阻"
-      ]
-    },
-    {
-      "brand": "KAMAYA(釜屋電機)",
-      "total_rows": 18251,
-      "unresolved_rows": 18251,
-      "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
-    },
-    {
-      "brand": "ROHM",
-      "total_rows": 10204,
-      "unresolved_rows": 10204,
-      "coverage_rate": 0.0,
-      "registry_status": "pending",
-      "lookup_method": "Official resistor series pages and catalogs",
-      "official_sources": [
-        {
-          "kind": "resistor-page",
-          "url": "https://www.rohm.com/products/resistors"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.rohm.com/"
-        }
-      ],
-      "passive_types": [
-        "电阻"
       ]
     },
     {
@@ -243,6 +143,30 @@
         "电感",
         "磁珠",
         "热敏电阻"
+      ]
+    },
+    {
+      "brand": "KOA",
+      "total_rows": 257740,
+      "unresolved_rows": 8179,
+      "coverage_rate": 0.9683,
+      "registry_status": "partial",
+      "lookup_method": "KOA catalog family tables and product series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.koaspeer.com/"
+        },
+        {
+          "kind": "catalog",
+          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
+        }
+      ],
+      "passive_types": [
+        "薄膜电阻",
+        "厚膜电阻",
+        "碳膜电阻",
+        "金属氧化膜电阻"
       ]
     },
     {
@@ -422,6 +346,30 @@
       "passive_types": []
     },
     {
+      "brand": "Panasonic",
+      "total_rows": 71250,
+      "unresolved_rows": 4420,
+      "coverage_rate": 0.938,
+      "registry_status": "partial",
+      "lookup_method": "Official resistor catalog and part-number family pages",
+      "official_sources": [
+        {
+          "kind": "product-page",
+          "url": "https://industrial.panasonic.com/ww/products/resistors"
+        },
+        {
+          "kind": "catalog",
+          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
+        }
+      ],
+      "passive_types": [
+        "厚膜电阻",
+        "薄膜电阻",
+        "贴片压敏电阻",
+        "铝电解电容"
+      ]
+    },
+    {
       "brand": "尼吉康Nichicon",
       "total_rows": 3821,
       "unresolved_rows": 3821,
@@ -579,6 +527,27 @@
       ]
     },
     {
+      "brand": "ROHM",
+      "total_rows": 10204,
+      "unresolved_rows": 911,
+      "coverage_rate": 0.9107,
+      "registry_status": "partial",
+      "lookup_method": "Official resistor series pages and catalogs",
+      "official_sources": [
+        {
+          "kind": "resistor-page",
+          "url": "https://www.rohm.com/products/resistors"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.rohm.com/"
+        }
+      ],
+      "passive_types": [
+        "电阻"
+      ]
+    },
+    {
       "brand": "CCO(千志电子)",
       "total_rows": 833,
       "unresolved_rows": 833,
@@ -657,6 +626,27 @@
       "lookup_method": "",
       "official_sources": [],
       "passive_types": []
+    },
+    {
+      "brand": "进工业Susumu",
+      "total_rows": 23331,
+      "unresolved_rows": 445,
+      "coverage_rate": 0.9809,
+      "registry_status": "partial",
+      "lookup_method": "Official product families and datasheet model tables",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www1.susumu.co.jp/en/"
+        },
+        {
+          "kind": "datasheet",
+          "url": "https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf"
+        }
+      ],
+      "passive_types": [
+        "薄膜电阻"
+      ]
     },
     {
       "brand": "Kyocera AVX",
@@ -1843,6 +1833,31 @@
       "passive_types": []
     },
     {
+      "brand": "KAMAYA(釜屋電機)",
+      "total_rows": 18251,
+      "unresolved_rows": 1,
+      "coverage_rate": 0.9999,
+      "registry_status": "partial",
+      "lookup_method": "Official resistor product pages and family-series list",
+      "official_sources": [
+        {
+          "kind": "product-page",
+          "url": "https://www.kamaya.co.jp/products/resistors/"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.kamaya.co.jp/"
+        }
+      ],
+      "passive_types": [
+        "薄膜电阻",
+        "厚膜电阻",
+        "绕线电阻",
+        "金属氧化膜电阻",
+        "热敏电阻"
+      ]
+    },
+    {
       "brand": "LATTICE(莱迪思)",
       "total_rows": 1,
       "unresolved_rows": 1,
@@ -2016,15 +2031,15 @@
   "top_unresolved_component_types": [
     {
       "component_type": "薄膜电阻",
-      "unresolved_rows": 690626
+      "unresolved_rows": 201017
     },
     {
       "component_type": "厚膜电阻",
-      "unresolved_rows": 373103
+      "unresolved_rows": 113400
     },
     {
       "component_type": "绕线电阻",
-      "unresolved_rows": 71662
+      "unresolved_rows": 37922
     },
     {
       "component_type": "金属氧化膜电阻",
@@ -2060,11 +2075,11 @@
     },
     {
       "component_type": "贴片电阻",
-      "unresolved_rows": 947
+      "unresolved_rows": 946
     },
     {
       "component_type": "合金电阻",
-      "unresolved_rows": 835
+      "unresolved_rows": 832
     },
     {
       "component_type": "共模电感",
@@ -2079,67 +2094,67 @@
     {
       "brand": "威世Vishay",
       "component_type": "薄膜电阻",
-      "unresolved_rows": 350549,
-      "registry_status": "pending",
+      "unresolved_rows": 100654,
+      "registry_status": "partial",
       "top_prefixes": [
         {
-          "prefix": "RNC55",
-          "count": 45028
+          "prefix": "0805",
+          "count": 2369
         },
         {
-          "prefix": "RNC50",
-          "count": 30193
+          "prefix": "MCT",
+          "count": 2202
         },
         {
-          "prefix": "RLR07C",
-          "count": 19433
+          "prefix": "MMA0204",
+          "count": 1823
         },
         {
-          "prefix": "RNC60",
-          "count": 17827
+          "prefix": "SMM0204",
+          "count": 1586
         },
         {
-          "prefix": "RN55",
-          "count": 17580
+          "prefix": "0402",
+          "count": 1325
         },
         {
-          "prefix": "RLR05C",
-          "count": 16019
+          "prefix": "CMF551K",
+          "count": 1109
         },
         {
-          "prefix": "M55342",
-          "count": 11718
+          "prefix": "SFR16",
+          "count": 1083
         },
         {
-          "prefix": "RN60",
-          "count": 9553
+          "prefix": "ERC551K",
+          "count": 950
         },
         {
-          "prefix": "RLR20C",
-          "count": 8191
+          "prefix": "1206",
+          "count": 918
         },
         {
-          "prefix": "RLR32C",
-          "count": 6261
+          "prefix": "PLTT0805Z",
+          "count": 886
         },
         {
-          "prefix": "D55342",
-          "count": 6015
+          "prefix": "PTN1206E",
+          "count": 831
         },
         {
-          "prefix": "RN65",
-          "count": 5980
+          "prefix": "SFR25",
+          "count": 779
         }
       ],
       "sample_models": [
         "SMM02040C6812FB300",
-        "PAT0603E8560BST1",
-        "TNPW04022K05BEED",
         "SMM02040C1009FB300",
         "SMM02040C1629FB300",
         "SMM02040C2000FB300",
         "SMM02040C3322FB300",
-        "SMM02040C3329FB300"
+        "SMM02040C3329FB300",
+        "SMM02040C1000FB300",
+        "SMM02040C5109FB300"
       ],
       "lookup_method": "Official resistor family pages and datasheets",
       "official_sources": [
@@ -2150,160 +2165,6 @@
         {
           "kind": "official-site",
           "url": "https://www.vishay.com/"
-        }
-      ]
-    },
-    {
-      "brand": "KOA",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 156154,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RN73H",
-          "count": 55392
-        },
-        {
-          "prefix": "RN73R",
-          "count": 53623
-        },
-        {
-          "prefix": "RN732B",
-          "count": 14793
-        },
-        {
-          "prefix": "RN732A",
-          "count": 14521
-        },
-        {
-          "prefix": "RN731J",
-          "count": 12290
-        },
-        {
-          "prefix": "RN731E",
-          "count": 5492
-        },
-        {
-          "prefix": "MF1/4CCT",
-          "count": 17
-        },
-        {
-          "prefix": "412",
-          "count": 10
-        },
-        {
-          "prefix": "MOS1CT52",
-          "count": 4
-        },
-        {
-          "prefix": "MF1/4DCT",
-          "count": 3
-        },
-        {
-          "prefix": "MFS1/2CC",
-          "count": 2
-        },
-        {
-          "prefix": "RF50C",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "RN732ATTD16R0B25",
-        "RN732ATTD1602B25",
-        "RN731JTTD5102B25",
-        "RN73H1ETTP1200B25",
-        "RN73H2ATTD1003B25",
-        "RN732ATTD1001B25",
-        "RN731JTTD1001B25",
-        "RN731JTTD1002B25"
-      ],
-      "lookup_method": "KOA catalog family tables and product series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.koaspeer.com/"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
-        }
-      ]
-    },
-    {
-      "brand": "KOA",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 100856,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "SG73P",
-          "count": 14407
-        },
-        {
-          "prefix": "RS73G",
-          "count": 13291
-        },
-        {
-          "prefix": "RS73F",
-          "count": 13234
-        },
-        {
-          "prefix": "SG73S",
-          "count": 12963
-        },
-        {
-          "prefix": "RK73H",
-          "count": 12397
-        },
-        {
-          "prefix": "RK73G",
-          "count": 9154
-        },
-        {
-          "prefix": "732",
-          "count": 5383
-        },
-        {
-          "prefix": "WK73R",
-          "count": 5063
-        },
-        {
-          "prefix": "RK73B",
-          "count": 3905
-        },
-        {
-          "prefix": "SG73G",
-          "count": 2165
-        },
-        {
-          "prefix": "731",
-          "count": 1745
-        },
-        {
-          "prefix": "WK73S",
-          "count": 1641
-        }
-      ],
-      "sample_models": [
-        "RK73H2BTTD2004F",
-        "RK73H1ETTP5360F",
-        "WK73R3ATTE510J",
-        "RK73H1JTTD1003F",
-        "RK73H1JTTD1002F",
-        "RK73H1JTTD2201F",
-        "RK73H1JTTD2701F",
-        "RK73H1JTTD3003F"
-      ],
-      "lookup_method": "KOA catalog family tables and product series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.koaspeer.com/"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
         }
       ]
     },
@@ -2386,211 +2247,57 @@
     },
     {
       "brand": "威世Vishay",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 56523,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "CRCW0603",
-          "count": 7426
-        },
-        {
-          "prefix": "CRCW0805",
-          "count": 7196
-        },
-        {
-          "prefix": "CRCW1206",
-          "count": 6808
-        },
-        {
-          "prefix": "RCP0",
-          "count": 4599
-        },
-        {
-          "prefix": "CRCW0402",
-          "count": 4376
-        },
-        {
-          "prefix": "CRCW2512",
-          "count": 3284
-        },
-        {
-          "prefix": "CRCW2010",
-          "count": 2952
-        },
-        {
-          "prefix": "CRCW1210",
-          "count": 2948
-        },
-        {
-          "prefix": "RCP1",
-          "count": 2300
-        },
-        {
-          "prefix": "RCP2",
-          "count": 2300
-        },
-        {
-          "prefix": "CRCW0201",
-          "count": 1409
-        },
-        {
-          "prefix": "CRCW1218",
-          "count": 1320
-        }
-      ],
-      "sample_models": [
-        "CRCW2010510KJNEF",
-        "CRCW0402120RFKED",
-        "CRCW060356K0FKEA",
-        "CRCW06032K00FKEA",
-        "CRCW12068R06FKEA",
-        "CRCW080582K0FKEA",
-        "CRCW060310K0JNEA",
-        "CRCW08053K90FKTA"
-      ],
-      "lookup_method": "Official resistor family pages and datasheets",
-      "official_sources": [
-        {
-          "kind": "product-family",
-          "url": "https://www.vishay.com/en/resistors-fixed/thinfilm/"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.vishay.com/"
-        }
-      ]
-    },
-    {
-      "brand": "Panasonic",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 55892,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "ERJ-S06F",
-          "count": 688
-        },
-        {
-          "prefix": "ERJ-U08F",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-S08F",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-S02F",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-U14F",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-S14F",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-U1DF",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-U1TF",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-S1DF",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-S1TF",
-          "count": 685
-        },
-        {
-          "prefix": "ERJ-U06F",
-          "count": 684
-        },
-        {
-          "prefix": "ERJ-S03F",
-          "count": 684
-        }
-      ],
-      "sample_models": [
-        "ERJ2RKD2943X",
-        "ERJ6GEYJ104V",
-        "ERJ-S12D49R9U",
-        "ERJ8BWFR100V",
-        "ERJ2RKF1212X",
-        "ERJ3EKF30R0V",
-        "ERJPA2J222X",
-        "ERJP03F2403V"
-      ],
-      "lookup_method": "Official resistor catalog and part-number family pages",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://industrial.panasonic.com/ww/products/resistors"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
-        }
-      ]
-    },
-    {
-      "brand": "威世Vishay",
       "component_type": "绕线电阻",
-      "unresolved_rows": 49993,
-      "registry_status": "pending",
+      "unresolved_rows": 16253,
+      "registry_status": "partial",
       "top_prefixes": [
         {
-          "prefix": "RWR81S",
-          "count": 5583
+          "prefix": "RWR84N",
+          "count": 745
         },
         {
-          "prefix": "RWR80S",
-          "count": 4932
+          "prefix": "AC",
+          "count": 622
         },
         {
-          "prefix": "RWR89S",
-          "count": 4364
+          "prefix": "0101",
+          "count": 539
         },
         {
-          "prefix": "RWR84S",
-          "count": 2356
+          "prefix": "0010",
+          "count": 509
         },
         {
-          "prefix": "RWR81N",
-          "count": 2347
+          "prefix": "0005",
+          "count": 456
         },
         {
-          "prefix": "RWR80N",
-          "count": 1699
+          "prefix": "CW02B",
+          "count": 446
         },
         {
-          "prefix": "RWR89N",
-          "count": 1633
+          "prefix": "CW010R",
+          "count": 412
         },
         {
-          "prefix": "RWR78S",
-          "count": 1562
+          "prefix": "0002",
+          "count": 370
         },
         {
-          "prefix": "RWR74S",
-          "count": 1542
+          "prefix": "0103",
+          "count": 342
         },
         {
-          "prefix": "RWR81SR",
-          "count": 1284
+          "prefix": "0102",
+          "count": 338
         },
         {
-          "prefix": "RWR80SR",
-          "count": 929
+          "prefix": "0015",
+          "count": 316
         },
         {
-          "prefix": "RWR82S",
-          "count": 913
+          "prefix": "0007",
+          "count": 252
         }
       ],
       "sample_models": [
@@ -2618,41 +2325,9 @@
     {
       "brand": "Stackpole",
       "component_type": "薄膜电阻",
-      "unresolved_rows": 45882,
-      "registry_status": "pending",
+      "unresolved_rows": 13278,
+      "registry_status": "partial",
       "top_prefixes": [
-        {
-          "prefix": "RNCF0805",
-          "count": 5124
-        },
-        {
-          "prefix": "RNCF1206",
-          "count": 4919
-        },
-        {
-          "prefix": "RNCF0603",
-          "count": 4450
-        },
-        {
-          "prefix": "RNCF2512",
-          "count": 4223
-        },
-        {
-          "prefix": "RNCF2010",
-          "count": 4198
-        },
-        {
-          "prefix": "RNCF1210",
-          "count": 4183
-        },
-        {
-          "prefix": "RNCF0402",
-          "count": 3284
-        },
-        {
-          "prefix": "RNCF0201",
-          "count": 910
-        },
         {
           "prefix": "RNF14FTD",
           "count": 732
@@ -2668,464 +2343,55 @@
         {
           "prefix": "RNF14FBD",
           "count": 535
-        }
-      ],
-      "sample_models": [
-        "RTAN0805BKE100K",
-        "RTAN1206BKE200K",
-        "RNCS0805BKE10K0",
-        "RNCF0805BTE32K0",
-        "RTAN1206BKE15R0",
-        "RNCF0603TTC10K0",
-        "RNCF0805DKE174K",
-        "RNCF0402BKE61R9"
-      ],
-      "lookup_method": "Official resistor series catalog and datasheets",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.seielect.com/"
-        }
-      ]
-    },
-    {
-      "brand": "Stackpole",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 36281,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RGC0",
-          "count": 1917
         },
         {
-          "prefix": "RMCF1206",
-          "count": 1469
+          "prefix": "RNF12FTD",
+          "count": 534
         },
         {
-          "prefix": "RMCF0805",
-          "count": 1378
-        },
-        {
-          "prefix": "RMCF0603",
-          "count": 1327
+          "prefix": "RNF14FTC",
+          "count": 527
         },
         {
           "prefix": "CS",
-          "count": 1280
+          "count": 405
         },
         {
-          "prefix": "RMCF2512",
-          "count": 1020
+          "prefix": "RNF14BAE",
+          "count": 355
         },
         {
-          "prefix": "RMCF2010",
-          "count": 997
+          "prefix": "RNF14FBC",
+          "count": 313
         },
         {
-          "prefix": "RMCF1210",
-          "count": 988
+          "prefix": "RNF14BTC",
+          "count": 306
         },
         {
-          "prefix": "RMCF0402",
-          "count": 978
+          "prefix": "RNF18FBD",
+          "count": 292
         },
         {
-          "prefix": "RMCF0201",
-          "count": 869
-        },
-        {
-          "prefix": "RMCP2010F",
-          "count": 790
-        },
-        {
-          "prefix": "RGC1",
-          "count": 764
+          "prefix": "MLFA2",
+          "count": 286
         }
       ],
       "sample_models": [
-        "RMCF0402JT100R",
-        "HMC0603JT50M0",
-        "HMC0603JT47M0",
-        "HVCB0805GDC200M",
-        "RMCF1206JT12R0",
-        "HMC0603JT33M0",
-        "RMCF0603FT49K9",
-        "RMCF0603FT120R"
+        "MLFA1FTC10K0",
+        "HCJ2512ZT0R00",
+        "HCJ1206ZT0R00",
+        "MLFA1FTC22R0",
+        "MLFA1FTC2K20",
+        "MLFA1FTC5K60",
+        "MLFA1FTC330R",
+        "MLFM1FTC6K19"
       ],
       "lookup_method": "Official resistor series catalog and datasheets",
       "official_sources": [
         {
           "kind": "official-site",
           "url": "https://www.seielect.com/"
-        }
-      ]
-    },
-    {
-      "brand": "TE Connectivity(泰科电子)",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 25698,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RN73C",
-          "count": 3759
-        },
-        {
-          "prefix": "RP73D",
-          "count": 2571
-        },
-        {
-          "prefix": "CPF0603",
-          "count": 1788
-        },
-        {
-          "prefix": "RQ73C",
-          "count": 1709
-        },
-        {
-          "prefix": "CPF0805",
-          "count": 1320
-        },
-        {
-          "prefix": "CPF0402",
-          "count": 1100
-        },
-        {
-          "prefix": "RA73F",
-          "count": 1059
-        },
-        {
-          "prefix": "RP73PF1E",
-          "count": 908
-        },
-        {
-          "prefix": "RU73X",
-          "count": 756
-        },
-        {
-          "prefix": "CPF1206",
-          "count": 754
-        },
-        {
-          "prefix": "CPF0201",
-          "count": 716
-        },
-        {
-          "prefix": "3504G3A",
-          "count": 453
-        }
-      ],
-      "sample_models": [
-        "CPF0805B191KE1",
-        "RP73PF1J86R6BTDF",
-        "CPF0402B90R9E1",
-        "RP73PF1E105RBTDF",
-        "RP73PF1E95R3BTDF",
-        "RP73PF1E93R1BTDF",
-        "RP73PF1E226RBTDF",
-        "CPF0402B187RE1"
-      ],
-      "lookup_method": "TE passive product pages and passive product datasheets",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://www.te.com/en/products/passive-components.html"
-        }
-      ]
-    },
-    {
-      "brand": "进工业Susumu",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 23330,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RG1",
-          "count": 8380
-        },
-        {
-          "prefix": "RG2",
-          "count": 4456
-        },
-        {
-          "prefix": "RG3",
-          "count": 4097
-        },
-        {
-          "prefix": "HRG3216P",
-          "count": 1530
-        },
-        {
-          "prefix": "PRG32",
-          "count": 837
-        },
-        {
-          "prefix": "RG0",
-          "count": 658
-        },
-        {
-          "prefix": "RGT2012P",
-          "count": 537
-        },
-        {
-          "prefix": "RGT1608P",
-          "count": 492
-        },
-        {
-          "prefix": "RR1220P",
-          "count": 457
-        },
-        {
-          "prefix": "RR0816P",
-          "count": 405
-        },
-        {
-          "prefix": "RR0510P",
-          "count": 343
-        },
-        {
-          "prefix": "HRG3216Q",
-          "count": 145
-        }
-      ],
-      "sample_models": [
-        "RG1608P-561-B-T5",
-        "RG1608P-103-B-T5",
-        "RG1608P-104-B-T5",
-        "RG1608N-56R2-B-T5",
-        "RG1005P-76R8-B-T5",
-        "RG1005P-68R1-B-T5",
-        "RG1005N-73R2-B-T5",
-        "RG1608N-101-W-T1"
-      ],
-      "lookup_method": "Official product families and datasheet model tables",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www1.susumu.co.jp/en/"
-        },
-        {
-          "kind": "datasheet",
-          "url": "https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf"
-        }
-      ]
-    },
-    {
-      "brand": "KAMAYA(釜屋電機)",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 18250,
-      "registry_status": "missing",
-      "top_prefixes": [
-        {
-          "prefix": "RGC1",
-          "count": 6899
-        },
-        {
-          "prefix": "RMC1/16",
-          "count": 2863
-        },
-        {
-          "prefix": "RMC1/10",
-          "count": 1437
-        },
-        {
-          "prefix": "RMC1/20",
-          "count": 769
-        },
-        {
-          "prefix": "RMC1/32",
-          "count": 552
-        },
-        {
-          "prefix": "RMC1/8K1",
-          "count": 291
-        },
-        {
-          "prefix": "RMC1/8K2",
-          "count": 178
-        },
-        {
-          "prefix": "RMC1/2K1",
-          "count": 151
-        },
-        {
-          "prefix": "RMC1/4K1",
-          "count": 140
-        },
-        {
-          "prefix": "RMC10",
-          "count": 133
-        },
-        {
-          "prefix": "RMC1/8K3",
-          "count": 128
-        },
-        {
-          "prefix": "RMC1/8-1",
-          "count": 109
-        }
-      ],
-      "sample_models": [
-        "RPC63185JTE",
-        "RPC204R3JTP",
-        "RMC10JPTH",
-        "RMC32K101FTP",
-        "RMC10K222FTH",
-        "RMC20JPTP",
-        "RMC1/10-302JTP",
-        "RMC1/16-101JTP"
-      ],
-      "lookup_method": "",
-      "official_sources": []
-    },
-    {
-      "brand": "Panasonic",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 12795,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "ERA-2A",
-          "count": 2092
-        },
-        {
-          "prefix": "ERA-8A",
-          "count": 1773
-        },
-        {
-          "prefix": "ERA-6A",
-          "count": 1213
-        },
-        {
-          "prefix": "ERA-3A",
-          "count": 1070
-        },
-        {
-          "prefix": "ERA-8V",
-          "count": 1066
-        },
-        {
-          "prefix": "ERA-6V",
-          "count": 1024
-        },
-        {
-          "prefix": "ERA-3V",
-          "count": 1021
-        },
-        {
-          "prefix": "ERA-2V",
-          "count": 929
-        },
-        {
-          "prefix": "ERA-1A",
-          "count": 748
-        },
-        {
-          "prefix": "ERO-S2PH",
-          "count": 571
-        },
-        {
-          "prefix": "ERA-8K",
-          "count": 255
-        },
-        {
-          "prefix": "ERA-8P",
-          "count": 178
-        }
-      ],
-      "sample_models": [
-        "ERA6AEB102V",
-        "ERA3ARB103V",
-        "ERA3AEB563V",
-        "ERA6AEB103V",
-        "ERA2AEB431X",
-        "ERA2AEB751X",
-        "ERA3AEB392V",
-        "ERA3AEB242V"
-      ],
-      "lookup_method": "Official resistor catalog and part-number family pages",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://industrial.panasonic.com/ww/products/resistors"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
-        }
-      ]
-    },
-    {
-      "brand": "TE Connectivity(泰科电子)",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 12015,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RLC73K",
-          "count": 708
-        },
-        {
-          "prefix": "CRGH0603",
-          "count": 665
-        },
-        {
-          "prefix": "CRGH1206",
-          "count": 659
-        },
-        {
-          "prefix": "CRGH0805",
-          "count": 653
-        },
-        {
-          "prefix": "CRGH2010",
-          "count": 631
-        },
-        {
-          "prefix": "CRGH2512",
-          "count": 629
-        },
-        {
-          "prefix": "RLC73PD",
-          "count": 535
-        },
-        {
-          "prefix": "3430A3F",
-          "count": 272
-        },
-        {
-          "prefix": "3540",
-          "count": 254
-        },
-        {
-          "prefix": "3502",
-          "count": 254
-        },
-        {
-          "prefix": "3550",
-          "count": 254
-        },
-        {
-          "prefix": "3560",
-          "count": 254
-        }
-      ],
-      "sample_models": [
-        "CRGH0603F53K6",
-        "CRGP2512F10K",
-        "CRGH0805F45K3",
-        "CRGP0805F22K",
-        "3522150RJT",
-        "CRGH1206F27R4",
-        "354051RFT",
-        "CRGH0603F17K8"
-      ],
-      "lookup_method": "TE passive product pages and passive product datasheets",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://www.te.com/en/products/passive-components.html"
         }
       ]
     },
@@ -3207,79 +2473,79 @@
       ]
     },
     {
-      "brand": "ROHM",
+      "brand": "威世Vishay",
       "component_type": "厚膜电阻",
-      "unresolved_rows": 10201,
-      "registry_status": "pending",
+      "unresolved_rows": 9479,
+      "registry_status": "partial",
       "top_prefixes": [
         {
-          "prefix": "ESR10",
-          "count": 774
+          "prefix": "0402",
+          "count": 1171
         },
         {
-          "prefix": "KTR10",
-          "count": 747
+          "prefix": "0603",
+          "count": 1096
         },
         {
-          "prefix": "KTR18",
-          "count": 731
+          "prefix": "0805",
+          "count": 1025
         },
         {
-          "prefix": "ESR18",
-          "count": 716
+          "prefix": "0612",
+          "count": 877
         },
         {
-          "prefix": "MCR10",
-          "count": 574
+          "prefix": "1218",
+          "count": 842
         },
         {
-          "prefix": "MCR03",
-          "count": 563
+          "prefix": "1225",
+          "count": 837
         },
         {
-          "prefix": "LTR10",
-          "count": 480
+          "prefix": "0406",
+          "count": 833
         },
         {
-          "prefix": "SFR01",
-          "count": 362
+          "prefix": "1206",
+          "count": 463
         },
         {
-          "prefix": "ESR03",
-          "count": 352
+          "prefix": "LTO100F",
+          "count": 156
         },
         {
-          "prefix": "01",
-          "count": 348
+          "prefix": "D2TO020C",
+          "count": 140
         },
         {
-          "prefix": "KTR03",
-          "count": 339
+          "prefix": "RCWE1020R",
+          "count": 136
         },
         {
-          "prefix": "ESR25",
-          "count": 337
+          "prefix": "D2TO035C",
+          "count": 132
         }
       ],
       "sample_models": [
-        "LTR18EZPJ152",
-        "PMR03EZPJ000",
-        "MCR03EZPJ103",
-        "MCR03EZPFX1002",
-        "MCR03EZPJ102",
-        "MCR03EZPFX7501",
-        "MCR03EZPFX1242",
-        "MCR03EZPFX1742"
+        "RCS12061K50FKEA",
+        "RCA06031K00JNEA",
+        "RCA060347K0FKEA",
+        "RCWE2512R300JKEA",
+        "CRHP1206AF1G00FKET",
+        "CRHV1206AF50M0FNE5",
+        "DTO025C1R000JTE3",
+        "RCL0406287KFKEA"
       ],
-      "lookup_method": "Official resistor series pages and catalogs",
+      "lookup_method": "Official resistor family pages and datasheets",
       "official_sources": [
         {
-          "kind": "resistor-page",
-          "url": "https://www.rohm.com/products/resistors"
+          "kind": "product-family",
+          "url": "https://www.vishay.com/en/resistors-fixed/thinfilm/"
         },
         {
           "kind": "official-site",
-          "url": "https://www.rohm.com/"
+          "url": "https://www.vishay.com/"
         }
       ]
     },
@@ -3350,6 +2616,79 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "TE Connectivity(泰科电子)",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 8523,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "3504G3A",
+          "count": 453
+        },
+        {
+          "prefix": "3503G2B",
+          "count": 448
+        },
+        {
+          "prefix": "RR02J",
+          "count": 145
+        },
+        {
+          "prefix": "RR03J",
+          "count": 144
+        },
+        {
+          "prefix": "RR01J",
+          "count": 143
+        },
+        {
+          "prefix": "1622",
+          "count": 109
+        },
+        {
+          "prefix": "SMA-A010",
+          "count": 79
+        },
+        {
+          "prefix": "2176",
+          "count": 73
+        },
+        {
+          "prefix": "SMA-A020",
+          "count": 66
+        },
+        {
+          "prefix": "1-217609",
+          "count": 50
+        },
+        {
+          "prefix": "3-217609",
+          "count": 44
+        },
+        {
+          "prefix": "4-217609",
+          "count": 41
+        }
+      ],
+      "sample_models": [
+        "1-1879216-7",
+        "3-2176074-1",
+        "RP73F3A7R68FTG",
+        "SMF71K3JT",
+        "SMF722KJT",
+        "SMF78K2JT",
+        "SMF7240KJT",
+        "SMF71M0JT"
+      ],
+      "lookup_method": "TE passive product pages and passive product datasheets",
+      "official_sources": [
+        {
+          "kind": "product-page",
+          "url": "https://www.te.com/en/products/passive-components.html"
+        }
+      ]
     },
     {
       "brand": "国巨YAGEO",
@@ -3510,6 +2849,156 @@
       ]
     },
     {
+      "brand": "KOA",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 7407,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "732",
+          "count": 2338
+        },
+        {
+          "prefix": "WK73S",
+          "count": 1641
+        },
+        {
+          "prefix": "731",
+          "count": 769
+        },
+        {
+          "prefix": "SR73W",
+          "count": 644
+        },
+        {
+          "prefix": "SLR1TTE1",
+          "count": 424
+        },
+        {
+          "prefix": "733",
+          "count": 333
+        },
+        {
+          "prefix": "SLR1TTE2",
+          "count": 263
+        },
+        {
+          "prefix": "SLR1TTE3",
+          "count": 214
+        },
+        {
+          "prefix": "SLR1TTE4",
+          "count": 155
+        },
+        {
+          "prefix": "SLR1TTER",
+          "count": 134
+        },
+        {
+          "prefix": "SLR1TTE6",
+          "count": 120
+        },
+        {
+          "prefix": "SLR1TTE5",
+          "count": 120
+        }
+      ],
+      "sample_models": [
+        "SR732ARTTDR750F",
+        "UR73VD2BTTD20L0F",
+        "SR732ARTTDR825F",
+        "SR73W3ATTER68J",
+        "WK73S2HTTE51L0F",
+        "WK73S2BTTDR200F",
+        "SR732ETTDR137F",
+        "WK73S2JTTE1R00F"
+      ],
+      "lookup_method": "KOA catalog family tables and product series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.koaspeer.com/"
+        },
+        {
+          "kind": "catalog",
+          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
+        }
+      ]
+    },
+    {
+      "brand": "TE Connectivity(泰科电子)",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 6464,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "3430A3F",
+          "count": 272
+        },
+        {
+          "prefix": "3540",
+          "count": 254
+        },
+        {
+          "prefix": "3502",
+          "count": 254
+        },
+        {
+          "prefix": "3550",
+          "count": 254
+        },
+        {
+          "prefix": "3560",
+          "count": 254
+        },
+        {
+          "prefix": "3430H2F",
+          "count": 254
+        },
+        {
+          "prefix": "3430A2F",
+          "count": 253
+        },
+        {
+          "prefix": "3430B2F",
+          "count": 239
+        },
+        {
+          "prefix": "CRGV2010F",
+          "count": 219
+        },
+        {
+          "prefix": "CRGV2512F",
+          "count": 214
+        },
+        {
+          "prefix": "3522",
+          "count": 206
+        },
+        {
+          "prefix": "CRG0603F",
+          "count": 166
+        }
+      ],
+      "sample_models": [
+        "3522150RJT",
+        "354051RFT",
+        "RH73W2B430MJTD",
+        "CRG0402F1M0",
+        "CRG0402F1K6",
+        "CRGS1206J180R",
+        "CRGS1206J68K",
+        "TCR0805N1M5"
+      ],
+      "lookup_method": "TE passive product pages and passive product datasheets",
+      "official_sources": [
+        {
+          "kind": "product-page",
+          "url": "https://www.te.com/en/products/passive-components.html"
+        }
+      ]
+    },
+    {
       "brand": "旺诠RALEC",
       "component_type": "厚膜电阻",
       "unresolved_rows": 6109,
@@ -3578,10 +3067,83 @@
       "official_sources": []
     },
     {
+      "brand": "Stackpole",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 6054,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "CS",
+          "count": 1280
+        },
+        {
+          "prefix": "RPC1206",
+          "count": 726
+        },
+        {
+          "prefix": "RPC0805",
+          "count": 694
+        },
+        {
+          "prefix": "RPC2010",
+          "count": 426
+        },
+        {
+          "prefix": "RPC1210",
+          "count": 426
+        },
+        {
+          "prefix": "RHC2512F",
+          "count": 400
+        },
+        {
+          "prefix": "RPC0603",
+          "count": 363
+        },
+        {
+          "prefix": "RPC2512",
+          "count": 209
+        },
+        {
+          "prefix": "RHC2512J",
+          "count": 142
+        },
+        {
+          "prefix": "RPC0402",
+          "count": 123
+        },
+        {
+          "prefix": "RVC2512J",
+          "count": 80
+        },
+        {
+          "prefix": "RVC1206J",
+          "count": 73
+        }
+      ],
+      "sample_models": [
+        "HCJ0805ZT0R00",
+        "CSR1225FK3L00",
+        "RPC2512JT180R",
+        "RPC2512JT1R00",
+        "RHC2512FTR250",
+        "RPC0805JT22R0",
+        "RHC2512FT6K80",
+        "RPC0805JT6R80-UP"
+      ],
+      "lookup_method": "Official resistor series catalog and datasheets",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.seielect.com/"
+        }
+      ]
+    },
+    {
       "brand": "威世Vishay",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 6042,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RNX0",
@@ -4379,7 +3941,7 @@
       "brand": "Stackpole",
       "component_type": "绕线电阻",
       "unresolved_rows": 4170,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "SM6227",
@@ -4721,7 +4283,7 @@
       "brand": "Stackpole",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 3274,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RSF12J",
@@ -4794,7 +4356,7 @@
       "brand": "Stackpole",
       "component_type": "碳膜电阻",
       "unresolved_rows": 2659,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CF14J",
@@ -5075,6 +4637,83 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "Panasonic",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 1859,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "ERO-S2PH",
+          "count": 571
+        },
+        {
+          "prefix": "ERA-8K",
+          "count": 255
+        },
+        {
+          "prefix": "ERA-8P",
+          "count": 178
+        },
+        {
+          "prefix": "ERA3A",
+          "count": 152
+        },
+        {
+          "prefix": "ERA2A",
+          "count": 124
+        },
+        {
+          "prefix": "ERA6A",
+          "count": 123
+        },
+        {
+          "prefix": "ERA-6K",
+          "count": 94
+        },
+        {
+          "prefix": "ERA-14EB",
+          "count": 53
+        },
+        {
+          "prefix": "ERA3V",
+          "count": 47
+        },
+        {
+          "prefix": "ERA6V",
+          "count": 44
+        },
+        {
+          "prefix": "ERA-3K",
+          "count": 38
+        },
+        {
+          "prefix": "ERA2V",
+          "count": 23
+        }
+      ],
+      "sample_models": [
+        "ERA6AEB102V",
+        "ERA3ARB103V",
+        "ERA3AEB563V",
+        "ERA6AEB103V",
+        "ERA2AEB431X",
+        "ERA2AEB751X",
+        "ERA3AEB392V",
+        "ERA3AEB242V"
+      ],
+      "lookup_method": "Official resistor catalog and part-number family pages",
+      "official_sources": [
+        {
+          "kind": "product-page",
+          "url": "https://industrial.panasonic.com/ww/products/resistors"
+        },
+        {
+          "kind": "catalog",
+          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
+        }
+      ]
     },
     {
       "brand": "RCD Components, Inc.",
@@ -5425,7 +5064,7 @@
       "brand": "Panasonic",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 1315,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ERG-2SJ1",
@@ -5570,7 +5209,7 @@
       "brand": "TE Connectivity(泰科电子)",
       "component_type": "绕线电阻",
       "unresolved_rows": 1276,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ER74R",
@@ -5924,7 +5563,7 @@
       "brand": "Panasonic",
       "component_type": "贴片压敏电阻",
       "unresolved_rows": 1063,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ERZ-E11A",
@@ -6163,10 +5802,71 @@
       "official_sources": []
     },
     {
+      "brand": "ROHM",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 910,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "01",
+          "count": 348
+        },
+        {
+          "prefix": "03",
+          "count": 333
+        },
+        {
+          "prefix": "10",
+          "count": 143
+        },
+        {
+          "prefix": "18",
+          "count": 78
+        },
+        {
+          "prefix": "100",
+          "count": 4
+        },
+        {
+          "prefix": "PMR10",
+          "count": 2
+        },
+        {
+          "prefix": "PMR03",
+          "count": 1
+        },
+        {
+          "prefix": "PMR25",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "PMR03EZPJ000",
+        "PMR100HZPJV1L0",
+        "TRR01MZPF4872",
+        "PMR100HZPFV3L00",
+        "PMR25HZPFV3L00",
+        "TRR01MZPJ4R7",
+        "TRR03EZPJ753",
+        "TRR01MZPJ333"
+      ],
+      "lookup_method": "Official resistor series pages and catalogs",
+      "official_sources": [
+        {
+          "kind": "resistor-page",
+          "url": "https://www.rohm.com/products/resistors"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.rohm.com/"
+        }
+      ]
+    },
+    {
       "brand": "威世Vishay",
       "component_type": "热敏电阻",
       "unresolved_rows": 889,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "NTC",
@@ -6379,7 +6079,7 @@
       "brand": "TE Connectivity(泰科电子)",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 835,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ROX05SJ",
@@ -7384,7 +7084,7 @@
       "brand": "威世Vishay",
       "component_type": "贴片压敏电阻",
       "unresolved_rows": 495,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "VDRS07H",
@@ -7538,6 +7238,83 @@
       "official_sources": []
     },
     {
+      "brand": "进工业Susumu",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 444,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "RL1220",
+          "count": 84
+        },
+        {
+          "prefix": "RL0816",
+          "count": 74
+        },
+        {
+          "prefix": "RL3720",
+          "count": 70
+        },
+        {
+          "prefix": "RL3264",
+          "count": 52
+        },
+        {
+          "prefix": "RL0510",
+          "count": 45
+        },
+        {
+          "prefix": "RL1632",
+          "count": 42
+        },
+        {
+          "prefix": "RL7520",
+          "count": 25
+        },
+        {
+          "prefix": "163",
+          "count": 20
+        },
+        {
+          "prefix": "CPA2512Q",
+          "count": 10
+        },
+        {
+          "prefix": "CPA2512E",
+          "count": 10
+        },
+        {
+          "prefix": "160",
+          "count": 2
+        },
+        {
+          "prefix": "KRL1632E",
+          "count": 2
+        }
+      ],
+      "sample_models": [
+        "RL3720WT-R028-G",
+        "CPA2512Q18R0FS-T10",
+        "RL3720WT-R050-G",
+        "RL3720WT-R008-F",
+        "RL3720WT-R012-G",
+        "RL3720WT-R015-F",
+        "RL3264L4-R500-F",
+        "RL3720WT-R047-F"
+      ],
+      "lookup_method": "Official product families and datasheet model tables",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www1.susumu.co.jp/en/"
+        },
+        {
+          "kind": "datasheet",
+          "url": "https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf"
+        }
+      ]
+    },
+    {
       "brand": "NTE Electronics",
       "component_type": "厚膜电阻",
       "unresolved_rows": 425,
@@ -7641,7 +7418,7 @@
       "brand": "KOA",
       "component_type": "碳膜电阻",
       "unresolved_rows": 380,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CF1/4CT5",
@@ -7786,7 +7563,7 @@
       "brand": "KOA",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 346,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "MOS2CT52",
@@ -7999,7 +7776,7 @@
       "brand": "TE Connectivity(泰科电子)",
       "component_type": "碳膜电阻",
       "unresolved_rows": 320,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CFR50J",
@@ -9251,7 +9028,7 @@
       "brand": "威世Vishay",
       "component_type": "碳膜电阻",
       "unresolved_rows": 195,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "0207",
@@ -9649,7 +9426,7 @@
       "brand": "Panasonic",
       "component_type": "碳膜电阻",
       "unresolved_rows": 181,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ERD-S1TJ",
@@ -12185,7 +11962,7 @@
       "brand": "TE Connectivity(泰科电子)",
       "component_type": "热敏电阻",
       "unresolved_rows": 67,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "NB-PTCO-",
@@ -12475,7 +12252,7 @@
       "brand": "Stackpole",
       "component_type": "贴片压敏电阻",
       "unresolved_rows": 61,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ZV35K",
@@ -13415,6 +13192,83 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "KOA",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 43,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "MF1/4CCT",
+          "count": 17
+        },
+        {
+          "prefix": "412",
+          "count": 10
+        },
+        {
+          "prefix": "MOS1CT52",
+          "count": 4
+        },
+        {
+          "prefix": "MF1/4DCT",
+          "count": 3
+        },
+        {
+          "prefix": "MFS1/2CC",
+          "count": 2
+        },
+        {
+          "prefix": "RF50C",
+          "count": 1
+        },
+        {
+          "prefix": "MOS2CT52",
+          "count": 1
+        },
+        {
+          "prefix": "MOS5C200",
+          "count": 1
+        },
+        {
+          "prefix": "BSRV20TQ",
+          "count": 1
+        },
+        {
+          "prefix": "BSRV10TQ",
+          "count": 1
+        },
+        {
+          "prefix": "MOS1/2CT",
+          "count": 1
+        },
+        {
+          "prefix": "MFS1/4DC",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "RN412ESTTE1001F50",
+        "RN412ESTTE1000F50",
+        "RN412ESTTE1003B25",
+        "RN412ESTTE2700F50",
+        "RN412ESTTE6801F50",
+        "RN412ESTTE4703B25",
+        "RN412ESTTE4751F50",
+        "RN412ESTTE5362F50"
+      ],
+      "lookup_method": "KOA catalog family tables and product series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.koaspeer.com/"
+        },
+        {
+          "kind": "catalog",
+          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
+        }
+      ]
     },
     {
       "brand": "EATON(伊顿)",
@@ -14381,7 +14235,7 @@
       "brand": "威世Vishay",
       "component_type": "贴片电阻",
       "unresolved_rows": 22,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "MQ52R",
@@ -16970,7 +16824,7 @@
       "brand": "TE Connectivity(泰科电子)",
       "component_type": "贴片电阻",
       "unresolved_rows": 7,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "1622",
@@ -17667,7 +17521,7 @@
       "brand": "威世Vishay",
       "component_type": "合金电阻",
       "unresolved_rows": 4,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RCWE0603R",
@@ -17853,38 +17707,6 @@
       "official_sources": []
     },
     {
-      "brand": "ROHM",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 3,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "MCR03",
-          "count": 2
-        },
-        {
-          "prefix": "SMR003RXF",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "MCR03EZPFX1783",
-        "MCR03EZPFX1330",
-        "SMR003RXF"
-      ],
-      "lookup_method": "Official resistor series pages and catalogs",
-      "official_sources": [
-        {
-          "kind": "resistor-page",
-          "url": "https://www.rohm.com/products/resistors"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.rohm.com/"
-        }
-      ]
-    },
-    {
       "brand": "风华Fenghua",
       "component_type": "贴片电阻",
       "unresolved_rows": 3,
@@ -17920,7 +17742,7 @@
       "brand": "KOA",
       "component_type": "绕线电阻",
       "unresolved_rows": 3,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CW1/2CT5",
@@ -18607,7 +18429,7 @@
       "brand": "Panasonic",
       "component_type": "热敏电阻",
       "unresolved_rows": 2,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ERTJ0ER1",
@@ -18914,32 +18736,6 @@
       "official_sources": []
     },
     {
-      "brand": "KOA",
-      "component_type": "合金电阻",
-      "unresolved_rows": 1,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "RF732B",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "RF732BTTD470J"
-      ],
-      "lookup_method": "KOA catalog family tables and product series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.koaspeer.com/"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"
-        }
-      ]
-    },
-    {
       "brand": "HKR(香港电阻)",
       "component_type": "厚膜电阻",
       "unresolved_rows": 1,
@@ -18974,28 +18770,28 @@
       "official_sources": []
     },
     {
-      "brand": "Panasonic",
-      "component_type": "贴片电阻",
+      "brand": "KAMAYA(釜屋電機)",
+      "component_type": "厚膜电阻",
       "unresolved_rows": 1,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
-          "prefix": "ERJ-C1BF",
+          "prefix": "6320",
           "count": 1
         }
       ],
       "sample_models": [
-        "ERJ-C1BFR24U"
+        "HRMW63201FTE"
       ],
-      "lookup_method": "Official resistor catalog and part-number family pages",
+      "lookup_method": "Official resistor product pages and family-series list",
       "official_sources": [
         {
           "kind": "product-page",
-          "url": "https://industrial.panasonic.com/ww/products/resistors"
+          "url": "https://www.kamaya.co.jp/products/resistors/"
         },
         {
-          "kind": "catalog",
-          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
+          "kind": "official-site",
+          "url": "https://www.kamaya.co.jp/"
         }
       ]
     },
@@ -19051,6 +18847,32 @@
       "official_sources": []
     },
     {
+      "brand": "ROHM",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 1,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "SMR003RXF",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "SMR003RXF"
+      ],
+      "lookup_method": "Official resistor series pages and catalogs",
+      "official_sources": [
+        {
+          "kind": "resistor-page",
+          "url": "https://www.rohm.com/products/resistors"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.rohm.com/"
+        }
+      ]
+    },
+    {
       "brand": "国巨YAGEO",
       "component_type": "贴片电阻",
       "unresolved_rows": 1,
@@ -19103,32 +18925,6 @@
       ]
     },
     {
-      "brand": "Panasonic",
-      "component_type": "合金电阻",
-      "unresolved_rows": 1,
-      "registry_status": "pending",
-      "top_prefixes": [
-        {
-          "prefix": "ERJ-C1CF",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "ERJ-C1CFR016U"
-      ],
-      "lookup_method": "Official resistor catalog and part-number family pages",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://industrial.panasonic.com/ww/products/resistors"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"
-        }
-      ]
-    },
-    {
       "brand": "TT Electronics",
       "component_type": "合金电阻",
       "unresolved_rows": 1,
@@ -19146,27 +18942,10 @@
       "official_sources": []
     },
     {
-      "brand": "KAMAYA(釜屋電機)",
-      "component_type": "合金电阻",
-      "unresolved_rows": 1,
-      "registry_status": "missing",
-      "top_prefixes": [
-        {
-          "prefix": "RLP32KR",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "RLP32KR002FTP"
-      ],
-      "lookup_method": "",
-      "official_sources": []
-    },
-    {
       "brand": "进工业Susumu",
       "component_type": "贴片电阻",
       "unresolved_rows": 1,
-      "registry_status": "pending",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "163",

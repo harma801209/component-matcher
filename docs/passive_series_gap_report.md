@@ -1,28 +1,24 @@
 # Passive Series Gap Report
 
-- Generated: `2026-04-22T15:04:57+08:00`
+- Generated: `2026-04-22T18:40:07+08:00`
 - Total passive rows: `1,341,695`
-- Unresolved rows: `1,198,518`
-- Resolved rows: `143,177`
+- Unresolved rows: `415,462`
+- Resolved rows: `926,233`
 - Unresolved brands: `177`
-- Unresolved brand/type pairs: `375`
+- Unresolved brand/type pairs: `370`
 
 ## Top Unresolved Brands
 
 | Brand | Unresolved | Total | Coverage | Registry | Lookup Method |
 | --- | ---: | ---: | ---: | --- | --- |
-| 威世Vishay | 464,712 | 464,712 | 0.00% | pending | Official resistor family pages and datasheets |
-| KOA | 257,740 | 257,740 | 0.00% | pending | KOA catalog family tables and product series pages |
-| Stackpole | 92,327 | 92,327 | 0.00% | pending | Official resistor series catalog and datasheets |
+| 威世Vishay | 134,033 | 464,712 | 71.16% | partial | Official resistor family pages and datasheets |
 | 国巨YAGEO | 87,552 | 178,232 | 50.88% | partial | YAGEO product guide and official family naming rules |
-| Panasonic | 71,250 | 71,250 | 0.00% | pending | Official resistor catalog and part-number family pages |
-| TE Connectivity(泰科电子) | 40,218 | 40,218 | 0.00% | pending | TE passive product pages and passive product datasheets |
-| 进工业Susumu | 23,331 | 23,331 | 0.00% | pending | Official product families and datasheet model tables |
-| KAMAYA(釜屋電機) | 18,251 | 18,251 | 0.00% | missing | - |
-| ROHM | 10,204 | 10,204 | 0.00% | pending | Official resistor series pages and catalogs |
+| Stackpole | 29,496 | 92,327 | 68.05% | partial | Official resistor series catalog and datasheets |
+| TE Connectivity(泰科电子) | 17,492 | 40,218 | 56.51% | partial | TE passive product pages and passive product datasheets |
 | Meritek | 9,470 | 9,470 | 0.00% | missing | - |
 | Ohmite | 8,417 | 8,417 | 0.00% | missing | - |
 | 村田Murata | 8,275 | 8,502 | 2.67% | partial | Murata product family pages and SimSurfing/product catalogs |
+| KOA | 8,179 | 257,740 | 96.83% | partial | KOA catalog family tables and product series pages |
 | 三星Samsung | 8,065 | 8,158 | 1.14% | partial | Official chip resistor product page and part-number query pages |
 | 风华Fenghua | 7,244 | 7,343 | 1.35% | partial | Official product pages and catalog model rules |
 | 旺诠RALEC | 6,175 | 6,175 | 0.00% | missing | - |
@@ -34,16 +30,20 @@
 | Littelfuse | 5,222 | 5,222 | 0.00% | partial | Official varistor family pages and ordering terminology notes |
 | EVER OHMS(天二科技) | 5,212 | 5,212 | 0.00% | missing | - |
 | CAL-CHIP | 5,007 | 5,007 | 0.00% | missing | - |
+| Panasonic | 4,420 | 71,250 | 93.80% | partial | Official resistor catalog and part-number family pages |
 | 尼吉康Nichicon | 3,821 | 3,821 | 0.00% | missing | - |
 | LIZ(丽智电子) | 3,770 | 3,770 | 0.00% | missing | - |
+| RCD Components, Inc. | 3,716 | 3,716 | 0.00% | missing | - |
+| RESI(开步睿思) | 3,350 | 3,350 | 0.00% | missing | - |
+| Venkel | 2,535 | 2,535 | 0.00% | missing | - |
 
 ## Top Unresolved Component Types
 
 | Component Type | Unresolved Rows |
 | --- | ---: |
-| 薄膜电阻 | 690,626 |
-| 厚膜电阻 | 373,103 |
-| 绕线电阻 | 71,662 |
+| 薄膜电阻 | 201,017 |
+| 厚膜电阻 | 113,400 |
+| 绕线电阻 | 37,922 |
 | 金属氧化膜电阻 | 14,957 |
 | 贴片压敏电阻 | 12,739 |
 | 碳膜电阻 | 11,569 |
@@ -52,42 +52,22 @@
 | 功率电感 | 2,765 |
 | 热敏电阻 | 2,209 |
 | 磁珠 | 1,057 |
-| 贴片电阻 | 947 |
-| 合金电阻 | 835 |
+| 贴片电阻 | 946 |
+| 合金电阻 | 832 |
 | 共模电感 | 257 |
 | 引线型压敏电阻 | 11 |
 
 ## Priority Brand / Type Gaps
 
-### 威世Vishay / 薄膜电阻 / 350,549 rows
+### 威世Vishay / 薄膜电阻 / 100,654 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor family pages and datasheets
 - Official sources:
   - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
   - `official-site`: https://www.vishay.com/
-- Top unresolved prefixes: `RNC55` (45028), `RNC50` (30193), `RLR07C` (19433), `RNC60` (17827), `RN55` (17580), `RLR05C` (16019), `M55342` (11718), `RN60` (9553), `RLR20C` (8191), `RLR32C` (6261)
-- Sample models: `SMM02040C6812FB300`, `PAT0603E8560BST1`, `TNPW04022K05BEED`, `SMM02040C1009FB300`, `SMM02040C1629FB300`, `SMM02040C2000FB300`, `SMM02040C3322FB300`, `SMM02040C3329FB300`
-
-### KOA / 薄膜电阻 / 156,154 rows
-
-- Registry status: `pending`
-- Lookup method: KOA catalog family tables and product series pages
-- Official sources:
-  - `official-site`: https://www.koaspeer.com/
-  - `catalog`: https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf
-- Top unresolved prefixes: `RN73H` (55392), `RN73R` (53623), `RN732B` (14793), `RN732A` (14521), `RN731J` (12290), `RN731E` (5492), `MF1/4CCT` (17), `412` (10), `MOS1CT52` (4), `MF1/4DCT` (3)
-- Sample models: `RN732ATTD16R0B25`, `RN732ATTD1602B25`, `RN731JTTD5102B25`, `RN73H1ETTP1200B25`, `RN73H2ATTD1003B25`, `RN732ATTD1001B25`, `RN731JTTD1001B25`, `RN731JTTD1002B25`
-
-### KOA / 厚膜电阻 / 100,856 rows
-
-- Registry status: `pending`
-- Lookup method: KOA catalog family tables and product series pages
-- Official sources:
-  - `official-site`: https://www.koaspeer.com/
-  - `catalog`: https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf
-- Top unresolved prefixes: `SG73P` (14407), `RS73G` (13291), `RS73F` (13234), `SG73S` (12963), `RK73H` (12397), `RK73G` (9154), `732` (5383), `WK73R` (5063), `RK73B` (3905), `SG73G` (2165)
-- Sample models: `RK73H2BTTD2004F`, `RK73H1ETTP5360F`, `WK73R3ATTE510J`, `RK73H1JTTD1003F`, `RK73H1JTTD1002F`, `RK73H1JTTD2201F`, `RK73H1JTTD2701F`, `RK73H1JTTD3003F`
+- Top unresolved prefixes: `0805` (2369), `MCT` (2202), `MMA0204` (1823), `SMM0204` (1586), `0402` (1325), `CMF551K` (1109), `SFR16` (1083), `ERC551K` (950), `1206` (918), `PLTT0805Z` (886)
+- Sample models: `SMM02040C6812FB300`, `SMM02040C1009FB300`, `SMM02040C1629FB300`, `SMM02040C2000FB300`, `SMM02040C3322FB300`, `SMM02040C3329FB300`, `SMM02040C1000FB300`, `SMM02040C5109FB300`
 
 ### 国巨YAGEO / 薄膜电阻 / 62,993 rows
 
@@ -99,97 +79,24 @@
 - Top unresolved prefixes: `50` (7105), `25` (5283), `MFR-25FR` (1969), `MFR-25FT` (1409), `MFR-50FR` (1133), `FMP-50FR` (1133), `MFR100FRF` (1129), `MFR100FTF` (1127), `MMF-25FR` (1051), `MFR1WSFR` (954)
 - Sample models: `PE1206FRF470R02L`, `PE2512FKF7W0R025L`, `MMF-25FRE22K`, `MMF-25FRE39K`, `MMF207FRE680R`, `PE1206FRF070R2L`, `PE0805JRF7T0R005L`, `MMP200JR-10K`
 
-### 威世Vishay / 厚膜电阻 / 56,523 rows
+### 威世Vishay / 绕线电阻 / 16,253 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor family pages and datasheets
 - Official sources:
   - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
   - `official-site`: https://www.vishay.com/
-- Top unresolved prefixes: `CRCW0603` (7426), `CRCW0805` (7196), `CRCW1206` (6808), `RCP0` (4599), `CRCW0402` (4376), `CRCW2512` (3284), `CRCW2010` (2952), `CRCW1210` (2948), `RCP1` (2300), `RCP2` (2300)
-- Sample models: `CRCW2010510KJNEF`, `CRCW0402120RFKED`, `CRCW060356K0FKEA`, `CRCW06032K00FKEA`, `CRCW12068R06FKEA`, `CRCW080582K0FKEA`, `CRCW060310K0JNEA`, `CRCW08053K90FKTA`
-
-### Panasonic / 厚膜电阻 / 55,892 rows
-
-- Registry status: `pending`
-- Lookup method: Official resistor catalog and part-number family pages
-- Official sources:
-  - `product-page`: https://industrial.panasonic.com/ww/products/resistors
-  - `catalog`: https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf
-- Top unresolved prefixes: `ERJ-S06F` (688), `ERJ-U08F` (685), `ERJ-S08F` (685), `ERJ-S02F` (685), `ERJ-U14F` (685), `ERJ-S14F` (685), `ERJ-U1DF` (685), `ERJ-U1TF` (685), `ERJ-S1DF` (685), `ERJ-S1TF` (685)
-- Sample models: `ERJ2RKD2943X`, `ERJ6GEYJ104V`, `ERJ-S12D49R9U`, `ERJ8BWFR100V`, `ERJ2RKF1212X`, `ERJ3EKF30R0V`, `ERJPA2J222X`, `ERJP03F2403V`
-
-### 威世Vishay / 绕线电阻 / 49,993 rows
-
-- Registry status: `pending`
-- Lookup method: Official resistor family pages and datasheets
-- Official sources:
-  - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
-  - `official-site`: https://www.vishay.com/
-- Top unresolved prefixes: `RWR81S` (5583), `RWR80S` (4932), `RWR89S` (4364), `RWR84S` (2356), `RWR81N` (2347), `RWR80N` (1699), `RWR89N` (1633), `RWR78S` (1562), `RWR74S` (1542), `RWR81SR` (1284)
+- Top unresolved prefixes: `RWR84N` (745), `AC` (622), `0101` (539), `0010` (509), `0005` (456), `CW02B` (446), `CW010R` (412), `0002` (370), `0103` (342), `0102` (338)
 - Sample models: `WSC4527100R0FEA`, `WSC69271R000FEA`, `WSC000224R90FEA`, `WSC00026R000FEA`, `WSC251515R00FEA`, `WSC251527R00FEA`, `WSC25153R300FEA`, `WSC251510R00JEA`
 
-### Stackpole / 薄膜电阻 / 45,882 rows
+### Stackpole / 薄膜电阻 / 13,278 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor series catalog and datasheets
 - Official sources:
   - `official-site`: https://www.seielect.com/
-- Top unresolved prefixes: `RNCF0805` (5124), `RNCF1206` (4919), `RNCF0603` (4450), `RNCF2512` (4223), `RNCF2010` (4198), `RNCF1210` (4183), `RNCF0402` (3284), `RNCF0201` (910), `RNF14FTD` (732), `RNF18FTD` (618)
-- Sample models: `RTAN0805BKE100K`, `RTAN1206BKE200K`, `RNCS0805BKE10K0`, `RNCF0805BTE32K0`, `RTAN1206BKE15R0`, `RNCF0603TTC10K0`, `RNCF0805DKE174K`, `RNCF0402BKE61R9`
-
-### Stackpole / 厚膜电阻 / 36,281 rows
-
-- Registry status: `pending`
-- Lookup method: Official resistor series catalog and datasheets
-- Official sources:
-  - `official-site`: https://www.seielect.com/
-- Top unresolved prefixes: `RGC0` (1917), `RMCF1206` (1469), `RMCF0805` (1378), `RMCF0603` (1327), `CS` (1280), `RMCF2512` (1020), `RMCF2010` (997), `RMCF1210` (988), `RMCF0402` (978), `RMCF0201` (869)
-- Sample models: `RMCF0402JT100R`, `HMC0603JT50M0`, `HMC0603JT47M0`, `HVCB0805GDC200M`, `RMCF1206JT12R0`, `HMC0603JT33M0`, `RMCF0603FT49K9`, `RMCF0603FT120R`
-
-### TE Connectivity(泰科电子) / 薄膜电阻 / 25,698 rows
-
-- Registry status: `pending`
-- Lookup method: TE passive product pages and passive product datasheets
-- Official sources:
-  - `product-page`: https://www.te.com/en/products/passive-components.html
-- Top unresolved prefixes: `RN73C` (3759), `RP73D` (2571), `CPF0603` (1788), `RQ73C` (1709), `CPF0805` (1320), `CPF0402` (1100), `RA73F` (1059), `RP73PF1E` (908), `RU73X` (756), `CPF1206` (754)
-- Sample models: `CPF0805B191KE1`, `RP73PF1J86R6BTDF`, `CPF0402B90R9E1`, `RP73PF1E105RBTDF`, `RP73PF1E95R3BTDF`, `RP73PF1E93R1BTDF`, `RP73PF1E226RBTDF`, `CPF0402B187RE1`
-
-### 进工业Susumu / 薄膜电阻 / 23,330 rows
-
-- Registry status: `pending`
-- Lookup method: Official product families and datasheet model tables
-- Official sources:
-  - `official-site`: https://www1.susumu.co.jp/en/
-  - `datasheet`: https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf
-- Top unresolved prefixes: `RG1` (8380), `RG2` (4456), `RG3` (4097), `HRG3216P` (1530), `PRG32` (837), `RG0` (658), `RGT2012P` (537), `RGT1608P` (492), `RR1220P` (457), `RR0816P` (405)
-- Sample models: `RG1608P-561-B-T5`, `RG1608P-103-B-T5`, `RG1608P-104-B-T5`, `RG1608N-56R2-B-T5`, `RG1005P-76R8-B-T5`, `RG1005P-68R1-B-T5`, `RG1005N-73R2-B-T5`, `RG1608N-101-W-T1`
-
-### KAMAYA(釜屋電機) / 厚膜电阻 / 18,250 rows
-
-- Registry status: `missing`
-- Top unresolved prefixes: `RGC1` (6899), `RMC1/16` (2863), `RMC1/10` (1437), `RMC1/20` (769), `RMC1/32` (552), `RMC1/8K1` (291), `RMC1/8K2` (178), `RMC1/2K1` (151), `RMC1/4K1` (140), `RMC10` (133)
-- Sample models: `RPC63185JTE`, `RPC204R3JTP`, `RMC10JPTH`, `RMC32K101FTP`, `RMC10K222FTH`, `RMC20JPTP`, `RMC1/10-302JTP`, `RMC1/16-101JTP`
-
-### Panasonic / 薄膜电阻 / 12,795 rows
-
-- Registry status: `pending`
-- Lookup method: Official resistor catalog and part-number family pages
-- Official sources:
-  - `product-page`: https://industrial.panasonic.com/ww/products/resistors
-  - `catalog`: https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf
-- Top unresolved prefixes: `ERA-2A` (2092), `ERA-8A` (1773), `ERA-6A` (1213), `ERA-3A` (1070), `ERA-8V` (1066), `ERA-6V` (1024), `ERA-3V` (1021), `ERA-2V` (929), `ERA-1A` (748), `ERO-S2PH` (571)
-- Sample models: `ERA6AEB102V`, `ERA3ARB103V`, `ERA3AEB563V`, `ERA6AEB103V`, `ERA2AEB431X`, `ERA2AEB751X`, `ERA3AEB392V`, `ERA3AEB242V`
-
-### TE Connectivity(泰科电子) / 厚膜电阻 / 12,015 rows
-
-- Registry status: `pending`
-- Lookup method: TE passive product pages and passive product datasheets
-- Official sources:
-  - `product-page`: https://www.te.com/en/products/passive-components.html
-- Top unresolved prefixes: `RLC73K` (708), `CRGH0603` (665), `CRGH1206` (659), `CRGH0805` (653), `CRGH2010` (631), `CRGH2512` (629), `RLC73PD` (535), `3430A3F` (272), `3540` (254), `3502` (254)
-- Sample models: `CRGH0603F53K6`, `CRGP2512F10K`, `CRGH0805F45K3`, `CRGP0805F22K`, `3522150RJT`, `CRGH1206F27R4`, `354051RFT`, `CRGH0603F17K8`
+- Top unresolved prefixes: `RNF14FTD` (732), `RNF18FTD` (618), `RNMF14FTD` (567), `RNF14FBD` (535), `RNF12FTD` (534), `RNF14FTC` (527), `CS` (405), `RNF14BAE` (355), `RNF14FBC` (313), `RNF14BTC` (306)
+- Sample models: `MLFA1FTC10K0`, `HCJ2512ZT0R00`, `HCJ1206ZT0R00`, `MLFA1FTC22R0`, `MLFA1FTC2K20`, `MLFA1FTC5K60`, `MLFA1FTC330R`, `MLFM1FTC6K19`
 
 ### 国巨YAGEO / 厚膜电阻 / 11,286 rows
 
@@ -201,21 +108,30 @@
 - Top unresolved prefixes: `AR0805` (847), `RE1206FRE` (579), `RE1206DRE` (574), `RE0603FRE` (559), `SR0805JR` (381), `SR1206JR` (372), `RE0805FRE` (364), `RV1206FR` (304), `AR0603` (269), `RL1206` (256)
 - Sample models: `SR1210JR-077R5L`, `RV1206FR-071M2L`, `RV0805FR-071M5L`, `RV1206FR-071M5L`, `RV1206FR-071M8L`, `RV0805FR-071M8L`, `RV1206FR-072M2L`, `RV1206FR-0764K9L`
 
-### ROHM / 厚膜电阻 / 10,201 rows
+### 威世Vishay / 厚膜电阻 / 9,479 rows
 
-- Registry status: `pending`
-- Lookup method: Official resistor series pages and catalogs
+- Registry status: `partial`
+- Lookup method: Official resistor family pages and datasheets
 - Official sources:
-  - `resistor-page`: https://www.rohm.com/products/resistors
-  - `official-site`: https://www.rohm.com/
-- Top unresolved prefixes: `ESR10` (774), `KTR10` (747), `KTR18` (731), `ESR18` (716), `MCR10` (574), `MCR03` (563), `LTR10` (480), `SFR01` (362), `ESR03` (352), `01` (348)
-- Sample models: `LTR18EZPJ152`, `PMR03EZPJ000`, `MCR03EZPJ103`, `MCR03EZPFX1002`, `MCR03EZPJ102`, `MCR03EZPFX7501`, `MCR03EZPFX1242`, `MCR03EZPFX1742`
+  - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
+  - `official-site`: https://www.vishay.com/
+- Top unresolved prefixes: `0402` (1171), `0603` (1096), `0805` (1025), `0612` (877), `1218` (842), `1225` (837), `0406` (833), `1206` (463), `LTO100F` (156), `D2TO020C` (140)
+- Sample models: `RCS12061K50FKEA`, `RCA06031K00JNEA`, `RCA060347K0FKEA`, `RCWE2512R300JKEA`, `CRHP1206AF1G00FKET`, `CRHV1206AF50M0FNE5`, `DTO025C1R000JTE3`, `RCL0406287KFKEA`
 
 ### Meritek / 厚膜电阻 / 8,846 rows
 
 - Registry status: `missing`
 - Top unresolved prefixes: `CR1010` (43), `CR0210` (43), `CR1610` (43), `CR0410` (43), `CR0810` (43), `CR101R` (41), `CR251R` (41), `CR081R` (41), `CR2010` (41), `CR161R` (41)
 - Sample models: `CR082005F`, `CR167001F`, `CR204002F`, `CR251873F`, `CR021405F`, `CR1013R7F`, `CR0816R5F`, `CR103602F`
+
+### TE Connectivity(泰科电子) / 薄膜电阻 / 8,523 rows
+
+- Registry status: `partial`
+- Lookup method: TE passive product pages and passive product datasheets
+- Official sources:
+  - `product-page`: https://www.te.com/en/products/passive-components.html
+- Top unresolved prefixes: `3504G3A` (453), `3503G2B` (448), `RR02J` (145), `RR03J` (144), `RR01J` (143), `1622` (109), `SMA-A010` (79), `2176` (73), `SMA-A020` (66), `1-217609` (50)
+- Sample models: `1-1879216-7`, `3-2176074-1`, `RP73F3A7R68FTG`, `SMF71K3JT`, `SMF722KJT`, `SMF78K2JT`, `SMF7240KJT`, `SMF71M0JT`
 
 ### 国巨YAGEO / 绕线电阻 / 8,085 rows
 
@@ -238,15 +154,43 @@
 - Top unresolved prefixes: `RC2012` (965), `RC1005` (964), `RC1608` (962), `RC0603` (957), `RCS2012F` (793), `RCS1005F` (792), `RCS1608F` (787), `RC0402` (697), `RCS2012J` (170), `RCS1005J` (169)
 - Sample models: `RC1005J180CS`, `RC0603F364CS`, `RC1005J561CS`, `RC1005F303CS`, `RC1005F223CS`, `RC1005F123CS`, `RC1005J514CS`, `RCS2012F101CS`
 
+### KOA / 厚膜电阻 / 7,407 rows
+
+- Registry status: `partial`
+- Lookup method: KOA catalog family tables and product series pages
+- Official sources:
+  - `official-site`: https://www.koaspeer.com/
+  - `catalog`: https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf
+- Top unresolved prefixes: `732` (2338), `WK73S` (1641), `731` (769), `SR73W` (644), `SLR1TTE1` (424), `733` (333), `SLR1TTE2` (263), `SLR1TTE3` (214), `SLR1TTE4` (155), `SLR1TTER` (134)
+- Sample models: `SR732ARTTDR750F`, `UR73VD2BTTD20L0F`, `SR732ARTTDR825F`, `SR73W3ATTER68J`, `WK73S2HTTE51L0F`, `WK73S2BTTDR200F`, `SR732ETTDR137F`, `WK73S2JTTE1R00F`
+
+### TE Connectivity(泰科电子) / 厚膜电阻 / 6,464 rows
+
+- Registry status: `partial`
+- Lookup method: TE passive product pages and passive product datasheets
+- Official sources:
+  - `product-page`: https://www.te.com/en/products/passive-components.html
+- Top unresolved prefixes: `3430A3F` (272), `3540` (254), `3502` (254), `3550` (254), `3560` (254), `3430H2F` (254), `3430A2F` (253), `3430B2F` (239), `CRGV2010F` (219), `CRGV2512F` (214)
+- Sample models: `3522150RJT`, `354051RFT`, `RH73W2B430MJTD`, `CRG0402F1M0`, `CRG0402F1K6`, `CRGS1206J180R`, `CRGS1206J68K`, `TCR0805N1M5`
+
 ### 旺诠RALEC / 厚膜电阻 / 6,109 rows
 
 - Registry status: `missing`
 - Top unresolved prefixes: `RTT06R` (106), `RTT05R` (87), `RTT25R` (83), `RTT12R` (71), `RTT20R` (70), `RTT03R` (67), `0210` (43), `0310` (41), `RTT061R` (38), `RTT051R` (36)
 - Sample models: `RTT021002FTH`, `RTT06R500FTP`, `RTT031R10FTP`, `RTT031R60FTP`, `RTT033R00FTP`, `RTT251301FTE`, `RTT061R20FTP`, `RTT025R1JTH`
 
+### Stackpole / 厚膜电阻 / 6,054 rows
+
+- Registry status: `partial`
+- Lookup method: Official resistor series catalog and datasheets
+- Official sources:
+  - `official-site`: https://www.seielect.com/
+- Top unresolved prefixes: `CS` (1280), `RPC1206` (726), `RPC0805` (694), `RPC2010` (426), `RPC1210` (426), `RHC2512F` (400), `RPC0603` (363), `RPC2512` (209), `RHC2512J` (142), `RPC0402` (123)
+- Sample models: `HCJ0805ZT0R00`, `CSR1225FK3L00`, `RPC2512JT180R`, `RPC2512JT1R00`, `RHC2512FTR250`, `RPC0805JT22R0`, `RHC2512FT6K80`, `RPC0805JT6R80-UP`
+
 ### 威世Vishay / 金属氧化膜电阻 / 6,042 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor family pages and datasheets
 - Official sources:
   - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
@@ -335,7 +279,7 @@
 
 ### Stackpole / 绕线电阻 / 4,170 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor series catalog and datasheets
 - Official sources:
   - `official-site`: https://www.seielect.com/
@@ -372,7 +316,7 @@
 
 ### Stackpole / 金属氧化膜电阻 / 3,274 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor series catalog and datasheets
 - Official sources:
   - `official-site`: https://www.seielect.com/
@@ -381,7 +325,7 @@
 
 ### Stackpole / 碳膜电阻 / 2,659 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor series catalog and datasheets
 - Official sources:
   - `official-site`: https://www.seielect.com/
@@ -409,6 +353,16 @@
 - Registry status: `missing`
 - Top unresolved prefixes: `CR0402` (443), `CR0603` (395), `CR0805` (349), `CR1206` (288), `CR0201` (133), `CR1210` (66), `CR2010` (50), `CR2512` (42), `040` (40), `060` (16)
 - Sample models: `CR0603-16W-8452FT`, `HPCR0805-U-000T`, `CR0805-8W-245JT`, `CR2010-1W-240JT`, `CR1210-2W-3321FT`, `CR1206-8W-1741FT`, `CR1206-8W-3900FT`, `CR0603-16W-1782FT`
+
+### Panasonic / 薄膜电阻 / 1,859 rows
+
+- Registry status: `partial`
+- Lookup method: Official resistor catalog and part-number family pages
+- Official sources:
+  - `product-page`: https://industrial.panasonic.com/ww/products/resistors
+  - `catalog`: https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf
+- Top unresolved prefixes: `ERO-S2PH` (571), `ERA-8K` (255), `ERA-8P` (178), `ERA3A` (152), `ERA2A` (124), `ERA6A` (123), `ERA-6K` (94), `ERA-14EB` (53), `ERA3V` (47), `ERA6V` (44)
+- Sample models: `ERA6AEB102V`, `ERA3ARB103V`, `ERA3AEB563V`, `ERA6AEB103V`, `ERA2AEB431X`, `ERA2AEB751X`, `ERA3AEB392V`, `ERA3AEB242V`
 
 ### RCD Components, Inc. / 薄膜电阻 / 1,819 rows
 
@@ -445,7 +399,7 @@
 
 ### Panasonic / 金属氧化膜电阻 / 1,315 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor catalog and part-number family pages
 - Official sources:
   - `product-page`: https://industrial.panasonic.com/ww/products/resistors
@@ -461,7 +415,7 @@
 
 ### TE Connectivity(泰科电子) / 绕线电阻 / 1,276 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: TE passive product pages and passive product datasheets
 - Official sources:
   - `product-page`: https://www.te.com/en/products/passive-components.html
@@ -498,7 +452,7 @@
 
 ### Panasonic / 贴片压敏电阻 / 1,063 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor catalog and part-number family pages
 - Official sources:
   - `product-page`: https://industrial.panasonic.com/ww/products/resistors
@@ -528,9 +482,19 @@
 - Top unresolved prefixes: `RMC0603` (360), `RMC0805` (246), `RMC0402` (164), `RMC1206` (142), `RMC2512` (31), `RMC1210` (20), `RMC2010` (14), `RT1/4W1M` (1)
 - Sample models: `RMC120610K1%N`, `RMC040240.2K1%N`, `RMC04027K68FN`, `RMC040212.4K1%N`, `RMC20103001%N`, `RMC2010205%N`, `RMC0603100K1%N`, `RMC040212K1FN`
 
+### ROHM / 厚膜电阻 / 910 rows
+
+- Registry status: `partial`
+- Lookup method: Official resistor series pages and catalogs
+- Official sources:
+  - `resistor-page`: https://www.rohm.com/products/resistors
+  - `official-site`: https://www.rohm.com/
+- Top unresolved prefixes: `01` (348), `03` (333), `10` (143), `18` (78), `100` (4), `PMR10` (2), `PMR03` (1), `PMR25` (1)
+- Sample models: `PMR03EZPJ000`, `PMR100HZPJV1L0`, `TRR01MZPF4872`, `PMR100HZPFV3L00`, `PMR25HZPFV3L00`, `TRR01MZPJ4R7`, `TRR03EZPJ753`, `TRR01MZPJ333`
+
 ### 威世Vishay / 热敏电阻 / 889 rows
 
-- Registry status: `pending`
+- Registry status: `partial`
 - Lookup method: Official resistor family pages and datasheets
 - Official sources:
   - `product-family`: https://www.vishay.com/en/resistors-fixed/thinfilm/
@@ -549,3 +513,34 @@
 - Registry status: `missing`
 - Top unresolved prefixes: `UB5C-0R1` (4), `UB3C-0R3` (4), `UB5C-0R2` (4), `UB5C-0R3` (4), `UB3C-0R1` (4), `SM15-100` (4), `S2-0R075` (3), `UB3C-0R2` (3), `SM10-100` (3), `S2-0R047` (2)
 - Sample models: `S4-0R039J1`, `S2-0R47J1`, `S2-0R047J1`, `S4-0R36J1`, `S4-10KF1`, `S2-0R03J1`, `S2-681RF1`, `S4-47RF1`
+
+### TE Connectivity(泰科电子) / 金属氧化膜电阻 / 835 rows
+
+- Registry status: `partial`
+- Lookup method: TE passive product pages and passive product datasheets
+- Official sources:
+  - `product-page`: https://www.te.com/en/products/passive-components.html
+- Top unresolved prefixes: `ROX05SJ` (111), `ROX5SSJ1` (28), `ROX5SSJ3` (16), `ROX5SSJ2` (16), `ROX5SSJ5` (10), `ROX5SSJ6` (10), `ROX5SSJ4` (8), `ROX3SJ68` (5), `ROX2SJ1K` (5), `ROX5SSJ8` (5)
+- Sample models: `1625890-6`, `ROX1SJ1K0`, `ROX3SJ3K3`, `ROX3SJ15K`, `ROX3SJ2K7`, `ROX2SJ220R`, `ROX3SG4R7`, `ROX3SJ5K6`
+
+### Bourns / 薄膜电阻 / 822 rows
+
+- Registry status: `partial`
+- Lookup method: Official varistor product pages and ordering-code briefs
+- Official sources:
+  - `varistor-page`: https://www.bourns.com/products/circuit-protection/varistor-products
+  - `technical-library`: https://www.bourns.com/resources/technical-library/library-documents/varistor-products
+- Top unresolved prefixes: `080` (318), `060` (244), `120` (130), `040` (124), `22` (6)
+- Sample models: `CRT0805-BW-1002ELF`, `CRT0805-BY-7503ELF`, `CRT0603-FY-3300ELF`, `CRT1206-BY-40R2ELF`, `CRT1206-BW-1004ELF`, `CRT0402-BY-1103GLF`, `CRT0402-BY-2003GLF`, `CRT0805-CX-10R0ELF`
+
+### Tyohm(幸亚电阻) / 薄膜电阻 / 763 rows
+
+- Registry status: `missing`
+- Top unresolved prefixes: `RN1/2WS1` (43), `RN1/2WS2` (31), `RN1/2WS3` (23), `RJM74P` (20), `RN1/2WS5` (17), `RN1/2WS4` (15), `RN1/2WS6` (13), `RN1/2W1.` (7), `RN1/2W51` (6), `RN1/2W12` (6)
+- Sample models: `RJM74P0204F2T2203`, `RJM74P0204F2T6800`, `RJM74P0204F2T1000`, `RJM74P0204F2T49R9`, `RJM74P0204F2T1100`, `RJM74P0204F2T10K`, `RJM74P0204F2T1003`, `RJM74P0204F2T7500`
+
+### Riedon / 薄膜电阻 / 749 rows
+
+- Registry status: `missing`
+- Top unresolved prefixes: `220` (280), `247` (136), `126` (136), `PFS35-0R` (29), `060` (17), `080` (16), `PFS35-1K` (6), `PFS35-1R` (6), `PFS35-3R` (4), `PFS35-2R` (4)
+- Sample models: `PFS35-5KF1`, `PFS35-360RF1`, `CAR0603-10KB2`, `PFS35-50KF1`, `PFS35-5RF1`, `PFS35-500RF1`, `PFS35-180RF1`, `PFS35-5R6F1`
