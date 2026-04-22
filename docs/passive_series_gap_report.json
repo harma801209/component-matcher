@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T02:10:29+08:00",
+  "generated_at": "2026-04-23T05:25:05+08:00",
   "summary": {
     "total_passive_rows": 1341695,
     "unresolved_rows": 415462,
@@ -105,20 +105,41 @@
       "total_rows": 9470,
       "unresolved_rows": 9470,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "楂樺姛鐜囩數闃"
+      ]
     },
     {
       "brand": "Ohmite",
       "total_rows": 8417,
       "unresolved_rows": 8417,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ],
+      "passive_types": [
+        "缁曠嚎鐢甸樆",
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘姘у寲鑶滅數闃",
+        "鐑晱鐢甸樆"
+      ]
     },
     {
       "brand": "村田Murata",
@@ -221,10 +242,28 @@
       "total_rows": 6175,
       "unresolved_rows": 6175,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "纰宠啘鐢甸樆"
+      ]
     },
     {
       "brand": "Bourns",
@@ -330,20 +369,40 @@
       "total_rows": 5212,
       "unresolved_rows": 5212,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "楂樺姛鐜囩數闃"
+      ]
     },
     {
       "brand": "CAL-CHIP",
       "total_rows": 5007,
       "unresolved_rows": 5007,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official chip-resistor product pages, PDFs, and series ordering tables",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://calchip.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "纰宠啘鐢甸樆"
+      ]
     },
     {
       "brand": "Panasonic",
@@ -374,30 +433,60 @@
       "total_rows": 3821,
       "unresolved_rows": 3821,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official capacitor family pages, catalogs, and product search/document library for series codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.nichicon.co.jp/english/"
+        }
+      ],
+      "passive_types": [
+        "閾濈數瑙ｇ數瀹",
+        "楂橀潹鐢靛",
+        "鑶滅數瀹",
+        "閲庡鐢靛"
+      ]
     },
     {
       "brand": "LIZ(丽智电子)",
       "total_rows": 3770,
       "unresolved_rows": 3770,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product family pages and datasheets for resistor, thermistor, and sensing families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.lizgroup.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘姘у寲鑶滅數闃",
+        "鐑晱鐢甸樆"
+      ]
     },
     {
       "brand": "RCD Components, Inc.",
       "total_rows": 3716,
       "unresolved_rows": 3716,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product pages and resource library for resistor, network, and power component model codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.rcdcomponents.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "缁曠嚎鐢甸樆",
+        "鏁扮粍鐢甸樆",
+        "鐭ヨ矽ꥻ鐢靛"
+      ]
     },
     {
       "brand": "RESI(开步睿思)",
@@ -414,10 +503,20 @@
       "total_rows": 2535,
       "unresolved_rows": 2535,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official product pages and datasheets for passive-component family codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.venkel.com/"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "纰宠啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆"
+      ]
     },
     {
       "brand": "Tyohm(幸亚电阻)",
@@ -2553,7 +2652,7 @@
       "brand": "Meritek",
       "component_type": "厚膜电阻",
       "unresolved_rows": 8846,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CR1010",
@@ -2614,8 +2713,13 @@
         "CR0816R5F",
         "CR103602F"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ]
     },
     {
       "brand": "TE Connectivity(泰科电子)",
@@ -3002,7 +3106,7 @@
       "brand": "旺诠RALEC",
       "component_type": "厚膜电阻",
       "unresolved_rows": 6109,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RTT06R",
@@ -3063,8 +3167,21 @@
         "RTT061R20FTP",
         "RTT025R1JTH"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ]
     },
     {
       "brand": "Stackpole",
@@ -3737,7 +3854,7 @@
       "brand": "EVER OHMS(天二科技)",
       "component_type": "厚膜电阻",
       "unresolved_rows": 4765,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CR1210",
@@ -3798,14 +3915,19 @@
         "CR2512F1K10E04Z",
         "CR1812J6K20E04Z"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ]
     },
     {
       "brand": "CAL-CHIP",
       "component_type": "厚膜电阻",
       "unresolved_rows": 4475,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RM06F",
@@ -3866,14 +3988,19 @@
         "RM10F14R3CT",
         "RM06F2051CT"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official chip-resistor product pages, PDFs, and series ordering tables",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://calchip.com/"
+        }
+      ]
     },
     {
       "brand": "Ohmite",
       "component_type": "绕线电阻",
       "unresolved_rows": 4270,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RW1S0BAR",
@@ -3934,8 +4061,13 @@
         "RW1S5CAR040JET",
         "RW3R0DB1R00JET"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "Stackpole",
@@ -4082,7 +4214,7 @@
       "brand": "尼吉康Nichicon",
       "component_type": "铝电解电容",
       "unresolved_rows": 3821,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "UPM",
@@ -4143,14 +4275,19 @@
         "UVK0J153MHD",
         "UVK0J223MHD"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official capacitor family pages, catalogs, and product search/document library for series codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.nichicon.co.jp/english/"
+        }
+      ]
     },
     {
       "brand": "LIZ(丽智电子)",
       "component_type": "厚膜电阻",
       "unresolved_rows": 3761,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CR0805",
@@ -4199,8 +4336,13 @@
         "CR0603FA22R0G",
         "CR1206J40392G"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product family pages and datasheets for resistor, thermistor, and sensing families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.lizgroup.com/"
+        }
+      ]
     },
     {
       "brand": "Bourns",
@@ -4429,7 +4571,7 @@
       "brand": "Ohmite",
       "component_type": "厚膜电阻",
       "unresolved_rows": 1983,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "SM1020",
@@ -4490,8 +4632,13 @@
         "HVC1206Z2506JET",
         "HVC0402N5007KET"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "村田Murata",
@@ -4574,7 +4721,7 @@
       "brand": "Venkel",
       "component_type": "厚膜电阻",
       "unresolved_rows": 1861,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CR0402",
@@ -4635,8 +4782,13 @@
         "CR1206-8W-3900FT",
         "CR0603-16W-1782FT"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and datasheets for passive-component family codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.venkel.com/"
+        }
+      ]
     },
     {
       "brand": "Panasonic",
@@ -4719,7 +4871,7 @@
       "brand": "RCD Components, Inc.",
       "component_type": "薄膜电阻",
       "unresolved_rows": 1819,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "060",
@@ -4780,8 +4932,13 @@
         "BLU1206-9092-BT25W",
         "BLU0603-1621-BT25W"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and resource library for resistor, network, and power component model codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.rcdcomponents.com/"
+        }
+      ]
     },
     {
       "brand": "RESI(开步睿思)",
@@ -5282,7 +5439,7 @@
       "brand": "RCD Components, Inc.",
       "component_type": "绕线电阻",
       "unresolved_rows": 1225,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "175-270-",
@@ -5343,8 +5500,13 @@
         "125-R36-JTW",
         "175-2R4-JTW"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and resource library for resistor, network, and power component model codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.rcdcomponents.com/"
+        }
+      ]
     },
     {
       "brand": "NTE Electronics",
@@ -5495,7 +5657,7 @@
       "brand": "Ohmite",
       "component_type": "薄膜电阻",
       "unresolved_rows": 1066,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "0207",
@@ -5556,8 +5718,13 @@
         "ACPP0805300RB",
         "ACPP080524KB"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "Panasonic",
@@ -6414,7 +6581,7 @@
       "brand": "Ohmite",
       "component_type": "碳膜电阻",
       "unresolved_rows": 681,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "OJ1025E",
@@ -6475,14 +6642,19 @@
         "OL1255E-R52",
         "OL1115E-R52"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "Venkel",
       "component_type": "薄膜电阻",
       "unresolved_rows": 674,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "060",
@@ -6531,14 +6703,19 @@
         "TFCR0805-10W-K-1822FT-1K",
         "TFCR0603-10W-E-3001BT"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and datasheets for passive-component family codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.venkel.com/"
+        }
+      ]
     },
     {
       "brand": "RCD Components, Inc.",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 672,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RSF2B-1R",
@@ -6599,8 +6776,13 @@
         "RSF2B-823-JBW",
         "RSF2B-434-JTW"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and resource library for resistor, network, and power component model codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.rcdcomponents.com/"
+        }
+      ]
     },
     {
       "brand": "Wurth Elektronik",
@@ -6948,7 +7130,7 @@
       "brand": "CAL-CHIP",
       "component_type": "薄膜电阻",
       "unresolved_rows": 532,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RN06B",
@@ -7009,8 +7191,13 @@
         "RN06B1000CT5-25",
         "RN10D5762CT5-25"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official chip-resistor product pages, PDFs, and series ordering tables",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://calchip.com/"
+        }
+      ]
     },
     {
       "brand": "VO(翔胜)",
@@ -7495,7 +7682,7 @@
       "brand": "EVER OHMS(天二科技)",
       "component_type": "薄膜电阻",
       "unresolved_rows": 352,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "TR0603D",
@@ -7556,8 +7743,13 @@
         "TR0805D2R00P0525Z",
         "TR0603D130KP0510Z"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ]
     },
     {
       "brand": "KOA",
@@ -8113,7 +8305,7 @@
       "brand": "Meritek",
       "component_type": "贴片压敏电阻",
       "unresolved_rows": 299,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "MVR14D",
@@ -8146,14 +8338,19 @@
         "MVR07D820K-S",
         "MVR07D331K-S"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ]
     },
     {
       "brand": "Ohmite",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 285,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "TWM10J",
@@ -8214,8 +8411,13 @@
         "MOX97025004FVE",
         "MOX97021005FVE"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "华星机电",
@@ -8996,7 +9198,7 @@
       "brand": "Meritek",
       "component_type": "薄膜电阻",
       "unresolved_rows": 202,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RN73F",
@@ -9021,8 +9223,13 @@
         "RN73F1JTD4321B",
         "RN73G2BTD6340B"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ]
     },
     {
       "brand": "威世Vishay",
@@ -10299,7 +10506,7 @@
       "brand": "Ohmite",
       "component_type": "贴片电阻",
       "unresolved_rows": 132,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RC0R5DB1",
@@ -10360,8 +10567,13 @@
         "RC0R5DB75R0JET",
         "RC0R5DB560RJET"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ]
     },
     {
       "brand": "华星机电",
@@ -10551,7 +10763,7 @@
       "brand": "Meritek",
       "component_type": "碳膜电阻",
       "unresolved_rows": 123,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "10",
@@ -10612,8 +10824,13 @@
         "CF100-103JTR",
         "CF100-393JTR"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ]
     },
     {
       "brand": "yezhan(业展)",
@@ -12535,7 +12752,7 @@
       "brand": "旺诠RALEC",
       "component_type": "薄膜电阻",
       "unresolved_rows": 58,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "0510",
@@ -12596,8 +12813,21 @@
         "RTX051001BDTP",
         "RTX051003BDTP"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ]
     },
     {
       "brand": "Tyohm(幸亚电阻)",
@@ -12671,7 +12901,7 @@
       "brand": "EVER OHMS(天二科技)",
       "component_type": "合金电阻",
       "unresolved_rows": 54,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "2512",
@@ -12708,8 +12938,13 @@
         "MA080507FR015FZ",
         "MA080510FR005MZ"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ]
     },
     {
       "brand": "Wurth(伍尔特)",
@@ -13386,7 +13621,7 @@
       "brand": "EVER OHMS(天二科技)",
       "component_type": "贴片电阻",
       "unresolved_rows": 41,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "TRC0805D",
@@ -13431,8 +13666,13 @@
         "FCR1206J47R0P05Z",
         "FCR1206J56R0P05Z"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ]
     },
     {
       "brand": "Tyohm(幸亚电阻)",
@@ -16583,7 +16823,7 @@
       "brand": "旺诠RALEC",
       "component_type": "合金电阻",
       "unresolved_rows": 8,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "120",
@@ -16620,8 +16860,21 @@
         "LRE1206-21R007F5",
         "LRE0603-2FR005F5"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ]
     },
     {
       "brand": "Hongda(泓达)",
@@ -16903,7 +17156,7 @@
       "brand": "LIZ(丽智电子)",
       "component_type": "合金电阻",
       "unresolved_rows": 7,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "RM2512FBR",
@@ -16927,8 +17180,13 @@
         "RM2512FCR008GM",
         "RM2512FBR100GM"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product family pages and datasheets for resistor, thermistor, and sensing families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.lizgroup.com/"
+        }
+      ]
     },
     {
       "brand": "TubeDepot",
@@ -18160,7 +18418,7 @@
       "brand": "LIZ(丽智电子)",
       "component_type": "贴片电阻",
       "unresolved_rows": 2,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "CR0402",
@@ -18175,8 +18433,13 @@
         "CR0402FF7320G",
         "CR1206F4R025G"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official product family pages and datasheets for resistor, thermistor, and sensing families",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.lizgroup.com/"
+        }
+      ]
     },
     {
       "brand": "Milliohm(毫欧)",

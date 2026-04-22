@@ -8,6 +8,7 @@ UNIROYAL_BRAND_TOKENS = ("UNI-ROYAL", "UNIROYAL", "厚声", "UNIOHM")
 TAI_BRAND_TOKENS = ("TA-I", "大毅")
 VIKING_BRAND_TOKENS = ("VIKING", "光颉")
 YAGEO_BRAND_TOKENS = ("YAGEO", "国巨")
+RALEC_BRAND_TOKENS = ("RALEC", "旺诠")
 
 
 UNIROYAL_OFFICIAL_SERIES_PROFILES = {
@@ -59,11 +60,29 @@ YAGEO_OFFICIAL_SERIES_PROFILES = {
     "RT": {"系列说明": "高精度高稳定薄膜晶片电阻器", "器件类型": "薄膜电阻", "特殊用途": "高精密"},
 }
 
+RALEC_OFFICIAL_SERIES_PROFILES = {
+    "RAT": {"系列说明": "Automotive grade thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "车规"},
+    "RHW": {"系列说明": "Wide terminal high power thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "wide terminal | high power"},
+    "RTH": {"系列说明": "High power thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high power"},
+    "RTG": {"系列说明": "Anti-surge thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "anti-surge"},
+    "RTR": {"系列说明": "High precision thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high precision"},
+    "RTV": {"系列说明": "High voltage thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high voltage"},
+    "RTT": {"系列说明": "General-purpose thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "RTW": {"系列说明": "Wide terminal thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "wide terminal"},
+}
+
 OFFICIAL_RESISTOR_BRAND_RULES = {
     "UNIROYAL": {"brand_tokens": UNIROYAL_BRAND_TOKENS, "profiles": UNIROYAL_OFFICIAL_SERIES_PROFILES},
     "TAI": {"brand_tokens": TAI_BRAND_TOKENS, "profiles": TAI_OFFICIAL_SERIES_PROFILES},
     "VIKING": {"brand_tokens": VIKING_BRAND_TOKENS, "profiles": VIKING_OFFICIAL_SERIES_PROFILES},
     "YAGEO": {"brand_tokens": YAGEO_BRAND_TOKENS, "profiles": YAGEO_OFFICIAL_SERIES_PROFILES},
+    "RALEC": {"brand_tokens": RALEC_BRAND_TOKENS, "profiles": RALEC_OFFICIAL_SERIES_PROFILES},
+}
+
+OFFICIAL_RESISTOR_SERIES_CODES = {
+    code
+    for rule in OFFICIAL_RESISTOR_BRAND_RULES.values()
+    for code in rule.get("profiles", {}).keys()
 }
 
 
@@ -92,8 +111,12 @@ def normalize_series_code(series: object) -> str:
     text = clean_text(series).upper()
     if text == "":
         return ""
+    if text in OFFICIAL_RESISTOR_SERIES_CODES:
+        return text
     if len(text) > 2 and text.endswith("T"):
-        return text[:-1]
+        stripped = text[:-1]
+        if stripped not in OFFICIAL_RESISTOR_SERIES_CODES:
+            return stripped
     return text
 
 

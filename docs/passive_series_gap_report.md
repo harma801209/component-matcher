@@ -1,6 +1,6 @@
 # Passive Series Gap Report
 
-- Generated: `2026-04-23T02:10:29+08:00`
+- Generated: `2026-04-23T05:25:05+08:00`
 - Total passive rows: `1,341,695`
 - Unresolved rows: `415,462`
 - Resolved rows: `926,233`
@@ -15,27 +15,27 @@
 | 国巨YAGEO | 87,552 | 178,232 | 50.88% | partial | YAGEO product guide and official family naming rules |
 | Stackpole | 29,496 | 92,327 | 68.05% | partial | Official resistor series catalog and datasheets |
 | TE Connectivity(泰科电子) | 17,492 | 40,218 | 56.51% | partial | TE passive product pages and passive product datasheets |
-| Meritek | 9,470 | 9,470 | 0.00% | missing | - |
-| Ohmite | 8,417 | 8,417 | 0.00% | missing | - |
+| Meritek | 9,470 | 9,470 | 0.00% | partial | Official site product pages and datasheets for resistor families and model-prefix ordering codes |
+| Ohmite | 8,417 | 8,417 | 0.00% | partial | Official product-family pages and datasheets for resistor and thermal family ordering codes |
 | 村田Murata | 8,275 | 8,502 | 2.67% | partial | Murata product family pages and SimSurfing/product catalogs |
 | KOA | 8,179 | 257,740 | 96.83% | partial | KOA catalog family tables and product series pages |
 | 三星Samsung | 8,065 | 8,158 | 1.14% | partial | Official chip resistor product page and part-number query pages |
 | 风华Fenghua | 7,244 | 7,343 | 1.35% | partial | Official product pages and catalog model rules |
-| 旺诠RALEC | 6,175 | 6,175 | 0.00% | missing | - |
+| 旺诠RALEC | 6,175 | 6,175 | 0.00% | partial | Official product search and resistor family pages for part-number prefix rules |
 | Bourns | 6,146 | 6,200 | 0.87% | partial | Official varistor product pages and ordering-code briefs |
 | VO(翔胜) | 5,756 | 5,756 | 0.00% | missing | - |
 | 华新科Walsin | 5,665 | 5,665 | 0.00% | partial | Official product taxonomy and resistor series pages |
 | 日本贵弥功Chemi-Con | 5,543 | 5,543 | 0.00% | missing | - |
 | FOJAN(富捷) | 5,491 | 5,491 | 0.00% | missing | - |
 | Littelfuse | 5,222 | 5,222 | 0.00% | partial | Official varistor family pages and ordering terminology notes |
-| EVER OHMS(天二科技) | 5,212 | 5,212 | 0.00% | missing | - |
-| CAL-CHIP | 5,007 | 5,007 | 0.00% | missing | - |
+| EVER OHMS(天二科技) | 5,212 | 5,212 | 0.00% | partial | Official product pages and series PDFs for thick-film and metal-alloy resistor families |
+| CAL-CHIP | 5,007 | 5,007 | 0.00% | partial | Official chip-resistor product pages, PDFs, and series ordering tables |
 | Panasonic | 4,420 | 71,250 | 93.80% | partial | Official resistor catalog and part-number family pages |
-| 尼吉康Nichicon | 3,821 | 3,821 | 0.00% | missing | - |
-| LIZ(丽智电子) | 3,770 | 3,770 | 0.00% | missing | - |
-| RCD Components, Inc. | 3,716 | 3,716 | 0.00% | missing | - |
+| 尼吉康Nichicon | 3,821 | 3,821 | 0.00% | partial | Official capacitor family pages, catalogs, and product search/document library for series codes |
+| LIZ(丽智电子) | 3,770 | 3,770 | 0.00% | partial | Official product family pages and datasheets for resistor, thermistor, and sensing families |
+| RCD Components, Inc. | 3,716 | 3,716 | 0.00% | partial | Official product pages and resource library for resistor, network, and power component model codes |
 | RESI(开步睿思) | 3,350 | 3,350 | 0.00% | missing | - |
-| Venkel | 2,535 | 2,535 | 0.00% | missing | - |
+| Venkel | 2,535 | 2,535 | 0.00% | partial | Official product pages and datasheets for passive-component family codes |
 
 ## Top Unresolved Component Types
 
@@ -120,7 +120,10 @@
 
 ### Meritek / 厚膜电阻 / 8,846 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official site product pages and datasheets for resistor families and model-prefix ordering codes
+- Official sources:
+  - `official-site`: https://www.meritekusa.com/
 - Top unresolved prefixes: `CR1010` (43), `CR0210` (43), `CR1610` (43), `CR0410` (43), `CR0810` (43), `CR101R` (41), `CR251R` (41), `CR081R` (41), `CR2010` (41), `CR161R` (41)
 - Sample models: `CR082005F`, `CR167001F`, `CR204002F`, `CR251873F`, `CR021405F`, `CR1013R7F`, `CR0816R5F`, `CR103602F`
 
@@ -175,7 +178,12 @@
 
 ### 旺诠RALEC / 厚膜电阻 / 6,109 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product search and resistor family pages for part-number prefix rules
+- Official sources:
+  - `official-site`: https://www.ralec.com/en-global/Overview/index
+  - `product-search`: https://www.ralec.com/en-global/product_search/index
+  - `thick-film-chip-resistor`: https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor
 - Top unresolved prefixes: `RTT06R` (106), `RTT05R` (87), `RTT25R` (83), `RTT12R` (71), `RTT20R` (70), `RTT03R` (67), `0210` (43), `0310` (41), `RTT061R` (38), `RTT051R` (36)
 - Sample models: `RTT021002FTH`, `RTT06R500FTP`, `RTT031R10FTP`, `RTT031R60FTP`, `RTT033R00FTP`, `RTT251301FTE`, `RTT061R20FTP`, `RTT025R1JTH`
 
@@ -261,19 +269,28 @@
 
 ### EVER OHMS(天二科技) / 厚膜电阻 / 4,765 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product pages and series PDFs for thick-film and metal-alloy resistor families
+- Official sources:
+  - `official-site`: https://www.everohms.com/
 - Top unresolved prefixes: `CR1210` (634), `CR2010` (624), `CR1206` (622), `CR0805` (610), `CR2512` (599), `CR0603` (444), `CR1812` (356), `CR0402` (267), `CRH2512F` (57), `CRH2512J` (50)
 - Sample models: `CR1210F22K0P05Z`, `HR2512F560KE04Z`, `CR2512F3K30E04Z`, `CR2512F300KE04Z`, `CR2512J75R0E04Z`, `CR2512F1K30E04Z`, `CR2512F1K10E04Z`, `CR1812J6K20E04Z`
 
 ### CAL-CHIP / 厚膜电阻 / 4,475 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official chip-resistor product pages, PDFs, and series ordering tables
+- Official sources:
+  - `official-site`: https://calchip.com/
 - Top unresolved prefixes: `RM06F` (613), `RM04F` (593), `RM12F` (585), `RM10F` (583), `RM02F` (333), `RM25F` (219), `RM25J` (193), `RM06J` (177), `RM12J` (177), `RM10J` (174)
 - Sample models: `RM04J5R1CT`, `RM10J680CT`, `RM04F7322CT`, `RM02J333CT`, `RM04J223CT`, `RM04J203CT`, `RM10F14R3CT`, `RM06F2051CT`
 
 ### Ohmite / 绕线电阻 / 4,270 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product-family pages and datasheets for resistor and thermal family ordering codes
+- Official sources:
+  - `official-site`: https://www.ohmite.com/
 - Top unresolved prefixes: `RW1S0BAR` (82), `RW2S0CBR` (41), `TWW10J` (39), `TUW15J` (33), `RW3R0DBR` (29), `RW1S5CAR` (25), `RW2R0DAR` (24), `RW3R5EAR` (22), `TUW10J` (22), `RW2S0DAR` (21)
 - Sample models: `RW0S6BBR100FET`, `RW0S6BBR020FET`, `RW3R0DB5R00JET`, `RW3R0DB10R0JET`, `RW0S6BB10R0FET`, `RW2S0CBR010JET`, `RW1S5CAR040JET`, `RW3R0DB1R00JET`
 
@@ -294,13 +311,19 @@
 
 ### 尼吉康Nichicon / 铝电解电容 / 3,821 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official capacitor family pages, catalogs, and product search/document library for series codes
+- Official sources:
+  - `official-site`: https://www.nichicon.co.jp/english/
 - Top unresolved prefixes: `UPM` (455), `UPJ` (398), `UPW` (263), `UVR` (236), `UHE` (235), `UHW` (220), `UVZ` (206), `UVK` (172), `UVY` (172), `UPS` (128)
 - Sample models: `UVK0J102MPD`, `UVK0J222MPD`, `UVK0J332MPD`, `UVK0J472MHD`, `UVK0J682MHD`, `UVK0J103MHD`, `UVK0J153MHD`, `UVK0J223MHD`
 
 ### LIZ(丽智电子) / 厚膜电阻 / 3,761 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product family pages and datasheets for resistor, thermistor, and sensing families
+- Official sources:
+  - `official-site`: https://www.lizgroup.com/
 - Top unresolved prefixes: `CR0805` (813), `CR0603` (739), `CR1206` (696), `CR0402` (672), `CR1210` (245), `CR2512` (239), `CR2010` (208), `CR0201` (148), `CH2512JB` (1)
 - Sample models: `CR0805J80473G`, `CR0402FF1402G`, `CR0402FF4021G`, `CR0402FF6040G`, `CR0603FA8060G`, `CR0603FA1962G`, `CR0603FA22R0G`, `CR1206J40392G`
 
@@ -334,7 +357,10 @@
 
 ### Ohmite / 厚膜电阻 / 1,983 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product-family pages and datasheets for resistor and thermal family ordering codes
+- Official sources:
+  - `official-site`: https://www.ohmite.com/
 - Top unresolved prefixes: `SM1020` (97), `TCH35P` (68), `MOX-4002` (66), `TAH20P` (63), `SM1040` (53), `MOX-7502` (49), `1028` (45), `TBH25P` (41), `SM2040` (38), `1125` (37)
 - Sample models: `HVC0603T5005FET`, `HVC0603T1006FET`, `HVC0603T5004FET`, `HVC2512T5004JET`, `HVC0402N1007KET`, `HVC0805Z1007JET`, `HVC1206Z2506JET`, `HVC0402N5007KET`
 
@@ -350,7 +376,10 @@
 
 ### Venkel / 厚膜电阻 / 1,861 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product pages and datasheets for passive-component family codes
+- Official sources:
+  - `official-site`: https://www.venkel.com/
 - Top unresolved prefixes: `CR0402` (443), `CR0603` (395), `CR0805` (349), `CR1206` (288), `CR0201` (133), `CR1210` (66), `CR2010` (50), `CR2512` (42), `040` (40), `060` (16)
 - Sample models: `CR0603-16W-8452FT`, `HPCR0805-U-000T`, `CR0805-8W-245JT`, `CR2010-1W-240JT`, `CR1210-2W-3321FT`, `CR1206-8W-1741FT`, `CR1206-8W-3900FT`, `CR0603-16W-1782FT`
 
@@ -366,7 +395,10 @@
 
 ### RCD Components, Inc. / 薄膜电阻 / 1,819 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product pages and resource library for resistor, network, and power component model codes
+- Official sources:
+  - `official-site`: https://www.rcdcomponents.com/
 - Top unresolved prefixes: `060` (289), `120` (288), `080` (287), `GP55-100` (10), `GP55-294` (8), `GP55-196` (8), `GP55-137` (8), `GP55-316` (8), `GP55-806` (8), `GP55-536` (8)
 - Sample models: `BLU1206-7502-BT25W`, `BLU0805-8662-BT25W`, `BLU0603-2431-BT25W`, `BLU0603-1581-BT25W`, `BLU1206-4322-BT25W`, `BLU1206-4991-BT25W`, `BLU1206-9092-BT25W`, `BLU0603-1621-BT25W`
 
@@ -424,7 +456,10 @@
 
 ### RCD Components, Inc. / 绕线电阻 / 1,225 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product pages and resource library for resistor, network, and power component model codes
+- Official sources:
+  - `official-site`: https://www.rcdcomponents.com/
 - Top unresolved prefixes: `175-270-` (2), `125-510-` (2), `160-560-` (2), `175-681-` (2), `175-510-` (2), `125-R36-` (2), `175-2R4-` (2), `PR1-121-` (2), `175-360-` (2), `175-331-` (2)
 - Sample models: `175-270-JTW`, `125-510-JTW`, `160-560-JBW`, `175-270-JBW`, `175-681-JTW`, `175-510-JTW`, `125-R36-JTW`, `175-2R4-JTW`
 
@@ -446,7 +481,10 @@
 
 ### Ohmite / 薄膜电阻 / 1,066 rows
 
-- Registry status: `missing`
+- Registry status: `partial`
+- Lookup method: Official product-family pages and datasheets for resistor and thermal family ordering codes
+- Official sources:
+  - `official-site`: https://www.ohmite.com/
 - Top unresolved prefixes: `0207` (285), `AC` (66), `7003` (26), `TN15P` (17), `APC0603B` (13), `TNP10SC` (12), `MEV04V` (11), `APC0805B` (10), `APC0805` (8), `APC1206B` (8)
 - Sample models: `ACPP0603470RB`, `ACPP0805510RB`, `ACPP060351RB`, `ACPP0603330RB`, `ACPP08056K2B`, `ACPP0603130RB`, `ACPP0805300RB`, `ACPP080524KB`
 

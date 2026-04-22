@@ -420,6 +420,168 @@
       ],
       "lookup_method": "Official site plus authorized brand page and series guides; use model prefix rules for CAA/CAI/CIA/CSA/CSS/CSO, and treat CGA as the channel-common MLCC variant paired with CSA as the standard common MLCC",
       "status": "partial"
+    },
+    {
+      "brand": "Meritek",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "楂樺姛鐜囩數闃"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.meritekusa.com/"
+        }
+      ],
+      "lookup_method": "Official site product pages and datasheets for resistor families and model-prefix ordering codes",
+      "status": "partial"
+    },
+    {
+      "brand": "Ohmite",
+      "passive_types": [
+        "缁曠嚎鐢甸樆",
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘姘у寲鑶滅數闃",
+        "鐑晱鐢甸樆"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ohmite.com/"
+        }
+      ],
+      "lookup_method": "Official product-family pages and datasheets for resistor and thermal family ordering codes",
+      "status": "partial"
+    },
+    {
+      "brand": "旺诠RALEC",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "纰宠啘鐢甸樆"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ],
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "status": "partial"
+    },
+    {
+      "brand": "尼吉康Nichicon",
+      "passive_types": [
+        "閾濈數瑙ｇ數瀹",
+        "楂橀潹鐢靛",
+        "鑶滅數瀹",
+        "閲庡鐢靛"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.nichicon.co.jp/english/"
+        }
+      ],
+      "lookup_method": "Official capacitor family pages, catalogs, and product search/document library for series codes",
+      "status": "partial"
+    },
+    {
+      "brand": "LIZ(丽智电子)",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘姘у寲鑶滅數闃",
+        "鐑晱鐢甸樆"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.lizgroup.com/"
+        }
+      ],
+      "lookup_method": "Official product family pages and datasheets for resistor, thermistor, and sensing families",
+      "status": "partial"
+    },
+    {
+      "brand": "RCD Components, Inc.",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "缁曠嚎鐢甸樆",
+        "鏁扮粍鐢甸樆",
+        "鐭ヨ矽ꥻ鐢靛"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.rcdcomponents.com/"
+        }
+      ],
+      "lookup_method": "Official product pages and resource library for resistor, network, and power component model codes",
+      "status": "partial"
+    },
+    {
+      "brand": "CAL-CHIP",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "纰宠啘鐢甸樆"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://calchip.com/"
+        }
+      ],
+      "lookup_method": "Official chip-resistor product pages, PDFs, and series ordering tables",
+      "status": "partial"
+    },
+    {
+      "brand": "Venkel",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "纰宠啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.venkel.com/"
+        }
+      ],
+      "lookup_method": "Official product pages and datasheets for passive-component family codes",
+      "status": "partial"
+    },
+    {
+      "brand": "EVER OHMS(天二科技)",
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "楂樺姛鐜囩數闃"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.everohms.com/"
+        }
+      ],
+      "lookup_method": "Official product pages and series PDFs for thick-film and metal-alloy resistor families",
+      "status": "partial"
     }
   ]
 }

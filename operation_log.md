@@ -1720,3 +1720,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 从 `11` 提升到 `12`，并同步刷新 `PUBLIC_CODE_STAMP`，强制让公开站的会话缓存和查询结果缓存重算。
 - 本地验证：同一条 `GCM155R71H333KE02D` 现在重新排序后，`芯声微HRE CAI0402X7R333K500GT` 排在结果第 1 位。
 - 同步更新 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 的 `APP_CACHE_BUSTER`，让公开壳的 iframe `v=` 也一起失效，避免浏览器继续拿旧嵌入页。
+
+## 2026-04-23 RALEC 厚膜系列码补齐
+- 已把 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 恢复到完整家族表基础上，再增补 `RALEC` 品牌 token 与厚膜 family code。
+- 新增官方厚膜系列码：`RTT / RTW / RTH / RHW / RTR / RTG / RTV / RAT`。
+- 为避免真系列码被 `normalize_series_code()` 误剪，增加了“已知官方 family code 优先保留”的归一化规则。
+- 验证：
+  - `resolve_official_resistor_series_code_from_model('RTT021002FTH', '旺诠RALEC') -> RTT`
+  - `lookup_official_resistor_series_profile_by_model('RTT021002FTH', '旺诠RALEC')` 返回 `General-purpose thick film chip resistor`
+  - `resolve_official_resistor_series_code_from_model('RAT025R0FTH', '旺诠RALEC') -> RAT`
