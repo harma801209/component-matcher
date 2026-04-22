@@ -3841,6 +3841,15 @@ GENERIC_MLCC_SERIES_CLASS = {
     "CAI": "车规",
 }
 
+HRE_MLCC_SERIES_MEANING = {
+    "CGA": "常规 / General-purpose MLCC",
+    "CSA": "常规 / General-purpose MLCC",
+}
+HRE_MLCC_SERIES_CLASS = {
+    "CGA": "常规",
+    "CSA": "常规",
+}
+
 
 MLCC_SERIES_CLASS_RULES = [
     ("次车规", [r"WITHOUT\s+AEC[- ]?Q200", r"无\s*AEC[- ]?Q200", r"次车规"]),
@@ -4028,7 +4037,39 @@ def generic_mlcc_series_profile(series_code):
     }
 
 
-def generic_mlcc_series_profile_from_model(model):
+def hre_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in ("CGA", "CSA"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def hre_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(HRE_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "渠道专用" if code == "CGA" else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(HRE_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
+def hre_mlcc_series_profile_from_model(model):
+    return hre_mlcc_series_profile(hre_mlcc_series_code_from_model(model))
+
+
+def generic_mlcc_series_profile_from_model(model, brand=""):
+    brand_text = clean_brand(brand)
+    brand_upper = clean_text(brand_text).upper()
+    if "HRE" in brand_upper or "芯声微" in brand_text:
+        return hre_mlcc_series_profile_from_model(model)
     return generic_mlcc_series_profile(generic_mlcc_series_code_from_model(model))
 
 
@@ -4093,6 +4134,10 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = walsin_mlcc_series_profile(walsin_series_code)
         elif taiyo_series_code != "":
             profile = taiyo_mlcc_series_profile(taiyo_series_code)
+        elif "HRE" in brand_upper or "芯声微" in brand_text:
+            profile = parse_generic_size_first_mlcc(model_key, brand=brand_text)
+            if profile is None or clean_text(profile.get("系列", "")) == "":
+                profile = generic_mlcc_series_profile_from_model(model_key, brand=brand_text)
         elif model_key.startswith("CGA") or re.match(r"^C\d{4}[A-Z0-9].*", model_key):
             profile = tdk_mlcc_series_profile_from_model(model_key)
         elif series_key in PDC_MLCC_SERIES_MEANING:
@@ -4108,7 +4153,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
             profile = tdk_mlcc_series_profile_from_model(series_key)
         else:
-            generic_profile = generic_mlcc_series_profile_from_model(model_key or series_key)
+            generic_profile = generic_mlcc_series_profile_from_model(model_key or series_key, brand=brand_text)
             if clean_text(generic_profile.get("系列", "")) == "":
                 generic_profile = parse_generic_size_first_mlcc(model_key or series_key, brand=brand_text)
             if generic_profile is not None:
@@ -4120,6 +4165,26 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     if result["系列说明"] == "" and clean_text(profile.get("系列说明", "")) != "":
         result["系列说明"] = clean_text(profile.get("系列说明", ""))
     if result["特殊用途"] == "" and clean_text(profile.get("特殊用途", "")) != "":
+        result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+    profile_class_text = clean_text(profile.get("_mlcc_series_class", ""))
+    current_class_text = normalize_mlcc_series_class(
+        "/".join(
+            part for part in [
+                clean_text(result["系列说明"]),
+                clean_text(result["特殊用途"]),
+            ] if clean_text(part) != ""
+        )
+    )
+    if (
+        profile_series != ""
+        and clean_text(result["系列"]) == profile_series
+        and profile_class_text != ""
+        and current_class_text != ""
+        and current_class_text != profile_class_text
+    ):
+        profile_desc_text = clean_text(profile.get("系列说明", ""))
+        if profile_desc_text != "":
+            result["系列说明"] = profile_desc_text
         result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
 
     result["_mlcc_series_class"] = normalize_mlcc_series_class(
@@ -11108,6 +11173,12 @@ def resolve_generic_mlcc_brand_series_profile(brand="", model="", series="", ser
     }
     if model_text == "":
         return result
+    if "HRE" in brand_upper or "芯声微" in brand_text:
+        parsed = parse_generic_size_first_mlcc(model_text, brand=brand_text)
+        if parsed is not None:
+            series_code = clean_text(parsed.get("系列", ""))
+            if series_code != "":
+                return merge_series_profile_values(result, parsed, model=model_text)
     if "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text:
         series_code = taiyo_mlcc_series_code_from_model(model_text)
         if series_code != "":
@@ -12204,7 +12275,7 @@ def parse_generic_size_first_mlcc(model, brand=""):
     else:
         display_brand = clean_brand(brand) or "未知"
         authority = "generic_size_first_mlcc"
-    series_profile = generic_mlcc_series_profile_from_model(model)
+    series_profile = generic_mlcc_series_profile_from_model(model, brand=brand_text)
     series_code = clean_text(series_profile.get("系列", "")) or clean_text(match.group("prefix"))
 
     return {

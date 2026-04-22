@@ -382,6 +382,28 @@
       ],
       "lookup_method": "Official product selector and family-series lists",
       "status": "partial"
+    },
+    {
+      "brand": "芯声微HRE",
+      "passive_types": [
+        "MLCC"
+      ],
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "http://www.hretech.cn/"
+        },
+        {
+          "kind": "datasheet",
+          "url": "https://datasheet.lcsc.com/lcsc/2509180925_HRE-CGA0603X5R105K160JT_C6119849.pdf"
+        },
+        {
+          "kind": "datasheet",
+          "url": "https://datasheet.lcsc.com/lcsc/2208051100_HRE-CSA0805X7R223K500KT_C3015147.pdf"
+        }
+      ],
+      "lookup_method": "Official site and series datasheets / part-number naming rules",
+      "status": "partial"
     }
   ]
 }
