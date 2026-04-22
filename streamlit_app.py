@@ -18,8 +18,8 @@ PUBLIC_RELEASE_STAMP = "2026-04-23T05:01:40+08:00"
 
 # The public entrypoint must never spend startup time rebuilding data.
 # Keep auto-update disabled unless a manual dev run opts back in explicitly.
-os.environ.setdefault("COMPONENT_MATCHER_PUBLIC_MODE", "1")
-os.environ.setdefault("COMPONENT_MATCHER_SKIP_AUTO_UPDATE", "1")
+os.environ["COMPONENT_MATCHER_PUBLIC_MODE"] = "1"
+os.environ["COMPONENT_MATCHER_SKIP_AUTO_UPDATE"] = "1"
 
 try:
     runpy.run_path(os.path.join(BASE_DIR, "component_matcher.py"), run_name="__main__")
