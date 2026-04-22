@@ -1623,3 +1623,5 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - `AA0402JR-070RL -> 系列=AA / 系列说明=汽车级抗硫化厚膜晶片电阻器`
   - `AT0603DRD074K99L -> 系列=AT / 系列说明=车规薄膜晶片电阻器`
   - `RB04BTP1001 -> 系列=RB / 系列说明=薄膜晶片电阻器`
+- 将更新推到 `main` 后，Playwright 直接读取公开正式站内层 `srcdoc` 仍发现旧值 `0402WGJ / RMS04J / AS02J / AA0402JR`，说明问题已从“本地规则/缓存未更新”转移为“Streamlit Cloud 运行态尚未重拉最新仓库内容”。
+- 已再次刷新 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 时间戳，作为最小化的完整重建触发信号，不改任何依赖版本，仅用于催促 Streamlit Cloud 强制重新部署并加载最新系列规则与 bundle 分片。
