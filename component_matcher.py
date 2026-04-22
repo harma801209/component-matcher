@@ -17559,8 +17559,8 @@ def estimate_match_card_iframe_height(part_row_count, result_row_count):
     footer_height = 28
     chrome_height = 28
     if result_row_count <= 0:
-        compact_total = part_height + footer_height + chrome_height + 28
-        return max(228, min(300, compact_total))
+        compact_total = part_height + footer_height + chrome_height - 18
+        return max(178, min(210, compact_total))
     result_height = 118 + result_visible_rows * 34
     total = part_height + result_height + footer_height + chrome_height
     return max(576, min(676, total))
@@ -17781,6 +17781,18 @@ html, body {{
     border-top: 1px solid rgba(191, 219, 254, 0.58);
     border-radius: 0 0 16px 16px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.94) 65%, rgba(235, 244, 255, 0.84) 100%);
+}}
+.no-alt-match-alert {{
+    margin: 6px 8px 0 8px;
+    padding: 16px 22px;
+    border-radius: 14px;
+    border: 1px solid rgba(147, 197, 253, 0.88);
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%);
+    color: #0f4c9a;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.08);
 }}
 .result-query-inline {{
     padding: 6px 2px 0 2px;
@@ -20868,15 +20880,15 @@ if search_clicked:
                         f'{match_card_header_html}'
                         f'{part_info_fragment}'
                         '<div class="match-card-footer"></div>'
+                        '<div class="no-alt-match-alert">已找到原厂料号资料，暂未找到其他品牌替代结果</div>'
                     )
                     components.html(
                         build_result_table_iframe_html(match_card_html),
-                        height=estimate_match_card_iframe_height(len(part_info_df), 0),
+                        height=estimate_match_card_iframe_height(len(part_info_df), 0) + 72,
                         scrolling=False,
                     )
-                    st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
                     if part_info_df is not None and not part_info_df.empty:
-                        st.info("已找到原厂料号资料，暂未找到其他品牌替代结果")
+                        st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
                         search_stats["success"] += 1
                     else:
                         st.warning("未找到其他品牌匹配结果")
