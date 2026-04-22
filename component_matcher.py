@@ -13647,7 +13647,10 @@ def update_database(force=False):
             pass
         startup_trace("update_database:done")
 
-if clean_text(os.getenv("COMPONENT_MATCHER_SKIP_AUTO_UPDATE", "")) not in {"1", "true", "yes", "on"}:
+if (
+    clean_text(os.getenv("COMPONENT_MATCHER_SKIP_AUTO_UPDATE", "")) not in {"1", "true", "yes", "on"}
+    and clean_text(os.getenv("COMPONENT_MATCHER_PUBLIC_MODE", "")) not in {"1", "true", "yes", "on"}
+):
     update_database()
 
 def auto_refresh_db(interval_sec=300):
@@ -20770,7 +20773,7 @@ if get_configured_access_code() != "" and st.session_state.get("_app_access_gran
         if st.button("退出访问码", use_container_width=True):
             st.session_state.pop("_app_access_granted", None)
             st.rerun()
-if not is_component_matcher_build_mode() and not is_streamlit_cloud_runtime() and database_has_component_rows():
+if not is_component_matcher_build_mode() and not (is_public_mode() or is_streamlit_cloud_runtime()) and database_has_component_rows():
     try:
         startup_trace("before_maybe_update_database_on_startup")
         maybe_update_database(force=False)
@@ -20781,7 +20784,7 @@ if not is_component_matcher_build_mode() and not is_streamlit_cloud_runtime() an
         st.exception(exc)
         st.code(traceback.format_exc())
         st.stop()
-elif not is_component_matcher_build_mode() and not is_streamlit_cloud_runtime():
+elif not is_component_matcher_build_mode() and not (is_public_mode() or is_streamlit_cloud_runtime()):
     try:
         startup_trace("before_cloud_search_warmup")
         maybe_start_cloud_search_asset_warmup()

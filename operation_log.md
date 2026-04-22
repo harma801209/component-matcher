@@ -1729,3 +1729,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
   - `resolve_official_resistor_series_code_from_model('RTT021002FTH', '旺诠RALEC') -> RTT`
   - `lookup_official_resistor_series_profile_by_model('RTT021002FTH', '旺诠RALEC')` 返回 `General-purpose thick film chip resistor`
   - `resolve_official_resistor_series_code_from_model('RAT025R0FTH', '旺诠RALEC') -> RAT`
+
+## 2026-04-23 公共入口白页修复
+- 根因是 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 在导入时会无条件执行 `update_database()`，公开入口因此被启动阶段的全量更新卡住，页面只能看到 Streamlit 壳。
+- 在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 中默认注入 `COMPONENT_MATCHER_PUBLIC_MODE=1` 与 `COMPONENT_MATCHER_SKIP_AUTO_UPDATE=1`，让公开入口优先渲染 UI，不再做启动时的重建。
+- 同步把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的导入期自动更新与启动维护条件收紧为：默认仅在显式手动模式下运行。
+- 本地验证：`streamlit run streamlit_app.py` 现在可以直接渲染首页，首屏内容与按钮已恢复可见。
