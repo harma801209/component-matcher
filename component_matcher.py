@@ -3842,7 +3842,7 @@ GENERIC_MLCC_SERIES_CLASS = {
 }
 
 HRE_MLCC_SERIES_MEANING = {
-    "CGA": "常规 / General-purpose MLCC",
+    "CGA": "常规 MLCC/渠道",
     "CSA": "常规 / General-purpose MLCC",
 }
 HRE_MLCC_SERIES_CLASS = {

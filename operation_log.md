@@ -1689,3 +1689,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 重新生成 [`docs/passive_series_gap_report.json`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.json) 与 [`docs/passive_series_gap_report.md`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md) 后，系列未收口行数从 `433,712` 进一步降到 `415,462`。
 
 - 2026-04-22: HRE/芯声微 MLCC now has a brand-aware official family profile. `CGA` and `CSA` both resolve as common/general-purpose MLCC, with `CGA` marked as channel-specific rather than automotive; the resolver now also refreshes stale same-series automotive descriptions when the official class mismatches. Added `芯声微HRE` to the passive source registry with official site / datasheet references.
+
+## 2026-04-23 芯声微 HRE CGA 系列说明数据库回填
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中芯声微 HRE 的 `CGA` canonical 系列说明改为 `常规 MLCC/渠道`，保留 `CSA` 为常规 MLCC。
+- 使用内置回填逻辑将 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 中所有芯声微 `CGA*` 行的 `系列说明` 从 `车规 / AEC-Q200` 批量改写为 `常规 MLCC/渠道`，并保留 `特殊用途 = 渠道专用`。
+- 重建了 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与 [`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)，确保公开版与本地查询结果一致。
+- 验证结果：
+  - `芯声微HRE CGA0603X7R104K500JT -> 系列说明 = 常规 MLCC/渠道`
+  - `芯声微HRE CSA0805X7R223K500KT -> 系列说明 = 常规 / General-purpose MLCC`
