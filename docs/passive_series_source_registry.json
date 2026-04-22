@@ -1,0 +1,183 @@
+{
+  "generated_note": "Curated official-source registry for passive-component series completion. Use official manufacturer product pages, catalogs, part-number search systems, or datasheets before adding family-code rules.",
+  "brands": [
+    {
+      "brand": "威世Vishay",
+      "passive_types": ["薄膜电阻", "厚膜电阻", "绕线电阻", "金属氧化膜电阻", "热敏电阻"],
+      "official_sources": [
+        {"kind": "product-family", "url": "https://www.vishay.com/en/resistors-fixed/thinfilm/"},
+        {"kind": "official-site", "url": "https://www.vishay.com/"}
+      ],
+      "lookup_method": "Official resistor family pages and datasheets",
+      "status": "pending"
+    },
+    {
+      "brand": "KOA",
+      "passive_types": ["薄膜电阻", "厚膜电阻", "碳膜电阻", "金属氧化膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.koaspeer.com/"},
+        {"kind": "catalog", "url": "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/KOA_catalog_en.pdf"}
+      ],
+      "lookup_method": "KOA catalog family tables and product series pages",
+      "status": "pending"
+    },
+    {
+      "brand": "国巨YAGEO",
+      "passive_types": ["薄膜电阻", "厚膜电阻", "碳膜电阻", "MLCC", "电感", "压敏电阻"],
+      "official_sources": [
+        {"kind": "application-guide", "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"},
+        {"kind": "official-site", "url": "https://www.yageo.com/"}
+      ],
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "status": "partial"
+    },
+    {
+      "brand": "Stackpole",
+      "passive_types": ["薄膜电阻", "厚膜电阻", "绕线电阻", "金属氧化膜电阻", "碳膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.seielect.com/"}
+      ],
+      "lookup_method": "Official resistor series catalog and datasheets",
+      "status": "pending"
+    },
+    {
+      "brand": "Panasonic",
+      "passive_types": ["厚膜电阻", "薄膜电阻", "贴片压敏电阻", "铝电解电容"],
+      "official_sources": [
+        {"kind": "product-page", "url": "https://industrial.panasonic.com/ww/products/resistors"},
+        {"kind": "catalog", "url": "https://mediap.industry.panasonic.eu/assets/imported/industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/DMA0000COL9.pdf"}
+      ],
+      "lookup_method": "Official resistor catalog and part-number family pages",
+      "status": "pending"
+    },
+    {
+      "brand": "TE Connectivity(泰科电子)",
+      "passive_types": ["薄膜电阻", "厚膜电阻", "金属氧化膜电阻", "碳膜电阻"],
+      "official_sources": [
+        {"kind": "product-page", "url": "https://www.te.com/en/products/passive-components.html"}
+      ],
+      "lookup_method": "TE passive product pages and passive product datasheets",
+      "status": "pending"
+    },
+    {
+      "brand": "进工业Susumu",
+      "passive_types": ["薄膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www1.susumu.co.jp/en/"},
+        {"kind": "datasheet", "url": "https://www.susumu.co.jp/common/pdf/usa/RoHS.pdf"}
+      ],
+      "lookup_method": "Official product families and datasheet model tables",
+      "status": "pending"
+    },
+    {
+      "brand": "华新科Walsin",
+      "passive_types": ["MLCC", "厚膜电阻", "薄膜电阻", "压敏电阻", "滤波器"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.passivecomponent.com/"},
+        {"kind": "resistor-page", "url": "https://www.passivecomponent.com/products/resistors/"}
+      ],
+      "lookup_method": "Official product taxonomy and resistor series pages",
+      "status": "partial"
+    },
+    {
+      "brand": "三星Samsung",
+      "passive_types": ["MLCC", "厚膜电阻"],
+      "official_sources": [
+        {"kind": "product-page", "url": "https://www.samsungsem.com/global/product/passive-component/chip-resistor.do"},
+        {"kind": "part-query", "url": "https://product.samsungsem.com/cr/RU3216FR025CS.do"},
+        {"kind": "catalog", "url": "https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf"}
+      ],
+      "lookup_method": "Official chip resistor product page and part-number query pages",
+      "status": "partial"
+    },
+    {
+      "brand": "村田Murata",
+      "passive_types": ["MLCC", "电阻", "电感", "磁珠", "热敏电阻"],
+      "official_sources": [
+        {"kind": "resistor-page", "url": "https://www.murata.com/products/resistor"},
+        {"kind": "official-site", "url": "https://www.murata.com/en-us/"}
+      ],
+      "lookup_method": "Murata product family pages and SimSurfing/product catalogs",
+      "status": "partial"
+    },
+    {
+      "brand": "东电化TDK",
+      "passive_types": ["MLCC", "电感", "热敏电阻", "贴片压敏电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.tdk.com/"},
+        {"kind": "electronics-site", "url": "https://www.tdk-electronics.tdk.com/"}
+      ],
+      "lookup_method": "TDK electronics product pages and datasheet ordering guides",
+      "status": "partial"
+    },
+    {
+      "brand": "Bourns",
+      "passive_types": ["贴片压敏电阻", "绕线电阻", "电感"],
+      "official_sources": [
+        {"kind": "varistor-page", "url": "https://www.bourns.com/products/circuit-protection/varistor-products"},
+        {"kind": "technical-library", "url": "https://www.bourns.com/resources/technical-library/library-documents/varistor-products"}
+      ],
+      "lookup_method": "Official varistor product pages and ordering-code briefs",
+      "status": "partial"
+    },
+    {
+      "brand": "Littelfuse",
+      "passive_types": ["贴片压敏电阻"],
+      "official_sources": [
+        {"kind": "varistor-page", "url": "https://www.littelfuse.com/products/overvoltage-protection/varistors"},
+        {"kind": "application-note", "url": "https://www.littelfuse.com/~/media/electronics_technical/application_notes/varistors/littelfuse_varistors_connection_and_terminology_application_note.pdf"}
+      ],
+      "lookup_method": "Official varistor family pages and ordering terminology notes",
+      "status": "partial"
+    },
+    {
+      "brand": "ROHM",
+      "passive_types": ["电阻"],
+      "official_sources": [
+        {"kind": "resistor-page", "url": "https://www.rohm.com/products/resistors"},
+        {"kind": "official-site", "url": "https://www.rohm.com/"}
+      ],
+      "lookup_method": "Official resistor series pages and catalogs",
+      "status": "pending"
+    },
+    {
+      "brand": "风华Fenghua",
+      "passive_types": ["电阻", "MLCC", "电感", "压敏电阻", "热敏电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.fhcomp.com/en/"}
+      ],
+      "lookup_method": "Official product pages and catalog model rules",
+      "status": "partial"
+    },
+    {
+      "brand": "厚声UNI-ROYAL",
+      "passive_types": ["厚膜电阻", "薄膜电阻", "碳膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.uni-royal.cn/"},
+        {"kind": "part-query", "url": "https://www.uni-royal.cn/search.php"}
+      ],
+      "lookup_method": "Official part search and family product pages",
+      "status": "partial"
+    },
+    {
+      "brand": "大毅科技",
+      "passive_types": ["厚膜电阻", "薄膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.tai.com.tw/"},
+        {"kind": "rms-page", "url": "https://www.tai.com.tw/zh-Hant/product/5c8yP3CZM4PXDqq7/97cZTB6GG2QH2it4/RMS"}
+      ],
+      "lookup_method": "Official product taxonomy and product pages by family code",
+      "status": "partial"
+    },
+    {
+      "brand": "光颉Viking",
+      "passive_types": ["厚膜电阻", "薄膜电阻"],
+      "official_sources": [
+        {"kind": "official-site", "url": "https://www.viking.com.tw/"},
+        {"kind": "product-filter", "url": "https://www.viking.com.tw/en/"}
+      ],
+      "lookup_method": "Official product selector and family-series lists",
+      "status": "partial"
+    }
+  ]
+}

@@ -47,6 +47,7 @@ PUBLISH_FILES = [
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
     "sync_samsung_power_inductors.py",
+    "tools/build_passive_series_gap_report.py",
     "publish_public.ps1",
     "publish_public.cmd",
     # Raw workbook sources required for rebuilding the cloud database.

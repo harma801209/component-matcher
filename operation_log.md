@@ -1649,3 +1649,32 @@ This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
   - [`RMS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMS.pdf)
   - [`RMSV.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMSV.pdf)
   - [`RLS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RLS.pdf)
+
+## 2026-04-22 被动件官方系列缺口收口基础设施
+- 用户要求把“剩余品牌怎么系统化收口”的动作沉淀为固定基础设施，而不是继续靠记忆补规则。目标拆成三步：`官方来源登记 -> 从数据库自动找缺口 -> 生成按品牌 / 器件类型 / 前缀的待补规则清单`。
+- 已新增官方来源登记文件 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json)，先覆盖当前优先级最高的一批品牌，并为每个品牌记录：
+  - `status`：`done / partial / pending / missing`
+  - `lookup_method`：后续补规则时优先走的官方查询路径
+  - `sources`：官网、型录、系列页、物料查询入口等
+- 已新增报告脚本 [`tools/build_passive_series_gap_report.py`](C:/Users/zjh/Desktop/data/tools/build_passive_series_gap_report.py)，它会直接扫描 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 中所有被动件行，并按统一规则判定“系列信息未收口”：
+  - 器件类型范围：`电阻 / 电容 / 电感 / 磁珠 / 滤波 / 压敏`
+  - 未收口判定：`系列` 为空，或 `系列说明` 仍是占位文本（如“某品牌 + 截断前缀 + 电阻/电容/磁珠系列”）
+  - 自动聚合维度：`品牌`、`器件类型`、`品牌/器件类型组合`、`高频未收前缀`、`样本型号`
+- 已生成两份可直接使用的报告：
+  - [`docs/passive_series_gap_report.json`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.json)
+  - [`docs/passive_series_gap_report.md`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md)
+- 当前数据库扫描结果：
+  - 被动件总行数：`1,341,695`
+  - 系列未收口行数：`1,198,518`
+  - 已收口行数：`143,177`
+  - 涉及未收口品牌：`177`
+  - 涉及未收口品牌/器件类型组合：`375`
+- 当前报告揭示的主要缺口集中在：
+  - 品牌：`威世Vishay / KOA / Stackpole / 国巨YAGEO / Panasonic / TE Connectivity`
+  - 器件类型：`薄膜电阻 / 厚膜电阻 / 绕线电阻 / 金属氧化膜电阻 / 贴片压敏电阻 / 铝电解电容`
+  - 高频前缀样本：
+    - `Vishay 薄膜电阻 -> RNC55 / RNC50 / RLR07C / RNC60 / RN55`
+    - `KOA 薄膜电阻 -> RN73H / RN73R / RN732B / RN732A / RN731J`
+    - `KOA 厚膜电阻 -> SG73P / RS73G / RS73F / SG73S / RK73H`
+    - `Panasonic 厚膜电阻 -> ERJ-S06F / ERJ-U08F / ERJ-S08F / ERJ-S02F`
+- 这套基础设施的作用是把后续“补官方系列规则”变成有顺序的执行队列：每次只需要从报告顶部拿一个 `品牌 / 器件类型 / 前缀簇`，再按登记的官网入口去补 family rule，然后重跑报告，观察缺口是否下降。
