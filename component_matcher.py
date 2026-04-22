@@ -3842,12 +3842,29 @@ GENERIC_MLCC_SERIES_CLASS = {
 }
 
 HRE_MLCC_SERIES_MEANING = {
+    "CAA": "车规 / Automotive MLCC",
+    "CAI": "车规 / Automotive MLCC",
+    "CIA": "工业 / Industrial MLCC",
     "CGA": "常规 MLCC/渠道",
     "CSA": "常规 / General-purpose MLCC",
+    "CSS": "常规 / Soft-termination MLCC",
+    "CSO": "常规 / General-purpose MLCC",
 }
 HRE_MLCC_SERIES_CLASS = {
+    "CAA": "车规",
+    "CAI": "车规",
+    "CIA": "工业",
     "CGA": "常规",
     "CSA": "常规",
+    "CSS": "软端子",
+    "CSO": "常规",
+}
+HRE_MLCC_SERIES_SPECIAL_USE = {
+    "CAA": "车规",
+    "CAI": "车规",
+    "CIA": "工业",
+    "CGA": "渠道专用",
+    "CSS": "软端子",
 }
 
 
@@ -3855,6 +3872,7 @@ MLCC_SERIES_CLASS_RULES = [
     ("次车规", [r"WITHOUT\s+AEC[- ]?Q200", r"无\s*AEC[- ]?Q200", r"次车规"]),
     ("车规", [r"\bAUTOMOTIVE\b", r"\bAEC[- ]?Q200\b", r"汽车级", r"(?<!次)车规"]),
     ("软端子", [r"SOFT\s*TERMINATION", r"软端子"]),
+    ("工业", [r"INDUSTRIAL", r"工业"]),
     ("高容", [r"HIGH\s+CAPACITANCE", r"高容"]),
     ("高压", [r"HIGH\s+VOLTAGE", r"高压"]),
     ("中压", [r"MEDIUM\s+VOLTAGE", r"中压"]),
@@ -3864,7 +3882,7 @@ MLCC_SERIES_CLASS_RULES = [
     ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"滤波"]),
     ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
 ]
-MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "高容", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
+MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高容", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
 
 
 def mlcc_series_class_tokens(value):
@@ -4041,7 +4059,7 @@ def hre_mlcc_series_code_from_model(model):
     compact = clean_model(model)
     if compact == "":
         return ""
-    for prefix in ("CGA", "CSA"):
+    for prefix in ("CAA", "CAI", "CIA", "CGA", "CSA", "CSS", "CSO"):
         if compact.startswith(prefix):
             return prefix
     return ""
@@ -4052,7 +4070,7 @@ def hre_mlcc_series_profile(series_code):
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     class_text = clean_text(HRE_MLCC_SERIES_CLASS.get(code, ""))
-    special_use = "渠道专用" if code == "CGA" else ""
+    special_use = clean_text(HRE_MLCC_SERIES_SPECIAL_USE.get(code, ""))
     return {
         "系列": code,
         "系列说明": clean_text(HRE_MLCC_SERIES_MEANING.get(code, "")),
@@ -4186,6 +4204,15 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         if profile_desc_text != "":
             result["系列说明"] = profile_desc_text
         result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+
+    if "HRE" in brand_upper or "芯声微" in brand_text:
+        if profile_series != "":
+            result["系列"] = profile_series
+        profile_desc_text = clean_text(profile.get("系列说明", ""))
+        if profile_desc_text != "":
+            result["系列说明"] = profile_desc_text
+        result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+        result["_mlcc_series_class"] = clean_text(profile.get("_mlcc_series_class", ""))
 
     result["_mlcc_series_class"] = normalize_mlcc_series_class(
         "/".join(
@@ -5309,6 +5336,14 @@ def fill_missing_series_from_model(df):
             axis=1,
             result_type="expand",
         )
+        hre_mask = mlcc_type_mask & brand_clean.str.contains(r"HRE|芯声微", case=False, regex=True, na=False)
+        if hre_mask.any():
+            hre_idx = hre_mask[hre_mask].index
+            work.loc[hre_idx, "系列"] = canonical_profile_df.loc[hre_idx, "系列"].astype("string").fillna("").apply(clean_text)
+            work.loc[hre_idx, "系列说明"] = canonical_profile_df.loc[hre_idx, "系列说明"].astype("string").fillna("").apply(clean_text)
+            work.loc[hre_idx, "特殊用途"] = canonical_profile_df.loc[hre_idx, "特殊用途"].astype("string").fillna("").apply(clean_text)
+            if "_mlcc_series_class" in canonical_profile_df.columns:
+                work.loc[hre_idx, "_mlcc_series_class"] = canonical_profile_df.loc[hre_idx, "_mlcc_series_class"].astype("string").fillna("").apply(clean_text)
         if series_replace_mask.any():
             replace_idx = series_replace_mask[series_replace_mask].index
             work.loc[replace_idx, "系列说明"] = canonical_profile_df.loc[replace_idx, "系列说明"].astype("string").fillna("").apply(clean_text)

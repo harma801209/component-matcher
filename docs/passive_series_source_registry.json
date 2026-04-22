@@ -394,6 +394,22 @@
           "url": "http://www.hretech.cn/"
         },
         {
+          "kind": "authorized-brand-page",
+          "url": "https://wfyearsemi.com/brand/hre/"
+        },
+        {
+          "kind": "series-guide",
+          "url": "https://wfyearsemi.com/news/hre-caacai-series-automotive-grade-mlcc-capacitor-selection-guide.html"
+        },
+        {
+          "kind": "series-guide",
+          "url": "https://wfyearsemi.com/news/hre-cia-series-industrial-grade-mlcc-capacitor-selection-guide.html"
+        },
+        {
+          "kind": "series-guide",
+          "url": "https://wfyearsemi.com/news/hre-csa-series-commercial-grade-mlcc-capacitor-selection-guide.html"
+        },
+        {
           "kind": "datasheet",
           "url": "https://datasheet.lcsc.com/lcsc/2509180925_HRE-CGA0603X5R105K160JT_C6119849.pdf"
         },
@@ -402,7 +418,7 @@
           "url": "https://datasheet.lcsc.com/lcsc/2208051100_HRE-CSA0805X7R223K500KT_C3015147.pdf"
         }
       ],
-      "lookup_method": "Official site and series datasheets / part-number naming rules",
+      "lookup_method": "Official site plus authorized brand page and series guides; use model prefix rules for CAA/CAI/CIA/CSA/CSS/CSO, and treat CGA as a channel-specific common MLCC variant",
       "status": "partial"
     }
   ]

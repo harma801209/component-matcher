@@ -1,6 +1,6 @@
 # Passive Series Gap Report
 
-- Generated: `2026-04-22T21:32:56+08:00`
+- Generated: `2026-04-23T02:10:29+08:00`
 - Total passive rows: `1,341,695`
 - Unresolved rows: `415,462`
 - Resolved rows: `926,233`

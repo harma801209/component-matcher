@@ -1697,3 +1697,14 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 验证结果：
   - `芯声微HRE CGA0603X7R104K500JT -> 系列说明 = 常规 MLCC/渠道`
   - `芯声微HRE CSA0805X7R223K500KT -> 系列说明 = 常规 / General-purpose MLCC`
+
+## 2026-04-23 芯声微 HRE 电容系列公开规则收口
+- 通过官方/授权公开页与系列指南重新整理 HRE MLCC 的公开系列码：
+  - `CAA` / `CAI`：车规 MLCC，分别对应 power / general automotive
+  - `CIA`：工业 MLCC
+  - `CSA`：常规 / commercial grade MLCC
+  - `CSS`：常规 / 软端子 MLCC
+  - `CSO`：常规 / general-purpose MLCC
+  - `CGA`：市场在流通但未出现在公开品牌页的渠道专用常规 MLCC 变体
+- 已把上述规则补进 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py)，并让 HRE 行在解析时直接按品牌官方系列码回填 `系列 / 系列说明 / 特殊用途`，避免继续使用截前缀的占位描述。
+- 已回填芯声微 HRE 相关数据库行并重建缓存。
