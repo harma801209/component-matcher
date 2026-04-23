@@ -1747,3 +1747,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 本地复现后确认：`components_search_resistor` 里 `NQ02WGJ0105TCE` 的 `_power_watt` 为空，而 `fetch_search_candidate_pairs()` 之前对电阻候选要求功率必须非空且精确相等，导致这类官方料号在 `RMS04JT105` 这种跨品牌替代场景里被排除。
 - 修复方式：将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的电阻候选筛选改为“功率相等或功率缺失也允许进入候选”，并把 `QUERY_RESULT_CACHE_VERSION` 从 `12` 提升到 `13`，同步刷新 `PUBLIC_CODE_STAMP`，避免线上会话继续命中旧缓存。
 - 本地验证：`RMS04JT105` 的候选集重新包含 `厚声UNI-ROYAL NQ02WGJ0105TCE`，`resolve_search_query_dataframe_and_spec('RMS04JT105')` 也已回到 23 条候选；后续页面刷新后应恢复厚声 NQ 作为替代候选的展示。
+
+## 2026-04-23 国巨 AC MLCC / 电阻命名冲突修复
+- 用户反馈 `AC0603KRX7R9BB104` 明明是国巨 MLCC，却在页面里被解释成电阻命名，`系列说明` 也被带成了电阻式描述。
+- 本地复现后确认：`parse_model_rule('AC0603KRX7R9BB104', brand='国巨YAGEO')` 之前会落到 `yageo_chip_resistor_model`，而 `parse_yageo_common()` 对 `AC0402FR-07240RL` 这类电阻码又没有足够的 MLCC 结构校验，导致 AC 前缀在国巨电阻/电容之间串线。
+- 修复方式：让国巨 MLCC 的 `AC/AA/AF/AT/RC/RT` 先走 MLCC 解析，并在 `parse_yageo_common()` 中增加介质码和容量码校验，避免电阻码被误判成 MLCC；同时让 YAGEO 电阻解析器遇到已命中的 MLCC 码时自动让路。
+- 同步将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 提升到 `14`，并刷新 `PUBLIC_CODE_STAMP`，确保公开站会话缓存失效后重新吃到正确的国巨规则。
+- 本地验证：`AC0603KRX7R9BB104` 现在解析为 `MLCC / AC / 车规 / Automotive MLCC`，`AC0402FR-07240RL` 仍然保持为 `厚膜电阻 / AC / 汽车级厚膜晶片电阻器`。

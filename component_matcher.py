@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 13
+QUERY_RESULT_CACHE_VERSION = 14
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-04-23T11:43:15+08:00"
+PUBLIC_CODE_STAMP = "2026-04-23T13:37:30+08:00"
 
 
 def startup_trace(message):
@@ -3259,6 +3259,9 @@ def resistor_model_rule_candidate(model, brand="", component_type=""):
 
 def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
+    mlcc_candidate = parse_yageo_common(compact)
+    if mlcc_candidate is not None:
+        return None
     if not re.match(r"^(AA|AC|AF|AR|AT|RC|RT)\d{4}[A-Z]", compact):
         return None
     series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
@@ -12673,6 +12676,9 @@ def parse_yageo_common(model):
         mat_code = model[8:11]
         volt_code = model[11]
         cap_code = model[14:17]
+        cap_pf = murata_cap_code_to_pf(cap_code)
+        if mat_code not in material_map or cap_pf is None:
+            return None
 
         return {
             "品牌": "国巨YAGEO",
@@ -12683,7 +12689,7 @@ def parse_yageo_common(model):
             "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
-            "容值_pf": murata_cap_code_to_pf(cap_code),
+            "容值_pf": cap_pf,
             "容值误差": clean_tol_for_match(tol_map.get(tol_code, "")),
             "耐压（V）": clean_voltage(voltage_map.get(volt_code, "")),
             "_model_rule_authority": "yageo_cc_cq",
@@ -13093,8 +13099,15 @@ def parse_model_rule(model, brand="", component_type=""):
         if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK")):
             return parse_taiyo_common(m)
     if "YAGEO" in brand_upper or "国巨" in brand_text:
+        yageo_series_code = yageo_mlcc_series_code_from_model(m)
+        if yageo_series_code != "":
+            parsed = parse_yageo_common(m)
+            if parsed is not None:
+                return parsed
         if m.startswith(("CC", "CQ")):
-            return parse_yageo_common(m)
+            parsed = parse_yageo_common(m)
+            if parsed is not None:
+                return parsed
     if "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text:
         parsed = parse_kyocera_avx_common(m)
         if parsed is not None:
