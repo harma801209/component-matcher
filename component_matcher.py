@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 14
+QUERY_RESULT_CACHE_VERSION = 15
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-04-23T13:37:30+08:00"
+PUBLIC_CODE_STAMP = "2026-04-23T14:42:30+08:00"
 
 
 def startup_trace(message):
@@ -15947,6 +15947,24 @@ RESISTOR_POWER_BY_SIZE = {
     "3225": "2W",
 }
 
+def infer_resistor_power_text_from_record(record):
+    if record is None:
+        return ""
+
+    power_text = clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
+    if power_text == "":
+        power_watt = record.get("_power_watt", "")
+        if power_watt is not None and not pd.isna(power_watt):
+            power_text = f"{format_sidecar_numeric_display(power_watt)}W"
+    if power_text == "":
+        context_text = build_component_context_text(record)
+        power_text = find_power_in_text(context_text)
+    if power_text == "":
+        size_code = clean_size(record.get("尺寸（inch）", "")) or infer_resistor_size_from_model(record.get("型号", ""))
+        power_text = RESISTOR_POWER_BY_SIZE.get(size_code, "")
+    return clean_text(power_text)
+
+
 RESISTOR_MAX_WORKING_VOLTAGE_BY_SIZE = {
     "01005": "15",
     "0201": "25",
@@ -15972,15 +15990,9 @@ def infer_display_fallback_fields_from_record(record):
     size_code = clean_size(record.get("尺寸（inch）", "")) or infer_resistor_size_from_model(record.get("型号", ""))
     result = {}
 
-    power_text = clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
-    if power_text == "":
-        power_watt = record.get("_power_watt", "")
-        if power_watt is not None and not pd.isna(power_watt):
-            power_text = f"{format_sidecar_numeric_display(power_watt)}W"
+    power_text = infer_resistor_power_text_from_record(record) if component_type in RESISTOR_COMPONENT_TYPES else clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
     if power_text == "":
         power_text = find_power_in_text(row_text)
-    if power_text == "" and component_type in RESISTOR_COMPONENT_TYPES:
-        power_text = RESISTOR_POWER_BY_SIZE.get(size_code, "")
     if power_text != "":
         result["功率"] = format_power_display(power_text)
 
@@ -19023,7 +19035,7 @@ def classify_match_level(row, spec):
             spec_res_value = float(spec_res) if spec_res is not None else None
         except Exception:
             spec_res_value = None
-        row_power_watt = parse_power_to_watts(row.get("_power", ""))
+        row_power_watt = parse_power_to_watts(infer_resistor_power_text_from_record(row))
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
 
         query_complete = (

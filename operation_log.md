@@ -1754,3 +1754,8 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 修复方式：让国巨 MLCC 的 `AC/AA/AF/AT/RC/RT` 先走 MLCC 解析，并在 `parse_yageo_common()` 中增加介质码和容量码校验，避免电阻码被误判成 MLCC；同时让 YAGEO 电阻解析器遇到已命中的 MLCC 码时自动让路。
 - 同步将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 提升到 `14`，并刷新 `PUBLIC_CODE_STAMP`，确保公开站会话缓存失效后重新吃到正确的国巨规则。
 - 本地验证：`AC0603KRX7R9BB104` 现在解析为 `MLCC / AC / 车规 / Automotive MLCC`，`AC0402FR-07240RL` 仍然保持为 `厚膜电阻 / AC / 汽车级厚膜晶片电阻器`。
+## 2026-04-23 RMS04JT105 NQ 功率回填到分级逻辑
+- 用户指出 `RMS04JT105` 对应的厚声 `NQ02WGJ0105TCE` 在界面上明明能看到 `1/16W`，但结果等级仍然落在 `需确认替代`。
+- 本地复查后确认：`NQ02WGJ0105TCE` 的候选行走的是通用电阻解析，`_power` / `_power_watt` 在候选 DataFrame 里仍是空值；页面上看到的功率来自展示层按尺寸码回填，而不是候选行原始字段。
+- 修复方式：新增 `infer_resistor_power_text_from_record()`，让分级逻辑在功率字段缺失时也能按原始字段 + 尺寸推导功率；并把 `QUERY_RESULT_CACHE_VERSION` 从 `14` 提升到 `15`、刷新 `PUBLIC_CODE_STAMP`，避免旧缓存继续输出保守等级。
+- 本地验证：`resolve_search_query_dataframe_and_spec('RMS04JT105')` 中 `NQ02WGJ0105TCE` 现在在 `classify_match_level(...)` 下返回 `完全匹配`。
