@@ -1735,3 +1735,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 中强制注入 `COMPONENT_MATCHER_PUBLIC_MODE=1` 与 `COMPONENT_MATCHER_SKIP_AUTO_UPDATE=1`，让公开入口优先渲染 UI，不再做启动时的重建。
 - 同步把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的导入期自动更新与启动维护条件收紧为：默认只在显式维护模式下运行，公开页和普通启动都不会再自动重建。
 - 本地验证：`streamlit run streamlit_app.py` 现在可以直接渲染首页，首屏内容与按钮已恢复可见。
+
+## 2026-04-23 MLCC 尺寸展示收口
+- 先确认问题不是前端栏位缺失，而是 MLCC 数据本身大面积缺尺寸，且结果表默认只走离线补全，导致带 LCSC/官方线索的行也会继续显示空白。
+- 在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 里补了结果表的展示策略：MLCC 小结果集才允许在线补全，避免用户看到一屏空白；大结果集仍保持离线，避免页面变慢。
+- 同时保留并扩展了离线尺寸推断，PDC `FP46N783J501EFG` 这类可由尺寸码直接还原的料号可以在本地直接补齐。
+- 本地验证：`FP46N783J501EFG` 现在能回出 `1.80 x 2.50 x 2.50`，`尺寸来源=尺寸码推断`；`MEASL063BB5225MF1B33` 仍需依赖在线/官方补全，说明剩余空白主要是规则覆盖不足，不是栏位显示坏了。

@@ -76,6 +76,7 @@ PREPARED_CACHE_FALLBACK_PATH = os.path.join(BASE_DIR, "cache", "components_prepa
 SAMSUNG_MLCC_STATUS_CACHE_PATH = os.path.join(BASE_DIR, "cache", "samsung_all_statuses_base.json")
 SAMSUNG_MLCC_PACKAGE_CACHE_PATH = os.path.join(BASE_DIR, "cache", "samsung_package_cache.json")
 MLCC_LCSC_DIMENSION_CACHE_PATH = os.path.join(BASE_DIR, "cache", "mlcc_lcsc_dimension_cache.json")
+MLCC_OFFICIAL_DIMENSION_CACHE_PATH = os.path.join(BASE_DIR, "cache", "mlcc_official_dimension_cache.json")
 PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_v5_meta.json")
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
@@ -669,7 +670,10 @@ SAMSUNG_MLCC_DIMENSION_LOOKUP = None
 SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE = None
 MLCC_LCSC_DIMENSION_CACHE = None
 MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = None
+MLCC_OFFICIAL_DIMENSION_CACHE = None
+MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE = None
 MLCC_LCSC_DIMENSION_CACHE_LOCK = threading.Lock()
+MLCC_OFFICIAL_DIMENSION_CACHE_LOCK = threading.Lock()
 PREPARED_SEARCH_REQUIRED_COLUMNS = [
     "_model_clean", "_size", "_mat", "_tol", "_volt", "_pf",
     "_tol_kind", "_tol_num", "_volt_num", "_component_type",
@@ -1792,6 +1796,19 @@ def build_dimension_field_map(length="", width="", height=""):
     return fields
 
 
+def infer_mlcc_nominal_dimension_fields_from_size(size_hint):
+    size_key = clean_size(size_hint)
+    nominal_size = MLCC_NOMINAL_SIZE_MM_MAP.get(size_key)
+    if not nominal_size:
+        return {}
+    fields = build_dimension_field_map(
+        nominal_size[0],
+        nominal_size[1],
+        MLCC_NOMINAL_THICKNESS_MM_MAP.get(size_key, ""),
+    )
+    return fields
+
+
 def merge_dimension_fields_into_record(record, fields, override_conflicts=False):
     merged = dict(record)
     for col in ["长度（mm）", "宽度（mm）", "高度（mm）"]:
@@ -1834,30 +1851,111 @@ def load_json_file_if_exists(path, default):
         return default
 
 
+def extract_url_candidates_from_text(text):
+    raw = html.unescape(clean_text(text))
+    if raw == "":
+        return []
+    candidates = []
+    seen = set()
+    for match in re.finditer(r"https?://[^\s<>'\"）】\]]+", raw, flags=re.I):
+        candidate = match.group(0).rstrip(").,;:，。；】]}'\"")
+        if candidate == "" or candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+    return candidates
+
+
+def normalize_official_dimension_lookup_text(text):
+    raw = html.unescape(clean_text(text))
+    if raw == "":
+        return ""
+    normalized = raw.replace("\r", "\n").replace("\xa0", " ")
+    normalized = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", normalized)
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", normalized)
+    normalized = re.sub(r"(?i)</(tr|p|div|li|section|article|table|thead|tbody|tfoot|h[1-6])>", "\n", normalized)
+    normalized = re.sub(r"(?i)<(td|th)[^>]*>", " ", normalized)
+    normalized = re.sub(r"(?i)<[^>]+>", " ", normalized)
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{2,}", "\n", normalized)
+    return normalized.strip()
+
+
 MLCC_DIMENSION_CELL_PATTERN = re.compile(r"\d+(?:\.\d+)?(?:\s*±\s*\d+(?:\.\d+)?)?")
 MLCC_SIZE_SEARCH_TOKENS = {
     "01005": {"01005", "0100", "0402", "01R5", "C0402", "CC01005"},
     "0201": {"0201", "0603", "C0603", "CC0201"},
+    "0204": {"0204"},
     "0402": {"0402", "1005", "C1005", "CC0402"},
+    "0505": {"0505"},
     "0603": {"0603", "1608", "C1608", "CC0603"},
+    "0612": {"0612"},
     "0805": {"0805", "2012", "C2012", "CC0805"},
     "1206": {"1206", "3216", "C3216", "CC1206"},
     "1210": {"1210", "3225", "C3225", "CC1210"},
+    "2010": {"2010", "5025", "C5025", "CC2010"},
+    "2512": {"2512", "6332", "C6332", "CC2512"},
+    "3225": {"3225", "1210", "C3225", "CC3225"},
     "1808": {"1808", "4520", "C4520", "CC1808"},
+    "1825": {"1825"},
     "1812": {"1812", "4532", "C4532", "CC1812"},
+    "2211": {"2211"},
     "2220": {"2220", "5750", "C5750", "CC2220"},
+    "2225": {"2225"},
+    "4520": {"4520", "1808", "C4520", "CC4520"},
+    "4532": {"4532", "1812", "C4532", "CC4532"},
+    "5750": {"5750", "2220", "C5750", "CC5750"},
+    "6332": {"6332", "2512", "C6332", "CC6332"},
 }
 MLCC_NOMINAL_SIZE_MM_MAP = {
     "01005": ("0.40", "0.20"),
     "0201": ("0.60", "0.30"),
+    "0204": ("0.20", "0.40"),
     "0402": ("1.00", "0.50"),
+    "0505": ("0.50", "0.50"),
     "0603": ("1.60", "0.80"),
+    "0612": ("0.60", "1.20"),
     "0805": ("2.00", "1.25"),
     "1206": ("3.20", "1.60"),
     "1210": ("3.20", "2.50"),
+    "2010": ("5.00", "2.50"),
+    "2512": ("6.30", "3.20"),
+    "3225": ("3.20", "2.50"),
     "1808": ("4.50", "2.00"),
+    "1825": ("1.80", "2.50"),
     "1812": ("4.50", "3.20"),
+    "2211": ("2.20", "1.10"),
+    "4520": ("4.50", "2.00"),
+    "4532": ("4.50", "3.20"),
     "2220": ("5.70", "5.00"),
+    "2225": ("2.20", "2.50"),
+    "5750": ("5.70", "5.00"),
+    "6332": ("6.30", "3.20"),
+}
+MLCC_NOMINAL_THICKNESS_MM_MAP = {
+    "01005": "0.20",
+    "0201": "0.30",
+    "0204": "0.20",
+    "0402": "0.50",
+    "0505": "0.50",
+    "0603": "0.80",
+    "0612": "0.60",
+    "0805": "1.25",
+    "1206": "1.60",
+    "1210": "2.50",
+    "1808": "2.00",
+    "1825": "2.50",
+    "1812": "3.20",
+    "2010": "2.50",
+    "2220": "5.00",
+    "2211": "1.10",
+    "2225": "2.50",
+    "2512": "3.20",
+    "3225": "2.50",
+    "4520": "2.00",
+    "4532": "3.20",
+    "5750": "5.00",
+    "6332": "3.20",
 }
 MURATA_SIZE_DIMENSION_MAP = {
     "02": ("0.40", "0.20"),
@@ -2022,6 +2120,31 @@ def save_mlcc_lcsc_dimension_cache():
     with open(MLCC_LCSC_DIMENSION_CACHE_PATH, "w", encoding="utf-8") as handle:
         json.dump(cache, handle, ensure_ascii=False, indent=2)
     MLCC_LCSC_DIMENSION_CACHE_SIGNATURE = get_path_signature(MLCC_LCSC_DIMENSION_CACHE_PATH)
+
+
+def load_mlcc_official_dimension_cache():
+    global MLCC_OFFICIAL_DIMENSION_CACHE, MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE
+    signature = get_path_signature(MLCC_OFFICIAL_DIMENSION_CACHE_PATH)
+    if (
+        MLCC_OFFICIAL_DIMENSION_CACHE is not None
+        and MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE == signature
+    ):
+        return MLCC_OFFICIAL_DIMENSION_CACHE
+    cached = load_json_file_if_exists(MLCC_OFFICIAL_DIMENSION_CACHE_PATH, {})
+    MLCC_OFFICIAL_DIMENSION_CACHE = cached if isinstance(cached, dict) else {}
+    MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE = signature
+    return MLCC_OFFICIAL_DIMENSION_CACHE
+
+
+def save_mlcc_official_dimension_cache():
+    global MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE
+    cache = load_mlcc_official_dimension_cache()
+    cache_dir = os.path.dirname(MLCC_OFFICIAL_DIMENSION_CACHE_PATH)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+    with open(MLCC_OFFICIAL_DIMENSION_CACHE_PATH, "w", encoding="utf-8") as handle:
+        json.dump(cache, handle, ensure_ascii=False, indent=2)
+    MLCC_OFFICIAL_DIMENSION_CACHE_SIGNATURE = get_path_signature(MLCC_OFFICIAL_DIMENSION_CACHE_PATH)
 
 
 def http_fetch_url_text(url, timeout=18):
@@ -2352,6 +2475,106 @@ def lookup_mlcc_lcsc_dimension_fields(model, brand="", lcsc_url="", size_hint=""
     return fields.copy()
 
 
+def is_pdf_url(url):
+    raw = clean_text(url).lower()
+    if raw == "":
+        return False
+    return raw.endswith(".pdf") or ".pdf?" in raw or ".pdf#" in raw
+
+
+def describe_mlcc_official_dimension_source(url):
+    raw = clean_text(url)
+    if raw == "":
+        return "官方页面/规格书"
+    lower = raw.lower()
+    if "lcsc.com" in lower:
+        return "LCSC规格书"
+    if is_pdf_url(raw):
+        return "官方规格书"
+    return "官方页面/规格书"
+
+
+def lookup_mlcc_official_dimension_fields(model, brand="", official_url="", size_hint="", allow_online_lookup=True):
+    normalized_url = clean_text(official_url)
+    if normalized_url == "":
+        return {}
+
+    lcsc_code = extract_lcsc_product_code(normalized_url)
+    if lcsc_code != "":
+        return lookup_mlcc_lcsc_dimension_fields(
+            model,
+            brand=brand,
+            lcsc_url=normalized_url,
+            size_hint=size_hint,
+            allow_online_lookup=allow_online_lookup,
+        )
+
+    cache_key = f"url:{normalized_url}"
+    with MLCC_OFFICIAL_DIMENSION_CACHE_LOCK:
+        cache = load_mlcc_official_dimension_cache()
+        if cache_key in cache and isinstance(cache.get(cache_key), dict):
+            cached_fields = cache.get(cache_key, {}).copy()
+            if (
+                cached_fields
+                and not mlcc_dimension_fields_look_suspicious(cached_fields)
+                and mlcc_dimension_fields_match_size_hint(cached_fields, size_hint)
+            ):
+                return cached_fields
+
+    if not allow_online_lookup:
+        return {}
+
+    fields = {}
+    try:
+        candidate_texts = []
+        page_text = http_fetch_url_text(normalized_url)
+        normalized_html = normalize_official_dimension_lookup_text(page_text)
+        if normalized_html != "":
+            candidate_texts.append(normalized_html)
+        candidate_pdf_urls = []
+        if is_pdf_url(normalized_url):
+            candidate_pdf_urls.append(normalized_url)
+        else:
+            for candidate_url in extract_url_candidates_from_text(page_text):
+                if is_pdf_url(candidate_url):
+                    candidate_pdf_urls.append(candidate_url)
+        seen_pdf_urls = set()
+        for pdf_url in candidate_pdf_urls:
+            if pdf_url in seen_pdf_urls:
+                continue
+            seen_pdf_urls.add(pdf_url)
+            try:
+                pdf_text = extract_pdf_text_from_bytes(http_fetch_url_bytes(pdf_url))
+            except Exception:
+                continue
+            normalized_pdf_text = normalize_official_dimension_lookup_text(pdf_text)
+            if normalized_pdf_text != "":
+                candidate_texts.append(normalized_pdf_text)
+        size_candidates = build_mlcc_size_search_tokens(model, size_hint=size_hint)
+        for candidate_text in candidate_texts:
+            fields = extract_dimension_fields_from_size_table(candidate_text, size_candidates, size_hint=size_hint)
+            if not fields:
+                fields = extract_dimension_fields_from_model_summary_line(candidate_text, model, size_hint=size_hint)
+            if not fields:
+                fields = extract_dimension_fields_from_text(candidate_text)
+            if fields:
+                break
+        fields = {col: value for col, value in fields.items() if normalize_dimension_mm_value(value) != ""}
+        if fields and not mlcc_dimension_fields_match_size_hint(fields, size_hint):
+            fields = {}
+    except Exception:
+        fields = {}
+
+    with MLCC_OFFICIAL_DIMENSION_CACHE_LOCK:
+        cache = load_mlcc_official_dimension_cache()
+        cache[cache_key] = fields.copy()
+        try:
+            save_mlcc_official_dimension_cache()
+        except Exception:
+            pass
+    return fields.copy()
+
+
 def load_samsung_mlcc_dimension_lookup():
     global SAMSUNG_MLCC_DIMENSION_LOOKUP, SAMSUNG_MLCC_DIMENSION_LOOKUP_SIGNATURE
     signature = (
@@ -2490,6 +2713,7 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
     if model == "":
         return {}, ""
     brand = clean_brand(record.get("品牌", ""))
+    size_hint = clean_size(record.get("尺寸（inch）", ""))
 
     fields = {}
     source_labels = []
@@ -2497,6 +2721,8 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
     if isinstance(parsed, dict):
         parsed_source = describe_mlcc_dimension_source(parsed.get("_model_rule_authority", ""), brand)
         fields = merge_mlcc_dimension_fields_with_source(fields, parsed, source_labels, parsed_source)
+        if size_hint == "":
+            size_hint = clean_size(parsed.get("尺寸（inch）", ""))
 
     brand_upper = clean_text(brand).upper()
     if "SAMSUNG" in brand_upper or "三星" in brand:
@@ -2521,28 +2747,28 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
             "TDK命名规则",
         )
 
-    needs_lcsc_lookup = any(clean_text(fields.get(col, "")) == "" for col in MLCC_DIMENSION_COLUMNS)
-    if not needs_lcsc_lookup:
-        needs_lcsc_lookup = any(
+    needs_official_lookup = any(clean_text(fields.get(col, "")) == "" for col in MLCC_DIMENSION_COLUMNS)
+    if not needs_official_lookup:
+        needs_official_lookup = any(
             clean_text(fields.get(col, "")) != "" and "±" not in clean_text(fields.get(col, ""))
             for col in MLCC_DIMENSION_COLUMNS
         )
-    if needs_lcsc_lookup:
-        for url_col in ["备注3", "备注2"]:
-            link_text = clean_text(record.get(url_col, ""))
-            if "lcsc.com" not in link_text.lower():
-                continue
+    if needs_official_lookup:
+        official_url_candidates = []
+        for url_col in ["官网链接", "备注3", "备注2"]:
+            official_url_candidates.extend(extract_url_candidates_from_text(record.get(url_col, "")))
+        for official_url in official_url_candidates:
             fields = merge_mlcc_dimension_fields_with_source(
                 fields,
-                lookup_mlcc_lcsc_dimension_fields(
+                lookup_mlcc_official_dimension_fields(
                     model,
                     brand=brand,
-                    lcsc_url=link_text,
-                    size_hint=record.get("尺寸（inch）", ""),
+                    official_url=official_url,
+                    size_hint=size_hint,
                     allow_online_lookup=allow_online_lookup,
                 ),
                 source_labels,
-                "LCSC规格书",
+                describe_mlcc_official_dimension_source(official_url),
             )
             if all(clean_text(fields.get(col, "")) != "" for col in MLCC_DIMENSION_COLUMNS):
                 break
@@ -2556,6 +2782,15 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
             extract_dimension_fields_from_text(note_text),
             source_labels,
             "备注文本",
+        )
+
+    if any(clean_text(fields.get(col, "")) == "" for col in MLCC_DIMENSION_COLUMNS):
+        nominal_fields = infer_mlcc_nominal_dimension_fields_from_size(size_hint)
+        fields = merge_mlcc_dimension_fields_with_source(
+            fields,
+            nominal_fields,
+            source_labels,
+            "尺寸码推断",
         )
 
     normalized_fields = {
@@ -9670,6 +9905,16 @@ def enrich_mlcc_dimension_fields_in_dataframe(df, spec_or_type=None, allow_onlin
 
 def build_component_display_row(spec, allow_online_lookup=False):
     spec = enrich_mlcc_dimension_fields_in_record(spec, allow_online_lookup=allow_online_lookup)
+    component_type = normalize_component_type(spec.get("器件类型", ""))
+    if component_type == "MLCC" and any(
+        clean_text(spec.get(col, "")) == ""
+        for col in ["长度（mm）", "宽度（mm）", "高度（mm）"]
+    ):
+        official_url_candidates = []
+        for url_col in ["官网链接", "备注3", "备注2"]:
+            official_url_candidates.extend(extract_url_candidates_from_text(spec.get(url_col, "")))
+        if official_url_candidates:
+            spec = enrich_mlcc_dimension_fields_in_record(spec, allow_online_lookup=True)
     display_fallbacks = infer_display_fallback_fields_from_record(spec)
     if display_fallbacks:
         merged_spec = dict(spec)
@@ -13630,6 +13875,7 @@ def update_database(force=False):
         if df_all.empty:
             startup_trace("update_database:empty-after-dedup")
             return
+        df_all = enrich_mlcc_dimension_fields_in_dataframe(df_all, allow_online_lookup=False)
         prepared = prepare_search_dataframe(df_all)
         startup_trace(f"update_database:prepared-rows={len(prepared)}")
         conn = sqlite3.connect(DB_PATH)
@@ -14637,6 +14883,16 @@ def backfill_component_types_in_database_in_place(chunk_rows=100000):
         pass
 
     try:
+        ensure_sqlite_table_columns_exist(
+            conn,
+            "components",
+            {
+                "长度（mm）": "TEXT",
+                "宽度（mm）": "TEXT",
+                "高度（mm）": "TEXT",
+                "尺寸来源": "TEXT",
+            },
+        )
         min_rowid, max_rowid = conn.execute("SELECT MIN(rowid), MAX(rowid) FROM components").fetchone()
         if min_rowid is None or max_rowid is None:
             raise RuntimeError("database contains no component rows")
@@ -14652,7 +14908,10 @@ def backfill_component_types_in_database_in_place(chunk_rows=100000):
         while batch_start <= final_rowid:
             batch_end = batch_start + batch_size - 1
             chunk = pd.read_sql_query(
-                'SELECT rowid AS "__rowid__", * FROM components WHERE rowid BETWEEN ? AND ?',
+                'SELECT rowid AS "__rowid__", * FROM components '
+                'WHERE rowid BETWEEN ? AND ? '
+                'AND COALESCE("器件类型", "") LIKE "%MLCC%" '
+                'AND (COALESCE("长度（mm）", "") = "" OR COALESCE("宽度（mm）", "") = "" OR COALESCE("高度（mm）", "") = "" OR COALESCE("尺寸来源", "") = "")',
                 conn,
                 params=[batch_start, batch_end],
             )
@@ -14730,7 +14989,10 @@ def backfill_capacitor_value_units_in_database_in_place(chunk_rows=100000):
         while batch_start <= final_rowid:
             batch_end = batch_start + batch_size - 1
             chunk = pd.read_sql_query(
-                'SELECT rowid AS "__rowid__", * FROM components WHERE rowid BETWEEN ? AND ?',
+                'SELECT rowid AS "__rowid__", * FROM components '
+                'WHERE rowid BETWEEN ? AND ? '
+                'AND COALESCE("器件类型", "") LIKE "%MLCC%" '
+                'AND (COALESCE("长度（mm）", "") = "" OR COALESCE("宽度（mm）", "") = "" OR COALESCE("高度（mm）", "") = "" OR COALESCE("尺寸来源", "") = "")',
                 conn,
                 params=[batch_start, batch_end],
             )
@@ -14811,6 +15073,99 @@ def backfill_series_fields_in_database_in_place(chunk_rows=100000):
                     conn.commit()
                     updated_rows += len(updates)
             batch_start = batch_end + 1
+        return updated_rows
+    finally:
+        conn.close()
+
+
+MLCC_DIMENSION_BACKFILL_DB_COLUMNS = ["长度（mm）", "宽度（mm）", "高度（mm）", "尺寸来源"]
+
+
+def ensure_sqlite_table_columns_exist(conn, table_name, column_definitions):
+    if conn is None or clean_text(table_name) == "" or not isinstance(column_definitions, dict):
+        return
+    try:
+        existing_columns = {
+            clean_text(row[1])
+            for row in conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+        }
+    except Exception:
+        return
+    for column_name, column_type in column_definitions.items():
+        if clean_text(column_name) == "" or column_name in existing_columns:
+            continue
+        try:
+            conn.execute(
+                f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {column_type} DEFAULT \'\''
+            )
+            try:
+                conn.commit()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+def build_mlcc_dimension_backfill_updates(chunk, allow_online_lookup=False):
+    if chunk is None or chunk.empty:
+        return []
+    if "__rowid__" not in chunk.columns:
+        raise KeyError("__rowid__")
+
+    original_chunk = chunk.copy()
+    row_ids = pd.to_numeric(original_chunk.pop("__rowid__"), errors="coerce")
+    filled_chunk = enrich_mlcc_dimension_fields_in_dataframe(original_chunk, allow_online_lookup=allow_online_lookup)
+    updates = []
+    for row_index, row_id in enumerate(row_ids.tolist()):
+        if pd.isna(row_id):
+            continue
+        current_values = tuple(
+            normalize_dimension_mm_value(chunk.iloc[row_index].get(column, "")) if column != "尺寸来源" else clean_text(chunk.iloc[row_index].get(column, ""))
+            for column in MLCC_DIMENSION_BACKFILL_DB_COLUMNS
+        )
+        new_values = tuple(
+            normalize_dimension_mm_value(filled_chunk.iloc[row_index].get(column, "")) if column != "尺寸来源" else clean_text(filled_chunk.iloc[row_index].get(column, ""))
+            for column in MLCC_DIMENSION_BACKFILL_DB_COLUMNS
+        )
+        if new_values != current_values:
+            updates.append((*new_values, int(row_id)))
+    return updates
+
+
+def backfill_mlcc_dimension_fields_in_database_in_place(chunk_rows=100000, allow_online_lookup=False, rebuild_cache=True):
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(DB_PATH)
+
+    conn = sqlite3.connect(DB_PATH, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    try:
+        batch_size = max(int(chunk_rows), 1000)
+        update_sql = (
+            'UPDATE components SET "长度（mm）" = ?, "宽度（mm）" = ?, "高度（mm）" = ?, "尺寸来源" = ? '
+            'WHERE rowid = ?'
+        )
+        updated_rows = 0
+        chunk = None
+        query = (
+            'SELECT rowid AS "__rowid__", * FROM components '
+            'WHERE COALESCE("器件类型", "") LIKE "%MLCC%" '
+            'AND (COALESCE("长度（mm）", "") = "" OR COALESCE("宽度（mm）", "") = "" OR COALESCE("高度（mm）", "") = "" OR COALESCE("尺寸来源", "") = "")'
+        )
+        for chunk in pd.read_sql_query(query, conn, chunksize=batch_size):
+            if chunk is not None and not chunk.empty:
+                updates = build_mlcc_dimension_backfill_updates(chunk, allow_online_lookup=allow_online_lookup)
+                if updates:
+                    conn.executemany(update_sql, updates)
+                    conn.commit()
+                    updated_rows += len(updates)
+        clear_data_load_caches()
+        if rebuild_cache:
+            rebuild_prepared_cache_from_database()
         return updated_rows
     finally:
         conn.close()
@@ -15325,6 +15680,7 @@ def prepare_search_dataframe(df):
     if "_model_rule_authority" not in work.columns:
         work["_model_rule_authority"] = ""
     work = fill_missing_series_from_model(work)
+    work = enrich_mlcc_dimension_fields_in_dataframe(work, allow_online_lookup=False)
     if "系列说明" not in work.columns:
         work["系列说明"] = ""
     if "特殊用途" not in work.columns:
@@ -18532,11 +18888,13 @@ def build_part_info_df(df, spec, query_model):
                     )
                     if has_value and extra_col not in suffix_columns:
                         suffix_columns.insert(len(suffix_columns) - 2 if len(suffix_columns) >= 2 else 0, extra_col)
+        allow_online_lookup = display_component_type == "MLCC" and len(show_df) <= 20
         show_df = select_component_display_columns(
             show_df,
             display_target,
             prefix_columns=["品牌", "型号", "器件类别"],
             suffix_columns=suffix_columns,
+            allow_online_lookup=allow_online_lookup,
         )
         return format_display_df(show_df)
     row = pd.DataFrame([{
@@ -21092,11 +21450,13 @@ if search_clicked:
                     matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                     matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                     matched = ensure_component_display_columns(matched)
+                    allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                     show_df = select_component_display_columns(
                         matched,
                         spec,
                         prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                         suffix_columns=["备注1", "备注2", "备注3"],
+                        allow_online_lookup=allow_online_lookup,
                     )
                     show_df = format_display_df(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
@@ -21191,11 +21551,13 @@ if search_clicked:
                 matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                 matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                 matched = ensure_component_display_columns(matched)
+                allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                 show_df = select_component_display_columns(
                     matched,
                     spec,
                     prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                     suffix_columns=["备注1", "备注2", "备注3"],
+                    allow_online_lookup=allow_online_lookup,
                 )
                 show_df = format_display_df(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)
