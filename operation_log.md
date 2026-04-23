@@ -1741,3 +1741,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 里补了结果表的展示策略：MLCC 小结果集才允许在线补全，避免用户看到一屏空白；大结果集仍保持离线，避免页面变慢。
 - 同时保留并扩展了离线尺寸推断，PDC `FP46N783J501EFG` 这类可由尺寸码直接还原的料号可以在本地直接补齐。
 - 本地验证：`FP46N783J501EFG` 现在能回出 `1.80 x 2.50 x 2.50`，`尺寸来源=尺寸码推断`；`MEASL063BB5225MF1B33` 仍需依赖在线/官方补全，说明剩余空白主要是规则覆盖不足，不是栏位显示坏了。
+
+## 2026-04-23 RMS04JT105 厚声 NQ 候选回归修复
+- 用户反馈 `RMS04JT105` 本来能匹配到厚声 `NQ02WGJ0105TCE`，但在昨天修改后从结果中消失；数据库里该厚声料号仍然存在，说明不是缺数据，而是候选生成规则把它提前剪掉了。
+- 本地复现后确认：`components_search_resistor` 里 `NQ02WGJ0105TCE` 的 `_power_watt` 为空，而 `fetch_search_candidate_pairs()` 之前对电阻候选要求功率必须非空且精确相等，导致这类官方料号在 `RMS04JT105` 这种跨品牌替代场景里被排除。
+- 修复方式：将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的电阻候选筛选改为“功率相等或功率缺失也允许进入候选”，并把 `QUERY_RESULT_CACHE_VERSION` 从 `12` 提升到 `13`，同步刷新 `PUBLIC_CODE_STAMP`，避免线上会话继续命中旧缓存。
+- 本地验证：`RMS04JT105` 的候选集重新包含 `厚声UNI-ROYAL NQ02WGJ0105TCE`，`resolve_search_query_dataframe_and_spec('RMS04JT105')` 也已回到 23 条候选；后续页面刷新后应恢复厚声 NQ 作为替代候选的展示。

@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 5
-QUERY_RESULT_CACHE_VERSION = 12
+QUERY_RESULT_CACHE_VERSION = 13
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-04-23T04:42:57+08:00"
+PUBLIC_CODE_STAMP = "2026-04-23T11:43:15+08:00"
 
 
 def startup_trace(message):
@@ -16791,7 +16791,9 @@ def fetch_search_candidate_pairs(spec):
         power_watt = parse_power_to_watts(power) if power != "" else None
         if power_watt is not None:
             required_search_columns.add("_power_watt")
-            where_clauses.append("_power_watt IS NOT NULL AND ABS(_power_watt - ?) < 1e-12")
+            # 许多被动件搜索索引没有完整的功率字段；功率已知时优先精确匹配，
+            # 但允许索引端缺失功率的候选进入后续匹配排序，避免像 NQ 这类官方料号被提前剪掉。
+            where_clauses.append("(_power_watt IS NULL OR ABS(_power_watt - ?) < 1e-12)")
             params.append(float(power_watt))
     elif target_type in INDUCTOR_COMPONENT_TYPES:
         size = clean_size(spec.get("尺寸（inch）", ""))
