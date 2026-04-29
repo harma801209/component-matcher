@@ -1834,7 +1834,7 @@ def build_dimension_field_map(length="", width="", height=""):
     return fields
 
 
-def infer_mlcc_nominal_dimension_fields_from_size(size_hint):
+def infer_mlcc_nominal_dimension_fields_from_size(size_hint, include_thickness=False):
     size_key = clean_size(size_hint)
     nominal_size = MLCC_NOMINAL_SIZE_MM_MAP.get(size_key)
     if not nominal_size:
@@ -1842,7 +1842,7 @@ def infer_mlcc_nominal_dimension_fields_from_size(size_hint):
     fields = build_dimension_field_map(
         nominal_size[0],
         nominal_size[1],
-        MLCC_NOMINAL_THICKNESS_MM_MAP.get(size_key, ""),
+        MLCC_NOMINAL_THICKNESS_MM_MAP.get(size_key, "") if include_thickness else "",
     )
     return fields
 
@@ -2581,6 +2581,17 @@ def describe_mlcc_official_dimension_source(url):
     return "官方页面/规格书"
 
 
+def mlcc_dimension_source_is_unverified_nominal(source):
+    source_text = clean_text(source)
+    if source_text == "":
+        return False
+    return "尺寸码推断" in source_text or "封装码标称" in source_text or "尺寸码标称" in source_text
+
+
+def mlcc_dimension_source_should_refresh(source):
+    return mlcc_dimension_source_is_unverified_nominal(source)
+
+
 def lookup_mlcc_official_dimension_fields(model, brand="", official_url="", size_hint="", allow_online_lookup=True):
     normalized_url = clean_text(official_url)
     if normalized_url == "":
@@ -2744,7 +2755,7 @@ def describe_mlcc_dimension_source(authority, brand=""):
     if "yageo" in authority_text:
         return "国巨命名规则"
     if "kyocera" in authority_text or "avx" in authority_text:
-        return "Kyocera AVX命名规则"
+        return "Kyocera AVX官方命名规则/规格书"
     if "generic_size_first" in authority_text:
         return "通用命名规则"
     if "hre" in authority_text:
@@ -2766,7 +2777,7 @@ def describe_mlcc_dimension_source(authority, brand=""):
     if "国巨" in brand_text or "YAGEO" in brand_upper:
         return "国巨命名规则"
     if "晶瓷" in brand_text or "KYOCERA" in brand_upper or "AVX" in brand_upper:
-        return "Kyocera AVX命名规则"
+        return "Kyocera AVX官方命名规则/规格书"
     if "芯声微" in brand_text or "HRE" in brand_upper:
         return "芯声微命名规则"
     if "信昌" in brand_text or "PDC" in brand_upper:
@@ -2877,7 +2888,7 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
             fields,
             nominal_fields,
             source_labels,
-            "尺寸码推断",
+            "封装码标称L/W",
         )
 
     normalized_fields = {
@@ -3691,6 +3702,8 @@ def mlcc_series_should_replace(current_value, canonical_value):
     canonical_is_contaminated = any(re.fullmatch(pattern, canonical_upper) for pattern in contaminated_patterns)
     if current_is_contaminated and not canonical_is_contaminated:
         return True
+    if current in {"常规", "车规", "次车规", "软端子", "历史料号"} and not canonical_is_contaminated:
+        return True
     if current_upper in {"MS", "MBA"} and canonical_upper.startswith(current_upper):
         return True
     if current_upper == "AM" and canonical_upper == "AMK":
@@ -4243,7 +4256,8 @@ KYOCERA_AVX_MLCC_SERIES_MEANING = {
     "KGA": "车规 / Automotive MLCC",
     "KAM": "车规 / Automotive MLCC",
     "KAF": "车规软端子 / Automotive FLEXITERM soft-termination MLCC",
-    "车规": "车规 / Automotive MLCC",
+    "4": "车规代码4 / Failure Rate code 4 = Automotive",
+    "历史料号": "Kyocera AVX历史数字料号 / Historical numeric MLCC part number",
 }
 KYOCERA_AVX_MLCC_SERIES_CLASS = {
     "KGM": "常规",
@@ -4252,7 +4266,24 @@ KYOCERA_AVX_MLCC_SERIES_CLASS = {
     "KGA": "车规",
     "KAM": "车规",
     "KAF": "车规/软端子",
-    "车规": "车规",
+    "4": "车规",
+    "历史料号": "",
+}
+KYOCERA_AVX_HISTORICAL_MLCC_PATTERN = re.compile(
+    r"(?P<size>01005|\d{4})(?P<volt>[0-9AZYD])(?P<mat>[A-Z])"
+    r"(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<rest>[A-Z0-9]*)"
+)
+KYOCERA_AVX_HISTORICAL_SIZE_DIMENSION_MAP = {
+    "0402": ("1.00±0.10", "0.50±0.10"),
+    "0603": ("1.60±0.15", "0.81±0.15"),
+    "0805": ("2.01±0.20", "1.25±0.20"),
+    "1206": ("3.20±0.20", "1.60±0.20"),
+    "1210": ("3.20±0.20", "2.50±0.20"),
+    "1812": ("4.50±0.30", "3.20±0.30"),
+    "2220": ("5.70±0.40", "5.00±0.40"),
+}
+KYOCERA_AVX_HISTORICAL_THICKNESS_MAX_MAP = {
+    ("0603", "5", "C", "104"): "0.94(max)",
 }
 TAIYO_MLCC_SIZE_CODE_MAP = {
     "021": "008004",
@@ -4603,6 +4634,38 @@ def kyocera_avx_mlcc_series_profile(series_code):
     }
 
 
+def kyocera_avx_historical_mlcc_match(model):
+    compact = clean_model(model)
+    if compact == "":
+        return None
+    return KYOCERA_AVX_HISTORICAL_MLCC_PATTERN.fullmatch(compact)
+
+
+def kyocera_avx_historical_failure_rate_code_from_model(model):
+    match = kyocera_avx_historical_mlcc_match(model)
+    if match is None:
+        return ""
+    rest = clean_text(match.group("rest")).upper()
+    return rest[:1] if rest[:1] == "4" else ""
+
+
+def decode_kyocera_avx_historical_dimension_fields_from_model(model):
+    match = kyocera_avx_historical_mlcc_match(model)
+    if match is None:
+        return {}
+    size_code = clean_size(match.group("size"))
+    length_width = KYOCERA_AVX_HISTORICAL_SIZE_DIMENSION_MAP.get(size_code)
+    if not length_width:
+        return {}
+    thickness = KYOCERA_AVX_HISTORICAL_THICKNESS_MAX_MAP.get((
+        size_code,
+        clean_text(match.group("volt")).upper(),
+        clean_text(match.group("mat")).upper(),
+        clean_text(match.group("cap")).upper(),
+    ), "")
+    return build_dimension_field_map(length_width[0], length_width[1], thickness)
+
+
 def kyocera_avx_mlcc_series_profile_from_model(model):
     compact = clean_model(model)
     if compact == "":
@@ -4610,8 +4673,11 @@ def kyocera_avx_mlcc_series_profile_from_model(model):
     for prefix in ("KAF", "KAM", "KGF", "KGL", "KGA", "KGM"):
         if compact.startswith(prefix):
             return kyocera_avx_mlcc_series_profile(prefix)
-    if re.match(r"^\d{4}[0-9AZYD][A-Z](?:\d{3,4}|R\d+)", compact):
-        return kyocera_avx_mlcc_series_profile("车规")
+    if kyocera_avx_historical_mlcc_match(compact) is not None:
+        failure_rate_code = kyocera_avx_historical_failure_rate_code_from_model(compact)
+        if failure_rate_code == "4":
+            return kyocera_avx_mlcc_series_profile("4")
+        return kyocera_avx_mlcc_series_profile("历史料号")
     return kyocera_avx_mlcc_series_profile("")
 
 
@@ -10225,12 +10291,28 @@ def infer_mlcc_dimension_fields_from_record(record, allow_online_lookup=True):
     return fields
 
 
+def apply_mlcc_dimension_enrichment_to_record(record, fields, source_text=""):
+    enriched = dict(record) if isinstance(record, dict) else {}
+    existing_source = clean_text(enriched.get("尺寸来源", ""))
+    replace_unverified = mlcc_dimension_source_is_unverified_nominal(existing_source)
+    for col in MLCC_DIMENSION_COLUMNS:
+        value = normalize_dimension_mm_value(fields.get(col, "")) if isinstance(fields, dict) else ""
+        if value != "" and (clean_text(enriched.get(col, "")) == "" or replace_unverified):
+            enriched[col] = value
+        elif replace_unverified and col == "高度（mm）" and value == "":
+            enriched[col] = ""
+    clean_source = clean_text(source_text)
+    if clean_source != "" and (existing_source == "" or replace_unverified):
+        enriched["尺寸来源"] = clean_source
+    return enriched
+
+
 def enrich_mlcc_dimension_fields_in_record(record, allow_online_lookup=False):
     enriched = dict(record) if isinstance(record, dict) else {}
     fields, source_text = infer_mlcc_dimension_fields_and_source_from_record(enriched, allow_online_lookup=allow_online_lookup)
     if fields:
-        enriched = merge_dimension_fields_into_record(enriched, fields)
-    if source_text != "" and clean_text(enriched.get("尺寸来源", "")) == "":
+        enriched = apply_mlcc_dimension_enrichment_to_record(enriched, fields, source_text)
+    elif source_text != "" and clean_text(enriched.get("尺寸来源", "")) == "":
         enriched["尺寸来源"] = source_text
     return enriched
 
@@ -10252,18 +10334,25 @@ def enrich_mlcc_dimension_fields_in_dataframe(df, spec_or_type=None, allow_onlin
     if "尺寸来源" not in out.columns:
         out["尺寸来源"] = ""
     for idx in out.index.tolist():
+        existing_source = clean_text(out.at[idx, "尺寸来源"])
+        replace_unverified = mlcc_dimension_source_should_refresh(existing_source)
         if (
+            not replace_unverified
+            and
             all(clean_text(out.at[idx, col]) != "" for col in ["长度（mm）", "宽度（mm）", "高度（mm）"] if col in out.columns)
-            and clean_text(out.at[idx, "尺寸来源"]) != ""
+            and existing_source != ""
         ):
             continue
         record = out.loc[idx].to_dict()
         fields, source_text = infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_lookup=allow_online_lookup)
         if fields:
-            for col, value in fields.items():
-                if clean_text(out.at[idx, col]) == "":
+            for col in MLCC_DIMENSION_COLUMNS:
+                value = normalize_dimension_mm_value(fields.get(col, ""))
+                if value != "" and (clean_text(out.at[idx, col]) == "" or replace_unverified):
                     out.at[idx, col] = value
-        if source_text != "" and clean_text(out.at[idx, "尺寸来源"]) == "":
+                elif replace_unverified and col == "高度（mm）" and value == "":
+                    out.at[idx, col] = ""
+        if source_text != "" and (existing_source == "" or replace_unverified):
             out.at[idx, "尺寸来源"] = source_text
     return out
 
@@ -10310,10 +10399,19 @@ def build_component_display_row(spec, allow_online_lookup=False):
     if profile_type != "":
         component_type = profile_type
     profile_series = clean_text(series_profile.get("系列", ""))
+    series_changed_for_display = False
     if profile_series != "":
+        series_changed_for_display = clean_text(series_code) != profile_series
         series_code = profile_series
-    if series_desc == "":
-        series_desc = clean_text(series_profile.get("系列说明", ""))
+    profile_series_desc = clean_text(series_profile.get("系列说明", ""))
+    if (
+        series_desc == ""
+        or (
+            component_type == "MLCC"
+            and mlcc_series_desc_should_replace(series_desc, profile_series_desc, series_changed_for_display)
+        )
+    ):
+        series_desc = profile_series_desc
     if special_use == "":
         special_use = clean_text(series_profile.get("特殊用途", ""))
     if series_desc == "" and series_code != "":
@@ -11956,17 +12054,27 @@ def merge_series_profile_values(result, profile, model=""):
         return dict(result)
     merged = dict(result)
     profile_series = clean_text(profile.get("系列", ""))
+    merged_type = normalize_component_type(merged.get("器件类型", ""))
+    profile_type = normalize_component_type(profile.get("器件类型", ""))
+    use_mlcc_replace = merged_type == "MLCC" or profile_type == "MLCC"
     series_replaced = False
-    if passive_series_should_replace(merged.get("系列", ""), profile_series, model=model):
+    if (
+        mlcc_series_should_replace(merged.get("系列", ""), profile_series)
+        if use_mlcc_replace
+        else passive_series_should_replace(merged.get("系列", ""), profile_series, model=model)
+    ):
         merged["系列"] = profile_series
         series_replaced = True
     for col in ("系列说明", "特殊用途"):
         profile_value = clean_text(profile.get(col, ""))
         if profile_value == "":
             continue
-        if clean_text(merged.get(col, "")) == "" or series_replaced:
+        if (
+            clean_text(merged.get(col, "")) == ""
+            or series_replaced
+            or (use_mlcc_replace and col == "系列说明" and mlcc_series_desc_should_replace(merged.get(col, ""), profile_value, series_replaced))
+        ):
             merged[col] = profile_value
-    profile_type = normalize_component_type(profile.get("器件类型", ""))
     if normalize_component_type(merged.get("器件类型", "")) == "" and profile_type != "":
         merged["器件类型"] = profile_type
     return merged
@@ -13324,10 +13432,7 @@ def parse_generic_size_first_mlcc(model, brand=""):
 
 def parse_kyocera_avx_common(model):
     model = clean_model(model)
-    match = re.fullmatch(
-        r"(?P<size>\d{4})(?P<volt>[0-9AZYD])(?P<mat>[A-Z])(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<rest>.*)",
-        model,
-    )
+    match = kyocera_avx_historical_mlcc_match(model)
     if not match:
         return None
 
@@ -13345,7 +13450,7 @@ def parse_kyocera_avx_common(model):
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
 
     series_profile = kyocera_avx_mlcc_series_profile_from_model(model)
-    return {
+    result = {
         "品牌": "晶瓷Kyocera AVX",
         "型号": model,
         "器件类型": "MLCC",
@@ -13358,8 +13463,10 @@ def parse_kyocera_avx_common(model):
         "容值_pf": murata_cap_code_to_pf(match.group("cap")),
         "容值误差": clean_tol_for_match(tol_map.get(match.group("tol"), "")),
         "耐压（V）": clean_voltage(voltage_map.get(match.group("volt"), "")),
-        "_model_rule_authority": "kyocera_avx_common",
+        "_model_rule_authority": "kyocera_avx_historical_official",
     }
+    result.update(decode_kyocera_avx_historical_dimension_fields_from_model(model))
+    return result
 
 
 def parse_yageo_common(model):
