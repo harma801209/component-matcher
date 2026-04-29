@@ -3679,6 +3679,7 @@ def mlcc_series_should_replace(current_value, canonical_value):
         r"^C\d{4}$",
         r"^(?:CC|CQ|AC|AQ|AS|CS)\d{4}$",
         r"^(?:RF|HH|SH|RT|UF)\d{2}$",
+        r"^\d{4}[0-9A-Z]{1,3}$",
         r"^CL\d{2}[A-Z]$",
         r"^(?:TMK|JMK|EMK|LMK|AMK|UMK|HMK|QMK|SMK|QVS|TVS)\d{2,4}$",
         r"^(?:MAAS|MBAS|MCAS|MCAST|MLAS|MMAS|MSAS)\d{2,3}$",
@@ -3693,6 +3694,33 @@ def mlcc_series_should_replace(current_value, canonical_value):
     if current_upper in {"MS", "MBA"} and canonical_upper.startswith(current_upper):
         return True
     if current_upper == "AM" and canonical_upper == "AMK":
+        return True
+    return False
+
+
+def mlcc_series_desc_should_replace(current_value, canonical_value, series_was_replaced=False):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    if canonical == "":
+        return False
+    if current == "":
+        return True
+    if current == canonical:
+        return False
+    if series_was_replaced:
+        return True
+    current_upper = current.upper()
+    placeholder_tokens = (
+        "OFFICIAL SERIES",
+        "MURATA MLCC SERIES",
+        "TAIYO YUDEN",
+        "KYOCERA AVX",
+    )
+    if any(token in current_upper for token in placeholder_tokens):
+        return True
+    if "系列" in current and "/" in canonical and "/" not in current:
+        return True
+    if "MLCC系列" in current or re.search(r"\d{4}[0-9A-Z]{1,3}.*系列", current):
         return True
     return False
 
@@ -3747,12 +3775,12 @@ MURATA_SERIES_MEANING = {
     "GRM": "常规 / General-purpose MLCC",
     "GCM": "车规 / Automotive MLCC",
     "GRT": "车规 / Automotive MLCC",
-    "GCJ": "Murata MLCC series",
-    "GCG": "Murata MLCC series",
+    "GCJ": "车规软端子 / Automotive soft-termination MLCC",
+    "GCG": "导电胶安装 / MLCC for conductive adhesive mounting",
     "GCQ": "Murata MLCC series",
     "GJM": "高Q / High-Q MLCC",
     "GQM": "高Q / High-Q MLCC",
-    "GRJ": "Murata MLCC series",
+    "GRJ": "软端子 / Soft-termination MLCC",
     "GMA": "Murata MLCC series",
     "GMD": "Murata MLCC series",
     "GCH": "Murata MLCC series",
@@ -4025,8 +4053,11 @@ MURATA_MLCC_SERIES_CLASS = {
     "GRM": "常规",
     "GCM": "车规",
     "GRT": "车规",
+    "GCJ": "车规/软端子",
+    "GCG": "工业",
     "GJM": "高Q",
     "GQM": "高Q",
+    "GRJ": "软端子",
     "NFM": "EMI滤波",
     "RCE": "车规",
     "RDE": "常规",
@@ -4045,7 +4076,7 @@ def murata_series_profile(series_code):
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     class_text = clean_text(MURATA_MLCC_SERIES_CLASS.get(code, ""))
-    special_use = "车规" if class_text == "车规" else ""
+    special_use = "车规" if "车规" in class_text else ("软端子" if "软端子" in class_text else "")
     return {
         "系列": code,
         "系列说明": murata_series_meaning(code),
@@ -4097,7 +4128,9 @@ YAGEO_MLCC_SERIES_CLASS = {
     "CS": "软端子",
 }
 WALSIN_MLCC_SERIES_MEANING = {
+    "常规": "常规 / General-purpose MLCC",
     "01R5": "超小型 / Ultra-small MLCC",
+    "ST": "软端子 / Soft-termination MLCC",
     "RF": "微波 / Ultra High Q / Ultra Low ESR MLCC",
     "HH": "高Q / Low ESR MLCC",
     "SH": "软端子 / Soft Termination MLCC",
@@ -4105,6 +4138,8 @@ WALSIN_MLCC_SERIES_MEANING = {
     "UF": "微波窄容差 / Narrow Tolerance Ultra High Q MLCC",
 }
 WALSIN_MLCC_SERIES_CLASS = {
+    "常规": "常规",
+    "ST": "软端子",
     "RF": "高Q",
     "HH": "高Q",
     "SH": "软端子",
@@ -4121,17 +4156,19 @@ WALSIN_NUMERIC_MLCC_DIELECTRIC = {
     "X": "X5R",
 }
 TAIYO_MLCC_SERIES_MEANING = {
-    "TMK": "Taiyo Yuden MLCC official series",
-    "JMK": "Taiyo Yuden MLCC official series",
-    "EMK": "Taiyo Yuden MLCC official series",
-    "LMK": "Taiyo Yuden MLCC official series",
-    "AMK": "Taiyo Yuden MLCC official series",
-    "UMK": "Taiyo Yuden MLCC official series",
-    "HMK": "Taiyo Yuden MLCC official series",
-    "QMK": "Taiyo Yuden MLCC official series",
-    "SMK": "Taiyo Yuden MLCC official series",
-    "QVS": "Taiyo Yuden MLCC official series",
-    "TVS": "Taiyo Yuden MLCC official series",
+    "TMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "JMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "EMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "LMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "AMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "UMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "UMJ": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "UMF": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "HMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "QMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "SMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "QVS": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
+    "TVS": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
     "MSAY": "压电噪音抑制 / Piezoelectric Noise Suppression MLCC for General Electronic Equipment",
     "MSRL": "低电感焊线连接 / Low Inductance Wire-Bonding MLCC for General Electronic Equipment",
     "MSART": "高Q / High-Q MLCC for General Electronic Equipment",
@@ -4145,6 +4182,9 @@ TAIYO_MLCC_SERIES_MEANING = {
     "MLAS": "医疗 / Medical Devices Class A/B MLCC",
     "MMAS": "医疗 / Medical Devices Class C MLCC",
     "MSAS": "常规 / General Electronic Equipment MLCC",
+    "MBJCU": "软端子工业通信 / Soft-termination MLCC for Infrastructure & Industrial Equipment",
+    "MCJCU": "车规软端子 / Soft-termination MLCC for Automotive Body & Chassis / Infotainment",
+    "MMJCU": "软端子医疗 / Soft-termination MLCC for Medical Devices Class C",
     "UP": "Taiyo Yuden UP MLCC official series",
     "TP": "Taiyo Yuden TP MLCC official series",
     "JMR": "Taiyo Yuden JMR MLCC official series",
@@ -4156,6 +4196,14 @@ TAIYO_MLCC_SERIES_MEANING = {
     "MEASJ": "Taiyo Yuden MEASJ MLCC official series",
 }
 TAIYO_MLCC_SERIES_CLASS = {
+    "TMK": "常规",
+    "JMK": "常规",
+    "EMK": "常规",
+    "LMK": "常规",
+    "AMK": "常规",
+    "UMK": "常规",
+    "UMJ": "常规",
+    "UMF": "常规",
     "MSART": "高Q/常规",
     "MBARQ": "高Q",
     "MCARQ": "车规/高Q",
@@ -4164,12 +4212,47 @@ TAIYO_MLCC_SERIES_CLASS = {
     "MCAS": "车规",
     "MCAST": "车规",
     "MSAS": "常规",
+    "MBJCU": "工业/软端子",
+    "MCJCU": "车规/软端子",
+    "MMJCU": "软端子",
     "UP": "常规",
     "TP": "常规",
     "JMR": "常规",
     "LMR": "常规",
     "HMR": "常规",
     "EMR": "常规",
+}
+SAMWHA_MLCC_SERIES_MEANING = {
+    "CS": "常规 / General-purpose MLCC",
+    "CQ": "车规 / Automotive MLCC",
+}
+SAMWHA_MLCC_SERIES_CLASS = {
+    "CS": "常规",
+    "CQ": "车规",
+}
+FOJAN_MLCC_SERIES_MEANING = {
+    "FCC": "常规 / General-purpose MLCC",
+}
+FOJAN_MLCC_SERIES_CLASS = {
+    "FCC": "常规",
+}
+KYOCERA_AVX_MLCC_SERIES_MEANING = {
+    "KGM": "常规 / General-purpose MLCC",
+    "KGF": "软端子 / FLEXITERM soft-termination MLCC",
+    "KGL": "车规 / Automotive MLCC",
+    "KGA": "车规 / Automotive MLCC",
+    "KAM": "车规 / Automotive MLCC",
+    "KAF": "车规软端子 / Automotive FLEXITERM soft-termination MLCC",
+    "车规": "车规 / Automotive MLCC",
+}
+KYOCERA_AVX_MLCC_SERIES_CLASS = {
+    "KGM": "常规",
+    "KGF": "软端子",
+    "KGL": "车规",
+    "KGA": "车规",
+    "KAM": "车规",
+    "KAF": "车规/软端子",
+    "车规": "车规",
 }
 TAIYO_MLCC_SIZE_CODE_MAP = {
     "021": "008004",
@@ -4369,7 +4452,7 @@ def yageo_mlcc_series_profile(series_code):
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     class_text = clean_text(YAGEO_MLCC_SERIES_CLASS.get(code, ""))
-    special_use = "车规" if "车规" in class_text else ""
+    special_use = " | ".join(part for part in ["车规" if "车规" in class_text else "", "软端子" if "软端子" in class_text else ""] if part)
     return {
         "系列": code,
         "系列说明": clean_text(YAGEO_MLCC_SERIES_MEANING.get(code, "")),
@@ -4384,12 +4467,11 @@ def walsin_mlcc_series_code_from_model(model):
         return ""
     if compact.startswith("01R5"):
         return "01R5"
-    for prefix in ("RF", "HH", "SH", "RT", "UF"):
+    for prefix in ("RF", "HH", "SH", "RT", "UF", "ST"):
         if compact.startswith(prefix):
             return prefix
-    numeric_family = extract_size_prefixed_mlcc_series_code(compact)
-    if numeric_family != "":
-        return numeric_family
+    if re.match(r"^\d{4}[A-Z](?:\d{3,4}|R\d+)", compact):
+        return "常规"
     return ""
 
 
@@ -4398,7 +4480,7 @@ def walsin_mlcc_series_profile(series_code):
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     class_text = clean_text(WALSIN_MLCC_SERIES_CLASS.get(code, ""))
-    special_use = "车规" if "车规" in class_text else ""
+    special_use = " | ".join(part for part in ["车规" if "车规" in class_text else "", "软端子" if "软端子" in class_text else ""] if part)
     return {
         "系列": code,
         "系列说明": clean_text(WALSIN_MLCC_SERIES_MEANING.get(code, "")),
@@ -4452,13 +4534,85 @@ def taiyo_mlcc_series_profile(series_code):
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
     class_text = clean_text(TAIYO_MLCC_SERIES_CLASS.get(code, ""))
-    special_use = "车规" if "车规" in class_text else ""
+    special_use = " | ".join(part for part in ["车规" if "车规" in class_text else "", "软端子" if "软端子" in class_text else ""] if part)
     return {
         "系列": code,
         "系列说明": clean_text(TAIYO_MLCC_SERIES_MEANING.get(code, "")),
         "特殊用途": special_use,
         "_mlcc_series_class": class_text,
     }
+
+
+def samwha_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in ("CQ", "CS"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def samwha_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(SAMWHA_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = "车规" if "车规" in class_text else ""
+    return {
+        "系列": code,
+        "系列说明": clean_text(SAMWHA_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
+def fojan_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    if compact.startswith("FCC"):
+        return "FCC"
+    return extract_leading_alpha_series_code(compact, min_len=2, max_len=6)
+
+
+def fojan_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(FOJAN_MLCC_SERIES_CLASS.get(code, ""))
+    return {
+        "系列": code,
+        "系列说明": clean_text(FOJAN_MLCC_SERIES_MEANING.get(code, "")) or f"富捷FOJAN {code} MLCC系列",
+        "特殊用途": "",
+        "_mlcc_series_class": class_text,
+    }
+
+
+def kyocera_avx_mlcc_series_profile(series_code):
+    code = clean_text(series_code)
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(KYOCERA_AVX_MLCC_SERIES_CLASS.get(code.upper(), KYOCERA_AVX_MLCC_SERIES_CLASS.get(code, "")))
+    special_use = "车规" if "车规" in class_text else ("软端子" if "软端子" in class_text else "")
+    return {
+        "系列": code,
+        "系列说明": clean_text(KYOCERA_AVX_MLCC_SERIES_MEANING.get(code.upper(), KYOCERA_AVX_MLCC_SERIES_MEANING.get(code, ""))),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
+def kyocera_avx_mlcc_series_profile_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return kyocera_avx_mlcc_series_profile("")
+    for prefix in ("KAF", "KAM", "KGF", "KGL", "KGA", "KGM"):
+        if compact.startswith(prefix):
+            return kyocera_avx_mlcc_series_profile(prefix)
+    if re.match(r"^\d{4}[0-9AZYD][A-Z](?:\d{3,4}|R\d+)", compact):
+        return kyocera_avx_mlcc_series_profile("车规")
+    return kyocera_avx_mlcc_series_profile("")
 
 
 def generic_mlcc_series_profile(series_code):
@@ -4575,6 +4729,9 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     is_yageo_brand = "YAGEO" in brand_upper or "国巨" in brand_text
     is_walsin_brand = "WALSIN" in brand_upper or "华新科" in brand_text
     is_taiyo_brand = "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text
+    is_samwha_brand = "SAMWHA" in brand_upper or "三和" in brand_text
+    is_fojan_brand = "FOJAN" in brand_upper or "富捷" in brand_text
+    is_kyocera_avx_brand = "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text
     result = {
         "系列": clean_text(series),
         "系列说明": clean_text(series_desc),
@@ -4596,6 +4753,9 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         yageo_series_code = yageo_mlcc_series_code_from_model(model_key if is_yageo_brand else "")
         walsin_series_code = walsin_mlcc_series_code_from_model(model_key if is_walsin_brand else "")
         taiyo_series_code = taiyo_mlcc_series_code_from_model(model_key if is_taiyo_brand else "")
+        samwha_series_code = samwha_mlcc_series_code_from_model(model_key if is_samwha_brand else "")
+        fojan_series_code = fojan_mlcc_series_code_from_model(model_key if is_fojan_brand else "")
+        kyocera_avx_profile = kyocera_avx_mlcc_series_profile_from_model(model_key) if is_kyocera_avx_brand else {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
         if pdc_series_code != "":
             profile = pdc_mlcc_series_profile(pdc_series_code)
         elif murata_series_code != "":
@@ -4606,6 +4766,12 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = walsin_mlcc_series_profile(walsin_series_code)
         elif taiyo_series_code != "":
             profile = taiyo_mlcc_series_profile(taiyo_series_code)
+        elif samwha_series_code != "":
+            profile = samwha_mlcc_series_profile(samwha_series_code)
+        elif fojan_series_code != "":
+            profile = fojan_mlcc_series_profile(fojan_series_code)
+        elif clean_text(kyocera_avx_profile.get("系列", "")) != "":
+            profile = kyocera_avx_profile
         elif "HRE" in brand_upper or "芯声微" in brand_text:
             profile = parse_generic_size_first_mlcc(model_key, brand=brand_text)
             if profile is None or clean_text(profile.get("系列", "")) == "":
@@ -4622,6 +4788,12 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = walsin_mlcc_series_profile(series_key)
         elif is_taiyo_brand and series_key in TAIYO_MLCC_SERIES_MEANING:
             profile = taiyo_mlcc_series_profile(series_key)
+        elif is_samwha_brand and series_key in SAMWHA_MLCC_SERIES_MEANING:
+            profile = samwha_mlcc_series_profile(series_key)
+        elif is_fojan_brand and series_key in FOJAN_MLCC_SERIES_MEANING:
+            profile = fojan_mlcc_series_profile(series_key)
+        elif is_kyocera_avx_brand and series_key in KYOCERA_AVX_MLCC_SERIES_MEANING:
+            profile = kyocera_avx_mlcc_series_profile(series_key)
         elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
             profile = tdk_mlcc_series_profile_from_model(series_key)
         else:
@@ -4632,10 +4804,13 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
                 profile = generic_profile
 
     profile_series = clean_text(profile.get("系列", ""))
+    series_changed = False
     if mlcc_series_should_replace(result["系列"], profile_series):
         result["系列"] = profile_series
-    if result["系列说明"] == "" and clean_text(profile.get("系列说明", "")) != "":
-        result["系列说明"] = clean_text(profile.get("系列说明", ""))
+        series_changed = True
+    profile_desc_text = clean_text(profile.get("系列说明", ""))
+    if mlcc_series_desc_should_replace(result["系列说明"], profile_desc_text, series_changed):
+        result["系列说明"] = profile_desc_text
     if result["特殊用途"] == "" and clean_text(profile.get("特殊用途", "")) != "":
         result["特殊用途"] = clean_text(profile.get("特殊用途", ""))
     profile_class_text = clean_text(profile.get("_mlcc_series_class", ""))
@@ -4695,7 +4870,7 @@ def infer_mlcc_series_class_from_spec(spec):
 
 def mlcc_series_class_requires_filter(value):
     tokens = set(mlcc_series_class_tokens(value))
-    return bool(tokens & MLCC_STRICT_CLASS_TOKENS) or "常规" in tokens
+    return bool(tokens & MLCC_STRICT_CLASS_TOKENS)
 
 
 def mlcc_series_class_matches(candidate, target):
@@ -7625,12 +7800,15 @@ def parse_walsin_common(model, brand=""):
             vmap = {"100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
             volt = vmap.get(vcode, vcode)
 
+        series_profile = walsin_mlcc_series_profile("常规")
         return {
             "品牌": "华新科Walsin",
             "型号": model,
             "器件类型": "MLCC",
-            "系列": f"{size_code}{mat_code}",
-            "系列说明": f"华新科Walsin {size_code}{mat_code} {clean_material(material_map.get(mat_code, '')) or 'MLCC'}系列",
+            "系列": series_profile["系列"],
+            "系列说明": series_profile["系列说明"],
+            "特殊用途": series_profile["特殊用途"],
+            "_mlcc_series_class": series_profile["_mlcc_series_class"],
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": murata_cap_code_to_pf(cap_code),
@@ -12043,40 +12221,14 @@ def resolve_generic_mlcc_brand_series_profile(brand="", model="", series="", ser
                 profile["系列说明"] = f"Taiyo Yuden {series_code} MLCC official series"
             return merge_series_profile_values(result, profile, model=model_text)
     if "WALSIN" in brand_upper or "华新科" in brand_text:
-        series_code = walsin_mlcc_series_code_from_model(model_text) or extract_size_prefixed_mlcc_series_code(model_text)
+        series_code = walsin_mlcc_series_code_from_model(model_text)
         if series_code != "":
             profile = walsin_mlcc_series_profile(series_code)
-            if clean_text(profile.get("系列说明", "")) == "":
-                dielectric = clean_text(WALSIN_NUMERIC_MLCC_DIELECTRIC.get(series_code[-1], ""))
-                if dielectric != "":
-                    profile["系列说明"] = f"{brand_text} {series_code} {dielectric} MLCC系列"
-                else:
-                    profile["系列说明"] = f"{brand_text} {series_code} MLCC系列"
             return merge_series_profile_values(result, profile, model=model_text)
     if "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text:
-        match = re.match(r"^([A-Z]{2,4})(?=\d)", model_text)
-        series_code = clean_text(match.group(1)).upper() if match else extract_size_prefixed_mlcc_series_code(model_text)
-        if series_code == "":
-            fallback_patterns = (
-                r"^(M39014)",
-                r"^(\d{3}[A-Z])",
-                r"^([A-Z]{5,8})(?=[0-9/])",
-            )
-            for pattern in fallback_patterns:
-                fallback_match = re.match(pattern, model_text)
-                if fallback_match:
-                    series_code = clean_text(fallback_match.group(1)).upper()
-                    break
-        if series_code:
-            return merge_series_profile_values(
-                result,
-                {
-                    "系列": series_code,
-                    "系列说明": f"Kyocera AVX {series_code} MLCC official series",
-                    "器件类型": "MLCC",
-                },
-                model=model_text,
-            )
+        profile = kyocera_avx_mlcc_series_profile_from_model(model_text)
+        if clean_text(profile.get("系列", "")) != "":
+            return merge_series_profile_values(result, profile, model=model_text)
     if "MURATA" in brand_upper or "村田" in brand_text:
         series_code = murata_series_code_from_model(model_text)
         if series_code == "":
@@ -12123,18 +12275,14 @@ def resolve_generic_mlcc_brand_series_profile(brand="", model="", series="", ser
                 },
                 model=model_text,
             )
-    if "FOJAN" in brand_upper or "富捷" in brand_text:
-        series_code = extract_leading_alpha_series_code(model_text, min_len=2, max_len=6)
+    if "SAMWHA" in brand_upper or "三和" in brand_text:
+        series_code = samwha_mlcc_series_code_from_model(model_text)
         if series_code != "":
-            return merge_series_profile_values(
-                result,
-                {
-                    "系列": series_code,
-                    "系列说明": f"{brand_text} {series_code} MLCC系列",
-                    "器件类型": "MLCC",
-                },
-                model=model_text,
-            )
+            return merge_series_profile_values(result, samwha_mlcc_series_profile(series_code), model=model_text)
+    if "FOJAN" in brand_upper or "富捷" in brand_text:
+        series_code = fojan_mlcc_series_code_from_model(model_text)
+        if series_code != "":
+            return merge_series_profile_values(result, fojan_mlcc_series_profile(series_code), model=model_text)
     return result
 
 
@@ -13196,11 +13344,15 @@ def parse_kyocera_avx_common(model):
     }
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
 
+    series_profile = kyocera_avx_mlcc_series_profile_from_model(model)
     return {
         "品牌": "晶瓷Kyocera AVX",
         "型号": model,
-        "系列": extract_size_prefixed_mlcc_series_code(model),
-        "系列说明": f"Kyocera AVX {extract_size_prefixed_mlcc_series_code(model)} MLCC official series" if extract_size_prefixed_mlcc_series_code(model) else "",
+        "器件类型": "MLCC",
+        "系列": series_profile["系列"],
+        "系列说明": series_profile["系列说明"],
+        "特殊用途": series_profile["特殊用途"],
+        "_mlcc_series_class": series_profile["_mlcc_series_class"],
         "尺寸（inch）": size_map.get(match.group("size"), clean_size(match.group("size"))),
         "材质（介质）": clean_material(material_map.get(match.group("mat"), "")),
         "容值_pf": murata_cap_code_to_pf(match.group("cap")),
@@ -16315,7 +16467,26 @@ def prepare_search_dataframe(df):
         if series_replace_mask.any():
             replace_idx = series_replace_mask[series_replace_mask].index
             work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
-        for col in ["系列说明", "特殊用途"]:
+        profile_desc = mlcc_profile_df["系列说明"].astype(str).apply(clean_text)
+        current_desc = work.loc[mlcc_mask, "系列说明"].astype(str).apply(clean_text)
+        desc_replace_mask = pd.Series(
+            [
+                mlcc_series_desc_should_replace(
+                    current_desc.at[idx],
+                    profile_desc.at[idx],
+                    bool(series_replace_mask.at[idx]) if idx in series_replace_mask.index else False,
+                )
+                for idx in current_desc.index
+            ],
+            index=current_desc.index,
+            dtype="bool",
+        )
+        if desc_replace_mask.any():
+            desc_idx = desc_replace_mask[desc_replace_mask].index
+            valid_desc = profile_desc.loc[desc_idx][profile_desc.loc[desc_idx].ne("")]
+            if len(valid_desc) > 0:
+                work.loc[valid_desc.index, "系列说明"] = valid_desc
+        for col in ["特殊用途"]:
             blank_mask = work.loc[mlcc_mask, col].astype(str).apply(clean_text).eq("")
             if blank_mask.any():
                 blank_idx = blank_mask[blank_mask].index
