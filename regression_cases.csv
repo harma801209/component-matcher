@@ -1,0 +1,27 @@
+case_id,query,expected_mode,expected_size,expected_material,expected_value,expected_unit,expected_tolerance,expected_voltage,min_match_count,notes,expected_top_brand,expected_top_model_contains
+SAMSUNG_5PCT,CL05A105JQ5NNWC,part,0402,X5R,1,UF,5,6.3,0,Samsung 5 percent tolerance should parse correctly
+WALSIN_0402X105,0402X105K6R3CT,part,0402,X5R,1,UF,10,6.3,1,Walsin compact part parser should work
+MURATA_100PF,GRM0335C1E101JA01D,part,0201,COG(NPO),100,PF,5,25,1,Murata standard NP0 sample
+MURATA_56NF,GRM155R71C563KA88D,part,0402,X7R,56,NF,10,16,1,Murata X7R sample
+MURATA_3PF,GRM0335C1H3R0WA01,part,0201,COG(NPO),3,PF,0.05pF,50,0,Murata decimal pF code and absolute tolerance
+YAGEO_AA_1OHM,AA0402FR-071RL,part,0402,,1,OHM,1,,0,Yageo AA resistor model should reverse-parse to 0402 1 ohm 1 percent from the model code
+MURATA_MHR_1GOHM,MHR0422SA108F70,part,,,1000,MOHM,1,,0,Murata MHR high-voltage resistor should reverse-parse 108 as 1000 megaohm instead of trusting scraped 1 ohm fields
+SPEC_0402_1UF,0402 105 k 6.3 x5r,spec,0402,X5R,1,UF,10,6.3,1,Complete spec query should return same size and capacitance family
+RES_0603_10K,Res't : 10K ohm 1/10W +/-5% 0603SMD,resistor,0603,,10,KOHM,5,,0,Resistor spec query should keep 10K resistance instead of dropping it
+RES_0401_1OHM_K,0401 1ohm k,resistor,0401,,1,OHM,10,,0,Compact resistor query with 0401 size and K tolerance should keep all three parameters instead of dropping size and tolerance
+RES_0603_3K3,3K3 5% 0603,resistor,0603,,3.3,KOHM,5,,0,Compact resistor spec should parse 3K3 correctly
+RES_0603_4K75,4K75 1% 0603,resistor,0603,,4.75,KOHM,1,,0,Compact resistor spec should parse 4K75 correctly
+RES_1206_R010,R010 1% 1206,resistor,1206,,10,MILLIOHM,1,,0,Leading-R low-ohm resistor spec should parse correctly
+RES_1206_0R22,0R22 5% 1206,resistor,1206,,220,MILLIOHM,5,,0,Compact low-ohm resistor spec should parse 0R22 correctly
+RES_0805_4R7_EXACT,"C Res't : 4.7 Ohm, +/-1%, 1/8W, SMD0805",resistor,0805,,4.7,OHM,1,,1,0805 4.7 ohm resistor query should stay in normal resistor families instead of drifting into Murata PRG PTC rows
+RES_2512_R005_1W,R005 1% 2512 1W,resistor,2512,,5,MILLIOHM,1,,0,Low-ohm high-power resistor query should keep 2512 package and 1W power
+RES_2512_5MOHM_2W,5mΩ 1% 2512 2W,resistor,2512,,5,MILLIOHM,1,,0,Milliohm resistor query should parse 5mΩ with 2512 package and 2W power
+
+PDC_MT03N100J500CT,MT03N100J500CT,part,0201,COG(NPO),10,PF,5,50,1,PDC MT series sample should parse as ??PDC instead of Walsin
+ELEC_SPEC_270UF,铝电容_270uF_±20%_16V_-25-105℃_5000h_6.6×7.2mm_贴片_消费,electrolytic,,,270,UF,20,16,0,Electrolytic spec query should keep value tolerance voltage and route into the aluminum electrolytic parser
+JIANGHAI_HPA_EPA,PCP0EPA331M09B,part,,,330,UF,20,2.5,0,Jianghai HPA polymer model should reverse-parse 330uF 2.5V from the model code
+JIANGHAI_PHV_EVA,PHV1EVA271MC10FVTSWX,part,,,270,UF,20,25,0,Jianghai PHV hybrid model should reverse-parse 270uF 25V from the model code
+JIANGHAI_WBZ_STOCK,ECS2WBZ471MLA350040V,part,,,470,UF,20,450,0,Jianghai stock-site supplement row should retain 470uF 450V for WBZ snap-in models
+
+PDC_MT43X104K152EHE,MT43X104K152EHE,part,1812,X7R,100,NF,10,1500,0,Old catalog MT query should borrow size 43 and 152V from official naming rules
+PDC_FN18_WALSIN_PRIORITY,FN18X104K500PBG,part,0603,X7R,100,NF,10,50,1,PDC 0603 X7R 100nF 50V should keep Walsin ahead of HRE/Murata/TDK when all rows are complete matches,WALSIN,

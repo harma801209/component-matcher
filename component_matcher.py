@@ -35,7 +35,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
-from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile
+from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, resolve_walsin_resistor_series_code_from_model
 
 
 def quiet_nonessential_console_noise():
@@ -92,7 +92,7 @@ SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
-SEARCH_INDEX_SCHEMA_VERSION = 5
+SEARCH_INDEX_SCHEMA_VERSION = 6
 QUERY_RESULT_CACHE_VERSION = 15
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
@@ -1305,7 +1305,11 @@ def clean_material(x):
     return x
 
 def clean_size(x):
-    s = clean_text(x).replace(".0", "").replace(" ", "")
+    s = clean_text(x).replace(" ", "")
+    if re.fullmatch(r"\d+\.0+", s):
+        s = s.split(".", 1)[0]
+    if s.upper() in {"", "NONE", "NAN", "NULL", "N/A", "NA", "-", "--", "/"}:
+        return ""
     pad_map = {
         "401": "0401",
         "402": "0402",
@@ -1326,7 +1330,15 @@ def clean_size(x):
     return s.upper()
 
 
-SIZE_TOKEN_PATTERN = re.compile(r"(?<!\d)(008004|015008|01005|0102|0201|0401|0402|0603|0805|1206|1210|1808|1812|1825|2010|2220|2512|3225|4520|4532|5750)(?!\d)")
+EMBEDDED_SIZE_TOKENS = (
+    "015008", "008004", "01005",
+    "0075", "0100", "0102", "0201", "0204", "0207", "0303", "0401", "0402", "0406", "0502", "0505", "0508",
+    "0603", "0612", "0705", "0805", "0815", "1010", "1020", "1206", "1210", "1218", "1225", "1505", "1506",
+    "1608", "1808", "1812", "1825", "2010", "2012", "2220", "2512", "2513", "2514", "2515", "2615", "2816",
+    "2817", "2920", "3225", "3512", "3920", "4020", "4124", "4312", "4520", "4527", "4532", "5750", "5930",
+    "6227", "6327", "8035",
+)
+SIZE_TOKEN_PATTERN = re.compile(r"(?<!\d)(" + "|".join(sorted(EMBEDDED_SIZE_TOKENS, key=len, reverse=True)) + r")(?!\d)")
 SPEC_EMBEDDED_MATERIALS = [
     ("COG(NPO)", "COG(NPO)"),
     ("C0G", "COG(NPO)"),
@@ -1354,7 +1366,12 @@ CURRENT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(MA|A)\b", flags=re.I)
 FREQUENCY_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(HZ|KHZ|MHZ)\b", flags=re.I)
 VARISTOR_CODE_PATTERN = re.compile(r"(?<!\d)(\d{3})K(?![A-Z0-9])", flags=re.I)
 DISC_SIZE_CODE_PATTERN = re.compile(r"(?<!\d)(\d{2})D(?!\d)", flags=re.I)
-SMD_SIZE_CODE_PATTERN = re.compile(r"(?<![A-Z0-9])(0201|0401|0402|0603|0805|1206|1210|1812|2010|2512|3225)(?![A-Z0-9])", flags=re.I)
+SMD_SIZE_CODE_PATTERN = re.compile(
+    r"(?<![A-Z0-9])("
+    + "|".join(sorted(EMBEDDED_SIZE_TOKENS, key=len, reverse=True))
+    + r")(?![A-Z0-9])",
+    flags=re.I,
+)
 RESISTOR_TOLERANCE_CODE_MAP = {
     "B": "0.1",
     "C": "0.25",
@@ -1408,14 +1425,16 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "特殊用途": "车规 | 电流检测",
 }
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
+    "01": "01005",
     "02": "01005",
     "03": "0201",
     "04": "0402",
     "06": "0603",
     "08": "0805",
+    "10": "1210",
     "12": "1206",
     "14": "1210",
     "18": "1812",
@@ -1883,19 +1902,28 @@ def normalize_official_dimension_lookup_text(text):
 
 MLCC_DIMENSION_CELL_PATTERN = re.compile(r"\d+(?:\.\d+)?(?:\s*±\s*\d+(?:\.\d+)?)?")
 MLCC_SIZE_SEARCH_TOKENS = {
+    "008004": {"008004", "0080", "C008004", "CC008004"},
     "01005": {"01005", "0100", "0402", "01R5", "C0402", "CC01005"},
     "0201": {"0201", "0603", "C0603", "CC0201"},
+    "0202": {"0202", "0505", "C0505", "CC0202"},
     "0204": {"0204"},
+    "0303": {"0303", "0808", "C0808", "CC0303"},
+    "0306": {"0306", "0816", "C0816", "CC0306"},
     "0402": {"0402", "1005", "C1005", "CC0402"},
+    "0508": {"0508", "1220", "CC0508"},
     "0505": {"0505"},
     "0603": {"0603", "1608", "C1608", "CC0603"},
     "0612": {"0612"},
     "0805": {"0805", "2012", "C2012", "CC0805"},
+    "1111": {"1111", "2828", "CC1111"},
     "1206": {"1206", "3216", "C3216", "CC1206"},
     "1210": {"1210", "3225", "C3225", "CC1210"},
     "2010": {"2010", "5025", "C5025", "CC2010"},
+    "2012": {"2012", "0805", "C2012", "CC0805"},
     "2512": {"2512", "6332", "C6332", "CC2512"},
+    "3025": {"3025", "7563", "C7563", "CC3025"},
     "3225": {"3225", "1210", "C3225", "CC3225"},
+    "3216": {"3216", "1206", "C3216", "CC1206"},
     "1808": {"1808", "4520", "C4520", "CC1808"},
     "1825": {"1825"},
     "1812": {"1812", "4532", "C4532", "CC1812"},
@@ -1906,20 +1934,31 @@ MLCC_SIZE_SEARCH_TOKENS = {
     "4532": {"4532", "1812", "C4532", "CC4532"},
     "5750": {"5750", "2220", "C5750", "CC5750"},
     "6332": {"6332", "2512", "C6332", "CC6332"},
+    "7563": {"7563", "3025", "C7563", "CC3025"},
 }
 MLCC_NOMINAL_SIZE_MM_MAP = {
+    "008004": ("0.25", "0.125"),
     "01005": ("0.40", "0.20"),
     "0201": ("0.60", "0.30"),
+    "0202": ("0.50", "0.50"),
     "0204": ("0.20", "0.40"),
+    "0303": ("0.80", "0.80"),
+    "0306": ("0.80", "1.60"),
     "0402": ("1.00", "0.50"),
+    "0508": ("1.25", "2.00"),
     "0505": ("0.50", "0.50"),
     "0603": ("1.60", "0.80"),
     "0612": ("0.60", "1.20"),
+    "1608": ("1.60", "0.80"),
     "0805": ("2.00", "1.25"),
+    "1111": ("2.80", "2.80"),
     "1206": ("3.20", "1.60"),
     "1210": ("3.20", "2.50"),
     "2010": ("5.00", "2.50"),
+    "2012": ("2.00", "1.25"),
     "2512": ("6.30", "3.20"),
+    "3025": ("7.50", "6.30"),
+    "3216": ("3.20", "1.60"),
     "3225": ("3.20", "2.50"),
     "1808": ("4.50", "2.00"),
     "1825": ("1.80", "2.50"),
@@ -1931,33 +1970,60 @@ MLCC_NOMINAL_SIZE_MM_MAP = {
     "2225": ("2.20", "2.50"),
     "5750": ("5.70", "5.00"),
     "6332": ("6.30", "3.20"),
+    "7563": ("7.50", "6.30"),
 }
 MLCC_NOMINAL_THICKNESS_MM_MAP = {
+    "008004": "0.125",
     "01005": "0.20",
     "0201": "0.30",
+    "0202": "0.50",
     "0204": "0.20",
+    "0303": "0.80",
+    "0306": "0.80",
     "0402": "0.50",
+    "0508": "1.25",
     "0505": "0.50",
     "0603": "0.80",
     "0612": "0.60",
+    "1608": "0.80",
     "0805": "1.25",
+    "1111": "2.80",
     "1206": "1.60",
     "1210": "2.50",
     "1808": "2.00",
     "1825": "2.50",
     "1812": "3.20",
     "2010": "2.50",
+    "2012": "1.25",
     "2220": "5.00",
     "2211": "1.10",
     "2225": "2.50",
     "2512": "3.20",
+    "3025": "2.50",
+    "3216": "1.60",
     "3225": "2.50",
     "4520": "2.00",
     "4532": "3.20",
     "5750": "5.00",
     "6332": "3.20",
+    "7563": "2.50",
 }
+
+
+def is_mlcc_size_code(value):
+    size = clean_size(value)
+    if size == "":
+        return False
+    return size in MLCC_NOMINAL_SIZE_MM_MAP or size in MLCC_SIZE_SEARCH_TOKENS
+
+
+def clean_mlcc_size_code(value):
+    size = clean_size(value)
+    return size if is_mlcc_size_code(size) else ""
+
+
 MURATA_SIZE_DIMENSION_MAP = {
+    "01": ("0.25", "0.125"),
     "02": ("0.40", "0.20"),
     "03": ("0.60", "0.30"),
     "05": ("0.50", "0.50"),
@@ -1977,6 +2043,7 @@ MURATA_SIZE_DIMENSION_MAP = {
     "55": ("5.70", "5.00"),
 }
 MURATA_THICKNESS_CODE_MAP = {
+    "1": "0.125",
     "2": "0.20",
     "3": "0.30",
     "5": "0.50",
@@ -1999,6 +2066,7 @@ MURATA_THICKNESS_CODE_MAP = {
 TDK_SIZE_DIMENSION_MAP = {
     "0402": ("0.40±0.02", "0.20±0.02"),
     "0603": ("0.60±0.03", "0.30±0.03"),
+    "0816": ("0.80±0.10", "1.60±0.10"),
     "1005": ("1.00±0.05", "0.50±0.05"),
     "1608": ("1.60±0.10", "0.80±0.10"),
     "2012": ("2.00±0.20", "1.25±0.20"),
@@ -2006,6 +2074,7 @@ TDK_SIZE_DIMENSION_MAP = {
     "3225": ("3.20±0.40", "2.50±0.30"),
     "4532": ("4.50±0.40", "3.20±0.40"),
     "5750": ("5.70±0.40", "5.00±0.40"),
+    "7563": ("7.50±0.40", "6.30±0.40"),
 }
 TDK_THICKNESS_CODE_MAP = {
     "020": "0.20",
@@ -2377,9 +2446,8 @@ def extract_dimension_fields_from_model_summary_line(text, model, size_hint=""):
 
 def decode_murata_dimension_fields_from_model(model):
     model_key = clean_model(model)
-    prefixes = ("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ")
-    prefix = next((item for item in prefixes if model_key.startswith(item)), None)
-    if prefix is None or len(model_key) < len(prefix) + 3:
+    prefix = murata_series_code_from_model(model_key)
+    if prefix == "" or len(model_key) < len(prefix) + 3:
         return {}
     size_code = model_key[len(prefix):len(prefix) + 2]
     thickness_code = model_key[len(prefix) + 2:len(prefix) + 3]
@@ -3195,6 +3263,17 @@ def infer_resistor_size_from_model(model):
         mapped = clean_size(TAI_RESISTOR_SIZE_MAP.get(size_code, ""))
         if mapped != "":
             return mapped
+    walsin_series_code = resolve_walsin_resistor_series_code_from_model(compact)
+    if walsin_series_code != "":
+        if walsin_series_code.startswith("WM04B"):
+            return "0204"
+        if walsin_series_code.startswith("FVF06F"):
+            return "1206"
+        match = re.match(r"^(?:WW|WR|WF|MR|SR|WK|WM)(?P<size>\d{2})", walsin_series_code)
+        if match is not None:
+            mapped = clean_size(WALSIN_RESISTOR_SIZE_MAP.get(match.group("size"), ""))
+            if mapped != "":
+                return mapped
     size = find_embedded_size(compact)
     if size != "":
         return size
@@ -3322,6 +3401,8 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
     if not resistor_model_rule_candidate(model, brand=brand, component_type=component_type):
         return None
     compact = clean_model(model)
+    if compact.startswith("SR") and re.match(r"^SR\d{3}K", compact):
+        return None
     series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
     resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type)
     resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
@@ -3435,6 +3516,16 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
     authority = clean_text(parsed_rule.get("_model_rule_authority", ""))
     if authority != "":
         merged["_model_rule_authority"] = authority
+
+    resolved_component_type = normalize_component_type(merged.get("器件类型", "")) or infer_db_component_type(merged)
+    if resolved_component_type in RESISTOR_COMPONENT_TYPES and clean_text(merged.get("_power", "")) == "":
+        inferred_power_text = infer_resistor_power_text_from_record(merged)
+        if inferred_power_text != "":
+            merged["_power"] = inferred_power_text
+    if resolved_component_type in RESISTOR_COMPONENT_TYPES:
+        power_text = clean_text(merged.get("_power", ""))
+        if power_text != "" and (override_conflicts or merged.get("_power_watt", None) is None or pd.isna(merged.get("_power_watt", None))):
+            merged["_power_watt"] = parse_power_to_watts(power_text)
     return merged
 
 
@@ -3515,6 +3606,16 @@ def resistor_series_should_replace(current_value, canonical_value):
     canonical_upper = canonical.upper()
     if canonical == "普通厚膜" and re.fullmatch(r"\d{4,5}[A-Z0-9]{2,}", current_upper):
         return True
+    if re.fullmatch(r"\d{2,4}", current_upper):
+        match = re.search(r"\d{2,5}", canonical_upper)
+        if match is not None:
+            canonical_digits = match.group(0)
+            if canonical_digits.startswith(current_upper) and len(canonical_digits) > len(current_upper):
+                return True
+            if canonical_digits == current_upper and re.match(r"^[A-Z]", canonical_upper):
+                return True
+    if len(current_upper) <= 2 and canonical_upper.startswith(current_upper) and len(canonical_upper) > len(current_upper):
+        return True
     return current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper)
 
 
@@ -3528,6 +3629,20 @@ def resistor_series_desc_should_replace(current_value, canonical_value):
     if current == canonical:
         return False
     return current.endswith("电阻系列")
+
+
+def _numeric_fragment_series_should_replace(current_upper, canonical_upper):
+    if not re.fullmatch(r"\d{2,4}", current_upper):
+        return False
+    match = re.search(r"\d{2,5}", canonical_upper)
+    if match is None:
+        return False
+    canonical_digits = match.group(0)
+    if canonical_digits.startswith(current_upper) and len(canonical_digits) > len(current_upper):
+        return True
+    if canonical_digits == current_upper and re.match(r"^[A-Z]", canonical_upper):
+        return True
+    return False
 
 
 def mlcc_series_should_replace(current_value, canonical_value):
@@ -3712,7 +3827,7 @@ def murata_series_meaning(series_code):
     return MURATA_SERIES_MEANING.get(code, "Murata 官方系列代码")
 
 
-MURATA_NTC_MODEL_PATTERN = re.compile(r"^(?P<series>(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2})(?P<res>\d{3})(?P<tol>[BCDFGJKMZ])(?P<tail>.*)$")
+MURATA_NTC_MODEL_PATTERN = re.compile(r"^(?P<series>(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2})(?P<res>\d{3})(?P<tol>[BCDEFGJKMZ])(?P<tail>.*)$")
 MURATA_NTC_BODY_SIZE_MAP = {
     "02": "0402",
     "03": "0603",
@@ -4037,6 +4152,35 @@ TAIYO_MLCC_SERIES_CLASS = {
     "HMR": "常规",
     "EMR": "常规",
 }
+TAIYO_MLCC_SIZE_CODE_MAP = {
+    "021": "008004",
+    "042": "01005",
+    "063": "0201",
+    "065": "0201",
+    "105": "0402",
+    "107": "0603",
+    "168": "0603",
+    "21": "0805",
+    "212": "0805",
+    "31": "1206",
+    "316": "1206",
+    "32": "1210",
+    "325": "1210",
+    "432": "1812",
+    "575": "2220",
+}
+TAIYO_LEADED_CERAMIC_SIZE_MM_MAP = {
+    "025": ("2.3", "2.0"),
+    "050": ("3.2", "2.2"),
+    "075": ("4.2", "3.2"),
+}
+TAIYO_LEADED_CERAMIC_VOLTAGE_MAP = {
+    "L": "10",
+    "E": "16",
+    "T": "25",
+    "G": "35",
+    "U": "50",
+}
 GENERIC_MLCC_SERIES_MEANING = {
     "CL": "常规 / General-purpose MLCC",
     "CLR1": "常规 / General-purpose MLCC",
@@ -4262,7 +4406,25 @@ def taiyo_mlcc_series_code_from_model(model):
             return prefix
     generic_prefix = extract_leading_alpha_series_code(compact, min_len=3, max_len=6)
     if generic_prefix != "":
-        return generic_prefix
+            return generic_prefix
+    return ""
+
+
+def infer_taiyo_mlcc_size_from_model(model):
+    compact = clean_model(model)
+    series_code = taiyo_mlcc_series_code_from_model(compact)
+    if compact == "" or series_code == "" or not compact.startswith(series_code):
+        return ""
+    tail = compact[len(series_code):]
+    candidates = [tail]
+    if tail[:1].isalpha():
+        candidates.append(tail[1:])
+    for candidate in candidates:
+        for code_len in (3, 2):
+            code = candidate[:code_len]
+            size = clean_size(TAIYO_MLCC_SIZE_CODE_MAP.get(code, ""))
+            if size != "":
+                return size
     return ""
 
 
@@ -7164,6 +7326,7 @@ def parse_murata_core(model, allow_partial=False):
     # Murata official order:
     # series + 2-char size + 1-char thickness + 2-char dielectric + 2-char voltage + 3-char capacitance + 1-char tolerance ...
     size_map = {
+        "01": "008004",
         "02": "01005", "03": "0201", "15": "0402", "18": "0603",
         "21": "0805", "31": "1206", "32": "1210", "42": "1808",
         "43": "1812", "55": "2220"
@@ -7254,8 +7417,10 @@ def parse_tdk_c_series(model):
     size_map = {
         "0402": "0402", "0603": "0603", "0805": "0805", "1206": "1206",
         "1210": "1210", "1808": "1808", "1812": "1812", "2220": "2220",
+        "0816": "0306",
         "1005": "0402", "1608": "0603", "2012": "0805", "3216": "1206",
-        "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220"
+        "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220",
+        "7563": "3025",
     }
     material_map = {
         "C0G": "COG(NPO)", "COG": "COG(NPO)", "NP0": "COG(NPO)", "NPO": "COG(NPO)",
@@ -8723,7 +8888,7 @@ def looks_like_thermistor_context(text):
         return True
     if "MURATA" in upper and re.search(r"PRG\d", compact):
         return True
-    if re.search(r"(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2}\d{3}[BCDFGJKMZ]", compact):
+    if re.search(r"(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2}\d{3}[BCDEFGJKMZ]", compact):
         return True
     return False
 
@@ -10864,6 +11029,356 @@ def extract_body_size_from_text(text):
     return f"{match.group(1)}*{match.group(2)}mm"
 
 
+def format_dimension_mm_text(*values):
+    parts = [normalize_dimension_mm_value(value) for value in values]
+    parts = [part for part in parts if part != ""]
+    if not parts:
+        return ""
+    return f"{'*'.join(parts)}mm"
+
+
+def normalize_capacitor_body_size_text(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    extracted = extract_body_size_from_text(text)
+    if extracted != "":
+        return extracted
+    normalized = text.replace("×", "*").replace("X", "*").replace("x", "*")
+    normalized = re.sub(r"\s+", "", normalized)
+    if normalized.lower().endswith("mm"):
+        body = normalized[:-2]
+    else:
+        body = normalized
+    if re.fullmatch(r"\d+(?:\.\d+)?(?:\*\d+(?:\.\d+)?){1,2}", body):
+        return f"{body}mm"
+    return ""
+
+
+def extract_pitch_mm_value_from_text(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    match = re.search(r"\bP\s*=?\s*(\d+(?:\.\d+)?)\s*MM\b", upper)
+    if match is None:
+        match = re.search(r"\bP\s*=?\s*(\d+(?:\.\d+)?)\b", upper)
+    if match is None:
+        return ""
+    value = normalize_dimension_mm_value(match.group(1))
+    # Earlier clean_size() removed ".0" inside arbitrary package text, so 5.08mm
+    # could be cached as 58mm. Lead pitch above 25mm is not credible here.
+    if value == "58":
+        value = "5.08"
+    if value == "254":
+        value = "2.54"
+    if value == "":
+        return ""
+    return f"{value}mm"
+
+
+def looks_like_throughhole_capacitor_package(value):
+    upper = clean_text(value).upper()
+    if upper == "":
+        return False
+    return any(token in upper for token in ["THROUGHHOLE", "RADIAL", "AXIAL", "LEADED"]) or re.search(r"\bP\s*=", upper) is not None
+
+
+MURATA_LEADED_CERAMIC_SERIES_CODES = {"RCE", "RDE", "RHE", "RHS", "RPE", "RPER", "RHEL"}
+KYOCERA_AVX_LEADED_CERAMIC_SERIES_CODES = {"SR", "SA", "CK", "MR"}
+
+
+def looks_like_known_leaded_ceramic_record(record):
+    brand = clean_brand(record.get("品牌", ""))
+    brand_upper = brand.upper()
+    series = clean_text(record.get("系列", "")).upper()
+    model = clean_model(record.get("型号", ""))
+    package_text = " ".join(
+        clean_text(record.get(col, ""))
+        for col in ["尺寸（inch）", "_size", "封装代码", "规格摘要", "备注1"]
+    )
+    if looks_like_throughhole_capacitor_package(package_text):
+        return True
+    if ("MURATA" in brand_upper or "村田" in brand) and (
+        series in MURATA_LEADED_CERAMIC_SERIES_CODES
+        or any(model.startswith(code) for code in MURATA_LEADED_CERAMIC_SERIES_CODES)
+    ):
+        return True
+    if ("KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand) and (
+        series in KYOCERA_AVX_LEADED_CERAMIC_SERIES_CODES
+        or any(model.startswith(code) for code in KYOCERA_AVX_LEADED_CERAMIC_SERIES_CODES)
+    ):
+        return True
+    return False
+
+
+def capacitor_dimension_mm_text_from_record(record):
+    current = clean_text(record.get("尺寸（mm）", "")) or clean_text(record.get("尺寸(mm)", ""))
+    if current != "":
+        return current
+    component_type = normalize_component_type(record.get("_component_type", "")) or normalize_component_type(record.get("器件类型", ""))
+    if component_type == "MLCC":
+        for col in ["_body_size", "尺寸（inch）", "_size", "封装代码", "规格摘要", "备注1"]:
+            body_size = normalize_capacitor_body_size_text(record.get(col, ""))
+            if body_size != "":
+                return body_size
+        dimension_text = format_dimension_mm_text(
+            record.get("长度（mm）", ""),
+            record.get("宽度（mm）", ""),
+            record.get("高度（mm）", ""),
+        )
+        if dimension_text != "":
+            return dimension_text
+        nominal_fields = infer_mlcc_nominal_dimension_fields_from_size(
+            clean_size(record.get("_size", "")) or clean_size(record.get("尺寸（inch）", ""))
+        )
+        return format_dimension_mm_text(
+            nominal_fields.get("长度（mm）", ""),
+            nominal_fields.get("宽度（mm）", ""),
+            nominal_fields.get("高度（mm）", ""),
+        )
+    if component_type in CAPACITOR_COMPONENT_TYPES:
+        body_size = normalize_capacitor_body_size_text(record.get("_body_size", ""))
+        if body_size != "":
+            return body_size
+        body_size = format_dimension_mm_text(record.get("直径（mm）", ""), record.get("高度（mm）", ""))
+        if body_size != "":
+            return body_size
+        return format_dimension_mm_text(
+            record.get("长度（mm）", ""),
+            record.get("宽度（mm）", ""),
+            record.get("高度（mm）", ""),
+        )
+    return ""
+
+
+def capacitor_body_size_text_from_record(record):
+    component_type = normalize_component_type(record.get("_component_type", "")) or normalize_component_type(record.get("器件类型", ""))
+    if component_type not in (CAPACITOR_COMPONENT_TYPES - {"MLCC"}):
+        return clean_text(record.get("_body_size", ""))
+    for value in [
+        record.get("_body_size", ""),
+        record.get("尺寸（mm）", ""),
+        record.get("尺寸(mm)", ""),
+    ]:
+        body_size = normalize_capacitor_body_size_text(value)
+        if body_size != "":
+            return body_size
+    body_size = format_dimension_mm_text(record.get("直径（mm）", ""), record.get("高度（mm）", ""))
+    if body_size != "":
+        return body_size
+    return format_dimension_mm_text(
+        record.get("长度（mm）", ""),
+        record.get("宽度（mm）", ""),
+        record.get("高度（mm）", ""),
+    )
+
+
+def normalize_capacitor_dimension_fields_in_dataframe(df):
+    if df is None or df.empty:
+        return df
+    if "_component_type" not in df.columns and "器件类型" not in df.columns:
+        return df
+    work = df.copy()
+    for col in ["尺寸（mm）", "_body_size", "长度（mm）", "宽度（mm）", "高度（mm）", "直径（mm）"]:
+        if col not in work.columns:
+            work[col] = ""
+    component_types = (
+        work["_component_type"].astype("string").fillna("").apply(normalize_component_type)
+        if "_component_type" in work.columns
+        else work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+    )
+    capacitor_mask = component_types.isin(CAPACITOR_COMPONENT_TYPES)
+    if not capacitor_mask.any():
+        return work
+    cap_rows = work.loc[capacitor_mask]
+
+    size_mm = work.loc[capacitor_mask, "尺寸（mm）"].astype("string").fillna("").apply(clean_text)
+    blank_size_mm = size_mm.eq("")
+    if blank_size_mm.any():
+        fill_values = cap_rows.loc[blank_size_mm].apply(capacitor_dimension_mm_text_from_record, axis=1).astype(str).apply(clean_text)
+        fill_values = fill_values[fill_values.ne("")]
+        if len(fill_values) > 0:
+            work.loc[fill_values.index, "尺寸（mm）"] = fill_values
+
+    non_mlcc_mask = capacitor_mask & component_types.ne("MLCC")
+    if non_mlcc_mask.any():
+        body_size = work.loc[non_mlcc_mask, "_body_size"].astype("string").fillna("").apply(clean_text)
+        blank_body = body_size.eq("")
+        if blank_body.any():
+            body_rows = work.loc[non_mlcc_mask].loc[blank_body]
+            fill_body = body_rows.apply(capacitor_body_size_text_from_record, axis=1).astype(str).apply(clean_text)
+            fill_body = fill_body[fill_body.ne("")]
+            if len(fill_body) > 0:
+                work.loc[fill_body.index, "_body_size"] = fill_body
+    return work
+
+
+def normalize_leaded_ceramic_rows_in_dataframe(df):
+    if df is None or df.empty:
+        return df
+    if "_component_type" not in df.columns and "器件类型" not in df.columns:
+        return df
+    work = df.copy()
+    for col in [
+        "器件类型", "_component_type", "安装方式", "封装代码", "尺寸（inch）", "_size",
+        "尺寸（mm）", "_body_size", "脚距（mm）", "系列说明",
+    ]:
+        if col not in work.columns:
+            work[col] = ""
+        elif isinstance(work[col].dtype, pd.CategoricalDtype):
+            work[col] = work[col].astype("object")
+
+    component_types = work["_component_type"].astype("string").fillna("").apply(normalize_component_type)
+    if "器件类型" in work.columns:
+        fallback_types = work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+        component_types = component_types.where(component_types.ne(""), fallback_types)
+    mlcc_idx = work[component_types.eq("MLCC")].index
+    if len(mlcc_idx) == 0:
+        return work
+
+    target_idx = [
+        idx for idx in mlcc_idx
+        if looks_like_known_leaded_ceramic_record(work.loc[idx].to_dict())
+    ]
+    if not target_idx:
+        return work
+
+    for idx in target_idx:
+        row = work.loc[idx].to_dict()
+        package_text = clean_text(row.get("尺寸（inch）", "")) or clean_text(row.get("_size", "")) or clean_text(row.get("封装代码", ""))
+        body_size = ""
+        for col in ["_body_size", "尺寸（mm）", "尺寸（inch）", "_size", "封装代码", "规格摘要", "备注1"]:
+            body_size = normalize_capacitor_body_size_text(row.get(col, ""))
+            if body_size != "":
+                break
+        pitch = ""
+        for col in ["脚距（mm）", "尺寸（inch）", "_size", "封装代码", "规格摘要", "备注1"]:
+            pitch = extract_pitch_mm_value_from_text(row.get(col, ""))
+            if pitch != "":
+                break
+
+        work.at[idx, "器件类型"] = "引线型陶瓷电容"
+        work.at[idx, "_component_type"] = "引线型陶瓷电容"
+        if clean_text(work.at[idx, "安装方式"]) == "":
+            work.at[idx, "安装方式"] = "插件"
+        if clean_text(work.at[idx, "封装代码"]) == "":
+            work.at[idx, "封装代码"] = "THROUGHHOLE" if looks_like_throughhole_capacitor_package(package_text) else "RADIAL"
+        if body_size != "":
+            work.at[idx, "尺寸（mm）"] = body_size
+            work.at[idx, "_body_size"] = body_size
+        if pitch != "":
+            work.at[idx, "脚距（mm）"] = pitch
+
+        if not is_mlcc_size_code(work.at[idx, "尺寸（inch）"]):
+            work.at[idx, "尺寸（inch）"] = ""
+        if not is_mlcc_size_code(work.at[idx, "_size"]):
+            work.at[idx, "_size"] = ""
+        if clean_text(work.at[idx, "系列说明"]) == "" or "MLCC" in clean_text(work.at[idx, "系列说明"]).upper():
+            work.at[idx, "系列说明"] = "引线型陶瓷电容 / Radial leaded ceramic capacitor"
+    return work
+
+
+def infer_mlcc_size_from_model_record(record):
+    model = clean_model(record.get("型号", ""))
+    if model == "":
+        return ""
+    brand_text = clean_brand(record.get("品牌", ""))
+    brand_upper = brand_text.upper()
+    if "TAIYO" in brand_upper or "太诱" in brand_text or "太阳诱电" in brand_text or taiyo_mlcc_series_code_from_model(model) != "":
+        size = infer_taiyo_mlcc_size_from_model(model)
+        if size != "":
+            return size
+    parsed = parse_model_rule(
+        model,
+        brand=brand_text,
+        component_type=normalize_component_type(record.get("器件类型", "")) or "MLCC",
+    )
+    if parsed is None:
+        return ""
+    return clean_size(parsed.get("尺寸（inch）", ""))
+
+
+def apply_taiyo_leaded_ceramic_overrides_in_dataframe(df):
+    if df is None or df.empty or "型号" not in df.columns:
+        return df
+    work = df.copy()
+    brand_series = work["品牌"].astype("string").fillna("").apply(clean_brand) if "品牌" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    model_series = work["型号"].astype("string").fillna("").apply(clean_model)
+    brand_mask = brand_series.str.contains("TAIYO|太诱|太阳诱电", case=False, na=False)
+    model_mask = model_series.str.match(r"^[LETGU][PT](?:025|050|075)", na=False)
+    target_idx = work[brand_mask & model_mask].index.tolist()
+    if not target_idx:
+        return work
+    for col in [
+        "器件类型", "系列", "系列说明", "安装方式", "封装代码", "尺寸（inch）", "尺寸（mm）",
+        "_body_size", "容值", "容值单位", "容值误差", "耐压（V）", "容值_pf",
+        "_component_type", "_model_rule_authority",
+    ]:
+        if col not in work.columns:
+            work[col] = ""
+        elif isinstance(work[col].dtype, pd.CategoricalDtype):
+            work[col] = work[col].astype("object")
+    for idx in target_idx:
+        parsed = parse_taiyo_leaded_ceramic_model(work.at[idx, "型号"])
+        if parsed is None:
+            continue
+        for col, value in parsed.items():
+            if col == "容值_pf":
+                if value is not None:
+                    work.at[idx, col] = value
+                    cap_value, cap_unit = pf_to_value_unit(value)
+                    if cap_value != "":
+                        work.at[idx, "容值"] = cap_value
+                    if cap_unit != "":
+                        work.at[idx, "容值单位"] = cap_unit
+                continue
+            if clean_text(value) != "":
+                work.at[idx, col] = value
+        work.at[idx, "_component_type"] = "引线型陶瓷电容"
+    return work
+
+
+def fill_missing_mlcc_size_fields_in_dataframe(df):
+    if df is None or df.empty:
+        return df
+    if "_component_type" not in df.columns and "器件类型" not in df.columns:
+        return df
+    work = df.copy()
+    if "_size" not in work.columns:
+        work["_size"] = ""
+    if "尺寸（inch）" not in work.columns:
+        work["尺寸（inch）"] = ""
+    work["_size"] = work["_size"].astype("string").fillna("").apply(clean_size)
+    work["尺寸（inch）"] = work["尺寸（inch）"].astype("string").fillna("").apply(clean_size)
+    component_types = (
+        work["_component_type"].astype("string").fillna("").apply(normalize_component_type)
+        if "_component_type" in work.columns
+        else work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
+    )
+    mlcc_mask = component_types.eq("MLCC")
+    if not mlcc_mask.any():
+        return work
+    mlcc_indices = mlcc_mask[mlcc_mask].index
+    work.loc[mlcc_indices, "_size"] = work.loc[mlcc_indices, "_size"].astype("string").fillna("").apply(clean_mlcc_size_code)
+    size_from_inch = work.loc[mlcc_mask, "尺寸（inch）"].astype("string").fillna("").apply(clean_mlcc_size_code)
+    blank_size = work.loc[mlcc_mask, "_size"].astype("string").fillna("").apply(clean_size).eq("")
+    if blank_size.any():
+        fill_from_inch = size_from_inch[blank_size & size_from_inch.ne("")]
+        if len(fill_from_inch) > 0:
+            work.loc[fill_from_inch.index, "_size"] = fill_from_inch
+    blank_size = work.loc[mlcc_mask, "_size"].astype("string").fillna("").apply(clean_size).eq("")
+    if blank_size.any():
+        target_idx = blank_size[blank_size].index
+        inferred = work.loc[target_idx].apply(infer_mlcc_size_from_model_record, axis=1).astype(str).apply(clean_size)
+        inferred = inferred[inferred.ne("")]
+        if len(inferred) > 0:
+            work.loc[inferred.index, "_size"] = inferred
+            blank_inch = work.loc[inferred.index, "尺寸（inch）"].astype("string").fillna("").apply(clean_size).eq("")
+            if blank_inch.any():
+                work.loc[blank_inch[blank_inch].index, "尺寸（inch）"] = inferred.loc[blank_inch[blank_inch].index]
+    return work
+
+
 def extract_pitch_from_text(text):
     upper = clean_text(text).upper()
     match = PITCH_PATTERN.search(upper)
@@ -11229,6 +11744,10 @@ def passive_series_should_replace(current_value, canonical_value, model=""):
     current_upper = current.upper()
     canonical_upper = canonical.upper()
     if model_text != "" and current_upper == model_text.upper():
+        return True
+    if _numeric_fragment_series_should_replace(current_upper, canonical_upper):
+        return True
+    if len(current_upper) <= 2 and canonical_upper.startswith(current_upper) and len(canonical_upper) > len(current_upper):
         return True
     if current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper):
         return True
@@ -12434,6 +12953,7 @@ def parse_taiyo_common(model):
         return None
 
     size_map = {
+        **TAIYO_MLCC_SIZE_CODE_MAP,
         "1005": "0402", "1608": "0603", "2012": "0805", "3216": "1206",
         "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220"
     }
@@ -12493,18 +13013,11 @@ def parse_taiyo_common(model):
 
 def parse_taiyo_new_common(model):
     model = clean_model(model)
-    prefixes = ("MAAS", "MBAS", "MCAS", "MCAST", "MLAS", "MMAS", "MSAS")
+    prefixes = ("MAAS", "MBAS", "MCAS", "MCAST", "MLAS", "MMAS", "MSAS", "MEASL", "MEAST", "MEASJ")
     if not model.startswith(prefixes):
         return None
 
-    size_map = {
-        "021": "0201",
-        "31": "1206",
-        "32": "1210",
-        "63": "0603",
-        "105": "0402",
-        "168": "0603",
-    }
+    size_map = TAIYO_MLCC_SIZE_CODE_MAP
     material_map = {
         "LAB": "X7R",
         "LBC": "X6S",
@@ -12556,6 +13069,36 @@ def parse_taiyo_new_common(model):
         "容值误差": clean_tol_for_match(tol_map.get(cap_match.group("tol"), "")),
         "耐压（V）": clean_voltage(voltage_map.get(cap_match.group("volt"), "")),
         "_model_rule_authority": "taiyo_new_series",
+    }
+
+
+def parse_taiyo_leaded_ceramic_model(model):
+    model = clean_model(model)
+    match = re.match(r"^(?P<volt>[LETGU])(?P<series>[PT])(?P<size>025|050|075)(?P<body>.+)", model)
+    if not match:
+        return None
+    series = f"{match.group('volt')}{match.group('series')}"
+    body = match.group("body")
+    cap_match = re.search(r"(?P<cap>R\d+|\dR\d+|\d{3,4})(?P<tol>[DJKMZ])", body)
+    cap_pf = murata_cap_code_to_pf(cap_match.group("cap")) if cap_match else None
+    tol = clean_tol_for_match(cap_match.group("tol")) if cap_match else ""
+    size_parts = TAIYO_LEADED_CERAMIC_SIZE_MM_MAP.get(match.group("size"), ("", ""))
+    body_size = format_dimension_mm_text(size_parts[0], size_parts[1])
+    return {
+        "品牌": "太阳诱电Taiyo",
+        "型号": model,
+        "器件类型": "引线型陶瓷电容",
+        "系列": series,
+        "系列说明": "轴向引线陶瓷电容 / Axial leaded ceramic capacitor",
+        "安装方式": "插件",
+        "封装代码": "AXIAL",
+        "尺寸（inch）": "",
+        "尺寸（mm）": body_size,
+        "_body_size": body_size,
+        "容值_pf": cap_pf,
+        "容值误差": tol,
+        "耐压（V）": clean_voltage(TAIYO_LEADED_CERAMIC_VOLTAGE_MAP.get(match.group("volt"), "")),
+        "_model_rule_authority": "taiyo_leaded_ceramic_model",
     }
 
 
@@ -12895,8 +13438,10 @@ def parse_tdk_partial(model):
         return None
 
     size_map = {
+        "0816": "0306",
         "1005": "0402", "1608": "0603", "2012": "0805", "3216": "1206",
-        "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220"
+        "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220",
+        "7563": "3025",
     }
     material_map = {"C0G": "COG(NPO)", "X5R": "X5R", "X7R": "X7R", "X7S": "X7S", "X6S": "X6S"}
     voltage_map = {
@@ -14188,7 +14733,7 @@ def build_search_index_dataframe(prepared):
     search_df["_special_use_norm"] = search_df["_special_use_norm"].astype("string")
     search_df["_unit_upper"] = search_df["_unit_upper"].astype("string")
     search_df = prioritize_component_rows_for_lookup(search_df)
-    search_df = search_df.drop_duplicates(subset=["品牌", "型号"], keep="first").reset_index(drop=True)
+    search_df = search_df.drop_duplicates(subset=["品牌", "型号", "_component_type"], keep="first").reset_index(drop=True)
     return search_df
 
 
@@ -14240,7 +14785,7 @@ def normalize_search_sidecar_value(value):
     return text if text != "" else None
 
 
-def normalize_search_sidecar_frame(df, columns, numeric_columns=(), dedupe_columns=("品牌", "型号")):
+def normalize_search_sidecar_frame(df, columns, numeric_columns=(), dedupe_columns=("品牌", "型号", "_component_type")):
     if df is None or df.empty:
         return pd.DataFrame(columns=list(columns))
     work = df.copy()
@@ -14347,7 +14892,11 @@ def build_search_sidecar_frames(prepared):
             frame = work.loc[:, ["品牌", "型号", "_model_clean", "_component_type"]].copy()
         elif table_name == COMPONENTS_SEARCH_RESISTOR_TABLE:
             mask = work["_component_type"].isin(RESISTOR_COMPONENT_TYPES | {"热敏电阻"})
-            frame = work.loc[mask, spec["columns"]].copy()
+            frame = work.loc[mask, spec["columns"] + (["_power_source"] if "_power_source" in work.columns else [])].copy()
+            if "_power_source" in frame.columns:
+                power_source = frame["_power_source"].astype("string").fillna("").str.strip()
+                frame.loc[~power_source.isin(TRUSTED_RESISTOR_POWER_SOURCES), "_power_watt"] = None
+                frame = frame.drop(columns=["_power_source"])
         elif table_name == COMPONENTS_SEARCH_CAPACITOR_TABLE:
             mask = work["_component_type"].isin(CAPACITOR_COMPONENT_TYPES)
             frame = work.loc[mask, spec["columns"]].copy()
@@ -14365,7 +14914,7 @@ def build_search_sidecar_frames(prepared):
             frame,
             spec["columns"],
             numeric_columns=spec.get("numeric", ()),
-            dedupe_columns=("品牌", "型号"),
+            dedupe_columns=("品牌", "型号", "_component_type"),
         )
     return frames
 
@@ -15551,9 +16100,13 @@ def make_table_widget_key(prefix, *parts):
 
 def build_regression_case_result(df, case_row):
     query = clean_text(case_row.get("query", ""))
-    mode, spec = detect_query_mode_and_spec(df, query)
+    detect_df = pd.DataFrame() if looks_like_compact_part_query(query) else df
+    mode, spec = detect_query_mode_and_spec(detect_df, query)
     mode_code = REGRESSION_MODE_MAP.get(mode, clean_text(mode).lower())
-    matched = cached_run_query_match(df, mode, spec, query_text=query)
+    query_df = load_search_dataframe_for_query(mode, spec, query_text=query) if spec is not None else None
+    if not isinstance(query_df, pd.DataFrame) or query_df.empty:
+        query_df = df
+    matched = cached_run_query_match(query_df, mode, spec, query_text=query)
 
     actual_size = clean_size(spec.get("尺寸（inch）", "")) if spec else ""
     actual_material = clean_material(spec.get("材质（介质）", "")) if spec else ""
@@ -15568,6 +16121,12 @@ def build_regression_case_result(df, case_row):
     actual_tol = clean_tol_for_display(spec.get("容值误差", "")) if spec else ""
     actual_volt = clean_voltage(spec.get("耐压（V）", "")) if spec else ""
     match_count = int(len(matched)) if isinstance(matched, pd.DataFrame) else 0
+    top_brand = ""
+    top_model = ""
+    if isinstance(matched, pd.DataFrame) and not matched.empty:
+        top_row = matched.iloc[0]
+        top_brand = clean_brand(top_row.get("品牌", ""))
+        top_model = clean_text(top_row.get("型号", ""))
 
     checks = []
 
@@ -15614,6 +16173,15 @@ def build_regression_case_result(df, case_row):
             min_match_count = 0
         checks.append(("匹配数量", match_count >= min_match_count, f">={min_match_count}", str(match_count)))
 
+    expected_top_brand = clean_brand(case_row.get("expected_top_brand", ""))
+    if expected_top_brand != "":
+        top_brand_ok = brand_alias_matches(top_brand, [expected_top_brand]) or brand_alias_matches(expected_top_brand, [top_brand])
+        checks.append(("首位品牌", top_brand_ok, expected_top_brand, top_brand))
+
+    expected_top_model_contains = clean_model(case_row.get("expected_top_model_contains", ""))
+    if expected_top_model_contains != "":
+        checks.append(("首位型号", expected_top_model_contains in clean_model(top_model), expected_top_model_contains, top_model))
+
     failed_items = [f"{name} 期望 {expected}，实际 {actual}" for name, ok, expected, actual in checks if not ok]
     status = "通过" if not failed_items else "失败"
 
@@ -15630,6 +16198,8 @@ def build_regression_case_result(df, case_row):
         "实际容差": actual_tol,
         "实际耐压": voltage_display(actual_volt),
         "匹配数量": match_count,
+        "首位品牌": top_brand,
+        "首位型号": top_model,
         "失败原因": "；".join(failed_items),
         "备注": clean_text(case_row.get("notes", "")),
     }
@@ -15692,8 +16262,12 @@ def prepare_search_dataframe(df):
         work["_component_type"] = work.apply(infer_db_component_type, axis=1)
     if "_model_rule_authority" not in work.columns:
         work["_model_rule_authority"] = ""
+    work = apply_taiyo_leaded_ceramic_overrides_in_dataframe(work)
+    work = normalize_leaded_ceramic_rows_in_dataframe(work)
+    work = fill_missing_mlcc_size_fields_in_dataframe(work)
     work = fill_missing_series_from_model(work)
     work = enrich_mlcc_dimension_fields_in_dataframe(work, allow_online_lookup=False)
+    work = normalize_capacitor_dimension_fields_in_dataframe(work)
     if "系列说明" not in work.columns:
         work["系列说明"] = ""
     if "特殊用途" not in work.columns:
@@ -15780,10 +16354,54 @@ def prepare_search_dataframe(df):
         ]
     )
     search_text = build_search_text_series(work, search_text_columns) if needs_search_text else None
+    context_power_idx = pd.Index([])
     if "_power" not in work.columns:
         work["_power"] = search_text.apply(find_power_in_text).apply(clean_text)
+    else:
+        work["_power"] = work["_power"].astype("string").fillna("").apply(clean_text)
+    if search_text is not None:
+        blank_power_mask = work["_power"].astype("string").fillna("").str.strip().eq("")
+        if blank_power_mask.any():
+            context_power = search_text.loc[blank_power_mask].apply(find_power_in_text).apply(clean_text)
+            context_power = context_power[context_power.ne("")]
+            if len(context_power) > 0:
+                work.loc[context_power.index, "_power"] = context_power
+                context_power_idx = context_power.index
     if "_power_watt" not in work.columns:
         work["_power_watt"] = work["_power"].apply(parse_power_to_watts) if "_power" in work.columns else pd.Series([None] * len(work), index=work.index, dtype="object")
+    else:
+        work["_power_watt"] = pd.to_numeric(work["_power_watt"], errors="coerce")
+        refill_power_watt_mask = work["_power"].astype("string").fillna("").str.strip().ne("") & work["_power_watt"].isna()
+        if refill_power_watt_mask.any():
+            work.loc[refill_power_watt_mask, "_power_watt"] = work.loc[refill_power_watt_mask, "_power"].apply(parse_power_to_watts)
+    if "_power_source" not in work.columns:
+        work["_power_source"] = pd.Series([""] * len(work), index=work.index, dtype="object")
+    else:
+        work["_power_source"] = work["_power_source"].astype("string").fillna("").astype("object")
+    if len(context_power_idx) > 0:
+        work.loc[context_power_idx, "_power_source"] = "context"
+    explicit_power_mask = work["_power"].astype("string").fillna("").str.strip().ne("")
+    if explicit_power_mask.any():
+        blank_power_source_mask = work["_power_source"].astype("string").fillna("").str.strip().eq("")
+        work.loc[explicit_power_mask & blank_power_source_mask, "_power_source"] = "text"
+    resistor_like_mask = work["_component_type"].isin(RESISTOR_COMPONENT_TYPES | {"热敏电阻"})
+    if resistor_like_mask.any():
+        blank_power_mask = work.loc[resistor_like_mask, "_power"].astype("string").fillna("").str.strip().eq("")
+        if blank_power_mask.any():
+            blank_idx = blank_power_mask[blank_power_mask].index
+            inferred_power_pairs = work.loc[blank_idx].apply(infer_series_specific_resistor_power_text_and_source, axis=1)
+            inferred_power_df = pd.DataFrame(
+                inferred_power_pairs.tolist(),
+                index=inferred_power_pairs.index,
+                columns=["_power_inferred", "_power_source_inferred"],
+            )
+            inferred_power_df["_power_inferred"] = inferred_power_df["_power_inferred"].astype(str).apply(clean_text)
+            inferred_power_df["_power_source_inferred"] = inferred_power_df["_power_source_inferred"].astype(str).apply(clean_text)
+            inferred_power_df = inferred_power_df[inferred_power_df["_power_inferred"].ne("")]
+            if not inferred_power_df.empty:
+                work.loc[inferred_power_df.index, "_power"] = inferred_power_df["_power_inferred"]
+                work.loc[inferred_power_df.index, "_power_watt"] = inferred_power_df["_power_inferred"].apply(parse_power_to_watts)
+                work.loc[inferred_power_df.index, "_power_source"] = inferred_power_df["_power_source_inferred"]
     if "_body_size" not in work.columns:
         work["_body_size"] = search_text.apply(extract_body_size_from_text)
     if "_pitch" not in work.columns:
@@ -15834,7 +16452,27 @@ def prepare_search_dataframe(df):
             work.loc[blank_special, "_special_use_norm"] = search_text.loc[blank_special].apply(extract_special_use_from_text)
     else:
         work["_special_use_norm"] = work["_special_use_norm"].astype(str).apply(normalize_special_use)
-    resistor_like_mask = work["_component_type"].isin(RESISTOR_COMPONENT_TYPES | {"热敏电阻"})
+    if resistor_like_mask.any():
+        blank_power_mask = work.loc[resistor_like_mask, "_power"].astype("string").fillna("").str.strip().eq("")
+        if blank_power_mask.any():
+            blank_idx = blank_power_mask[blank_power_mask].index
+            inferred_size = work.loc[blank_idx, "_size"].astype("string").fillna("").apply(clean_size)
+            if "尺寸（inch）" in work.columns:
+                raw_size = work.loc[blank_idx, "尺寸（inch）"].astype("string").fillna("").apply(clean_size)
+                inferred_size = inferred_size.where(inferred_size.ne(""), raw_size)
+            need_model_size = inferred_size.eq("")
+            if need_model_size.any():
+                model_size = work.loc[need_model_size[need_model_size].index, "型号"].astype("string").fillna("").apply(infer_resistor_size_from_model)
+                inferred_size.loc[model_size.index] = model_size
+            inferred_power = inferred_size.map(RESISTOR_POWER_BY_SIZE).fillna("").astype(str).str.strip()
+            inferred_power_idx = inferred_power[inferred_power.ne("")].index
+            if len(inferred_power_idx) > 0:
+                work.loc[inferred_power_idx, "_power"] = inferred_power.loc[inferred_power_idx]
+                work.loc[inferred_power_idx, "_power_watt"] = inferred_power.loc[inferred_power_idx].apply(parse_power_to_watts)
+                existing_source = work.loc[inferred_power_idx, "_power_source"].astype("string").fillna("").str.strip()
+                fill_source_idx = existing_source[existing_source.eq("")].index
+                if len(fill_source_idx) > 0:
+                    work.loc[fill_source_idx, "_power_source"] = "size"
     if resistor_like_mask.any():
         res_ohm_blank_mask = work.loc[resistor_like_mask, "_res_ohm"].astype("string").fillna("").str.strip().eq("")
         if res_ohm_blank_mask.any():
@@ -15947,21 +16585,144 @@ RESISTOR_POWER_BY_SIZE = {
     "3225": "2W",
 }
 
-def infer_resistor_power_text_from_record(record):
+RESISTOR_POWER_BY_BRAND_SERIES_SIZE = {
+    ("TE CONNECTIVITY(泰科电子)", "3430"): {
+        "0508": "1W",
+        "0612": "1.5W",
+        "1020": "2W",
+        "1225": "3W",
+    },
+    ("威世VISHAY", "M55342"): {
+        "0502": "50mW",
+    },
+    ("威世VISHAY", "MMU0102"): {
+        "0102": "300mW",
+    },
+    ("国巨YAGEO", "RC"): {
+        "1218": "1W",
+    },
+    ("国巨YAGEO", "PE0508FRE"): {
+        "0508": "1W",
+    },
+    ("国巨YAGEO", "PE0815FKF"): {
+        "0815": "1W",
+    },
+    ("国巨YAGEO", "PS0612DKG"): {
+        "0612": "1W",
+    },
+    ("国巨YAGEO", "PS0612FKL"): {
+        "0612": "1W",
+    },
+    ("国巨YAGEO", "PS0612FKF"): {
+        "0612": "1W",
+    },
+    ("国巨YAGEO", "PS0612FKM"): {
+        "0612": "1W",
+    },
+}
+
+RESISTOR_POWER_BY_BRAND_SERIES = {
+    ("TE CONNECTIVITY(泰科电子)", "1622"): "1/4W",
+}
+
+RESISTOR_POWER_BY_BRAND_MODEL_PREFIX = {
+    "威世VISHAY": [
+        ("CW001", "1W"),
+        ("RWM0410", "3W"),
+        ("RWM0422", "5W"),
+        ("RWM0526", "7W"),
+        ("RWM0622", "7W"),
+        ("MQ", "1/8W"),
+        ("Y1455", "200mW"),
+        ("Y1628", "750mW"),
+        ("Y4073", "300mW"),
+        ("Y4076", "750mW"),
+    ],
+}
+
+RESISTOR_POWER_BY_BRAND_MODEL_PATTERN = {
+    "国巨YAGEO": [
+        (re.compile(r"^PE0612FK[FM]7W0", flags=re.I), "2W"),
+        (re.compile(r"^PE0612FK[FM]070", flags=re.I), "1W"),
+    ],
+}
+
+TRUSTED_RESISTOR_POWER_SOURCES = {"text", "numeric", "context"}
+
+
+def infer_series_specific_resistor_power_text_and_source(record):
     if record is None:
-        return ""
+        return "", ""
+
+    brand_key = clean_brand(record.get("品牌", "")).upper()
+    series_key = clean_text(record.get("系列", "")).upper()
+    model_text = clean_model(record.get("型号", ""))
+    size_code = (
+        clean_size(record.get("尺寸（inch）", ""))
+        or clean_size(record.get("_size", ""))
+        or infer_resistor_size_from_model(model_text)
+    )
+
+    if brand_key == "KAMAYA(釜屋電機)" and (series_key == "RGC" or model_text.startswith("RGC")):
+        if re.match(r"^RGC1/20[CK]", model_text):
+            return "50mW", "model"
+        if re.match(r"^RGC1/16SC", model_text):
+            return "63mW", "model"
+
+    power_text = RESISTOR_POWER_BY_BRAND_SERIES.get((brand_key, series_key), "")
+    if power_text != "":
+        return clean_text(power_text), "series"
+
+    for prefix, mapped_power in RESISTOR_POWER_BY_BRAND_MODEL_PREFIX.get(brand_key, []):
+        if model_text.startswith(prefix):
+            return clean_text(mapped_power), "model"
+
+    for pattern, mapped_power in RESISTOR_POWER_BY_BRAND_MODEL_PATTERN.get(brand_key, []):
+        if pattern.match(model_text):
+            return clean_text(mapped_power), "model"
+
+    power_text = RESISTOR_POWER_BY_BRAND_SERIES_SIZE.get((brand_key, series_key), {}).get(size_code, "")
+    if power_text != "":
+        return clean_text(power_text), "series"
+
+    return "", ""
+
+
+def infer_resistor_power_text_and_source_from_record(record):
+    if record is None:
+        return "", ""
 
     power_text = clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
-    if power_text == "":
-        power_watt = record.get("_power_watt", "")
-        if power_watt is not None and not pd.isna(power_watt):
-            power_text = f"{format_sidecar_numeric_display(power_watt)}W"
-    if power_text == "":
-        context_text = build_component_context_text(record)
-        power_text = find_power_in_text(context_text)
-    if power_text == "":
-        size_code = clean_size(record.get("尺寸（inch）", "")) or infer_resistor_size_from_model(record.get("型号", ""))
-        power_text = RESISTOR_POWER_BY_SIZE.get(size_code, "")
+    if power_text != "":
+        return power_text, "text"
+
+    power_watt = pd.to_numeric(pd.Series([record.get("_power_watt", None)]), errors="coerce").iloc[0]
+    if power_watt is not None and not pd.isna(power_watt):
+        return f"{format_sidecar_numeric_display(power_watt)}W", "numeric"
+
+    context_text = build_component_context_text(record)
+    power_text = find_power_in_text(context_text)
+    if power_text != "":
+        return clean_text(power_text), "context"
+
+    power_text, power_source = infer_series_specific_resistor_power_text_and_source(record)
+    if power_text != "":
+        return clean_text(power_text), power_source
+
+    size_code = (
+        clean_size(record.get("尺寸（inch）", ""))
+        or clean_size(record.get("_size", ""))
+        or infer_resistor_size_from_model(record.get("型号", ""))
+    )
+    power_text = RESISTOR_POWER_BY_SIZE.get(size_code, "")
+    if power_text != "":
+        return clean_text(power_text), "size"
+
+    return "", ""
+
+
+def infer_resistor_power_text_from_record(record):
+    power_text, _ = infer_resistor_power_text_and_source_from_record(record)
     return clean_text(power_text)
 
 
@@ -16151,6 +16912,12 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         return combined
     combined = filter_base_by_candidate_pairs(combined, pairs)
     if combined.empty:
+        sidecar_combined = load_search_sidecar_rows_by_brand_model_pairs(
+            pairs,
+            preferred_component_type=preferred_component_type,
+        )
+        if isinstance(sidecar_combined, pd.DataFrame) and not sidecar_combined.empty:
+            return sidecar_combined
         return combined
     return prepare_search_dataframe(combined)
 
@@ -16269,17 +17036,15 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
             if table_df.empty or not {"品牌", "型号"}.issubset(table_df.columns):
                 side_maps[table_name] = {}
                 continue
-            side_maps[table_name] = {
-                (clean_text(row.get("品牌", "")), clean_text(row.get("型号", ""))): row
-                for row in table_df.to_dict("records")
-                if (
-                    clean_text(row.get("型号", "")) != ""
-                    and (
-                        clean_text(row.get("品牌", "")),
-                        clean_text(row.get("型号", "")),
-                    ) in pair_set
-                )
-            }
+            table_map = {}
+            for row in table_df.to_dict("records"):
+                brand_key = clean_text(row.get("品牌", ""))
+                model_key = clean_text(row.get("型号", ""))
+                type_key = normalize_component_type(row.get("_component_type", ""))
+                if model_key == "" or (brand_key, model_key) not in pair_set:
+                    continue
+                table_map[(brand_key, model_key, type_key)] = row
+            side_maps[table_name] = table_map
     except Exception:
         return pd.DataFrame()
     finally:
@@ -16292,13 +17057,18 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
             clean_text(core_row.get("品牌", "")),
             clean_text(core_row.get("型号", "")),
         )
+        detail_key = (
+            pair_key[0],
+            pair_key[1],
+            normalize_component_type(core_row.get("_component_type", "")),
+        )
         detail_row = {}
         row_preferred_table = search_index_table_for_component_type(clean_text(core_row.get("_component_type", "")))
         if row_preferred_table in side_maps:
-            detail_row = side_maps[row_preferred_table].get(pair_key, {})
+            detail_row = side_maps[row_preferred_table].get(detail_key, {})
         if not detail_row:
             for table_name in table_scan_order:
-                detail_row = side_maps.get(table_name, {}).get(pair_key, {})
+                detail_row = side_maps.get(table_name, {}).get(detail_key, {})
                 if detail_row:
                     break
         record = build_lightweight_component_row_from_search_sidecar(core_row, detail_row)
@@ -17264,7 +18034,11 @@ def match_other_passive_spec(df, spec):
             if same_tol.any():
                 work = work[same_tol]
         if spec_power_watt is not None and "_power_watt" in work.columns:
-            same_power = work["_power_watt"].notna() & ((pd.to_numeric(work["_power_watt"], errors="coerce") - spec_power_watt).abs() < 1e-9)
+            trusted_power_mask = pd.Series([True] * len(work), index=work.index)
+            if "_power_source" in work.columns:
+                power_source = work["_power_source"].astype("string").fillna("").str.strip()
+                trusted_power_mask = power_source.isin(TRUSTED_RESISTOR_POWER_SOURCES)
+            same_power = trusted_power_mask & work["_power_watt"].notna() & ((pd.to_numeric(work["_power_watt"], errors="coerce") - spec_power_watt).abs() < 1e-9)
             if same_power.any():
                 work = work[same_power]
         if work.empty:
@@ -19233,20 +20007,23 @@ def apply_match_levels_and_sort(df, spec):
     else:
         work["_seed_rank"] = 1
     work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
-    sort_cols = ["_seed_rank", "_level_rank"]
-    ascending = [True, True]
-    if "_mlcc_class_rank" in work.columns:
-        sort_cols.append("_mlcc_class_rank")
-        ascending.append(True)
     if target_type in CAPACITOR_COMPONENT_TYPES:
-        sort_cols.append("_brand_rank")
-        ascending.append(True)
+        sort_cols = ["_seed_rank", "_level_rank", "_brand_rank"]
+        ascending = [True, True, True]
+        if "_mlcc_class_rank" in work.columns:
+            sort_cols.append("_mlcc_class_rank")
+            ascending.append(True)
         if "_matched_param_count" in work.columns:
             sort_cols.append("_matched_param_count")
             ascending.append(False)
         sort_cols.extend(["品牌", "型号"])
         ascending.extend([True, True])
     else:
+        sort_cols = ["_seed_rank", "_level_rank"]
+        ascending = [True, True]
+        if "_mlcc_class_rank" in work.columns:
+            sort_cols.append("_mlcc_class_rank")
+            ascending.append(True)
         if "_matched_param_count" in work.columns:
             sort_cols.append("_matched_param_count")
             ascending.append(False)

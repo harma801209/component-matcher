@@ -1,29 +1,29 @@
 {
-  "build_epoch_ns": 1776891687618098800,
+  "build_epoch_ns": 1777432126119670500,
   "members": [
     {
       "path": "cache/components_search.sqlite",
-      "size": 420564992,
-      "mtime_ns": 1776890322723828000,
-      "sha256": "2b5284ad3194554c2c3d3da5d3178902df2534744488007626ec91ee0c9c6210"
+      "size": 433446912,
+      "mtime_ns": 1777429991882640800,
+      "sha256": "5ecb65e0874184398d75a713bf9681312e3d4b3e35c4c9f83ea3e19e3fd0cc1f"
     },
     {
       "path": "cache/components_prepared_v5.parquet",
-      "size": 108164216,
-      "mtime_ns": 1776888100993991400,
-      "sha256": "e5b1b8e57e1c95e135b7f94903edcd176272afe0e65aa1687dfbc927f4cd064b"
+      "size": 104128482,
+      "mtime_ns": 1777426521400420100,
+      "sha256": "4de745e77c70ee8646fbc63a4fcbda562e1d0aa6d7cf8d39be0acb029a2135d3"
     },
     {
       "path": "cache/components_prepared_v5_meta.json",
       "size": 147,
-      "mtime_ns": 1776888100997988900,
-      "sha256": "76e7af011d0db9da9897f125a79da5c4b36915869ee7fa43b4682bcb7d921bc5"
+      "mtime_ns": 1777002472758734700,
+      "sha256": "8fbc36905cf9e4b57a1ee09aca6419bba74c99dc19447cd974c6401353326652"
     },
     {
       "path": "cache/mlcc_lcsc_dimension_cache.json",
-      "size": 20303,
-      "mtime_ns": 1775937633873606700,
-      "sha256": "3fdf5de58da594cbfa781bf6c8fe95ed56350ff3cda3015fd4dc77aaf8a75039"
+      "size": 20343,
+      "mtime_ns": 1776914073822058800,
+      "sha256": "b807cfdd0992db37351918389c43e90abf1b828d4512306e43863666e3164e0f"
     },
     {
       "path": "cache/pdc_findchips_cache.json",

@@ -158,11 +158,61 @@ def _resolve_generic_series_code_from_model(compact: str, family: str) -> str:
     return _match_known_series_prefix(compact, _definitions_for_brand_family(family))
 
 
+def _resolve_walsin_series_code_from_model(compact: str) -> str:
+    pattern_candidates = [
+        r"^(?P<series>WW\d{2}[A-Z]{2})(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>FVF\d{2}F)(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
+    ]
+    for pattern in pattern_candidates:
+        match = re.match(pattern, compact)
+        if match is not None:
+            return clean_text(match.group("series"))
+    match = re.match(r"^(?P<series>[A-Z]{2,4})(?=\d)", compact)
+    if match is None:
+        return ""
+    return clean_text(match.group("series"))
+
+
+def resolve_walsin_resistor_series_code_from_model(model: object) -> str:
+    return _resolve_walsin_series_code_from_model(normalize_model_text(model))
+
+
+def _resolve_yageo_series_code_from_model(compact: str) -> str:
+    match = re.match(r"^AR(?P<size>\d{4})(?=[A-Z0-9])", compact)
+    if match is None:
+        return ""
+    return f"AR{match.group('size')}"
+
+
+def _resolve_hyphen_prefix_series_code_from_model(compact: str) -> str:
+    if "-" not in compact:
+        return ""
+    prefix = compact.split("-", 1)[0]
+    return clean_text(prefix)
+
+
+def _resolve_xicon_series_code_from_model(compact: str) -> str:
+    if "-" not in compact:
+        return ""
+    parts = [part for part in compact.split("-") if part]
+    if len(parts) < 2:
+        return ""
+    if parts[0] == "R":
+        if len(parts) >= 3 and re.fullmatch(r"CR\d+[A-Z]*", parts[2], flags=re.I):
+            return clean_text(f"R-{parts[1]}-{parts[2]}")
+        return clean_text(f"R-{parts[1]}")
+    series_parts = [clean_text(parts[0])]
+    if len(parts) >= 2 and re.fullmatch(r"CR\d+[A-Z]*", parts[1], flags=re.I):
+        series_parts.append(clean_text(parts[1]))
+    return clean_text("-".join(part for part in series_parts if part != ""))
+
+
 BRAND_MODEL_PREFIX_RESOLVERS: dict[str, Callable[[str], str]] = {
     "UNIROYAL": _resolve_uniroyal_series_code_from_model,
     "TAI": lambda compact: _resolve_generic_series_code_from_model(compact, "TAI"),
     "VIKING": lambda compact: _resolve_generic_series_code_from_model(compact, "VIKING"),
-    "YAGEO": lambda compact: _resolve_generic_series_code_from_model(compact, "YAGEO"),
+    "YAGEO": _resolve_yageo_series_code_from_model,
 }
 
 
@@ -248,6 +298,26 @@ def infer_resistor_series_code(model: object, brand: object = "") -> str:
 
     brand_text = clean_brand(brand)
     brand_upper = brand_text.upper()
+
+    if any(token in brand_upper or token in brand_text for token in ("WALSIN", "华新科", "华科")):
+        resolved = _resolve_walsin_series_code_from_model(compact)
+        if resolved != "":
+            return resolved
+
+    if any(token in brand_upper or token in brand_text for token in ("YAGEO", "国巨")):
+        resolved = _resolve_yageo_series_code_from_model(compact)
+        if resolved != "":
+            return resolved
+
+    if any(token in brand_upper or token in brand_text for token in ("华星机电", "RIEDON", "NTE ELECTRONICS")):
+        resolved = _resolve_hyphen_prefix_series_code_from_model(compact)
+        if resolved != "":
+            return resolved
+
+    if any(token in brand_upper or token in brand_text for token in ("XICON",)):
+        resolved = _resolve_xicon_series_code_from_model(compact)
+        if resolved != "":
+            return resolved
 
     patterns: list[str] = [
         r"^(?P<series>(?:MELF-)?MFR\d{4})(?=\d|/|-|$)",
