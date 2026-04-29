@@ -35,7 +35,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
-from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, resolve_walsin_resistor_series_code_from_model
+from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile
 
 
 def quiet_nonessential_console_noise():
@@ -1441,6 +1441,25 @@ WALSIN_RESISTOR_SIZE_MAP = {
     "20": "2010",
     "25": "2512",
 }
+
+
+def resolve_walsin_resistor_series_code_from_model(model):
+    compact = clean_model(model)
+    pattern_candidates = [
+        r"^(?P<series>WW\d{2}[A-Z]{2})(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>FVF\d{2}F)(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
+    ]
+    for pattern in pattern_candidates:
+        match = re.match(pattern, compact)
+        if match is not None:
+            return clean_text(match.group("series"))
+    match = re.match(r"^(?P<series>[A-Z]{2,4})(?=\d)", compact)
+    if match is None:
+        return ""
+    return clean_text(match.group("series"))
+
+
 EVER_OHMS_RESISTOR_SIZE_MAP = {
     "02": "0201",
     "04": "0402",
