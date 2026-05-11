@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-11T19:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-11T19:50:00+08:00"
 
 
 def startup_trace(message):
@@ -24140,8 +24140,6 @@ if search_clicked:
                     show_df = annotate_match_display_gaps(show_df, spec)
                     if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                         show_df = show_df.drop(columns=["特殊用途"])
-                    recommendation_fragment = build_procurement_recommendation_summary_html(matched, spec)
-
                     result_fragment = render_clickable_result_table(
                         show_df,
                         spec=spec,
@@ -24153,7 +24151,6 @@ if search_clicked:
                         f'{part_info_fragment}'
                         '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
                         '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
-                        f'{recommendation_fragment}'
                         f'{result_fragment}'
                         '<div class="match-card-footer"></div>'
                     )
@@ -24243,7 +24240,6 @@ if search_clicked:
                 show_df = annotate_match_display_gaps(show_df, spec)
                 if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                     show_df = show_df.drop(columns=["特殊用途"])
-                st.markdown(build_procurement_recommendation_summary_html(matched, spec), unsafe_allow_html=True)
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,
