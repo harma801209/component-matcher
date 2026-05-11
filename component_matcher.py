@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 15
+QUERY_RESULT_CACHE_VERSION = 19
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-04-23T14:42:30+08:00"
+PUBLIC_CODE_STAMP = "2026-05-11T19:30:00+08:00"
 
 
 def startup_trace(message):
@@ -662,6 +662,7 @@ COMPONENTS_SEARCH_TABLE = COMPONENTS_SEARCH_CORE_TABLE
 MODEL_REVERSE_LOOKUP_COLUMNS = [
     "_model_clean", "品牌", "型号", "系列", "器件类型", "尺寸（inch）", "尺寸（mm）", "材质（介质）", "容值",
     "容值单位", "容值误差", "耐压（V）", "长度（mm）", "宽度（mm）", "高度（mm）", "工作温度", "寿命（h）", "规格摘要", "特殊用途", "备注1", "备注2", "备注3", "安装方式", "封装代码",
+    "额定电流", "DCR", "极性", "生产状态", "官网链接", "数据来源", "数据状态",
     "_model_rule_authority",
 ]
 MODEL_REVERSE_LOOKUP_CACHE = {}
@@ -1365,7 +1366,7 @@ INDUCTANCE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(NH|UH|MH)\b", flags=re.I)
 CURRENT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(MA|A)\b", flags=re.I)
 FREQUENCY_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(HZ|KHZ|MHZ)\b", flags=re.I)
 VARISTOR_CODE_PATTERN = re.compile(r"(?<!\d)(\d{3})K(?![A-Z0-9])", flags=re.I)
-DISC_SIZE_CODE_PATTERN = re.compile(r"(?<!\d)(\d{2})D(?!\d)", flags=re.I)
+DISC_SIZE_CODE_PATTERN = re.compile(r"(?<!\d)(\d{2})D(?=(?:\d{3}K)|[^0-9]|$)", flags=re.I)
 SMD_SIZE_CODE_PATTERN = re.compile(
     r"(?<![A-Z0-9])("
     + "|".join(sorted(EMBEDDED_SIZE_TOKENS, key=len, reverse=True))
@@ -1488,6 +1489,8 @@ CAPACITOR_COMPONENT_TYPES = {"MLCC", "薄膜电容", "钽电容", "铝电解电�
 INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感", "共模电感", "磁珠"}
 POWER_INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感"}
 TIMING_COMPONENT_TYPES = {"晶振", "振荡器"}
+SEMICONDUCTOR_COMPONENT_TYPES = {"MOSFET", "二极管", "三极管", "TVS二极管"}
+UNSUPPORTED_SEMICONDUCTOR_TYPES = SEMICONDUCTOR_COMPONENT_TYPES
 ALL_RESISTOR_TYPES = RESISTOR_COMPONENT_TYPES | SPECIAL_RESISTOR_COMPONENT_TYPES
 ALL_PASSIVE_COMPONENT_TYPES = CAPACITOR_COMPONENT_TYPES | ALL_RESISTOR_TYPES | INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES
 RESISTOR_SOURCE_EVIDENCE_TOKENS = ("来源:resistor", "source:resistor")
@@ -1515,6 +1518,10 @@ COMPONENT_CATEGORY_DISPLAY_LABELS = {
     "磁珠": "磁珠（Ferrite Bead）",
     "晶振": "石英晶体（Crystal Unit）",
     "振荡器": "晶体振荡器（Oscillator）",
+    "MOSFET": "MOSFET",
+    "二极管": "二极管",
+    "三极管": "三极管",
+    "TVS二极管": "TVS二极管",
 }
 
 
@@ -2510,6 +2517,131 @@ def decode_fenghua_am_dimension_fields_from_model(model):
     return build_dimension_field_map(length_width_height[0], length_width_height[1], length_width_height[2])
 
 
+VERIFIED_MLCC_DIMENSION_RULES = [
+    {
+        "brand_tokens": {"WALSIN"},
+        "size": "0603",
+        "material": "X7R",
+        "cap_pf": 100000.0,
+        "voltage": "50",
+        "fields": build_dimension_field_map("1.60+0.15/-0.10", "0.80+0.15/-0.10", "0.80+0.15/-0.10"),
+        "source": "Walsin规格书",
+    },
+    {
+        "brand_tokens": {"PDC", "PSA", "PROSPERITY"},
+        "size": "0603",
+        "material": "X7R",
+        "cap_pf": 100000.0,
+        "voltage": "50",
+        "fields": build_dimension_field_map("1.60±0.15", "0.80±0.15", "0.80+0.15/-0.10"),
+        "source": "PDC/PSA规格书",
+    },
+    {
+        "brand_tokens": {"HRE"},
+        "size": "0603",
+        "material": "X7R",
+        "cap_pf": 100000.0,
+        "voltage": "50",
+        "fields": build_dimension_field_map("1.60±0.20", "0.80±0.20", "0.80±0.20"),
+        "source": "HRE规格书",
+    },
+]
+
+
+def decode_walsin_numeric_mlcc_voltage_code(code):
+    text = clean_text(code).upper().replace(" ", "")
+    if text == "":
+        return ""
+    if text == "6R3":
+        return "6.3"
+    if len(text) == 3 and text.isdigit():
+        try:
+            base = int(text[:2])
+            exponent = int(text[2])
+            return clean_voltage(str(base * (10 ** exponent)))
+        except Exception:
+            return ""
+    return clean_voltage(text)
+
+
+def decode_walsin_mlcc_dimension_fields_from_model(model):
+    model_key = clean_model(model)
+    match = re.fullmatch(
+        r"(?P<size>\d{4})(?P<mat>[A-Z])(?P<cap>(?:\d{3,4}|R\d+))"
+        r"(?P<tol>[A-Z])(?P<volt>(?:6R3|\d{3}))(?P<rest>[A-Z0-9]*)",
+        model_key,
+    )
+    if match is None:
+        return {}
+    size = clean_size(match.group("size"))
+    material = clean_material(WALSIN_NUMERIC_MLCC_DIELECTRIC.get(match.group("mat"), ""))
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    voltage = clean_voltage(decode_walsin_numeric_mlcc_voltage_code(match.group("volt")))
+    return lookup_verified_mlcc_dimension_fields_by_spec(
+        brand="WALSIN",
+        size=size,
+        material=material,
+        cap_pf=cap_pf,
+        voltage=voltage,
+    )[0]
+
+
+def lookup_verified_mlcc_dimension_fields_by_spec(brand="", size="", material="", cap_pf=None, voltage=""):
+    brand_upper = clean_text(brand).upper()
+    size_key = clean_size(size)
+    material_key = clean_material(material)
+    voltage_key = clean_voltage(voltage)
+    try:
+        cap_value = float(cap_pf)
+    except Exception:
+        cap_value = None
+    if brand_upper == "" or size_key == "" or material_key == "" or cap_value is None or voltage_key == "":
+        return {}, ""
+    for rule in VERIFIED_MLCC_DIMENSION_RULES:
+        if size_key != clean_size(rule.get("size", "")):
+            continue
+        if material_key != clean_material(rule.get("material", "")):
+            continue
+        if voltage_key != clean_voltage(rule.get("voltage", "")):
+            continue
+        try:
+            rule_cap = float(rule.get("cap_pf"))
+        except Exception:
+            continue
+        if abs(cap_value - rule_cap) > 1e-6:
+            continue
+        brand_tokens = {clean_text(token).upper() for token in rule.get("brand_tokens", set())}
+        if not any(token != "" and token in brand_upper for token in brand_tokens):
+            continue
+        fields = rule.get("fields", {})
+        source = clean_text(rule.get("source", ""))
+        return fields.copy() if isinstance(fields, dict) else {}, source
+    return {}, ""
+
+
+def lookup_verified_mlcc_dimension_fields_from_record(record, parsed=None):
+    if not isinstance(record, dict):
+        return {}, ""
+    parsed = parsed if isinstance(parsed, dict) else {}
+    brand = clean_brand(record.get("品牌", "")) or clean_brand(parsed.get("品牌", ""))
+    size = clean_size(record.get("尺寸（inch）", "")) or clean_size(parsed.get("尺寸（inch）", ""))
+    material = clean_material(record.get("材质（介质）", "")) or clean_material(parsed.get("材质（介质）", ""))
+    voltage = clean_voltage(record.get("耐压（V）", "")) or clean_voltage(parsed.get("耐压（V）", ""))
+    cap_pf = record.get("容值_pf", "")
+    try:
+        if clean_text(cap_pf) == "":
+            cap_pf = parsed.get("容值_pf", "")
+    except Exception:
+        cap_pf = parsed.get("容值_pf", "")
+    return lookup_verified_mlcc_dimension_fields_by_spec(
+        brand=brand,
+        size=size,
+        material=material,
+        cap_pf=cap_pf,
+        voltage=voltage,
+    )
+
+
 def lookup_mlcc_lcsc_dimension_fields(model, brand="", lcsc_url="", size_hint="", allow_online_lookup=True):
     product_code = extract_lcsc_product_code(lcsc_url)
     if product_code == "":
@@ -2844,6 +2976,22 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
             source_labels,
             "TDK命名规则",
         )
+
+    if "WALSIN" in brand_upper:
+        fields = merge_mlcc_dimension_fields_with_source(
+            fields,
+            decode_walsin_mlcc_dimension_fields_from_model(model),
+            source_labels,
+            "Walsin规格书",
+        )
+
+    verified_fields, verified_source = lookup_verified_mlcc_dimension_fields_from_record(record, parsed=parsed)
+    fields = merge_mlcc_dimension_fields_with_source(
+        fields,
+        verified_fields,
+        source_labels,
+        verified_source,
+    )
 
     needs_official_lookup = any(clean_text(fields.get(col, "")) == "" for col in MLCC_DIMENSION_COLUMNS)
     if not needs_official_lookup:
@@ -3427,6 +3575,76 @@ def parse_murata_mhr_resistor_model(model, brand="", component_type=""):
     }
 
 
+def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    series_code = resolve_walsin_resistor_series_code_from_model(compact)
+    if series_code == "":
+        return None
+    if not re.match(r"^(?:WW|WR|WF|MR|SR|WK|WM|FVF)\d", series_code):
+        return None
+
+    tail = compact[len(series_code):].lstrip("-_")
+    if tail == "":
+        return None
+    size = infer_resistor_size_from_model(compact)
+    value_code = ""
+    tolerance_code = ""
+    resistance_ohm = None
+
+    value_token_pattern = re.compile(r"(R\d+(?:\d+)?|\d+[RKM]\d*|\d{4}|\d{3}|\d{2}[A-Z])(?P<tol>[BCDFGJKM])")
+    for match in value_token_pattern.finditer(tail):
+        candidate_code = clean_text(match.group(1)).upper()
+        candidate_ohm = parse_resistor_value_code(candidate_code)
+        if candidate_ohm is None:
+            continue
+        resistance_ohm = candidate_ohm
+        value_code = candidate_code
+        tolerance_code = clean_text(match.group("tol")).upper()
+        break
+
+    if resistance_ohm is None:
+        for idx, char in enumerate(tail):
+            if char not in RESISTOR_TOLERANCE_CODE_MAP:
+                continue
+            candidate_code = clean_text(tail[:idx]).upper()
+            candidate_ohm = parse_resistor_value_code(candidate_code)
+            if candidate_ohm is None:
+                continue
+            resistance_ohm = candidate_ohm
+            value_code = candidate_code
+            tolerance_code = char
+            break
+
+    if resistance_ohm is None:
+        return None
+
+    series_profile = infer_resistor_series_profile(
+        compact,
+        brand=brand,
+        component_type=normalize_component_type(component_type) or "厚膜电阻",
+    )
+    resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type) or "厚膜电阻"
+    resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(tolerance_code, ""))
+    power_text = RESISTOR_POWER_BY_SIZE.get(size, "")
+
+    return {
+        "品牌": clean_brand(brand),
+        "型号": compact,
+        "器件类型": resolved_component_type,
+        "系列": clean_text(series_profile.get("系列", "")) or series_code,
+        "系列说明": clean_text(series_profile.get("系列说明", "")),
+        "特殊用途": resolved_special_use,
+        "尺寸（inch）": size,
+        "容值误差": tol,
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": "walsin_chip_resistor_model",
+        "_value_code": value_code,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0]),
+    }
+
+
 def parse_generic_resistor_model(model, brand="", component_type=""):
     if not resistor_model_rule_candidate(model, brand=brand, component_type=component_type):
         return None
@@ -3458,7 +3676,13 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 
 
 def parse_resistor_model_rule(model, brand="", component_type=""):
-    for parser in (parse_murata_mhr_resistor_model, parse_yageo_chip_resistor_model, parse_tai_resistor_model, parse_generic_resistor_model):
+    for parser in (
+        parse_murata_mhr_resistor_model,
+        parse_yageo_chip_resistor_model,
+        parse_tai_resistor_model,
+        parse_walsin_chip_resistor_model,
+        parse_generic_resistor_model,
+    ):
         parsed = parser(model, brand=brand, component_type=component_type)
         if parsed is not None:
             return parsed
@@ -8012,6 +8236,8 @@ def other_passive_min_required_params(spec):
     if spec is None:
         return 2
     component_type = normalize_component_type(spec.get("器件类型", ""))
+    if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        return 2
     if component_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
         return 1 if spec.get("_resistance_ohm") is not None else 2
     if component_type in VARISTOR_COMPONENT_TYPES:
@@ -8450,6 +8676,20 @@ def find_dcr_in_text(text):
     return _find_labeled_resistive_measurement(text, ["DCR", "DC RESISTANCE"])
 
 
+def find_unlabeled_dcr_in_inductor_text(text):
+    raw = clean_text(text).replace("OHMS", "OHM").replace("ohms", "ohm")
+    if raw == "":
+        return ""
+    upper = raw.upper()
+    for match in re.finditer(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(mΩ|MΩ|KΩ|MOHM|KOHM|OHM|Ω)(?![A-Z0-9])", raw, flags=re.I):
+        prefix = upper[max(0, match.start() - 24):match.start()]
+        if re.search(r"(ESR|IMPEDANCE|阻抗|Z)\s*$", prefix, flags=re.I):
+            continue
+        unit = normalize_library_value_unit(match.group(2))
+        return combine_value_and_unit(match.group(1), unit, separator="")
+    return ""
+
+
 def find_esr_in_text(text):
     return _find_labeled_resistive_measurement(text, ["ESR"])
 
@@ -8755,6 +8995,283 @@ def matches_component_alias(text, component_type):
         return True
     return any(alias_token_matches(upper, compact, token) for token in upper_tokens)
 
+
+def detect_unsupported_semiconductor_type(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    upper = raw.upper()
+    compact = normalize_component_keyword_compact(raw)
+    model = clean_model(raw)
+
+    mos_keyword_patterns = [
+        r"\bMOSFET\b",
+        r"\bN[-\s]?MOS\b",
+        r"\bP[-\s]?MOS\b",
+        r"\bNMOS\b",
+        r"\bPMOS\b",
+        r"场效应",
+        r"MOS管",
+        r"RDS\s*\(?ON\)?",
+        r"RDS\(ON\)",
+    ]
+    if any(re.search(pattern, upper, flags=re.I) for pattern in mos_keyword_patterns):
+        return "MOSFET"
+
+    if re.search(r"(二极管|DIODE|肖特基|SCHOTTKY|整流|快恢复)", upper, flags=re.I):
+        if "TVS" in upper or "ESD" in upper:
+            return "TVS二极管"
+        return "二极管"
+    if re.search(r"(三极管|TRANSISTOR|晶体管|NPN|PNP|BJT)", upper, flags=re.I):
+        return "三极管"
+    if re.search(r"(TVS\s*二极管|TVS\s*DIODE|ESD\s*DIODE)", upper, flags=re.I):
+        return "TVS二极管"
+
+    # Compact model blockers. These prevent common semiconductor part numbers
+    # from being reinterpreted as capacitor or resistor value codes.
+    if re.fullmatch(r"(?:AO|AOD|AON|BSS|SI|FDN|FDS)\d+[A-Z0-9-]*", model):
+        return "MOSFET"
+    if re.fullmatch(r"(?:IRF|IRL|IRFS|IRLR|IRFR)[A-Z]*\d+[A-Z0-9-]*", model):
+        return "MOSFET"
+    if re.fullmatch(r"2N700[02][A-Z0-9-]*", model):
+        return "MOSFET"
+    if re.fullmatch(r"(?:1N|BAV|BAT|SS|MBR|FR|UF|HER)\d+[A-Z0-9-]*", model):
+        return "二极管"
+    if re.fullmatch(r"(?:SMBJ|SMAJ|SMCJ|PESD|ESD)\d?[A-Z0-9.]+", model):
+        return "TVS二极管"
+    if re.fullmatch(r"(?:2N|MMBT|S)\d{3,5}[A-Z0-9-]*", model):
+        return "三极管"
+    if "MOS" in compact and re.search(r"(?:沟道|CHANNEL|RDS|场效应)", upper, flags=re.I):
+        return "MOSFET"
+    return ""
+
+
+def build_unsupported_semiconductor_spec(line, component_type):
+    component_type = clean_text(component_type) or "半导体功率器件"
+    return {
+        "品牌": "",
+        "型号": clean_text(line),
+        "器件类型": component_type,
+        "规格摘要": f"{component_type}暂未接入匹配库",
+        "_unsupported_component": True,
+        "_unsupported_reason": f"暂不支持{component_type}匹配，避免误推荐被动器件",
+        "_core_param_count": 0,
+        "_param_count": 0,
+    }
+
+
+SEMICONDUCTOR_PACKAGE_PATTERN = re.compile(
+    r"\b(TO-?220(?:AB)?|TO-?252|DPAK|D2PAK|SOT-?23(?:-?\d*)?|SOT-?223|SOT-?323|SOT-?363|SOD-?123|SOD-?323|SOD-?523|DO-?214(?:AA|AB|AC)|DO-?35|DO-?41|SMA|SMB|SMC|SOP-?8|SO-?8|DFN\d*x\d*)\b",
+    flags=re.I,
+)
+
+
+def extract_semiconductor_package(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    match = SEMICONDUCTOR_PACKAGE_PATTERN.search(upper)
+    if not match:
+        return ""
+    return match.group(1).upper().replace("TO220", "TO-220").replace("SOT23", "SOT-23").replace("SOD123", "SOD-123")
+
+
+def extract_semiconductor_polarity(text, component_type=""):
+    upper = clean_text(text).upper()
+    component_type = normalize_component_type(component_type)
+    if upper == "":
+        return ""
+    if component_type == "MOSFET":
+        if re.search(r"\bP[-\s]?CHANNEL\b|\bP[-\s]?MOS\b|\bPMOS\b|P沟道|P型", upper, flags=re.I):
+            return "P沟道"
+        if re.search(r"\bN[-\s]?CHANNEL\b|\bN[-\s]?MOS\b|\bNMOS\b|N沟道|N型", upper, flags=re.I):
+            return "N沟道"
+    if component_type == "三极管":
+        if re.search(r"\bPNP\b|PNP型", upper, flags=re.I):
+            return "PNP"
+        if re.search(r"\bNPN\b|NPN型", upper, flags=re.I):
+            return "NPN"
+    if component_type == "TVS二极管":
+        if re.search(r"\bBI[-\s]?DIRECTIONAL\b|双向|BIDIRECTIONAL", upper, flags=re.I):
+            return "双向"
+        if re.search(r"\bUNI[-\s]?DIRECTIONAL\b|单向|UNIDIRECTIONAL", upper, flags=re.I):
+            return "单向"
+    return ""
+
+
+def find_rds_on_in_text(text):
+    raw = clean_text(text).replace("OHMS", "OHM").replace("ohms", "ohm")
+    if raw == "":
+        return ""
+    pattern = re.compile(
+        r"(?:RDS\s*\(?ON\)?|RDS\(ON\)|导通电阻)[^0-9]{0,40}(\d+(?:\.\d+)?)\s*(mΩ|MΩ|KΩ|MOHM|KOHM|OHM|Ω)",
+        flags=re.I,
+    )
+    match = pattern.search(raw)
+    if match:
+        return combine_value_and_unit(match.group(1), normalize_library_value_unit(match.group(2)), separator="")
+    return ""
+
+
+def parse_semiconductor_resistance_to_ohms(value):
+    return parse_resistive_measurement_to_ohms(value, default_unit="Ω")
+
+
+def get_semiconductor_voltage_num(record):
+    value = clean_voltage(record.get("耐压（V）", ""))
+    return safe_numeric_value(value)
+
+
+def get_semiconductor_current_amps(record):
+    return parse_current_to_amps(record.get("额定电流", ""))
+
+
+def get_semiconductor_rds_ohms(record):
+    text = clean_text(record.get("_rds_on", ""))
+    if text == "":
+        text = find_rds_on_in_text(
+            " ".join(
+                clean_text(record.get(key, ""))
+                for key in ["规格摘要", "备注1", "备注2", "备注3", "DCR"]
+            )
+        )
+    return parse_semiconductor_resistance_to_ohms(text), text
+
+
+def normalize_semiconductor_package(value):
+    text = clean_text(value).upper().replace(" ", "")
+    if text == "":
+        return ""
+    if "DO-214AB" in text and "SMC" in text:
+        return "SMC"
+    if "DO-214AA" in text and "SMB" in text:
+        return "SMB"
+    if "DO-214AC" in text and "SMA" in text:
+        return "SMA"
+    replacements = {
+        "TO220": "TO-220",
+        "TO220AB": "TO-220AB",
+        "DO214AB": "SMC",
+        "DO214AA": "SMB",
+        "DO214AC": "SMA",
+        "DO-214AB": "SMC",
+        "DO-214AA": "SMB",
+        "DO-214AC": "SMA",
+        "SOT23": "SOT-23",
+        "SOT223": "SOT-223",
+        "SOT323": "SOT-323",
+        "SOD123": "SOD-123",
+        "SOD323": "SOD-323",
+        "DO35": "DO-35",
+        "DO41": "DO-41",
+        "SO8": "SO-8",
+        "SOP8": "SOP-8",
+    }
+    return replacements.get(text, text)
+
+
+def enrich_semiconductor_spec_fields(spec, source_text=""):
+    if not isinstance(spec, dict):
+        return spec
+    out = dict(spec)
+    component_type = infer_spec_component_type(out)
+    if component_type not in SEMICONDUCTOR_COMPONENT_TYPES:
+        return out
+    merged_text = " ".join(
+        clean_text(part)
+        for part in [
+            source_text,
+            out.get("器件类型", ""),
+            out.get("型号", ""),
+            out.get("特殊用途", ""),
+            out.get("规格摘要", ""),
+            out.get("备注1", ""),
+            out.get("备注2", ""),
+            out.get("备注3", ""),
+            out.get("极性", ""),
+            out.get("封装代码", ""),
+        ]
+        if clean_text(part) != ""
+    )
+    if clean_text(out.get("封装代码", "")) == "":
+        out["封装代码"] = extract_semiconductor_package(merged_text)
+    if clean_text(out.get("极性", "")) == "":
+        out["极性"] = extract_semiconductor_polarity(merged_text, component_type)
+    if component_type == "MOSFET" and clean_text(out.get("_rds_on", "")) == "":
+        out["_rds_on"] = find_rds_on_in_text(merged_text)
+    if clean_text(out.get("规格摘要", "")) == "":
+        out["规格摘要"] = build_other_component_summary([
+            clean_text(out.get("极性", "")) or clean_text(out.get("特殊用途", "")),
+            voltage_display(out.get("耐压（V）", "")),
+            format_current_display(out.get("额定电流", "")),
+            clean_text(out.get("_rds_on", "")),
+            clean_text(out.get("封装代码", "")),
+        ])
+    core_count = sum([
+        1 if clean_text(out.get("器件类型", "")) != "" else 0,
+        1 if clean_voltage(out.get("耐压（V）", "")) != "" else 0,
+        1 if clean_text(out.get("额定电流", "")) != "" else 0,
+        1 if clean_text(out.get("封装代码", "")) != "" else 0,
+        1 if clean_text(out.get("极性", "")) != "" else 0,
+        1 if clean_text(out.get("_rds_on", "")) != "" else 0,
+    ])
+    out["_core_param_count"] = max(int(out.get("_core_param_count", 0) or 0), core_count)
+    out["_param_count"] = max(int(out.get("_param_count", 0) or 0), core_count)
+    return out
+
+
+def parse_semiconductor_spec_query(line, component_type=""):
+    raw = clean_text(line)
+    if raw == "":
+        return None
+    component_type = normalize_component_type(component_type) or detect_unsupported_semiconductor_type(raw)
+    if component_type not in SEMICONDUCTOR_COMPONENT_TYPES:
+        return None
+    upper = raw.upper()
+    package = extract_semiconductor_package(raw)
+    polarity = extract_semiconductor_polarity(raw, component_type)
+    current = find_current_in_text(upper)
+    rds_on = find_rds_on_in_text(raw) if component_type == "MOSFET" else ""
+    voltage = ""
+    voltage_match = re.search(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*V(?![A-Z])", upper)
+    if voltage_match:
+        voltage = clean_voltage(voltage_match.group(1))
+    special_use = ""
+    if component_type == "二极管":
+        special_use = "肖特基二极管" if re.search(r"SCHOTTKY|肖特基", upper, flags=re.I) else "开关/整流二极管"
+    elif component_type == "TVS二极管":
+        special_use = "TVS二极管"
+    elif component_type == "MOSFET":
+        special_use = build_other_component_summary([polarity, "MOSFET"])
+    elif component_type == "三极管":
+        special_use = build_other_component_summary([polarity, "BJT"])
+
+    param_count = sum([
+        1 if component_type else 0,
+        1 if voltage else 0,
+        1 if current else 0,
+        1 if package else 0,
+        1 if polarity else 0,
+        1 if rds_on else 0,
+    ])
+    if param_count <= 1:
+        return None
+    spec = {
+        "品牌": "",
+        "型号": raw,
+        "器件类型": component_type,
+        "特殊用途": special_use,
+        "耐压（V）": voltage,
+        "额定电流": current,
+        "封装代码": package,
+        "极性": polarity,
+        "_rds_on": rds_on,
+        "_core_param_count": param_count,
+        "_param_count": param_count,
+    }
+    return enrich_semiconductor_spec_fields(spec, source_text=raw)
+
+
 def looks_like_mlcc_context(text):
     upper = clean_text(text).upper()
     compact = normalize_component_keyword_compact(text)
@@ -8906,6 +9423,9 @@ def detect_component_type_hint(text):
     upper = clean_text(text).upper()
     if upper == "":
         return ""
+    semiconductor_hint = detect_unsupported_semiconductor_type(text)
+    if semiconductor_hint != "":
+        return semiconductor_hint
     timing_hint = detect_timing_subtype_hint(text)
     if timing_hint != "":
         return timing_hint
@@ -8921,18 +9441,20 @@ def detect_component_type_hint(text):
         return "钽电容"
     if looks_like_leaded_ceramic_context(text):
         return "引线型陶瓷电容"
+    if looks_like_mlcc_context(text):
+        return "MLCC"
     if looks_like_electrolytic_context(text):
         return "铝电解电容"
     if resistor_hint != "":
         return resistor_hint
-    if looks_like_mlcc_context(text):
-        return "MLCC"
     return ""
 
 def normalize_component_type(value):
     text = clean_text(value)
     if text == "":
         return ""
+    if text in UNSUPPORTED_SEMICONDUCTOR_TYPES:
+        return text
     if text in ALL_PASSIVE_COMPONENT_TYPES:
         return text
     hint = detect_component_type_hint(text)
@@ -9045,6 +9567,8 @@ def infer_db_component_type(row):
         if direct in VARISTOR_COMPONENT_TYPES:
             return direct
         return "压敏电阻"
+    if direct in SEMICONDUCTOR_COMPONENT_TYPES:
+        return direct
     if looks_like_thermistor_context(text):
         return "热敏电阻"
     if direct == "MLCC" and looks_like_leaded_ceramic_context(text):
@@ -9105,6 +9629,8 @@ def infer_spec_component_type(spec):
         if direct in VARISTOR_COMPONENT_TYPES:
             return direct
         return "压敏电阻"
+    if direct in SEMICONDUCTOR_COMPONENT_TYPES:
+        return direct
     if direct == "MLCC" and looks_like_leaded_ceramic_context(spec_text):
         return "引线型陶瓷电容"
     strong_override = infer_strong_component_type_override(spec, direct=direct, text=spec_text)
@@ -9217,7 +9743,7 @@ def prioritize_component_rows_for_lookup(df):
 
 def looks_like_resistor_context(text):
     hint = detect_component_type_hint(text)
-    if hint in (VARISTOR_COMPONENT_TYPES | {"热敏电阻", "铝电解电容", "薄膜电容", "钽电容", "功率电感", "共模电感", "磁珠", "晶振", "振荡器", "MLCC"}):
+    if hint in (VARISTOR_COMPONENT_TYPES | UNSUPPORTED_SEMICONDUCTOR_TYPES | {"热敏电阻", "铝电解电容", "薄膜电容", "钽电容", "功率电感", "共模电感", "磁珠", "晶振", "振荡器", "MLCC"}):
         return False
     if hint in RESISTOR_COMPONENT_TYPES:
         return True
@@ -9268,6 +9794,8 @@ def parse_inductor_spec_query(line):
                 tol = clean_tol_for_match(INDUCTOR_TOLERANCE_CODE_MAP[token])
                 break
     current = find_current_in_text(upper)
+    dcr = find_dcr_in_text(raw) or find_unlabeled_dcr_in_inductor_text(raw)
+    body_size = extract_body_size_from_text(raw)
 
     value = ""
     unit = ""
@@ -9281,6 +9809,8 @@ def parse_inductor_spec_query(line):
         1 if value and unit else 0,
         1 if tol else 0,
         1 if current else 0,
+        1 if dcr else 0,
+        1 if body_size else 0,
     ])
     if param_count == 0:
         return None
@@ -9289,6 +9819,8 @@ def parse_inductor_spec_query(line):
         f"{value}{unit}" if value and unit else "",
         clean_tol_for_display(tol) if tol else "",
         current,
+        dcr,
+        body_size,
         size,
     ])
     return {
@@ -9301,9 +9833,13 @@ def parse_inductor_spec_query(line):
         "容值_pf": None,
         "容值误差": tol,
         "耐压（V）": "",
+        "尺寸（mm）": body_size,
         "器件类型": component_type,
         "规格摘要": summary,
         "_current": current,
+        "额定电流": current,
+        "DCR": dcr,
+        "_body_size": body_size,
         "_core_param_count": param_count,
         "_param_count": param_count,
     }
@@ -9312,6 +9848,8 @@ def parse_inductor_spec_query(line):
 def parse_resistor_spec_query(line):
     raw = clean_text(line)
     if raw == "" or not looks_like_resistor_context(raw):
+        return None
+    if detect_unsupported_semiconductor_type(raw) != "":
         return None
 
     normalized = raw.upper()
@@ -9401,6 +9939,14 @@ def looks_like_electrolytic_context(text):
         "PEECAP",
     ]
     capacitor_tokens = ["电容", "電容", "CAP", "CAPACITOR"]
+    explicit_electrolytic = (
+        any(token in upper for token in electrolytic_tokens)
+        or any(token.replace(" ", "") in compact for token in electrolytic_tokens)
+        or "电解" in upper
+        or "電解" in upper
+    )
+    if looks_like_mlcc_context(text) and not explicit_electrolytic:
+        return False
     if any(token in upper for token in electrolytic_tokens) or any(token.replace(" ", "") in compact for token in electrolytic_tokens):
         if any(token in upper for token in capacitor_tokens) or any(token in compact for token in capacitor_tokens):
             return True
@@ -10200,6 +10746,20 @@ def get_component_display_schema(spec_or_type):
             ("脚距", "脚距"),
             ("功率", "功率"),
             ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("特殊用途", "类型/用途"),
+            ("极性", "极性"),
+            ("耐压（V）", "额定电压(V)"),
+            ("额定电流", "额定电流"),
+            ("DCR", "Rds(on)/动态参数"),
+            ("封装代码", "封装"),
+            ("功率", "功率"),
+            ("工作温度", "工作温度"),
             ("生产状态", "生产状态"),
         ]
     if component_type == "铝电解电容":
@@ -11303,6 +11863,17 @@ def build_component_summary_from_spec(spec):
             clean_text(spec.get("尺寸（mm）", "")) or clean_size(spec.get("尺寸（inch）", "")),
         ])
         return summary or clean_text(spec.get("规格摘要", ""))
+    if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        rds_text = clean_text(spec.get("_rds_on", "")) or find_rds_on_in_text(
+            " ".join(clean_text(spec.get(key, "")) for key in ["DCR", "规格摘要", "备注1", "备注2", "备注3"])
+        )
+        return build_other_component_summary([
+            clean_text(spec.get("特殊用途", "")) or clean_text(spec.get("极性", "")),
+            voltage_display(spec.get("耐压（V）", "")),
+            format_current_display(spec.get("额定电流", "")),
+            rds_text,
+            clean_text(spec.get("封装代码", "")),
+        ]) or clean_text(spec.get("规格摘要", ""))
     if component_type in TIMING_COMPONENT_TYPES:
         return build_other_component_summary([
             f"{value}{unit}" if value != "" and unit != "" else "",
@@ -12942,9 +13513,14 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
     return slots
 
 
-def choose_bom_display_match(frame):
+def choose_bom_display_match(frame, spec=None):
     if frame is None or frame.empty:
         return None
+    if spec is not None:
+        recommendation = build_procurement_recommendation(frame, spec)
+        row = recommendation.get("row")
+        if row is not None:
+            return row
     if "品牌" not in frame.columns:
         return None
     for _, row in frame.iterrows():
@@ -13211,12 +13787,27 @@ def build_bom_display_df(result_df):
         "推荐型号3",
         "其他品牌型号",
         "状态",
+        "推荐理由",
         "解析说明",
     ]
     existing_columns = [col for col in preferred_columns if col in display_df.columns]
     if not existing_columns:
         return display_df
     return display_df[existing_columns]
+
+
+def count_bom_recommendation_statuses(result_df):
+    counts = {"可推荐": 0, "需确认": 0, "参数冲突": 0, "无匹配": 0, "解析失败": 0}
+    if result_df is None or result_df.empty or "状态" not in result_df.columns:
+        return counts
+    status_series = result_df["状态"].astype(str).apply(clean_text)
+    for key in counts:
+        counts[key] = int(status_series.eq(key).sum())
+    if "解析状态" in result_df.columns:
+        parse_fail = result_df["解析状态"].astype(str).apply(clean_text).eq("解析失败")
+        known_status = status_series.isin(set(counts.keys()))
+        counts["解析失败"] += int((parse_fail & ~known_status).sum())
+    return counts
 
 
 def parse_taiyo_common(model):
@@ -15972,6 +16563,176 @@ def build_mlcc_dimension_backfill_updates(chunk, allow_online_lookup=False):
     return updates
 
 
+def apply_verified_mlcc_dimension_fields_to_record(record):
+    if not isinstance(record, dict):
+        return {}, False
+    updated = dict(record)
+    fields, source_text = lookup_verified_mlcc_dimension_fields_from_record(updated)
+    if not fields:
+        return updated, False
+    existing_source = clean_text(updated.get("尺寸来源", ""))
+    verified_source = clean_text(source_text)
+    replace_unverified = existing_source == "" or mlcc_dimension_source_is_unverified_nominal(existing_source)
+    refresh_same_verified_source = verified_source != "" and existing_source == verified_source
+    changed = False
+    for col in MLCC_DIMENSION_COLUMNS:
+        value = normalize_dimension_mm_value(fields.get(col, ""))
+        if value == "":
+            continue
+        current_value = normalize_dimension_mm_value(updated.get(col, ""))
+        if current_value == "" or replace_unverified or refresh_same_verified_source:
+            if current_value != value:
+                updated[col] = value
+                changed = True
+    if verified_source != "" and (existing_source == "" or replace_unverified):
+        if existing_source != verified_source:
+            updated["尺寸来源"] = verified_source
+            changed = True
+    return updated, changed
+
+
+def build_verified_mlcc_dimension_backfill_updates(chunk):
+    if chunk is None or chunk.empty:
+        return []
+    if "__rowid__" not in chunk.columns:
+        raise KeyError("__rowid__")
+    updates = []
+    row_ids = pd.to_numeric(chunk["__rowid__"], errors="coerce")
+    for row_index in chunk.index.tolist():
+        row_id = row_ids.at[row_index]
+        if pd.isna(row_id):
+            continue
+        current_record = chunk.loc[row_index].to_dict()
+        updated_record, changed = apply_verified_mlcc_dimension_fields_to_record(current_record)
+        if not changed:
+            continue
+        new_values = tuple(
+            normalize_dimension_mm_value(updated_record.get(column, "")) if column != "尺寸来源" else clean_text(updated_record.get(column, ""))
+            for column in MLCC_DIMENSION_BACKFILL_DB_COLUMNS
+        )
+        updates.append((*new_values, int(row_id)))
+    return updates
+
+
+def verified_mlcc_dimension_sql_filter():
+    brand_filters = [
+        'UPPER(COALESCE("品牌", "")) LIKE "%WALSIN%"',
+        'COALESCE("品牌", "") LIKE "%华新科%"',
+        'UPPER(COALESCE("品牌", "")) LIKE "%PDC%"',
+        'UPPER(COALESCE("品牌", "")) LIKE "%PSA%"',
+        'COALESCE("品牌", "") LIKE "%信昌%"',
+        'UPPER(COALESCE("品牌", "")) LIKE "%HRE%"',
+        'COALESCE("品牌", "") LIKE "%芯声%"',
+    ]
+    return (
+        'COALESCE("器件类型", "") LIKE "%MLCC%" '
+        f'AND ({" OR ".join(brand_filters)}) '
+        'AND ('
+        'COALESCE("高度（mm）", "") = "" '
+        'OR COALESCE("尺寸来源", "") = "" '
+        'OR COALESCE("尺寸来源", "") LIKE "%封装码标称%" '
+        'OR COALESCE("尺寸来源", "") LIKE "%尺寸码推断%" '
+        'OR COALESCE("尺寸来源", "") LIKE "%Walsin规格书%" '
+        'OR COALESCE("尺寸来源", "") LIKE "%PDC/PSA规格书%" '
+        'OR COALESCE("尺寸来源", "") LIKE "%HRE规格书%" '
+        ')'
+    )
+
+
+def backfill_verified_mlcc_dimension_fields_in_database_in_place(chunk_rows=100000):
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
+
+    try:
+        ensure_sqlite_table_columns_exist(
+            conn,
+            "components",
+            {
+                "长度（mm）": "TEXT",
+                "宽度（mm）": "TEXT",
+                "高度（mm）": "TEXT",
+                "尺寸来源": "TEXT",
+            },
+        )
+        update_sql = (
+            'UPDATE components SET "长度（mm）" = ?, "宽度（mm）" = ?, "高度（mm）" = ?, "尺寸来源" = ? '
+            'WHERE rowid = ?'
+        )
+        query = (
+            'SELECT rowid AS "__rowid__", * FROM components '
+            f'WHERE {verified_mlcc_dimension_sql_filter()}'
+        )
+        updated_rows = 0
+        for chunk in pd.read_sql_query(query, conn, chunksize=max(int(chunk_rows), 1000)):
+            updates = build_verified_mlcc_dimension_backfill_updates(chunk)
+            if updates:
+                conn.executemany(update_sql, updates)
+                conn.commit()
+                updated_rows += len(updates)
+        return updated_rows
+    finally:
+        conn.close()
+
+
+def backfill_verified_mlcc_dimension_fields_in_prepared_cache():
+    if not os.path.exists(PREPARED_CACHE_PATH):
+        return 0
+    prepared = read_prepared_cache()
+    if prepared is None or prepared.empty:
+        return 0
+    work = prepared.copy()
+    for col in MLCC_DIMENSION_BACKFILL_DB_COLUMNS:
+        if col not in work.columns:
+            work[col] = ""
+    brand_series = work["品牌"].astype("string").fillna("")
+    type_series = work["器件类型"].astype("string").fillna("") if "器件类型" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="string")
+    brand_upper = brand_series.str.upper()
+    candidate_mask = (
+        type_series.str.contains("MLCC", na=False)
+        & (
+            brand_upper.str.contains("WALSIN", na=False)
+            | brand_series.str.contains("华新科", na=False)
+            | brand_upper.str.contains("PDC", na=False)
+            | brand_upper.str.contains("PSA", na=False)
+            | brand_series.str.contains("信昌", na=False)
+            | brand_upper.str.contains("HRE", na=False)
+            | brand_series.str.contains("芯声", na=False)
+        )
+    )
+    updated_rows = 0
+    for idx in work.index[candidate_mask].tolist():
+        updated_record, changed = apply_verified_mlcc_dimension_fields_to_record(work.loc[idx].to_dict())
+        if not changed:
+            continue
+        for col in MLCC_DIMENSION_BACKFILL_DB_COLUMNS:
+            work.at[idx, col] = updated_record.get(col, "")
+        updated_rows += 1
+    if updated_rows <= 0:
+        return 0
+    cache_dir = os.path.dirname(PREPARED_CACHE_PATH)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+    temp_parquet_path = build_unique_temp_path(PREPARED_CACHE_PATH, "verified_mlcc_dimensions")
+    temp_meta_path = build_unique_temp_path(PREPARED_CACHE_META_PATH, "verified_mlcc_dimensions")
+    optimized = optimize_prepared_dataframe_dtypes(work)
+    optimized.to_parquet(temp_parquet_path, index=False)
+    meta = dict(get_database_signature())
+    bundle_signature = get_public_bundle_signature_for_cache()
+    if bundle_signature:
+        meta["bundle_signature"] = bundle_signature
+    with open(temp_meta_path, "w", encoding="utf-8") as handle:
+        json.dump(meta, handle, ensure_ascii=False, indent=2)
+    replace_file_atomically(temp_parquet_path, PREPARED_CACHE_PATH)
+    replace_file_atomically(temp_meta_path, PREPARED_CACHE_META_PATH)
+    return updated_rows
+
+
 def backfill_mlcc_dimension_fields_in_database_in_place(chunk_rows=100000, allow_online_lookup=False, rebuild_cache=True):
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(DB_PATH)
@@ -16147,6 +16908,7 @@ REGRESSION_MODE_MAP = {
     "规格": "spec",
     "规格不足": "spec_insufficient",
     "无法识别": "unrecognized",
+    "暂不支持": "unsupported",
     "铝电解电容": "electrolytic",
     "薄膜电容": "film",
     "贴片电阻": "resistor",
@@ -16166,6 +16928,7 @@ REGRESSION_MODE_LABELS = {
     "spec": "规格",
     "spec_insufficient": "规格不足",
     "unrecognized": "无法识别",
+    "unsupported": "暂不支持",
     "electrolytic": "铝电解电容",
     "film": "薄膜电容",
     "resistor": "贴片电阻",
@@ -16195,6 +16958,8 @@ def run_query_match(df, mode, spec):
     if spec is None:
         return pd.DataFrame()
     spec_type = infer_spec_component_type(spec)
+    if spec_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        return match_semiconductor_spec(df, spec)
     if spec_type in OTHER_PASSIVE_TYPES:
         return match_other_passive_spec(df, spec)
     if mode == "料号":
@@ -16334,6 +17099,8 @@ def serialize_spec_for_cache(spec):
         "_safety_class",
         "_param_count",
         "_core_param_count",
+        "_partial_part",
+        "_partial_query",
         "规格摘要",
     ]
     parts = []
@@ -16793,6 +17560,8 @@ def compatible_component_types_for_search(target_type):
     if target_type in INDUCTOR_COMPONENT_TYPES:
         if target_type in {"功率电感", "射频电感"}:
             return ["功率电感", "射频电感"]
+        return [target_type]
+    if target_type in SEMICONDUCTOR_COMPONENT_TYPES:
         return [target_type]
     if target_type:
         return [target_type]
@@ -17375,6 +18144,119 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
     return prepare_search_dataframe(pd.DataFrame(records)) if records else pd.DataFrame()
 
 
+def load_component_rows_by_exact_model_from_database(model):
+    model_text = clean_text(model)
+    if model_text == "" or not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        frame = pd.read_sql_query(
+            "SELECT * FROM components WHERE [型号] = ?",
+            conn,
+            params=[model_text],
+        )
+        if (not isinstance(frame, pd.DataFrame) or frame.empty) and model_text.upper() != model_text:
+            frame = pd.read_sql_query(
+                "SELECT * FROM components WHERE [型号] = ?",
+                conn,
+                params=[model_text.upper()],
+            )
+        if (not isinstance(frame, pd.DataFrame) or frame.empty):
+            frame = pd.read_sql_query(
+                "SELECT * FROM components WHERE UPPER(IFNULL([型号], '')) = ?",
+                conn,
+                params=[model_text.upper()],
+            )
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            return pd.DataFrame()
+        return prepare_search_dataframe(frame)
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def load_semiconductor_rows_by_model_prefix(model, limit=50):
+    model_clean = clean_model(model)
+    if len(model_clean) < 5 or not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+    type_values = sorted(SEMICONDUCTOR_COMPONENT_TYPES)
+    placeholders = ",".join(["?"] * len(type_values))
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        frame = pd.read_sql_query(
+            f"""
+            SELECT * FROM components
+            WHERE [器件类型] IN ({placeholders})
+              AND UPPER(IFNULL([型号], '')) LIKE ?
+            LIMIT {int(limit)}
+            """,
+            conn,
+            params=list(type_values) + [f"{model_clean}%"],
+        )
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            return pd.DataFrame()
+        return prepare_search_dataframe(frame)
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def load_component_rows_by_clean_models_from_database(unique_models):
+    result_map = {model_clean: pd.DataFrame() for model_clean in (unique_models or [])}
+    if not unique_models or not os.path.exists(DB_PATH):
+        return result_map
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        frames = []
+        for model_chunk in chunk_items(unique_models, 200):
+            placeholders = ",".join(["?"] * len(model_chunk))
+            exact_query = f"SELECT * FROM components WHERE [型号] IN ({placeholders})"
+            frames.append(pd.read_sql_query(exact_query, conn, params=model_chunk))
+        exact_df = concat_component_frames(frames)
+        found_models = set()
+        if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
+            exact_df = prepare_search_dataframe(exact_df)
+            exact_model_series = exact_df["_model_clean"].astype(str)
+            for model_clean in unique_models:
+                hit = exact_df[exact_model_series.eq(model_clean)].copy()
+                if not hit.empty:
+                    result_map[model_clean] = hit
+                    found_models.add(model_clean)
+        remaining_models = [model_clean for model_clean in unique_models if model_clean not in found_models]
+        if not remaining_models:
+            return result_map
+
+        frames = []
+        for model_chunk in chunk_items(remaining_models, 200):
+            placeholders = ",".join(["?"] * len(model_chunk))
+            query = (
+                "SELECT * FROM components WHERE "
+                "REPLACE(REPLACE(REPLACE(UPPER(IFNULL([型号], '')), '-', ''), ' ', ''), '_', '') "
+                f"IN ({placeholders})"
+            )
+            frames.append(pd.read_sql_query(query, conn, params=model_chunk))
+        direct_df = concat_component_frames(frames)
+        if not isinstance(direct_df, pd.DataFrame) or direct_df.empty:
+            return result_map
+        direct_df = prepare_search_dataframe(direct_df)
+        model_series = direct_df["_model_clean"].astype(str)
+        for model_clean in remaining_models:
+            result_map[model_clean] = direct_df[model_series.eq(model_clean)].copy()
+        return result_map
+    except Exception:
+        return result_map
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def load_component_rows_by_clean_models_map(models):
     model_clean_list = [
         clean_model(model)
@@ -17385,6 +18267,9 @@ def load_component_rows_by_clean_models_map(models):
     if not unique_models:
         return {}
     required_columns = {"品牌", "型号", "_model_clean"}
+    direct_db_map = load_component_rows_by_clean_models_from_database(unique_models)
+    if all(isinstance(frame, pd.DataFrame) and not frame.empty for frame in direct_db_map.values()):
+        return direct_db_map
     conn = open_search_db_connection(timeout_sec=10)
     try:
         if conn is None or not search_index_can_serve_queries(
@@ -17395,9 +18280,9 @@ def load_component_rows_by_clean_models_map(models):
         ):
             if conn is not None:
                 conn.close()
-            if os.path.exists(DB_PATH):
-                rebuild_search_index_from_database_fast()
-                conn = open_search_db_connection(timeout_sec=10)
+            # Exact DB lookup above is cheap and up-to-date. Avoid forcing a full
+            # search-index rebuild here because the library is large.
+            conn = open_search_db_connection(timeout_sec=10)
             if conn is None or not search_index_can_serve_queries(
                 conn,
                 required_columns=required_columns,
@@ -17410,14 +18295,17 @@ def load_component_rows_by_clean_models_map(models):
                 except Exception:
                     prepared = None
                 if prepared is None or prepared.empty:
-                    return {model_clean: pd.DataFrame() for model_clean in unique_models}
+                    return direct_db_map
                 prepared_work = prepare_search_dataframe(prepared)
                 if prepared_work.empty or "_model_clean" not in prepared_work.columns:
-                    return {model_clean: pd.DataFrame() for model_clean in unique_models}
+                    return direct_db_map
                 result_map = {}
                 model_series = prepared_work["_model_clean"].astype(str)
                 for model_clean in unique_models:
-                    result_map[model_clean] = prepared_work[model_series.eq(model_clean)].copy()
+                    result_map[model_clean] = concat_component_frames([
+                        direct_db_map.get(model_clean, pd.DataFrame()),
+                        prepared_work[model_series.eq(model_clean)].copy(),
+                    ])
                 return result_map
         rows = []
         for model_chunk in chunk_items(unique_models, SEARCH_DB_FETCH_CHUNK):
@@ -17428,7 +18316,7 @@ def load_component_rows_by_clean_models_map(models):
             ).fetchall()
             rows.extend(chunk_rows)
     except Exception:
-        return {model_clean: pd.DataFrame() for model_clean in unique_models}
+        return direct_db_map
     finally:
         if conn is not None:
             conn.close()
@@ -17443,7 +18331,7 @@ def load_component_rows_by_clean_models_map(models):
         pair_key = (brand, model)
         candidate_pairs.append(pair_key)
 
-    result_map = {model_clean: pd.DataFrame() for model_clean in unique_models}
+    result_map = {model_clean: direct_db_map.get(model_clean, pd.DataFrame()) for model_clean in unique_models}
     seed_df = pd.DataFrame(load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows())
     if not seed_df.empty:
         seed_df = prepare_search_dataframe(seed_df)
@@ -17463,7 +18351,10 @@ def load_component_rows_by_clean_models_map(models):
     work["_clean_model_key"] = work["型号"].astype(str).apply(clean_model)
 
     for model_clean in unique_models:
-        result_map[model_clean] = work[work["_clean_model_key"].eq(model_clean)].drop(columns=["_clean_model_key"], errors="ignore").copy()
+        result_map[model_clean] = concat_component_frames([
+            result_map.get(model_clean, pd.DataFrame()),
+            work[work["_clean_model_key"].eq(model_clean)].drop(columns=["_clean_model_key"], errors="ignore").copy(),
+        ])
         if result_map[model_clean].empty:
             fallback = build_rule_fallback_row_from_model(model_clean)
             if isinstance(fallback, pd.DataFrame) and not fallback.empty:
@@ -17542,6 +18433,7 @@ def load_component_rows_by_typed_spec(spec):
         | TIMING_COMPONENT_TYPES
         | {"薄膜电容", "铝电解电容", "引线型陶瓷电容", "热敏电阻"}
         | VARISTOR_COMPONENT_TYPES
+        | SEMICONDUCTOR_COMPONENT_TYPES
     )
     if component_type not in supported_types:
         return pd.DataFrame()
@@ -17556,6 +18448,8 @@ def load_component_rows_by_typed_spec(spec):
     if unit != "" and component_type in (INDUCTOR_COMPONENT_TYPES | TIMING_COMPONENT_TYPES | {"薄膜电容", "铝电解电容", "引线型陶瓷电容"}):
         where_clauses.append("UPPER(IFNULL([容值单位], '')) = ?")
         params.append(unit)
+    # Semiconductor package aliases such as SMC vs DO-214AB/SMC are normalized
+    # after loading. Filtering them in SQL would miss valid official rows.
     query = f'SELECT * FROM [components] WHERE {" AND ".join(where_clauses)}'
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -17725,12 +18619,15 @@ def can_use_fast_search_dataframe(spec):
         or component_type in {"薄膜电容", "铝电解电容", "引线型陶瓷电容"}
         or component_type in INDUCTOR_COMPONENT_TYPES
         or component_type in TIMING_COMPONENT_TYPES
+        or component_type in SEMICONDUCTOR_COMPONENT_TYPES
     )
 
 
 def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=None):
     if spec is None:
         return None
+    if mode == "暂不支持" or bool(spec.get("_unsupported_component", False)):
+        return pd.DataFrame()
     frames = []
     used_fast_path = False
     if mode == "料号":
@@ -17756,6 +18653,7 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
                 | TIMING_COMPONENT_TYPES
                 | {"薄膜电容", "铝电解电容", "引线型陶瓷电容", "热敏电阻"}
                 | VARISTOR_COMPONENT_TYPES
+                | SEMICONDUCTOR_COMPONENT_TYPES
             ):
                 frames.append(load_component_rows_by_typed_spec(spec))
                 used_fast_path = True
@@ -18170,6 +19068,113 @@ def scope_search_dataframe(df, spec):
                 return base.iloc[0:0]
 
     return base if bool(mask.all()) else base[mask]
+
+
+def semiconductor_same_family(row, spec):
+    target_type = infer_spec_component_type(spec)
+    row_type = infer_db_component_type(row) or normalize_component_type(row.get("器件类型", ""))
+    if target_type != "" and row_type != "" and row_type != target_type:
+        return False
+    spec_polarity = clean_text(spec.get("极性", ""))
+    row_polarity = clean_text(row.get("极性", "")) or extract_semiconductor_polarity(
+        " ".join(clean_text(row.get(key, "")) for key in ["特殊用途", "规格摘要", "备注1", "备注2", "备注3"]),
+        target_type,
+    )
+    if spec_polarity != "" and row_polarity != "" and row_polarity != spec_polarity:
+        return False
+    return True
+
+
+def classify_semiconductor_match_level(row, spec):
+    if row is None or spec is None:
+        return "需确认替代", 4
+    if not semiconductor_same_family(row, spec):
+        return "需确认替代", 4
+
+    spec_package = normalize_semiconductor_package(spec.get("封装代码", ""))
+    row_package = normalize_semiconductor_package(row.get("封装代码", "")) or normalize_semiconductor_package(extract_semiconductor_package(row.get("规格摘要", "")))
+    spec_voltage = get_semiconductor_voltage_num(spec)
+    row_voltage = get_semiconductor_voltage_num(row)
+    spec_current = get_semiconductor_current_amps(spec)
+    row_current = get_semiconductor_current_amps(row)
+    spec_rds, _ = get_semiconductor_rds_ohms(spec)
+    row_rds, _ = get_semiconductor_rds_ohms(row)
+
+    package_ok = spec_package == "" or row_package == "" or row_package == spec_package
+    voltage_ok = spec_voltage is None or row_voltage is None or row_voltage >= spec_voltage - 1e-9
+    current_ok = spec_current is None or row_current is None or row_current >= spec_current - 1e-9
+    rds_ok = spec_rds is None or row_rds is None or row_rds <= spec_rds + 1e-12
+
+    if not (package_ok and voltage_ok and current_ok and rds_ok):
+        return "需确认替代", 4
+
+    target_type = infer_spec_component_type(spec)
+    polarity_required = target_type in {"MOSFET", "三极管", "TVS二极管"}
+    query_complete = (
+        spec_package != ""
+        and spec_voltage is not None
+        and (spec_current is not None or target_type in {"二极管", "TVS二极管"})
+        and (not polarity_required or clean_text(spec.get("极性", "")) != "")
+    )
+    if target_type == "MOSFET":
+        query_complete = query_complete and spec_rds is not None
+
+    exact = True
+    if spec_package != "" and row_package != spec_package:
+        exact = False
+    if spec_voltage is not None and (row_voltage is None or abs(row_voltage - spec_voltage) > 1e-9):
+        exact = False
+    if spec_current is not None and (row_current is None or abs(row_current - spec_current) > 1e-9):
+        exact = False
+    if spec_rds is not None and (row_rds is None or abs(row_rds - spec_rds) > 1e-12):
+        exact = False
+
+    if query_complete and exact:
+        return "完全匹配", 1
+    if query_complete and (voltage_ok and current_ok and rds_ok and package_ok):
+        return "高代低", 3
+    return "部分参数匹配", 2
+
+
+def match_semiconductor_spec(df, spec):
+    if spec is None:
+        return pd.DataFrame()
+    base = scope_search_dataframe(df, spec)
+    if base.empty:
+        return pd.DataFrame()
+    work = base.copy()
+    component_type = infer_spec_component_type(spec)
+    if component_type in SEMICONDUCTOR_COMPONENT_TYPES and "器件类型" in work.columns:
+        type_mask = work["器件类型"].astype(str).apply(normalize_component_type).eq(component_type)
+        if type_mask.any():
+            work = work[type_mask]
+    package = normalize_semiconductor_package(spec.get("封装代码", ""))
+    if package != "" and "封装代码" in work.columns:
+        package_mask = work["封装代码"].astype(str).apply(normalize_semiconductor_package).eq(package)
+        if package_mask.any():
+            work = work[package_mask]
+    polarity = clean_text(spec.get("极性", ""))
+    if polarity != "" and "极性" in work.columns:
+        polarity_mask = work["极性"].astype(str).apply(clean_text).eq(polarity)
+        if polarity_mask.any():
+            work = work[polarity_mask]
+    if work.empty:
+        return pd.DataFrame()
+    work = work.copy()
+    levels = work.apply(lambda r: classify_semiconductor_match_level(r, spec), axis=1)
+    work["推荐等级"] = [item[0] for item in levels]
+    work["_level_rank"] = [item[1] for item in levels]
+    work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
+    sort_cols = ["_level_rank", "_brand_rank"]
+    ascending = [True, True]
+    if "品牌" in work.columns:
+        sort_cols.append("品牌")
+        ascending.append(True)
+    if "型号" in work.columns:
+        sort_cols.append("型号")
+        ascending.append(True)
+    work = work.sort_values(by=sort_cols, ascending=ascending)
+    return work.drop(columns=["_level_rank", "_brand_rank"], errors="ignore")
 
 
 def match_other_passive_spec(df, spec):
@@ -18607,6 +19612,9 @@ def reverse_spec(df, model):
             "寿命（h）": normalize_life_hours_value(row.get("寿命（h）", "") or parse_life_hours_from_text(row_text)),
             "安装方式": normalize_mounting_style(row.get("安装方式", ""), row.get("封装代码", "")),
             "特殊用途": normalize_special_use(row.get("特殊用途", "") or extract_special_use_from_text(row_text)),
+            "额定电流": format_current_display(row.get("额定电流", "")),
+            "DCR": clean_text(row.get("DCR", "")),
+            "极性": clean_text(row.get("极性", "")),
             "_mlcc_series_class": clean_text(row.get("_mlcc_series_class", "")),
             "封装代码": clean_text(row.get("封装代码", "")),
             "尺寸（mm）": clean_text(row.get("尺寸（mm）", "")),
@@ -18647,6 +19655,8 @@ def reverse_spec(df, model):
             db_spec["_mlcc_series_class"] = clean_text(db_spec.get("_mlcc_series_class", "")) or clean_text(
                 mlcc_profile.get("_mlcc_series_class", "")
             )
+        if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+            db_spec = enrich_semiconductor_spec_fields(db_spec, source_text=row_text)
         return db_spec
     return parsed_rule
 
@@ -20016,17 +21026,18 @@ def brand_priority_value(brand, component_type=""):
     ctype = normalize_component_type(component_type)
     if ctype in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
         priorities = [
-            ("华新科", 1), ("WALSIN", 1), ("华科", 1),
-            ("信昌", 2), ("PDC", 2),
+            ("信昌", 1), ("PDC", 1), ("PSA", 1),
+            ("华新科", 2), ("WALSIN", 2), ("华科", 2),
             ("厚声", 3), ("UNI-ROYAL", 3), ("UNIROYAL", 3),
-            ("大毅", 4), ("TA-I", 4), ("TAI", 4),
-            ("光颉", 5), ("VIKING", 5),
-            ("国巨", 6), ("YAGEO", 6), ("YEGO", 6),
-            ("TE", 7), ("泰科", 7), ("TE CONNECTIVITY", 7),
-            ("RESI", 8), ("开步睿思", 8),
-            ("威世", 9), ("VISHAY", 9),
-            ("旺诠", 10), ("RALEC", 10),
-            ("KOA", 11), ("BOURNS", 12), ("STACKPOLE", 13), ("SUSUMU", 14), ("PANASONIC", 15),
+            ("富捷", 4), ("FOJAN", 4),
+            ("大毅", 5), ("TA-I", 5), ("TAI", 5),
+            ("光颉", 6), ("VIKING", 6),
+            ("国巨", 7), ("YAGEO", 7), ("YEGO", 7),
+            ("TE", 8), ("泰科", 8), ("TE CONNECTIVITY", 8),
+            ("RESI", 9), ("开步睿思", 9),
+            ("威世", 10), ("VISHAY", 10),
+            ("旺诠", 11), ("RALEC", 11),
+            ("KOA", 12), ("BOURNS", 13), ("STACKPOLE", 14), ("SUSUMU", 15), ("PANASONIC", 16),
         ]
     elif ctype in CAPACITOR_COMPONENT_TYPES:
         priorities = [
@@ -20216,6 +21227,443 @@ def classify_match_level(row, spec):
 
     return "需确认替代", 4
 
+
+def safe_numeric_value(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def format_resistance_for_summary(ohm_value):
+    numeric = safe_numeric_value(ohm_value)
+    if numeric is None:
+        return ""
+    value, unit = ohm_to_library_value_unit(numeric)
+    return f"{value}{unit}" if value != "" else ""
+
+
+def get_row_resistance_ohm(row):
+    for key in ["_res_ohm", "_resistance_ohm"]:
+        value = safe_numeric_value(row.get(key, None))
+        if value is not None:
+            return value
+    return None
+
+
+def values_close(left, right, tolerance=1e-6):
+    left_value = safe_numeric_value(left)
+    right_value = safe_numeric_value(right)
+    if left_value is None or right_value is None:
+        return False
+    return abs(left_value - right_value) <= tolerance
+
+
+def parse_current_to_amps(value):
+    text = clean_text(value).replace(" ", "")
+    if text == "":
+        return None
+    match = re.search(r"(\d+(?:\.\d+)?)(UA|MA|A)\b", text, flags=re.I)
+    if not match:
+        return safe_numeric_value(text) if re.fullmatch(r"\d+(?:\.\d+)?", text) else None
+    numeric = safe_numeric_value(match.group(1))
+    if numeric is None:
+        return None
+    unit = match.group(2).upper()
+    if unit == "UA":
+        return numeric / 1_000_000.0
+    if unit == "MA":
+        return numeric / 1_000.0
+    return numeric
+
+
+def parse_resistive_measurement_to_ohms(value, default_unit="Ω"):
+    text = clean_text(value).replace(" ", "")
+    if text == "":
+        return None
+    normalized = text.replace("OHMS", "OHM").replace("ohms", "ohm")
+    match = re.search(r"(\d+(?:\.\d+)?)(mΩ|MΩ|KΩ|MOHM|KOHM|OHM|Ω)\b", normalized, flags=re.I)
+    if match:
+        numeric = safe_numeric_value(match.group(1))
+        if numeric is None:
+            return None
+        unit = match.group(2)
+        unit_upper = unit.upper()
+        if unit == "mΩ":
+            return numeric / 1000.0
+        if unit_upper in {"KΩ", "KOHM"}:
+            return numeric * 1000.0
+        if unit_upper in {"MΩ", "MOHM"}:
+            return numeric * 1_000_000.0
+        return numeric
+    numeric = safe_numeric_value(normalized)
+    if numeric is None:
+        return None
+    unit = normalize_library_value_unit(default_unit)
+    if unit == "mΩ":
+        return numeric / 1000.0
+    if unit == "KΩ":
+        return numeric * 1000.0
+    if unit == "MΩ":
+        return numeric * 1_000_000.0
+    return numeric
+
+
+def normalize_body_size_for_match(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    extracted = extract_body_size_from_text(text)
+    normalized = (extracted or text).replace("×", "*").replace("X", "*").replace("x", "*")
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = re.sub(r"(?i)mm$", "", normalized)
+    parts = [part for part in normalized.split("*") if part != ""]
+    if len(parts) not in {2, 3}:
+        return normalized.lower()
+    compact_parts = []
+    for part in parts:
+        numeric = safe_numeric_value(part)
+        if numeric is None:
+            compact_parts.append(part.lower())
+        else:
+            compact_parts.append(f"{numeric:.4f}".rstrip("0").rstrip("."))
+    return "*".join(compact_parts) + "mm"
+
+
+def get_row_current_amps(row):
+    for key in ["额定电流", "饱和电流", "_current"]:
+        amps = parse_current_to_amps(row.get(key, ""))
+        if amps is not None:
+            return amps, clean_text(row.get(key, ""))
+    row_text = " ".join(clean_text(row.get(key, "")) for key in ["规格摘要", "备注1", "备注2", "备注3"])
+    current = find_labeled_current_in_text(row_text, ["RATED CURRENT", "HEATING CURRENT", "IRMS", "IDC", "CURRENT"])
+    amps = parse_current_to_amps(current)
+    if amps is not None:
+        return amps, current
+    return None, ""
+
+
+def get_row_dcr_ohms(row):
+    for key in ["DCR", "_dcr"]:
+        ohms = parse_resistive_measurement_to_ohms(row.get(key, ""), default_unit="Ω")
+        if ohms is not None:
+            return ohms, clean_text(row.get(key, ""))
+    row_text = " ".join(clean_text(row.get(key, "")) for key in ["规格摘要", "备注1", "备注2", "备注3"])
+    dcr = find_dcr_in_text(row_text) or find_unlabeled_dcr_in_inductor_text(row_text)
+    ohms = parse_resistive_measurement_to_ohms(dcr, default_unit="Ω")
+    if ohms is not None:
+        return ohms, dcr
+    return None, ""
+
+
+def get_row_body_size_text(row):
+    for key in ["_body_size", "尺寸（mm）", "尺寸(mm)", "规格", "封装代码"]:
+        normalized = normalize_body_size_for_match(row.get(key, ""))
+        if normalized != "":
+            return normalized, clean_text(row.get(key, ""))
+    row_text = " ".join(clean_text(row.get(key, "")) for key in ["规格摘要", "备注1", "备注2", "备注3"])
+    normalized = normalize_body_size_for_match(row_text)
+    if normalized != "":
+        return normalized, extract_body_size_from_text(row_text)
+    return "", ""
+
+
+def collect_recommendation_conflicts(row, spec):
+    if row is None or spec is None:
+        return []
+
+    conflicts = []
+    target_type = infer_spec_component_type(spec)
+    row_size = clean_size(row.get("尺寸（inch）", ""))
+    spec_size = clean_size(spec.get("尺寸（inch）", ""))
+    if spec_size != "" and row_size != "" and row_size != spec_size:
+        conflicts.append(f"尺寸不一致：需求{spec_size}，候选{row_size}")
+
+    if target_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        row_type = infer_db_component_type(row) or normalize_component_type(row.get("器件类型", ""))
+        if row_type != "" and row_type != target_type:
+            conflicts.append(f"器件类型不一致：需求{target_type}，候选{row_type}")
+
+        spec_package = normalize_semiconductor_package(spec.get("封装代码", ""))
+        row_package = normalize_semiconductor_package(row.get("封装代码", "")) or normalize_semiconductor_package(extract_semiconductor_package(row.get("规格摘要", "")))
+        if spec_package != "" and row_package != "" and row_package != spec_package:
+            conflicts.append(f"封装不一致：需求{spec_package}，候选{row_package}")
+
+        spec_polarity = clean_text(spec.get("极性", ""))
+        row_polarity = clean_text(row.get("极性", "")) or extract_semiconductor_polarity(
+            " ".join(clean_text(row.get(key, "")) for key in ["特殊用途", "规格摘要", "备注1", "备注2", "备注3"]),
+            target_type,
+        )
+        if spec_polarity != "" and row_polarity != "" and row_polarity != spec_polarity:
+            conflicts.append(f"极性/沟道不一致：需求{spec_polarity}，候选{row_polarity}")
+
+        spec_voltage = get_semiconductor_voltage_num(spec)
+        row_voltage = get_semiconductor_voltage_num(row)
+        if spec_voltage is not None and row_voltage is not None and row_voltage < spec_voltage - 1e-9:
+            conflicts.append(f"额定电压偏低：需求{format_sidecar_numeric_display(spec_voltage)}V，候选{format_sidecar_numeric_display(row_voltage)}V")
+
+        spec_current = get_semiconductor_current_amps(spec)
+        row_current = get_semiconductor_current_amps(row)
+        if spec_current is not None and row_current is not None and row_current < spec_current - 1e-9:
+            conflicts.append(f"额定电流偏低：需求{format_current_display(spec.get('额定电流', ''))}，候选{format_current_display(row.get('额定电流', ''))}")
+
+        spec_rds, spec_rds_text = get_semiconductor_rds_ohms(spec)
+        row_rds, row_rds_text = get_semiconductor_rds_ohms(row)
+        if spec_rds is not None and row_rds is not None and row_rds > spec_rds + 1e-12:
+            conflicts.append(f"Rds(on)偏高：需求{spec_rds_text}，候选{row_rds_text}")
+        return conflicts
+
+    if target_type in VARISTOR_COMPONENT_TYPES:
+        spec_varistor_voltage = clean_voltage(spec.get("_varistor_voltage", "")) or clean_voltage(spec.get("耐压（V）", ""))
+        row_varistor_voltage = clean_voltage(row.get("_varistor_voltage", "")) or clean_voltage(row.get("压敏电压", "")) or clean_voltage(row.get("耐压（V）", ""))
+        if spec_varistor_voltage != "" and row_varistor_voltage != "" and row_varistor_voltage != spec_varistor_voltage:
+            conflicts.append(f"压敏电压不一致：需求{voltage_display(spec_varistor_voltage)}，候选{voltage_display(row_varistor_voltage)}")
+
+        spec_disc = clean_text(spec.get("_disc_size", ""))
+        row_disc = clean_text(row.get("_disc_size", "")) or find_disc_size_code(" ".join(clean_text(row.get(key, "")) for key in ["规格", "规格摘要", "型号", "备注1"]))
+        if spec_disc != "" and row_disc != "" and row_disc != spec_disc:
+            conflicts.append(f"压敏规格不一致：需求{spec_disc}，候选{row_disc}")
+
+        spec_pitch = clean_text(spec.get("_pitch", ""))
+        row_pitch = clean_text(row.get("_pitch", "")) or extract_pitch_from_text(" ".join(clean_text(row.get(key, "")) for key in ["规格摘要", "备注1", "备注2"]))
+        if spec_pitch != "" and row_pitch != "" and row_pitch != spec_pitch:
+            conflicts.append(f"脚距不一致：需求{spec_pitch}，候选{row_pitch}")
+        return conflicts
+
+    if target_type in INDUCTOR_COMPONENT_TYPES:
+        spec_current_amps = parse_current_to_amps(spec.get("额定电流", "")) or parse_current_to_amps(spec.get("_current", ""))
+        row_current_amps, row_current_text = get_row_current_amps(row)
+        if spec_current_amps is not None and row_current_amps is not None and row_current_amps < spec_current_amps - 1e-9:
+            conflicts.append(
+                f"额定电流偏低：需求{format_current_display(spec.get('额定电流', '') or spec.get('_current', ''))}，候选{format_current_display(row_current_text)}"
+            )
+
+        spec_dcr_ohms = parse_resistive_measurement_to_ohms(spec.get("DCR", ""), default_unit="Ω")
+        row_dcr_ohms, row_dcr_text = get_row_dcr_ohms(row)
+        if spec_dcr_ohms is not None and row_dcr_ohms is not None and row_dcr_ohms > spec_dcr_ohms + 1e-12:
+            conflicts.append(f"DCR偏高：需求{clean_text(spec.get('DCR', ''))}，候选{clean_text(row_dcr_text)}")
+
+        spec_body = normalize_body_size_for_match(spec.get("_body_size", "")) or normalize_body_size_for_match(spec.get("尺寸（mm）", ""))
+        row_body, row_body_text = get_row_body_size_text(row)
+        if spec_body != "" and row_body != "" and row_body != spec_body:
+            conflicts.append(f"外形尺寸不一致：需求{spec_body}，候选{row_body_text or row_body}")
+        return conflicts
+
+    if target_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+        spec_res = safe_numeric_value(spec.get("_resistance_ohm", None))
+        row_res = get_row_resistance_ohm(row)
+        if spec_res is not None and row_res is not None and abs(spec_res - row_res) > 1e-6:
+            conflicts.append(
+                f"阻值不一致：需求{format_resistance_for_summary(spec_res)}，候选{format_resistance_for_summary(row_res)}"
+            )
+
+        spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
+        row_tol = clean_tol_for_match(row.get("容值误差", ""))
+        if spec_tol != "" and row_tol != "" and not tolerance_allows(row_tol, spec_tol):
+            conflicts.append(f"精度不足：需求±{spec_tol}%，候选±{row_tol}%")
+
+        spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        row_power_text = infer_resistor_power_text_from_record(row)
+        row_power_watt = parse_power_to_watts(row_power_text)
+        if spec_power_watt is not None and row_power_watt is not None and row_power_watt < spec_power_watt - 1e-9:
+            conflicts.append(
+                f"功率偏低：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
+            )
+        return conflicts
+
+    spec_pf = spec.get("容值_pf", None)
+    row_pf = row.get("容值_pf", None)
+    if spec_pf is not None and row_pf is not None and not values_close(spec_pf, row_pf, tolerance=1e-6):
+        spec_value, spec_unit = pf_to_value_unit(spec_pf)
+        row_value, row_unit = pf_to_value_unit(row_pf)
+        conflicts.append(f"容值不一致：需求{spec_value}{spec_unit}，候选{row_value}{row_unit}")
+
+    spec_mat = clean_material(spec.get("材质（介质）", ""))
+    row_mat = clean_material(row.get("材质（介质）", ""))
+    if spec_mat != "" and row_mat != "" and row_mat != spec_mat:
+        conflicts.append(f"介质不一致：需求{spec_mat}，候选{row_mat}")
+
+    spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
+    row_tol = clean_tol_for_match(row.get("容值误差", ""))
+    if spec_tol != "" and row_tol != "" and not tolerance_allows(row_tol, spec_tol):
+        conflicts.append(f"容差不满足：需求±{spec_tol}%，候选±{row_tol}%")
+
+    spec_volt = safe_numeric_value(clean_voltage(spec.get("耐压（V）", "")))
+    row_volt = safe_numeric_value(clean_voltage(row.get("耐压（V）", "")))
+    if spec_volt is not None and row_volt is not None and row_volt < spec_volt - 1e-9:
+        conflicts.append(f"耐压偏低：需求{format_sidecar_numeric_display(spec_volt)}V，候选{format_sidecar_numeric_display(row_volt)}V")
+
+    return conflicts
+
+
+def collect_recommendation_warnings(row, spec):
+    if row is None or spec is None:
+        return []
+    warnings_list = []
+    target_type = infer_spec_component_type(spec)
+
+    if target_type in INDUCTOR_COMPONENT_TYPES:
+        spec_current_amps = parse_current_to_amps(spec.get("额定电流", "")) or parse_current_to_amps(spec.get("_current", ""))
+        row_current_amps, _ = get_row_current_amps(row)
+        if spec_current_amps is not None and row_current_amps is None:
+            warnings_list.append("候选缺少额定电流，不能直接下单")
+
+        spec_dcr_ohms = parse_resistive_measurement_to_ohms(spec.get("DCR", ""), default_unit="Ω")
+        row_dcr_ohms, _ = get_row_dcr_ohms(row)
+        if spec_dcr_ohms is not None and row_dcr_ohms is None:
+            warnings_list.append("候选缺少DCR，需查规格书确认")
+
+        spec_body = normalize_body_size_for_match(spec.get("_body_size", "")) or normalize_body_size_for_match(spec.get("尺寸（mm）", ""))
+        row_body, _ = get_row_body_size_text(row)
+        if spec_body != "" and row_body == "":
+            warnings_list.append("候选缺少外形尺寸，需查规格书确认")
+
+    if target_type in VARISTOR_COMPONENT_TYPES:
+        spec_disc = clean_text(spec.get("_disc_size", ""))
+        row_disc = clean_text(row.get("_disc_size", "")) or find_disc_size_code(" ".join(clean_text(row.get(key, "")) for key in ["规格", "规格摘要", "型号", "备注1"]))
+        if spec_disc != "" and row_disc == "":
+            warnings_list.append("候选缺少压敏规格，需查规格书确认")
+
+    if target_type in RESISTOR_COMPONENT_TYPES:
+        spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        if spec_power_watt is not None:
+            row_power_text = infer_resistor_power_text_from_record(row)
+            if parse_power_to_watts(row_power_text) is None:
+                warnings_list.append("候选缺少功率数据，需查规格书确认")
+
+    if target_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        if bool(spec.get("_partial_part", False)):
+            warnings_list.append("输入型号只有前缀，需确认完整后缀后再下单")
+        if clean_text(spec.get("封装代码", "")) != "" and clean_text(row.get("封装代码", "")) == "":
+            warnings_list.append("候选缺少封装数据，需查规格书确认")
+        if clean_voltage(spec.get("耐压（V）", "")) != "" and clean_voltage(row.get("耐压（V）", "")) == "":
+            warnings_list.append("候选缺少额定电压，需查规格书确认")
+        if clean_text(spec.get("额定电流", "")) != "" and clean_text(row.get("额定电流", "")) == "":
+            warnings_list.append("候选缺少额定电流，需查规格书确认")
+        if target_type == "MOSFET":
+            spec_rds, _ = get_semiconductor_rds_ohms(spec)
+            row_rds, _ = get_semiconductor_rds_ohms(row)
+            if spec_rds is not None and row_rds is None:
+                warnings_list.append("候选缺少Rds(on)，需查规格书确认")
+
+    return warnings_list
+
+
+def get_match_level_for_recommendation(row, spec):
+    level = clean_text(row.get("推荐等级", ""))
+    if level != "":
+        return level
+    try:
+        level, _ = classify_match_level(row, spec)
+        return clean_text(level)
+    except Exception:
+        return ""
+
+
+def classify_recommendation_status(row, spec):
+    conflicts = collect_recommendation_conflicts(row, spec)
+    if conflicts:
+        return "参数冲突", "；".join(conflicts)
+
+    warnings_list = collect_recommendation_warnings(row, spec)
+    if warnings_list:
+        return "需确认", "；".join(warnings_list)
+
+    level = get_match_level_for_recommendation(row, spec)
+    if level == "完全匹配":
+        return "可推荐", "关键规格完全一致"
+    if level in {"高代低", "可直接替代"}:
+        return "可推荐", "候选规格不低于需求"
+    if level == "部分参数匹配":
+        return "需确认", "只匹配了已识别参数，缺失参数需人工确认"
+    if level == "需确认替代":
+        return "需确认", "存在未确认替代关系，不能直接下单"
+    return "需确认", "候选有命中，但推荐等级不足以直接下单"
+
+
+def build_procurement_recommendation(frame, spec):
+    if frame is None or frame.empty:
+        return {
+            "status": "无匹配",
+            "reason": "数据库未找到候选型号",
+            "row": None,
+            "level": "",
+            "brand": "",
+            "model": "",
+        }
+
+    best = None
+    status_rank = {"可推荐": 4, "需确认": 3, "参数冲突": 2, "无匹配": 1, "解析失败": 0}
+    level_rank = {"完全匹配": 5, "高代低": 4, "可直接替代": 4, "部分参数匹配": 3, "需确认替代": 2}
+    for order_index, (_, row) in enumerate(frame.iterrows()):
+        status, reason = classify_recommendation_status(row, spec)
+        level = get_match_level_for_recommendation(row, spec)
+        preferred_bonus = 1 if match_bom_preferred_brand_label(row.get("品牌", "")) != "" else 0
+        score = (
+            status_rank.get(status, 0),
+            preferred_bonus,
+            level_rank.get(level, 0),
+            -order_index,
+        )
+        candidate = {
+            "status": status,
+            "reason": reason,
+            "row": row,
+            "level": level,
+            "brand": clean_text(row.get("品牌", "")),
+            "model": clean_text(row.get("型号", "")),
+            "_score": score,
+        }
+        if best is None or candidate["_score"] > best["_score"]:
+            best = candidate
+
+    if best is None:
+        return {
+            "status": "无匹配",
+            "reason": "数据库未找到候选型号",
+            "row": None,
+            "level": "",
+            "brand": "",
+            "model": "",
+        }
+    return best
+
+
+def build_procurement_recommendation_summary_html(frame, spec):
+    recommendation = build_procurement_recommendation(frame, spec)
+    status = recommendation.get("status", "")
+    brand = recommendation.get("brand", "")
+    model = recommendation.get("model", "")
+    reason = recommendation.get("reason", "")
+    level = recommendation.get("level", "")
+    palette = {
+        "可推荐": ("#ecfdf5", "#047857", "#10b981"),
+        "需确认": ("#fffbeb", "#92400e", "#f59e0b"),
+        "参数冲突": ("#fef2f2", "#b91c1c", "#ef4444"),
+        "无匹配": ("#f8fafc", "#475569", "#94a3b8"),
+    }
+    bg, fg, border = palette.get(status, ("#f8fafc", "#475569", "#94a3b8"))
+    target = " ".join(part for part in [brand, model] if part)
+    if target == "":
+        target = "暂无首选型号"
+    level_text = f" / {html.escape(level)}" if level else ""
+    return (
+        f'<div style="margin:8px 0 10px 0; padding:10px 12px; border:1px solid {border}; '
+        f'border-radius:10px; background:{bg}; color:{fg}; font-size:14px; font-weight:700; line-height:1.45;">'
+        f'<span style="display:inline-block; min-width:64px;">{html.escape(status)}</span>'
+        f'<span>{html.escape(target)}{level_text}</span>'
+        f'<span style="font-weight:600; margin-left:10px;">{html.escape(reason)}</span>'
+        '</div>'
+    )
+
+
 def apply_match_levels_and_sort(df, spec):
     if df.empty:
         return df
@@ -20330,6 +21778,44 @@ def apply_match_levels_and_sort(df, spec):
     return work.drop(columns=["_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
 
 def detect_query_mode_and_spec(df, line):
+    semiconductor_hint = detect_unsupported_semiconductor_type(line)
+    if semiconductor_hint != "":
+        exact_df = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
+        model_key = clean_model(line)
+        compact_model_like = model_key != "" and re.search(r"[A-Z]", model_key) and re.search(r"\d", model_key) and not re.search(r"[\s,/\\|;:%]", clean_text(line))
+        if exact_df.empty and compact_model_like:
+            try:
+                exact_df = load_component_rows_by_exact_model_from_database(line)
+            except Exception:
+                exact_df = pd.DataFrame()
+        if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
+            spec = reverse_spec(exact_df, line)
+            if spec is not None and infer_spec_component_type(spec) in SEMICONDUCTOR_COMPONENT_TYPES:
+                return "料号", spec
+        if compact_model_like:
+            prefix_df = load_semiconductor_rows_by_model_prefix(line)
+            if isinstance(prefix_df, pd.DataFrame) and not prefix_df.empty:
+                prefix_model = clean_text(prefix_df.iloc[0].get("型号", ""))
+                spec = reverse_spec(prefix_df, prefix_model)
+                if spec is not None and infer_spec_component_type(spec) in SEMICONDUCTOR_COMPONENT_TYPES:
+                    spec["_partial_part"] = True
+                    spec["_partial_query"] = clean_text(line)
+                    spec["_partial_reason"] = "输入型号只有前缀，候选需要确认完整后缀"
+                    return "料号片段", spec
+        spec = parse_semiconductor_spec_query(line, semiconductor_hint)
+        if spec is not None:
+            if count_query_params(spec) < other_passive_min_required_params(spec):
+                return "规格不足", spec
+                return semiconductor_hint, spec
+        return "暂不支持", build_unsupported_semiconductor_spec(line, semiconductor_hint)
+
+    if looks_like_mlcc_context(line):
+        spec = parse_spec_query(line)
+        if spec is not None:
+            if spec.get("_param_count", 0) < 3:
+                return "规格不足", spec
+            return "规格", spec
+
     other_spec = parse_other_passive_query(line)
     if other_spec is not None:
         if count_query_params(other_spec) < other_passive_min_required_params(other_spec):
@@ -20671,8 +22157,9 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
     add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
     add_candidate(spec_value, "规格列")
     add_candidate(name_value, "品名列")
-    add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
-    add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
+    if clean_text(model_value) != "" and clean_text(spec_value) != "":
+        add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
+        add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
     if extra_values:
         add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
         add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
@@ -20686,7 +22173,13 @@ def describe_bom_result(candidate_result):
     top_level = candidate_result.get("top_match_level", "")
     spec = candidate_result.get("spec") or {}
 
-    if status == "无法识别":
+    if mode == "暂不支持" or bool(spec.get("_unsupported_component", False)):
+        reason = clean_text(spec.get("_unsupported_reason", "")) or "暂不支持该品类匹配"
+        return f"{source}已识别为{clean_text(spec.get('器件类型', '暂未接入品类'))}，{reason}"
+    if status == "解析失败" and mode == "规格不足":
+        min_required = other_passive_min_required_params(spec) if clean_text(spec.get("器件类型", "")) != "" else 3
+        return f"{source}已识别出部分规格，但关键参数不足 {min_required} 项"
+    if status in {"无法识别", "解析失败"}:
         return f"{source}内容无法识别为有效料号或规格"
     if status == "规格不足":
         min_required = other_passive_min_required_params(spec) if clean_text(spec.get("器件类型", "")) != "" else 3
@@ -20700,6 +22193,14 @@ def describe_bom_result(candidate_result):
         if mode == "料号片段":
             return "已按料号片段反推规格，但数据库暂无匹配结果"
         return "已识别规格，但数据库未找到匹配结果"
+
+    recommendation_reason = clean_text(candidate_result.get("recommendation_reason", ""))
+    if status == "可推荐":
+        return f"使用{source}解析，首选结果可推荐" + (f"：{recommendation_reason}" if recommendation_reason else "")
+    if status == "需确认":
+        return f"使用{source}解析，首选结果需确认" + (f"：{recommendation_reason}" if recommendation_reason else "")
+    if status == "参数冲突":
+        return f"使用{source}解析，候选存在参数冲突" + (f"：{recommendation_reason}" if recommendation_reason else "")
 
     if top_level == "完全匹配":
         return f"使用{source}解析，首选结果为完全匹配"
@@ -20762,15 +22263,20 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
             "matched": pd.DataFrame(),
             "parse_status": "解析失败",
             "failure_reason": "",
-            "status": "无法识别",
+            "status": "解析失败",
             "top_match_level": "",
+            "recommendation_reason": "",
             "query_df": query_df,
         }
 
-        if mode == "无法识别" or spec is None:
+        if mode == "暂不支持" and spec is not None:
+            result["status"] = "解析失败"
+            result["failure_reason"] = clean_text(spec.get("_unsupported_reason", "")) or "暂不支持该品类匹配"
+            result["query_df"] = pd.DataFrame()
+        elif mode == "无法识别" or spec is None:
             result["failure_reason"] = "无法识别型号或规格"
         elif mode == "规格不足":
-            result["status"] = "规格不足"
+            result["status"] = "解析失败"
             min_required = other_passive_min_required_params(spec) if clean_text(spec.get("器件类型", "")) != "" else 3
             result["failure_reason"] = f"请至少提供{min_required}个关键规格参数"
         else:
@@ -20780,9 +22286,10 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
             if matched.empty:
                 result["status"] = "无匹配"
             else:
-                result["status"] = "匹配成功"
-                if "推荐等级" in matched.columns and not matched.empty:
-                    result["top_match_level"] = clean_text(matched.iloc[0].get("推荐等级", ""))
+                recommendation = build_procurement_recommendation(matched, spec)
+                result["status"] = recommendation.get("status", "需确认")
+                result["recommendation_reason"] = recommendation.get("reason", "")
+                result["top_match_level"] = recommendation.get("level", "")
         cached = result
         if query_cache is not None:
             query_cache[query_text] = cached
@@ -20795,8 +22302,9 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
         "matched": cached.get("matched", pd.DataFrame()),
         "parse_status": cached.get("parse_status", "解析失败"),
         "failure_reason": cached.get("failure_reason", ""),
-        "status": cached.get("status", "无法识别"),
+        "status": cached.get("status", "解析失败"),
         "top_match_level": cached.get("top_match_level", ""),
+        "recommendation_reason": cached.get("recommendation_reason", ""),
         "query_df": cached.get("query_df"),
         "_candidate_index": candidate_index,
     }
@@ -20804,7 +22312,7 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
     return result
 
 def bom_candidate_priority(candidate_result):
-    status_rank = {"匹配成功": 4, "无匹配": 3, "规格不足": 2, "无法识别": 1}
+    status_rank = {"可推荐": 6, "需确认": 5, "参数冲突": 4, "无匹配": 3, "规格不足": 2, "解析失败": 1, "无法识别": 1}
     match_rank = {"完全匹配": 4, "部分参数匹配": 3, "高代低": 2, "可直接替代": 2, "需确认替代": 1}
     mode_value = clean_text(candidate_result.get("mode", ""))
     mode_rank = {
@@ -20863,11 +22371,11 @@ def bom_candidate_prefers_richer_spec(candidate_result, current_best):
     candidate_status = clean_text(candidate_result.get("status", ""))
     current_level = clean_text(current_best.get("top_match_level", ""))
 
-    if current_status == "匹配成功" and current_level == "完全匹配":
+    if current_status == "可推荐" and current_level == "完全匹配":
         return False
-    if candidate_status == "匹配成功":
+    if candidate_status == "可推荐":
         return True
-    if candidate_status == "无匹配" and current_status in {"匹配成功", "规格不足", "无法识别"}:
+    if candidate_status == "无匹配" and current_status in {"可推荐", "需确认", "参数冲突", "规格不足", "解析失败", "无法识别"}:
         return True
     return False
 
@@ -20884,9 +22392,14 @@ def should_replace_best_bom_candidate(best, candidate_result):
 def bom_candidate_good_enough(candidate_result):
     if candidate_result is None:
         return False
-    if is_other_passive_mode(candidate_result.get("mode")) and "品名列" in clean_text(candidate_result.get("source", "")) and bom_candidate_core_count(candidate_result) >= 2:
+    if (
+        is_other_passive_mode(candidate_result.get("mode"))
+        and "品名列" in clean_text(candidate_result.get("source", ""))
+        and bom_candidate_core_count(candidate_result) >= 2
+        and candidate_result.get("status") in {"可推荐", "需确认"}
+    ):
         return True
-    if candidate_result.get("status") != "匹配成功":
+    if candidate_result.get("status") != "可推荐":
         return False
     level = clean_text(candidate_result.get("top_match_level", ""))
     source = clean_text(candidate_result.get("source", ""))
@@ -20933,21 +22446,25 @@ def build_bom_result_row(df, line):
         "耐压（V）": "",
         "匹配数量": 0,
         "前5个其他品牌型号": "",
+        "推荐理由": "",
         "状态": ""
     }
 
     if mode == "无法识别" or spec is None:
-        row["状态"] = "无法识别"
+        row["状态"] = "解析失败"
         return row
 
     if mode == "规格不足":
         min_required = other_passive_min_required_params(spec) if clean_text(spec.get("器件类型", "")) != "" else 3
         if min_required <= 1:
-            row["状态"] = "请至少输入一个关键规格参数"
+            row["状态"] = "解析失败"
+            row["推荐理由"] = "请至少输入一个关键规格参数"
         elif min_required == 2:
-            row["状态"] = "请至少输入两个关键规格参数"
+            row["状态"] = "解析失败"
+            row["推荐理由"] = "请至少输入两个关键规格参数"
         else:
-            row["状态"] = "请最少输入三个规格参数"
+            row["状态"] = "解析失败"
+            row["推荐理由"] = "请最少输入三个规格参数"
         value, unit = spec_display_value_unit(spec)
         row["尺寸（inch）"] = spec.get("尺寸（inch）", "")
         row["材质（介质）"] = spec.get("材质（介质）", "")
@@ -20976,7 +22493,8 @@ def build_bom_result_row(df, line):
     matched = matched.copy()
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
-    display_match = choose_bom_display_match(matched)
+    recommendation = build_procurement_recommendation(matched, spec)
+    display_match = recommendation.get("row")
     row["匹配数量"] = int(len(matched))
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
@@ -20992,7 +22510,8 @@ def build_bom_result_row(df, line):
         exclude_aliases=BOM_PREFERRED_BRAND_EXCLUDE_ALIASES,
         exclude_pairs=[(row["推荐品牌"], row["推荐型号"])],
     )
-    row["状态"] = "匹配成功"
+    row["状态"] = recommendation.get("status", "需确认")
+    row["推荐理由"] = recommendation.get("reason", "")
     return row
 
 def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cache=None, full_df_provider=None):
@@ -21040,7 +22559,8 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         "备注1": "",
         "备注2": "",
         "备注3": "",
-        "状态": "无法识别",
+        "推荐理由": "",
+        "状态": "解析失败",
     }
 
     extra_values = collect_bom_extra_spec_values(record, column_mapping)
@@ -21066,6 +22586,7 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
     result_row["失败原因"] = best["failure_reason"]
     result_row["差异说明"] = best.get("difference_note", "")
     result_row["状态"] = best["status"]
+    result_row["推荐理由"] = clean_text(best.get("recommendation_reason", ""))
 
     if spec is not None:
         inferred_type = infer_spec_component_type(spec)
@@ -21088,9 +22609,12 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         matched = matched.copy()
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
-        display_match = choose_bom_display_match(matched)
+        recommendation = build_procurement_recommendation(matched, spec)
+        display_match = recommendation.get("row")
         detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
+        result_row["状态"] = recommendation.get("status", result_row["状态"])
+        result_row["推荐理由"] = recommendation.get("reason", result_row["推荐理由"])
         result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
         result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
         result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
@@ -21440,10 +22964,10 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
             "done": done,
             "elapsed_seconds": elapsed_seconds,
             "chips": [
-                {"label": "匹配成功", "value": str(matched_count), "tone": "success"},
+                {"label": "可推荐", "value": str(matched_count), "tone": "success"},
                 {"label": "完全匹配", "value": str(exact_count), "tone": "success"},
-                {"label": "部分参数", "value": str(partial_count), "tone": "warn"},
-                {"label": "高代低", "value": str(substitute_count), "tone": ""},
+                {"label": "需确认", "value": str(partial_count), "tone": "warn"},
+                {"label": "参数冲突", "value": str(substitute_count), "tone": "fail"},
                 {"label": "无匹配", "value": str(no_match_count), "tone": "warn"},
                 {"label": "失败", "value": str(fail_count), "tone": "fail"},
             ],
@@ -21463,14 +22987,14 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
 
         status_text = clean_text(result_row.get("状态", ""))
         level_text = clean_text(result_row.get("首选推荐等级", ""))
-        if status_text == "匹配成功":
+        if status_text == "可推荐":
             matched_count += 1
             if level_text == "完全匹配":
                 exact_count += 1
-            elif level_text == "部分参数匹配":
-                partial_count += 1
-            elif level_text in {"高代低", "可直接替代"}:
-                substitute_count += 1
+        elif status_text == "需确认":
+            partial_count += 1
+        elif status_text == "参数冲突":
+            substitute_count += 1
         elif status_text == "无匹配":
             no_match_count += 1
         else:
@@ -21488,6 +23012,13 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
 
 def style_bom_result_rows(df):
     def row_style(row):
+        status = clean_text(row.get("状态", ""))
+        if status == "参数冲突":
+            return ["background-color: #fee2e2; color: #991b1b;" for _ in row]
+        if status == "需确认":
+            return ["background-color: #fef3c7; color: #92400e;" for _ in row]
+        if status == "解析失败":
+            return ["background-color: #f1f5f9; color: #475569;" for _ in row]
         level = clean_text(row.get("首选推荐等级", ""))
         if level == "完全匹配":
             return ["background-color: #fff59d; color: #111111;" for _ in row]
@@ -22027,6 +23558,24 @@ def resolve_search_query_dataframe_and_spec(
     candidate_rows = 0
     query_frame_cache_key = ""
 
+    if mode == "暂不支持" and spec is not None:
+        emit(
+            2,
+            "已识别为暂未接入品类",
+            clean_text(spec.get("_unsupported_reason", "")) or "当前品类暂未接入匹配库，已阻止误匹配",
+            "安全拦截",
+            "warn",
+            candidate_rows=0,
+        )
+        return {
+            "query_df": pd.DataFrame(),
+            "mode": mode,
+            "spec": spec,
+            "resolution_path": "unsupported_semiconductor",
+            "used_full_df": False,
+            "candidate_rows": 0,
+        }
+
     if mode != "无法识别" and spec is not None:
         if isinstance(query_frame_cache, dict):
             query_frame_cache_key = make_query_cache_key("", f"query_df::{mode}", spec)
@@ -22214,6 +23763,20 @@ if __name__ == "__main__" and "--rebuild-db" in sys.argv:
 
 if __name__ == "__main__" and "--rebuild-prepared-cache" in sys.argv:
     rebuild_prepared_cache_from_database()
+    raise SystemExit(0)
+
+if __name__ == "__main__" and "--backfill-mlcc-dimensions" in sys.argv:
+    if "--verified-only" in sys.argv:
+        db_updated_rows = backfill_verified_mlcc_dimension_fields_in_database_in_place()
+        cache_updated_rows = backfill_verified_mlcc_dimension_fields_in_prepared_cache()
+        print(f"updated_verified_mlcc_dimension_rows={db_updated_rows}")
+        print(f"updated_prepared_cache_rows={cache_updated_rows}")
+    else:
+        updated_rows = backfill_mlcc_dimension_fields_in_database_in_place(
+            allow_online_lookup="--allow-online-lookup" in sys.argv,
+            rebuild_cache=True,
+        )
+        print(f"updated_mlcc_dimension_rows={updated_rows}")
     raise SystemExit(0)
 
 if __name__ == "__main__" and "--backfill-series" in sys.argv:
@@ -22481,6 +24044,20 @@ if search_clicked:
                 search_stats["warning"] += 1
                 continue
 
+            if mode == "暂不支持" and spec is not None:
+                reason = clean_text(spec.get("_unsupported_reason", "")) or "暂不支持该品类匹配，已阻止误匹配被动器件"
+                render_search_progress(
+                    line_index - 1,
+                    stage_step=3,
+                    current_text=line,
+                    stage_text="暂不支持该品类",
+                    note=reason,
+                    extra_chips=base_chips + [{"label": "路径", "value": "安全拦截", "tone": "warn"}],
+                )
+                st.warning(reason)
+                search_stats["warning"] += 1
+                continue
+
             if mode == "无法识别" or spec is None:
                 render_search_progress(
                     line_index - 1,
@@ -22563,6 +24140,7 @@ if search_clicked:
                     show_df = annotate_match_display_gaps(show_df, spec)
                     if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                         show_df = show_df.drop(columns=["特殊用途"])
+                    recommendation_fragment = build_procurement_recommendation_summary_html(matched, spec)
 
                     result_fragment = render_clickable_result_table(
                         show_df,
@@ -22575,12 +24153,13 @@ if search_clicked:
                         f'{part_info_fragment}'
                         '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
                         '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
+                        f'{recommendation_fragment}'
                         f'{result_fragment}'
                         '<div class="match-card-footer"></div>'
                     )
                     components.html(
                         build_result_table_iframe_html(match_card_html),
-                        height=estimate_match_card_iframe_height(len(part_info_df), len(show_df)),
+                        height=estimate_match_card_iframe_height(len(part_info_df), len(show_df)) + 58,
                         scrolling=False,
                     )
                     st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
@@ -22664,6 +24243,7 @@ if search_clicked:
                 show_df = annotate_match_display_gaps(show_df, spec)
                 if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                     show_df = show_df.drop(columns=["特殊用途"])
+                st.markdown(build_procurement_recommendation_summary_html(matched, spec), unsafe_allow_html=True)
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,
@@ -22703,7 +24283,7 @@ if search_clicked:
                 search_stats["no_match"] += 1
 
         processed_queries = search_stats["success"] + search_stats["no_match"] + search_stats["warning"]
-        summary_lines = [f"成功返回匹配结果 {search_stats['success']} 条"]
+        summary_lines = [f"已返回可查看结果 {search_stats['success']} 条"]
         if search_stats["no_match"] > 0:
             summary_lines.append(f"未找到匹配结果 {search_stats['no_match']} 条")
         if search_stats["warning"] > 0:
@@ -22720,7 +24300,7 @@ if search_clicked:
             stage_text="搜索已完成" if aborted_reason == "" else "搜索提前结束",
             note="所有输入已处理完成" if aborted_reason == "" else aborted_reason,
             extra_chips=[
-                {"label": "成功", "value": str(search_stats["success"]), "tone": "success"},
+                {"label": "有结果", "value": str(search_stats["success"]), "tone": "success"},
                 {"label": "无匹配", "value": str(search_stats["no_match"]), "tone": "warn"} if search_stats["no_match"] > 0 else None,
                 {"label": "提示", "value": str(search_stats["warning"]), "tone": "warn"} if search_stats["warning"] > 0 else None,
             ],
@@ -22866,12 +24446,16 @@ if uploaded_file is not None:
                     st.session_state.get("_bom_result_df", pd.DataFrame()),
                 )
             if isinstance(cached_bom_result_df, pd.DataFrame) and not cached_bom_result_df.empty:
-                cached_fail_count = int((cached_bom_result_df["解析状态"] == "解析失败").sum()) if "解析状态" in cached_bom_result_df.columns else 0
-                cached_no_match_count = int((cached_bom_result_df["状态"] == "无匹配").sum()) if "状态" in cached_bom_result_df.columns else 0
-                cached_success_count = int((cached_bom_result_df["状态"] == "匹配成功").sum()) if "状态" in cached_bom_result_df.columns else 0
+                cached_status_counts = count_bom_recommendation_statuses(cached_bom_result_df)
                 cached_component_distribution_text = build_bom_component_distribution_text(cached_bom_result_df)
                 cached_summary_lines = [
-                    f"解析完成：匹配成功 {cached_success_count} 行，解析失败 {cached_fail_count} 行，无匹配 {cached_no_match_count} 行。",
+                    (
+                        f"解析完成：可推荐 {cached_status_counts['可推荐']} 行，"
+                        f"需确认 {cached_status_counts['需确认']} 行，"
+                        f"参数冲突 {cached_status_counts['参数冲突']} 行，"
+                        f"解析失败 {cached_status_counts['解析失败']} 行，"
+                        f"无匹配 {cached_status_counts['无匹配']} 行。"
+                    ),
                 ]
                 if cached_component_distribution_text:
                     cached_summary_lines.append(cached_component_distribution_text)
@@ -22889,9 +24473,11 @@ if uploaded_file is not None:
                             "chips": [
                                 {"label": "阶段", "value": "完成", "tone": "success"},
                                 {"label": "状态", "value": "可下载", "tone": "success"},
-                                {"label": "匹配成功", "value": str(cached_success_count), "tone": "success"},
-                                {"label": "解析失败", "value": str(cached_fail_count), "tone": "success" if cached_fail_count == 0 else "fail"},
-                                {"label": "无匹配", "value": str(cached_no_match_count), "tone": "success" if cached_no_match_count == 0 else "warn"},
+                                {"label": "可推荐", "value": str(cached_status_counts["可推荐"]), "tone": "success"},
+                                {"label": "需确认", "value": str(cached_status_counts["需确认"]), "tone": "warn"},
+                                {"label": "参数冲突", "value": str(cached_status_counts["参数冲突"]), "tone": "fail"},
+                                {"label": "解析失败", "value": str(cached_status_counts["解析失败"]), "tone": "success" if cached_status_counts["解析失败"] == 0 else "fail"},
+                                {"label": "无匹配", "value": str(cached_status_counts["无匹配"]), "tone": "success" if cached_status_counts["无匹配"] == 0 else "warn"},
                             ],
                             "summary_lines": cached_summary_lines,
                         },
@@ -23068,9 +24654,7 @@ if uploaded_file is not None:
                         component_distribution_text = build_bom_component_distribution_text(
                             current_bom_result_df
                         )
-                        fail_count = int((current_bom_result_df["解析状态"] == "解析失败").sum()) if isinstance(current_bom_result_df, pd.DataFrame) and "解析状态" in current_bom_result_df.columns else 0
-                        no_match_count = int((current_bom_result_df["状态"] == "无匹配").sum()) if isinstance(current_bom_result_df, pd.DataFrame) and "状态" in current_bom_result_df.columns else 0
-                        success_count = int((current_bom_result_df["状态"] == "匹配成功").sum()) if isinstance(current_bom_result_df, pd.DataFrame) and "状态" in current_bom_result_df.columns else 0
+                        status_counts = count_bom_recommendation_statuses(current_bom_result_df) if isinstance(current_bom_result_df, pd.DataFrame) else count_bom_recommendation_statuses(pd.DataFrame())
                         final_done_state = dict(progress_state_holder["state"] or {})
                         base_done_chips = [
                             chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
@@ -23089,7 +24673,13 @@ if uploaded_file is not None:
                                 {"label": "状态", "value": "可下载", "tone": "success"},
                             ] + base_done_chips,
                             "summary_lines": [
-                                f"解析完成：匹配成功 {success_count} 行，解析失败 {fail_count} 行，无匹配 {no_match_count} 行。",
+                                (
+                                    f"解析完成：可推荐 {status_counts['可推荐']} 行，"
+                                    f"需确认 {status_counts['需确认']} 行，"
+                                    f"参数冲突 {status_counts['参数冲突']} 行，"
+                                    f"解析失败 {status_counts['解析失败']} 行，"
+                                    f"无匹配 {status_counts['无匹配']} 行。"
+                                ),
                             ] + ([component_distribution_text] if component_distribution_text else []),
                         })
                         render_bom_progress_card(progress_placeholder, final_done_state)
@@ -23101,9 +24691,7 @@ if uploaded_file is not None:
                     bom_view_df = bom_display_df.copy()
                     styled_bom_result_df = style_bom_result_rows(bom_view_df)
 
-                    fail_count = int((bom_result_df["解析状态"] == "解析失败").sum()) if "解析状态" in bom_result_df.columns else 0
-                    no_match_count = int((bom_result_df["状态"] == "无匹配").sum()) if "状态" in bom_result_df.columns else 0
-                    success_count = int((bom_result_df["状态"] == "匹配成功").sum()) if "状态" in bom_result_df.columns else 0
+                    status_counts = count_bom_recommendation_statuses(bom_result_df)
                     component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
                     st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
