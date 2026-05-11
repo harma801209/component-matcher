@@ -16,6 +16,7 @@ RES_1206_0R22,0R22 5% 1206,resistor,1206,,220,MILLIOHM,5,,0,Compact low-ohm resi
 RES_0805_4R7_EXACT,"C Res't : 4.7 Ohm, +/-1%, 1/8W, SMD0805",resistor,0805,,4.7,OHM,1,,1,0805 4.7 ohm resistor query should stay in normal resistor families instead of drifting into Murata PRG PTC rows
 RES_2512_R005_1W,R005 1% 2512 1W,resistor,2512,,5,MILLIOHM,1,,0,Low-ohm high-power resistor query should keep 2512 package and 1W power
 RES_2512_5MOHM_2W,5mΩ 1% 2512 2W,resistor,2512,,5,MILLIOHM,1,,0,Milliohm resistor query should parse 5mΩ with 2512 package and 2W power
+RES_BRAND_PRIORITY_R005,R005 1% 1206 1W,resistor,1206,,5,MILLIOHM,1,,1,Resistor complete matches should prefer stocked brands in order: PDC > Walsin > Uni-Royal > Fojan,信昌,
 
 PDC_MT03N100J500CT,MT03N100J500CT,part,0201,COG(NPO),10,PF,5,50,1,PDC MT series sample should parse as ??PDC instead of Walsin
 ELEC_SPEC_270UF,铝电容_270uF_±20%_16V_-25-105℃_5000h_6.6×7.2mm_贴片_消费,electrolytic,,,270,UF,20,16,0,Electrolytic spec query should keep value tolerance voltage and route into the aluminum electrolytic parser
@@ -25,3 +26,23 @@ JIANGHAI_WBZ_STOCK,ECS2WBZ471MLA350040V,part,,,470,UF,20,450,0,Jianghai stock-si
 
 PDC_MT43X104K152EHE,MT43X104K152EHE,part,1812,X7R,100,NF,10,1500,0,Old catalog MT query should borrow size 43 and 152V from official naming rules
 PDC_FN18_WALSIN_PRIORITY,FN18X104K500PBG,part,0603,X7R,100,NF,10,50,1,PDC 0603 X7R 100nF 50V should keep Walsin ahead of HRE/Murata/TDK when all rows are complete matches,WALSIN,
+WALSIN_WR08W_10K,WR08W1002FTL,part_partial,0805,,10,KOHM,1,,0,Walsin WR08W model should parse 1002 as 10K instead of the WR08W prefix as 80mohm
+SEMI_MOS_AO3400A,AO3400A,part,,,,,,30,1,Supported semiconductor MOSFET model should resolve from the seeded official library,AOSMD,AO3400A
+SEMI_DIODE_1N4148,1N4148,part,,,,,,100,1,Supported diode model should resolve from the seeded official library,Nexperia,1N4148
+SEMI_DIODE_SS34,SS34,part,,,,,,40,1,Supported Schottky diode model should resolve from the seeded official library,Vishay,SS34
+SEMI_DIODE_BAT54,BAT54,part,,,,,,30,1,Supported Schottky diode model should resolve from the seeded official library,Diodes Incorporated,BAT54
+SEMI_BJT_S8050,S8050,part,,,,,,25,1,Supported BJT model should resolve from the seeded official library,Rectron,S8050
+SEMI_BJT_BC817,BC817,part,,,,,,45,1,Supported BJT model should resolve from the seeded official library,Nexperia,BC817
+SEMI_MOS_SI2302CDS,SI2302CDS,part,,,,,,20,1,Supported MOSFET model should resolve from the seeded official library,Vishay,SI2302CDS
+SEMI_MOS_SI2302_PREFIX,SI2302,part_partial,,,,,,20,1,Semiconductor prefix should show source-backed candidates but require suffix confirmation,Vishay,SI2302CDS
+SEMI_DIODE_1N4007,1N4007,part,,,,,,1000,1,Supported rectifier diode model should resolve from the seeded official library,onsemi,1N4007
+SEMI_DIODE_SS14,SS14,part,,,,,,40,1,Supported 1A Schottky diode model should resolve from the seeded official library,Vishay,SS14
+SEMI_DIODE_SS54,SS54,part,,,,,,40,1,Supported 5A Schottky diode model should resolve from the seeded official library,Vishay,SS54
+SEMI_BJT_MMBT2222A,MMBT2222A,part,,,,,,40,1,Supported NPN BJT model should resolve from the seeded official library,onsemi,MMBT2222A
+SEMI_TVS_SMAJ5CA,SMAJ5.0CA,part,,,,,,5,1,Supported TVS model should resolve from the seeded official library,Diodes Incorporated,SMAJ5.0CA
+SEMI_TVS_SMBJ12CA,SMBJ12CA,part,,,,,,12,1,Supported TVS model should resolve from the seeded official library,Littelfuse,SMBJ12CA
+MLCC_SPEC_0402_X5R_1UF_6R3,0402 X5R 1uF 6.3V +/-10%,spec,0402,X5R,1,UF,10,6.3,1,Small MLCC spec should stay MLCC instead of being routed as aluminum electrolytic
+MLCC_SPEC_1206_X7R_1UF_K,1206 x7r 1uf k,spec,1206,X7R,1,UF,10,,1,MLCC spec with dielectric token and no voltage should stay MLCC instead of aluminum electrolytic
+SEMI_MOS_STP55NF06L,STP55NF06L,part,,,,,,60,1,ST power MOSFET model should stay as a part query instead of being parsed as a 55nF capacitor,STMicroelectronics,STP55NF06L
+SEMI_DIODE_CUS10F40,CUS10F40,part,,,,,,40,1,Toshiba Schottky diode seed should be searchable by exact model,Toshiba,CUS10F40
+SEMI_TVS_CDSOD323_T05C,CDSOD323-T05C,part,,,,,,5,1,Bourns TVS seed should be searchable by exact model,Bourns,CDSOD323-T05C

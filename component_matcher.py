@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 19
+QUERY_RESULT_CACHE_VERSION = 20
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-11T19:50:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-11T22:55:00+08:00"
 
 
 def startup_trace(message):
@@ -9033,13 +9033,17 @@ def detect_unsupported_semiconductor_type(text):
         return "MOSFET"
     if re.fullmatch(r"(?:IRF|IRL|IRFS|IRLR|IRFR)[A-Z]*\d+[A-Z0-9-]*", model):
         return "MOSFET"
+    if re.fullmatch(r"(?:STP|STW|STF|STL|STD|DMN|DMP|RQ|SSM|PMV|PSMN)[A-Z0-9-]*\d+[A-Z0-9-]*", model):
+        return "MOSFET"
     if re.fullmatch(r"2N700[02][A-Z0-9-]*", model):
         return "MOSFET"
-    if re.fullmatch(r"(?:1N|BAV|BAT|SS|MBR|FR|UF|HER)\d+[A-Z0-9-]*", model):
+    if re.fullmatch(r"(?:1N|BAV|BAT|SS|SK|RB|CUS|DSA|MBR|FR|UF|HER)\d+[A-Z0-9-]*", model):
         return "二极管"
     if re.fullmatch(r"(?:SMBJ|SMAJ|SMCJ|PESD|ESD)\d?[A-Z0-9.]+", model):
         return "TVS二极管"
-    if re.fullmatch(r"(?:2N|MMBT|S)\d{3,5}[A-Z0-9-]*", model):
+    if re.fullmatch(r"(?:CDSOD|ESDA)[A-Z0-9.-]+", model):
+        return "TVS二极管"
+    if re.fullmatch(r"(?:2N|2SC|2SA|2STR|MMBT|UMT|S)\d{3,5}[A-Z0-9-]*", model):
         return "三极管"
     if "MOS" in compact and re.search(r"(?:沟道|CHANNEL|RDS|场效应)", upper, flags=re.I):
         return "MOSFET"
