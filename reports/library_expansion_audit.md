@@ -1,9 +1,9 @@
 # Library Expansion Audit
 
-- Generated: 2026-05-11 22:04:59
+- Generated: 2026-05-12 00:06:06
 - Target pairs: 173
-- Covered pairs: 122
-- Gap pairs: 51
+- Covered pairs: 137
+- Gap pairs: 36
 
 ## Priority Gaps
 
@@ -21,14 +21,7 @@
 | passive | 合金电阻 | Isabellenhuette | 883 | 24 |
 | passive | 合金电阻 | Bourns | 883 | 24 |
 | passive | 合金电阻 | Rohm | 883 | 24 |
-| passive | 贴片压敏电阻 | Murata | 12820 | 59 |
-| passive | 引线型压敏电阻 | TDK | 11 | 2 |
-| passive | 引线型压敏电阻 | Bourns | 11 | 2 |
-| passive | 引线型压敏电阻 | Littelfuse | 11 | 2 |
-| passive | 引线型压敏电阻 | Panasonic | 11 | 2 |
-| passive | 引线型压敏电阻 | Vishay | 11 | 2 |
-| passive | 引线型压敏电阻 | Epcos | 11 | 2 |
-| passive | 引线型压敏电阻 | Joyin | 11 | 2 |
+| passive | 贴片压敏电阻 | Murata | 12817 | 59 |
 | passive | 射频电感 | Sunlord | 6522 | 7 |
 | passive | 射频电感 | Coilcraft | 6522 | 7 |
 | passive | 射频电感 | Wurth | 6522 | 7 |
@@ -41,14 +34,6 @@
 | passive | 铝电解电容 | Samwha | 15411 | 5 |
 | passive | 铝电解电容 | Aishi | 15411 | 5 |
 | passive | 铝电解电容 | CapXon | 15411 | 5 |
-| passive | 薄膜电容 | KEMET | 0 | 0 |
-| passive | 薄膜电容 | WIMA | 0 | 0 |
-| passive | 薄膜电容 | Panasonic | 0 | 0 |
-| passive | 薄膜电容 | TDK | 0 | 0 |
-| passive | 薄膜电容 | Vishay | 0 | 0 |
-| passive | 薄膜电容 | Epcos | 0 | 0 |
-| passive | 薄膜电容 | CDE | 0 | 0 |
-| passive | 薄膜电容 | Nichicon | 0 | 0 |
 | passive | 晶振 | Abracon | 27 | 1 |
 | passive | 晶振 | TXC | 27 | 1 |
 | passive | 晶振 | NDK | 27 | 1 |
@@ -114,12 +99,19 @@
 | passive | 热敏电阻 | Mitsubishi | 1 |
 | passive | 热敏电阻 | Sunlord | 65 |
 | passive | 贴片压敏电阻 | TDK | 1091 |
-| passive | 贴片压敏电阻 | Bourns | 792 |
-| passive | 贴片压敏电阻 | Littelfuse | 5220 |
-| passive | 贴片压敏电阻 | Panasonic | 1063 |
+| passive | 贴片压敏电阻 | Bourns | 791 |
+| passive | 贴片压敏电阻 | Littelfuse | 5219 |
+| passive | 贴片压敏电阻 | Panasonic | 1062 |
 | passive | 贴片压敏电阻 | Vishay | 495 |
 | passive | 贴片压敏电阻 | Sunlord | 72 |
 | passive | 贴片压敏电阻 | Yageo | 14 |
+| passive | 引线型压敏电阻 | TDK | 1 |
+| passive | 引线型压敏电阻 | Bourns | 1 |
+| passive | 引线型压敏电阻 | Littelfuse | 1 |
+| passive | 引线型压敏电阻 | Panasonic | 1 |
+| passive | 引线型压敏电阻 | Vishay | 1 |
+| passive | 引线型压敏电阻 | Epcos | 1 |
+| passive | 引线型压敏电阻 | Joyin | 1 |
 | passive | 功率电感 | Murata | 1869 |
 | passive | 功率电感 | TDK | 4 |
 | passive | 功率电感 | Taiyo Yuden | 6793 |
@@ -153,6 +145,14 @@
 | passive | 铝电解电容 | Panasonic | 331 |
 | passive | 铝电解电容 | Nippon Chemi-Con | 5543 |
 | passive | 铝电解电容 | Jianghai | 4661 |
+| passive | 薄膜电容 | KEMET | 1 |
+| passive | 薄膜电容 | WIMA | 1 |
+| passive | 薄膜电容 | Panasonic | 1 |
+| passive | 薄膜电容 | TDK | 1 |
+| passive | 薄膜电容 | Vishay | 1 |
+| passive | 薄膜电容 | Epcos | 1 |
+| passive | 薄膜电容 | CDE | 1 |
+| passive | 薄膜电容 | Nichicon | 1 |
 | passive | 晶振 | Epson | 27 |
 | passive | 振荡器 | Epson | 150 |
 | semiconductor | MOSFET | Infineon | 3 |
@@ -170,18 +170,3 @@
 | semiconductor | 二极管 | Nexperia | 2 |
 | semiconductor | 二极管 | STMicroelectronics | 1 |
 | semiconductor | 二极管 | ROHM | 1 |
-| semiconductor | 二极管 | Toshiba | 1 |
-| semiconductor | 二极管 | Littelfuse | 1 |
-| semiconductor | 二极管 | MCC | 1 |
-| semiconductor | 三极管 | Nexperia | 6 |
-| semiconductor | 三极管 | onsemi | 2 |
-| semiconductor | 三极管 | Diodes Incorporated | 1 |
-| semiconductor | 三极管 | ROHM | 1 |
-| semiconductor | 三极管 | Toshiba | 1 |
-| semiconductor | 三极管 | STMicroelectronics | 1 |
-| semiconductor | 三极管 | Rectron | 1 |
-| semiconductor | TVS二极管 | Diodes Incorporated | 2 |
-| semiconductor | TVS二极管 | Littelfuse | 1 |
-| semiconductor | TVS二极管 | Vishay | 1 |
-| semiconductor | TVS二极管 | onsemi | 1 |
-| semiconductor | TVS二极管 | Nexperia | 1 |

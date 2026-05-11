@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 20
+QUERY_RESULT_CACHE_VERSION = 21
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-11T22:55:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-12T00:42:00+08:00"
 
 
 def startup_trace(message):
@@ -3646,6 +3646,9 @@ def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
 
 
 def parse_generic_resistor_model(model, brand="", component_type=""):
+    normalized_component_type = normalize_component_type(component_type)
+    if normalized_component_type not in RESISTOR_COMPONENT_TYPES | {"热敏电阻", ""}:
+        return None
     if not resistor_model_rule_candidate(model, brand=brand, component_type=component_type):
         return None
     compact = clean_model(model)
@@ -17299,6 +17302,14 @@ def prepare_search_dataframe(df):
         work["_volt"] = work["耐压（V）"].astype(str).apply(clean_voltage)
     if "_pf" not in work.columns:
         work["_pf"] = pd.to_numeric(work["容值_pf"], errors="coerce")
+    computed_pf = work.apply(lambda r: cap_to_pf(r.get("容值", ""), r.get("容值单位", "")), axis=1)
+    computed_pf_numeric = pd.to_numeric(computed_pf, errors="coerce")
+    missing_pf_mask = pd.to_numeric(work["_pf"], errors="coerce").isna() & computed_pf_numeric.notna()
+    if missing_pf_mask.any():
+        work.loc[missing_pf_mask, "_pf"] = computed_pf_numeric.loc[missing_pf_mask]
+    missing_value_pf_mask = pd.to_numeric(work["容值_pf"], errors="coerce").isna() & computed_pf_numeric.notna()
+    if missing_value_pf_mask.any():
+        work.loc[missing_value_pf_mask, "容值_pf"] = computed_pf_numeric.loc[missing_value_pf_mask]
     if "_tol_kind" not in work.columns or "_tol_num" not in work.columns:
         tol_keys = work["_tol"].apply(tolerance_sort_key)
         if "_tol_kind" not in work.columns:
@@ -21819,6 +21830,11 @@ def detect_query_mode_and_spec(df, line):
             if spec.get("_param_count", 0) < 3:
                 return "规格不足", spec
             return "规格", spec
+
+    if looks_like_compact_part_query(line):
+        spec = reverse_spec(df, line)
+        if spec is not None and count_core_params(spec) >= 3:
+            return "料号", spec
 
     other_spec = parse_other_passive_query(line)
     if other_spec is not None:

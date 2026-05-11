@@ -4,25 +4,37 @@ import json
 import os
 import sqlite3
 import tempfile
+import importlib
 from pathlib import Path
 
 import pandas as pd
 
 import component_matcher as cm
-from sync_semiconductor_seed import SEED_ROWS
 
 
 ROOT = Path(__file__).resolve().parent
+SEED_MODULE_NAMES = [
+    "sync_semiconductor_seed",
+    "sync_passive_gap_seed",
+]
 
 
 def clean_model_key(value: object) -> str:
     return str(value or "").upper().replace("-", "").replace(" ", "").replace("_", "")
 
 
+def iter_seed_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for module_name in SEED_MODULE_NAMES:
+        module = importlib.import_module(module_name)
+        rows.extend(getattr(module, "SEED_ROWS", []))
+    return rows
+
+
 def seed_brand_model_pairs() -> list[tuple[str, str, str]]:
     pairs: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for row in SEED_ROWS:
+    for row in iter_seed_rows():
         brand = str(row.get("品牌", "") or "").strip()
         model = str(row.get("型号", "") or "").strip()
         if not brand or not model:

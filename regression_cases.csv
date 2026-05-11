@@ -46,3 +46,7 @@ MLCC_SPEC_1206_X7R_1UF_K,1206 x7r 1uf k,spec,1206,X7R,1,UF,10,,1,MLCC spec with 
 SEMI_MOS_STP55NF06L,STP55NF06L,part,,,,,,60,1,ST power MOSFET model should stay as a part query instead of being parsed as a 55nF capacitor,STMicroelectronics,STP55NF06L
 SEMI_DIODE_CUS10F40,CUS10F40,part,,,,,,40,1,Toshiba Schottky diode seed should be searchable by exact model,Toshiba,CUS10F40
 SEMI_TVS_CDSOD323_T05C,CDSOD323-T05C,part,,,,,,5,1,Bourns TVS seed should be searchable by exact model,Bourns,CDSOD323-T05C
+FILM_KEMET_R82DC,R82DC3100AA50J,part,,PET,100,NF,5,63,1,KEMET film capacitor seed should be searchable and keep 0.1uF 63V 5%,KEMET,R82DC
+FILM_VISHAY_MKP1848,MKP1848C51060JK2,part,,PP,1,UF,5,600,1,Vishay MKP film capacitor model should be treated as an exact part query,Vishay,MKP1848C51060JK2
+FILM_SPEC_100NF_63V_PET,薄膜电容 0.1uF 63V 5% PET,film,,PET,100,NF,5,63,2,Film capacitor spec should find source-backed PET 0.1uF 63V candidates,KEMET,R82DC
+VAR_MOV14D471K,MOV-14D471K,varistor,,,,,,470,3,Leaded varistor code should not be parsed as a resistor and should find 470V 14D candidates,Bourns,MOV-14D471K

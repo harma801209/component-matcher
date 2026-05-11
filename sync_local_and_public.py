@@ -48,6 +48,7 @@ PUBLISH_FILES = [
     "sync_local_and_public.cmd",
     "sync_samsung_power_inductors.py",
     "sync_semiconductor_seed.py",
+    "sync_passive_gap_seed.py",
     "incremental_semiconductor_cache_update.py",
     "audit_library_expansion.py",
     "reports/library_expansion_audit.csv",
