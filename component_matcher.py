@@ -663,6 +663,8 @@ MODEL_REVERSE_LOOKUP_COLUMNS = [
     "_model_clean", "品牌", "型号", "系列", "器件类型", "尺寸（inch）", "尺寸（mm）", "材质（介质）", "容值",
     "容值单位", "容值误差", "耐压（V）", "长度（mm）", "宽度（mm）", "高度（mm）", "工作温度", "寿命（h）", "规格摘要", "特殊用途", "备注1", "备注2", "备注3", "安装方式", "封装代码",
     "额定电流", "DCR", "极性", "生产状态", "官网链接", "数据来源", "数据状态",
+    "_resistance_ohm", "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+    "共模阻抗", "阻抗单位", "回路数", "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
     "输出频率", "频率", "频率单位", "频差（ppm）", "电源电压", "输出类型", "占空比", "负载电容（pF）", "ESR", "驱动电平",
     "_model_rule_authority",
 ]
@@ -3752,7 +3754,10 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         merged["容值单位"] = unit
 
     parsed_resistance = parsed_rule.get("_resistance_ohm", None)
-    if parsed_resistance is not None:
+    current_resistance = merged.get("_resistance_ohm", None)
+    if parsed_resistance is not None and (
+        override_conflicts or current_resistance is None or clean_text(current_resistance) == ""
+    ):
         merged["_resistance_ohm"] = parsed_resistance
         value, unit = ohm_to_library_value_unit(parsed_resistance)
         merged["容值"] = value
@@ -3785,6 +3790,33 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         if power_text != "" and (override_conflicts or merged.get("_power_watt", None) is None or pd.isna(merged.get("_power_watt", None))):
             merged["_power_watt"] = parse_power_to_watts(power_text)
     return merged
+
+
+def component_type_parse_family(component_type):
+    normalized = normalize_component_type(component_type)
+    if normalized in CAPACITOR_COMPONENT_TYPES:
+        return "capacitor"
+    if normalized in RESISTOR_COMPONENT_TYPES:
+        return "resistor"
+    if normalized in INDUCTOR_COMPONENT_TYPES:
+        return "inductor"
+    if normalized in TIMING_COMPONENT_TYPES:
+        return "timing"
+    if normalized in VARISTOR_COMPONENT_TYPES:
+        return "varistor"
+    if normalized in SEMICONDUCTOR_COMPONENT_TYPES:
+        return "semiconductor"
+    return normalized
+
+
+def parsed_rule_matches_record_family(record_component_type, parsed_rule):
+    current_type = normalize_component_type(record_component_type)
+    parsed_type = normalize_component_type(parsed_rule.get("器件类型", "")) if parsed_rule else ""
+    if parsed_type == "" and parsed_rule:
+        parsed_type = normalize_component_type(infer_spec_component_type(parsed_rule))
+    if current_type == "" or parsed_type == "":
+        return True
+    return component_type_parse_family(current_type) == component_type_parse_family(parsed_type)
 
 
 def apply_model_rule_overrides_to_dataframe(df, override_conflicts=False):
@@ -18238,8 +18270,19 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         record["容值"] = value
         record["容值单位"] = unit
     elif pd.notna(value_num):
-        record["容值"] = format_sidecar_numeric_display(value_num)
-        record["容值单位"] = clean_text(detail_row.get("_unit_upper", "")).upper()
+        value_text = format_sidecar_numeric_display(value_num)
+        unit_text = clean_text(detail_row.get("_unit_upper", "")).upper()
+        record["容值"] = value_text
+        record["容值单位"] = unit_text
+        if component_type == "共模电感":
+            record["共模阻抗"] = value_text
+            record["阻抗单位"] = unit_text
+        elif component_type == "磁珠":
+            record["阻抗@100MHz"] = value_text
+            record["阻抗单位"] = unit_text
+        elif component_type in INDUCTOR_COMPONENT_TYPES:
+            record["电感值"] = value_text
+            record["电感单位"] = unit_text
 
     if include_model_rule:
         parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
@@ -19941,6 +19984,31 @@ def reverse_spec(df, model):
             row_tol_value = row_tol_value or clean_text(row.get("频差（ppm）", ""))
             row_voltage_value = row_voltage_value or clean_voltage(row.get("电源电压", ""))
         pf = cap_to_pf(raw_value, raw_unit) if component_type in CAPACITOR_COMPONENT_TYPES else None
+        resistance_ohm = None
+        if component_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+            summary_resistance = find_resistance_in_text(clean_text(row.get("规格摘要", "")))
+            explicit_resistance = find_resistance_in_text(
+                " ".join(
+                    part
+                    for part in [
+                        clean_text(row.get("阻值@25C", "")),
+                        clean_text(row.get("阻值单位", "")),
+                    ]
+                    if part != ""
+                )
+            )
+            if summary_resistance is not None:
+                resistance_ohm = summary_resistance
+            elif explicit_resistance is not None:
+                resistance_ohm = explicit_resistance
+            else:
+                try:
+                    stored_resistance = row.get("_resistance_ohm", None)
+                    resistance_ohm = None if clean_text(stored_resistance) == "" else float(stored_resistance)
+                except Exception:
+                    resistance_ohm = None
+            if resistance_ohm is None:
+                resistance_ohm = find_resistance_in_text(row_text)
         db_spec = {
             "品牌": clean_brand(row["品牌"]),
             "型号": clean_model(row["型号"]),
@@ -19961,11 +20029,25 @@ def reverse_spec(df, model):
             "额定电流": format_current_display(row.get("额定电流", "")),
             "DCR": clean_text(row.get("DCR", "")),
             "极性": clean_text(row.get("极性", "")),
+            "阻值@25C": clean_text(row.get("阻值@25C", "")),
+            "阻值单位": normalize_library_value_unit(row.get("阻值单位", "")),
+            "阻值误差": clean_tol_for_match(row.get("阻值误差", "")),
+            "B值": normalize_b_value_text(row.get("B值", "")),
+            "B值条件": clean_text(row.get("B值条件", "")),
+            "共模阻抗": clean_text(row.get("共模阻抗", "")),
+            "阻抗单位": normalize_library_value_unit(row.get("阻抗单位", "")),
+            "回路数": clean_text(row.get("回路数", "")),
+            "电感值": clean_text(row.get("电感值", "")),
+            "电感单位": clean_text(row.get("电感单位", "")).upper(),
+            "电感误差": clean_tol_for_match(row.get("电感误差", "")),
+            "饱和电流": format_current_display(row.get("饱和电流", "")),
+            "屏蔽类型": clean_text(row.get("屏蔽类型", "")),
+            "阻抗@100MHz": clean_text(row.get("阻抗@100MHz", "")),
             "_mlcc_series_class": clean_text(row.get("_mlcc_series_class", "")),
             "封装代码": clean_text(row.get("封装代码", "")),
             "尺寸（mm）": clean_text(row.get("尺寸（mm）", "")),
             "规格摘要": clean_text(row.get("规格摘要", "")),
-            "_resistance_ohm": find_resistance_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}) else None,
+            "_resistance_ohm": resistance_ohm,
             "_power": find_power_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES) else "",
             "_body_size": extract_body_size_from_text(row_text) if component_type in {"铝电解电容", "薄膜电容", "引线型陶瓷电容"} else clean_text(row.get("尺寸（mm）", "")),
             "_pitch": extract_pitch_from_text(row_text) if component_type in ({"铝电解电容", "薄膜电容", "引线型陶瓷电容"} | VARISTOR_COMPONENT_TYPES) else "",
@@ -19982,16 +20064,17 @@ def reverse_spec(df, model):
             "负载电容（pF）": clean_text(row.get("负载电容（pF）", "")),
             "驱动电平": clean_text(row.get("驱动电平", "")),
         }
-        if parsed_rule is not None:
+        if parsed_rule is not None and parsed_rule_matches_record_family(component_type, parsed_rule):
             row_is_jianghai = (
                 "JIANGHAI" in clean_text(row_brand).upper()
                 or "江海" in row_brand
                 or jianghai_series_code_from_model(m) != ""
             )
+            override_rule_conflicts = (not row_is_jianghai) and component_type in CAPACITOR_COMPONENT_TYPES
             db_spec = merge_parsed_rule_into_record(
                 db_spec,
                 parsed_rule,
-                override_conflicts=(not row_is_jianghai),
+                override_conflicts=override_rule_conflicts,
             )
         if component_type == "MLCC":
             mlcc_profile = resolve_mlcc_series_profile(
@@ -22172,8 +22255,9 @@ def detect_query_mode_and_spec(df, line):
             return "规格", spec
 
     if looks_like_compact_part_query(line):
+        exact_row = lookup_model_reverse_row(df, line)
         spec = reverse_spec(df, line)
-        if spec is not None and count_core_params(spec) >= 3:
+        if spec is not None and (exact_row is not None or count_core_params(spec) >= 3):
             return "料号", spec
 
     other_spec = parse_other_passive_query(line)
@@ -22183,8 +22267,9 @@ def detect_query_mode_and_spec(df, line):
         return normalized_other_passive_mode(other_spec), other_spec
 
     if looks_like_compact_part_query(line):
+        exact_row = lookup_model_reverse_row(df, line)
         spec = reverse_spec(df, line)
-        if spec is not None and count_core_params(spec) >= 3:
+        if spec is not None and (exact_row is not None or count_core_params(spec) >= 3):
             return "料号", spec
 
         part_spec = reverse_spec_partial(line)
@@ -22194,6 +22279,10 @@ def detect_query_mode_and_spec(df, line):
     if looks_like_spec_query(line):
         spec = parse_spec_query(line)
         if spec is None:
+            exact_row = lookup_model_reverse_row(df, line)
+            exact_spec = reverse_spec(df, line)
+            if exact_row is not None and exact_spec is not None:
+                return "料号", exact_spec
             return "无法识别", None
         if spec.get("_param_count", 0) < 3:
             return "规格不足", spec

@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-05-12 - Exact passive part rows downgraded or overwritten during fallback parsing
+
+- Bug: Exact passive models that already existed in the DB could be downgraded to `spec insufficient` / `unrecognized`, or could return the wrong family/value after generic model parsing. Observed examples included `PMR18EZPFU10L0`, `RTT021002FTH`, `CSS2H-2512R-L500F`, `CM0805D900R-10`, `0805USB-901MLC`, and `0402CS-2N2XJLU`.
+- Cause: The router required capacitor-oriented core-param counts before accepting some exact part hits; incompatible parsed-model families could overwrite a stored DB family; parsed resistor model values could replace a better summary-derived resistance; and the reverse lookup subset omitted inductor/common-mode detail fields needed for exact-part specs.
+- Fix: Preserve exact DB hits as `料号`, gate parsed-rule merging by component-family compatibility, avoid overwriting an existing resistance unless conflicts are intentionally allowed, prioritize summary/explicit resistance extraction before model-text heuristics, and include reverse-lookup fields for resistor/inductor detail values.
+- Fix: The search-sidecar lightweight fallback now reconstructs `共模阻抗`, `电感值`, and `阻抗@100MHz` from sidecar value tables in no-DB public mode.
+- Verification: All `25` newly added exact passive seed models route as `料号`; targeted checks return corrected values for `PMR18EZPFU10L0=10mΩ`, `RTT021002FTH=10kΩ`, `CM0805D900R-10=90Ω common-mode`, `0805USB-901MLC=290Ω`, `0402CS-2N2XJLU=2.2nH`, and `HI0805R800R-10=80Ω@100MHz`. Simulated no-DB public mode returns the same family-specific core values for representative samples.
+
 ## 2026-05-12 - Semiconductor display reused generic capacitor-style detail fields
 
 - Bug: Semiconductor rows such as `SS34`, `AO3400A`, and `MMBT3904` stored their key values in compatibility fields like `耐压（V）` and `DCR`, but the visible detail text collapsed to generic output such as `耐压: 40V`.
