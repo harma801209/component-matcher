@@ -50,3 +50,7 @@ FILM_KEMET_R82DC,R82DC3100AA50J,part,,PET,100,NF,5,63,1,KEMET film capacitor see
 FILM_VISHAY_MKP1848,MKP1848C51060JK2,part,,PP,1,UF,5,600,1,Vishay MKP film capacitor model should be treated as an exact part query,Vishay,MKP1848C51060JK2
 FILM_SPEC_100NF_63V_PET,薄膜电容 0.1uF 63V 5% PET,film,,PET,100,NF,5,63,2,Film capacitor spec should find source-backed PET 0.1uF 63V candidates,KEMET,R82DC
 VAR_MOV14D471K,MOV-14D471K,varistor,,,,,,470,3,Leaded varistor code should not be parsed as a resistor and should find 470V 14D candidates,Bourns,MOV-14D471K
+TIMING_CRYSTAL_ABRACON_ABM3B,ABM3B-8.000MHZ-B2-T,part,5032,,8,MHZ,20PPM,,1,Abracon crystal exact model should resolve from source backed seed,Abracon,ABM3B
+TIMING_CRYSTAL_SPEC_16MHZ_3225,晶振 16MHz 3225,crystal,3225,,16,MHZ,,,4,Crystal 16MHz 3225 spec should not be routed to insufficient MLCC spec,KDS,DSX321G
+TIMING_OSC_SITIME_SIT1602,SiT1602BI-13-33E-25.000000,part,2520,,25,MHZ,50PPM,3.3,1,SiTime oscillator exact model should resolve from source backed seed,SiTime,SIT1602
+TIMING_OSC_SPEC_25MHZ_3V3_CMOS,振荡器 25MHz 3.3V CMOS,oscillator,,,25,MHZ,,3.3,3,Oscillator 25MHz 3.3V CMOS spec should find CMOS oscillator candidates,Abracon,ASE

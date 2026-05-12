@@ -1,9 +1,9 @@
 # Library Expansion Audit
 
-- Generated: 2026-05-12 00:06:06
+- Generated: 2026-05-12 10:28:32
 - Target pairs: 173
-- Covered pairs: 137
-- Gap pairs: 36
+- Covered pairs: 148
+- Gap pairs: 25
 
 ## Priority Gaps
 
@@ -34,17 +34,6 @@
 | passive | 铝电解电容 | Samwha | 15411 | 5 |
 | passive | 铝电解电容 | Aishi | 15411 | 5 |
 | passive | 铝电解电容 | CapXon | 15411 | 5 |
-| passive | 晶振 | Abracon | 27 | 1 |
-| passive | 晶振 | TXC | 27 | 1 |
-| passive | 晶振 | NDK | 27 | 1 |
-| passive | 晶振 | Kyocera | 27 | 1 |
-| passive | 晶振 | Murata | 27 | 1 |
-| passive | 晶振 | KDS | 27 | 1 |
-| passive | 振荡器 | Abracon | 150 | 1 |
-| passive | 振荡器 | TXC | 150 | 1 |
-| passive | 振荡器 | NDK | 150 | 1 |
-| passive | 振荡器 | Kyocera | 150 | 1 |
-| passive | 振荡器 | SiTime | 150 | 1 |
 
 ## Covered Targets
 
@@ -154,19 +143,19 @@
 | passive | 薄膜电容 | CDE | 1 |
 | passive | 薄膜电容 | Nichicon | 1 |
 | passive | 晶振 | Epson | 27 |
+| passive | 晶振 | Abracon | 1 |
+| passive | 晶振 | TXC | 1 |
+| passive | 晶振 | NDK | 1 |
+| passive | 晶振 | Kyocera | 1 |
+| passive | 晶振 | Murata | 1 |
+| passive | 晶振 | KDS | 1 |
 | passive | 振荡器 | Epson | 150 |
+| passive | 振荡器 | Abracon | 1 |
+| passive | 振荡器 | TXC | 1 |
+| passive | 振荡器 | NDK | 1 |
+| passive | 振荡器 | Kyocera | 1 |
+| passive | 振荡器 | SiTime | 1 |
 | semiconductor | MOSFET | Infineon | 3 |
 | semiconductor | MOSFET | onsemi | 2 |
 | semiconductor | MOSFET | STMicroelectronics | 1 |
 | semiconductor | MOSFET | Vishay | 1 |
-| semiconductor | MOSFET | AOSMD | 2 |
-| semiconductor | MOSFET | Diodes Incorporated | 1 |
-| semiconductor | MOSFET | ROHM | 1 |
-| semiconductor | MOSFET | Toshiba | 1 |
-| semiconductor | MOSFET | Nexperia | 1 |
-| semiconductor | 二极管 | Diodes Incorporated | 2 |
-| semiconductor | 二极管 | Vishay | 4 |
-| semiconductor | 二极管 | onsemi | 2 |
-| semiconductor | 二极管 | Nexperia | 2 |
-| semiconductor | 二极管 | STMicroelectronics | 1 |
-| semiconductor | 二极管 | ROHM | 1 |
