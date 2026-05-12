@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 22
+QUERY_RESULT_CACHE_VERSION = 23
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-12T10:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-12T11:15:00+08:00"
 
 
 def startup_trace(message):
@@ -9764,7 +9764,17 @@ def looks_like_resistor_context(text):
     if any(token in compact for token in ["UF", "NF", "PF"]):
         return False
     has_compact_resistance = RESISTOR_VALUE_PATTERN.search(upper) is not None or RESISTOR_COMPACT_CONTEXT_PATTERN.search(upper) is not None
-    return has_compact_resistance and "%" in upper
+    if has_compact_resistance and "%" in upper:
+        return True
+
+    # Common purchasing shorthand omits "ohm"/"resistor", e.g. "0201 1/20W 0R".
+    # Keep the gate narrow so MLCC/order-code strings are not promoted to resistors.
+    if has_compact_resistance and find_power_in_text(upper) != "":
+        return True
+    zero_ohm_token = re.search(r"(?<![A-Z0-9])(?:0+(?:\.0+)?R|R0+|0+(?:\.0+)?\s*(?:Ω|OHM))(?![A-Z0-9])", upper, flags=re.I)
+    if zero_ohm_token and find_embedded_size(upper) != "":
+        return True
+    return False
 
 def build_other_component_summary(parts):
     return " ".join([clean_text(part) for part in parts if clean_text(part) != ""])

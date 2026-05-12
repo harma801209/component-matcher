@@ -53,4 +53,5 @@ VAR_MOV14D471K,MOV-14D471K,varistor,,,,,,470,3,Leaded varistor code should not b
 TIMING_CRYSTAL_ABRACON_ABM3B,ABM3B-8.000MHZ-B2-T,part,5032,,8,MHZ,20PPM,,1,Abracon crystal exact model should resolve from source backed seed,Abracon,ABM3B
 TIMING_CRYSTAL_SPEC_16MHZ_3225,晶振 16MHz 3225,crystal,3225,,16,MHZ,,,4,Crystal 16MHz 3225 spec should not be routed to insufficient MLCC spec,KDS,DSX321G
 TIMING_OSC_SITIME_SIT1602,SiT1602BI-13-33E-25.000000,part,2520,,25,MHZ,50PPM,3.3,1,SiTime oscillator exact model should resolve from source backed seed,SiTime,SIT1602
+RES_SPEC_0201_0R_1_20W,0201 1/20W 0R,resistor,0201,,0,OHM,,,1,Zero-ohm 0201 1/20W resistor spec should use fast resistor index and not skip,,
 TIMING_OSC_SPEC_25MHZ_3V3_CMOS,振荡器 25MHz 3.3V CMOS,oscillator,,,25,MHZ,,3.3,3,Oscillator 25MHz 3.3V CMOS spec should find CMOS oscillator candidates,Abracon,ASE
