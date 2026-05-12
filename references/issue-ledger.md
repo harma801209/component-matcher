@@ -7,6 +7,13 @@
 - Fix: Split semiconductor display schemas by device type (`MOSFET`, `二极管`, `TVS二极管`, `三极管`) and added semiconductor-specific detail labels such as `Vds`, `Id`, `Rds(on)`, `VRRM`, `IF(AV)`, `VRWM`, `Vceo`, and `Ic`.
 - Verification: Targeted checks now show semiconductor spec/detail output with device-specific labels instead of capacitor-style generic labels.
 
+## 2026-05-12 - KNSCHA DHF aluminum electrolytic exact model was unrecognized
+
+- Bug: `DHF025M687G160S1AA` is an aluminum electrolytic capacitor, but the search router returned `无法识别` because the exact model was absent from the source-backed seed/search index and no KNSCHA DHF fallback model rule existed.
+- Cause: Existing aluminum electrolytic model rules covered Jianghai and a few seeded brands; `DHF...` was neither in `components.db` nor in the public search sidecar.
+- Fix: Added a source-backed KNSCHA/科尼盛 DHF seed row for `680uF / ±20% / 25V / DIP / D8xL16mm / P=3.5mm / 105℃ / 5000h`, added a narrow exact fallback parser, and refreshed the public search sidecar/bundle parts.
+- Verification: Local DB and no-DB public-mode simulations both route `DHF025M687G160S1AA` as `料号 / 铝电解电容` with `680UF`, `25V`, `8*16mm`, and `P=3.5`; regression case `ALU_KNSCHA_DHF025M687` passes.
+
 ## 2026-05-12 - Zero-ohm resistor shorthand skipped when full fallback is unavailable
 
 - Bug: `0201 1/20W 0R` was parsed as an insufficient capacitor-style spec with only size `0201`, so public fast-index mode could not query the resistor library and displayed the full-library fallback warning.

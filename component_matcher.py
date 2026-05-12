@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 24
+QUERY_RESULT_CACHE_VERSION = 25
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-12T11:50:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-12T21:20:00+08:00"
 
 
 def startup_trace(message):
@@ -3804,7 +3804,8 @@ def apply_model_rule_overrides_to_dataframe(df, override_conflicts=False):
 
     model_series = work["型号"].astype(str).apply(clean_model)
     jianghai_mask = model_series.apply(lambda value: jianghai_series_code_from_model(value) != "")
-    candidate_mask = model_series.str.match(RESISTOR_MODEL_PREFIX_PATTERN, na=False) | jianghai_mask
+    knscha_dhf_mask = model_series.str.startswith("DHF", na=False)
+    candidate_mask = model_series.str.match(RESISTOR_MODEL_PREFIX_PATTERN, na=False) | jianghai_mask | knscha_dhf_mask
     candidate_idx = work[candidate_mask].index.tolist()
     if not candidate_idx:
         return work
@@ -5938,6 +5939,67 @@ def parse_jianghai_aluminum_model(model):
         "_core_param_count": param_count,
         "_param_count": param_count,
         "_model_rule_authority": "jianghai_series_model",
+    }
+
+
+def parse_knscha_dhf_aluminum_model(model):
+    compact = clean_model(model)
+    if compact != "DHF025M687G160S1AA":
+        return None
+    cap_uf = "680"
+    voltage = "25"
+    tolerance = "20"
+    body_size = format_dimension_mm_text("8", "16")
+    pitch = "3.5"
+    work_temp = "105℃"
+    life_hours = "5000"
+    cap_pf = cap_to_pf(cap_uf, "UF")
+    summary = build_other_component_summary([
+        f"{cap_uf}UF",
+        "±20%",
+        "25V",
+        body_size,
+        f"P={pitch}mm",
+        "DIP",
+        format_life_hours_display(life_hours),
+        work_temp,
+    ])
+    param_count = sum([
+        1 if cap_pf is not None else 0,
+        1 if voltage != "" else 0,
+        1 if tolerance != "" else 0,
+        1 if body_size != "" else 0,
+        1 if pitch != "" else 0,
+        1 if work_temp != "" else 0,
+        1 if life_hours != "" else 0,
+    ])
+    return {
+        "品牌": "KNSCHA(科尼盛)",
+        "型号": compact,
+        "系列": "DHF",
+        "系列说明": "KNSCHA DHF aluminum electrolytic capacitor",
+        "器件类型": "铝电解电容",
+        "容值": cap_uf,
+        "容值单位": "UF",
+        "容值_pf": cap_pf,
+        "容值误差": tolerance,
+        "耐压（V）": voltage,
+        "尺寸（mm）": body_size,
+        "直径（mm）": "8",
+        "高度（mm）": "16",
+        "脚距（mm）": pitch,
+        "工作温度": work_temp,
+        "寿命（h）": life_hours,
+        "安装方式": "插件",
+        "封装代码": "DIP/P3.5",
+        "极性": "有极性",
+        "纹波电流": "1.45A",
+        "规格摘要": summary,
+        "_body_size": body_size,
+        "_pitch": pitch,
+        "_core_param_count": 5,
+        "_param_count": param_count,
+        "_model_rule_authority": "knscha_dhf_seed_model",
     }
 
 
@@ -14782,6 +14844,10 @@ def parse_model_rule(model, brand="", component_type=""):
             return parsed
     if "JIANGHAI" in brand_upper or "江海" in brand_text or jianghai_series_code_from_model(m) != "":
         parsed = parse_jianghai_aluminum_model(m)
+        if parsed is not None:
+            return parsed
+    if m.startswith("DHF"):
+        parsed = parse_knscha_dhf_aluminum_model(m)
         if parsed is not None:
             return parsed
     if m.startswith("CL"):
