@@ -2012,3 +2012,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so resistor shorthand with a compact resistance plus power, or zero-ohm plus package size, is routed as a resistor spec. Bumped query cache version to `23` and refreshed public/runtime stamps to `2026-05-12T11:15:00+08:00`.
 - Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `RES_SPEC_0201_0R_1_20W`.
 - Verification: Targeted checks show `0201 1/20W 0R` now routes as `贴片电阻`, parses `0201 / 0Ω / 50mW`, loads the resistor search index, and returns matching rows. Guard checks for MLCC `0603B104K500CT`, MLCC spec `1206 x7r 1uf k`, varistor `MOV-14D471K`, and resistor `R005 1% 1206 1W` still route correctly.
+
+### 2026-05-12 11:50 [direct] Added component-specific display labels for semiconductor parameters
+
+- Received / problem: User pointed out that every component family has its own specification parameter titles, and the library/display should not keep exposing capacitor-style parameter headings for all devices.
+- Fix / action: Split semiconductor display schemas in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `MOSFET`, `二极管`, `TVS二极管`, and `三极管` use their own column labels (`Vds/Id/Rds(on)`, `VRRM/IF(AV)`, `VRWM/VBR`, `Vceo/Ic`, etc.) instead of one generic semiconductor column set. Added a semiconductor branch to `build_component_detail_lines(...)` so BOM/search detail text also uses device-specific labels.
+- Export behavior: When a BOM result is exported without an original source table to append to, the fallback export now uses the same compact display dataframe instead of raw internal compatibility columns such as `容值/容值单位`.
+- Verification: Targeted checks show `SS34` details now include `二极管类型 / VRRM / IF(AV) / 封装`, `AO3400A` includes `沟道/类型 / Vds / Id / Rds(on)`, `MMBT3904` includes `管型/用途 / Vceo / Ic`, and `SMAJ5.0CA` includes `TVS类型 / VRWM / 峰值脉冲功率`. Public/runtime stamps were refreshed to `2026-05-12T11:50:00+08:00`.

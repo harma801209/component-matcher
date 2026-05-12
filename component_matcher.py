@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 50000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 23
+QUERY_RESULT_CACHE_VERSION = 24
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-12T11:15:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-12T11:50:00+08:00"
 
 
 def startup_trace(message):
@@ -10493,6 +10493,58 @@ def build_component_detail_lines(
             lines.append(f"安装: {mounting_style}")
         return lines
 
+    if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        if special_use != "":
+            type_label = {
+                "MOSFET": "沟道/类型",
+                "二极管": "二极管类型",
+                "TVS二极管": "TVS类型",
+                "三极管": "管型/用途",
+            }.get(component_type, "类型")
+            lines.append(f"{type_label}: {special_use}")
+        if polarity != "":
+            polarity_label = {
+                "MOSFET": "沟道极性",
+                "二极管": "结构/极性",
+                "TVS二极管": "单向/双向",
+                "三极管": "NPN/PNP",
+            }.get(component_type, "极性")
+            lines.append(f"{polarity_label}: {polarity}")
+        if volt != "":
+            voltage_label = {
+                "MOSFET": "Vds",
+                "二极管": "VRRM",
+                "TVS二极管": "VRWM",
+                "三极管": "Vceo",
+            }.get(component_type, "额定电压")
+            lines.append(f"{voltage_label}: {volt}")
+        if rated_current != "":
+            current_label = {
+                "MOSFET": "Id",
+                "二极管": "IF(AV)",
+                "TVS二极管": "Ipp/额定电流",
+                "三极管": "Ic",
+            }.get(component_type, "额定电流")
+            lines.append(f"{current_label}: {rated_current}")
+        if dcr != "":
+            dynamic_label = {
+                "MOSFET": "Rds(on)",
+                "二极管": "Vf/动态参数",
+                "TVS二极管": "VBR/钳位参数",
+                "三极管": "hFE/频率参数",
+            }.get(component_type, "动态参数")
+            lines.append(f"{dynamic_label}: {dcr}")
+        if package_code != "":
+            lines.append(f"封装: {package_code}")
+        if power != "":
+            power_label = "峰值脉冲功率" if component_type == "TVS二极管" else "功率"
+            lines.append(f"{power_label}: {power}")
+        if work_temp != "":
+            lines.append(f"温度: {work_temp}")
+        if production_status != "":
+            lines.append(f"状态: {production_status}")
+        return lines
+
     if component_type in TIMING_COMPONENT_TYPES:
         if size != "":
             lines.append(f"尺寸: {size}")
@@ -10546,6 +10598,9 @@ def build_component_spec_detail_from_spec(spec):
         return ""
     component_type = infer_spec_component_type(spec)
     value, unit = spec_display_value_unit(spec)
+    power_text = spec.get("_power", "") or spec.get("功率", "")
+    if clean_text(power_text) == "" and component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        power_text = find_power_in_text(build_component_context_text(spec))
     lines = build_component_detail_lines(
         component_type,
         size=spec.get("尺寸（inch）", ""),
@@ -10555,7 +10610,7 @@ def build_component_spec_detail_from_spec(spec):
         tol=spec.get("容值误差", ""),
         volt=spec.get("耐压（V）", ""),
         resistance_ohm=spec.get("_resistance_ohm", None),
-        power=spec.get("_power", ""),
+        power=power_text,
         body_size=spec.get("_body_size", ""),
         pitch=spec.get("_pitch", ""),
         safety_class=spec.get("_safety_class", ""),
@@ -10771,15 +10826,57 @@ def get_component_display_schema(spec_or_type):
             ("安装方式", "安装方式"),
             ("生产状态", "生产状态"),
         ]
-    if component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+    if component_type == "MOSFET":
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
-            ("特殊用途", "类型/用途"),
-            ("极性", "极性"),
-            ("耐压（V）", "额定电压(V)"),
-            ("额定电流", "额定电流"),
-            ("DCR", "Rds(on)/动态参数"),
+            ("特殊用途", "沟道/类型"),
+            ("极性", "沟道极性"),
+            ("耐压（V）", "Vds(V)"),
+            ("额定电流", "Id"),
+            ("DCR", "Rds(on)"),
+            ("封装代码", "封装"),
+            ("功率", "功率"),
+            ("工作温度", "工作温度"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type == "二极管":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("特殊用途", "二极管类型"),
+            ("极性", "结构/极性"),
+            ("耐压（V）", "VRRM(V)"),
+            ("额定电流", "IF(AV)"),
+            ("DCR", "Vf/动态参数"),
+            ("封装代码", "封装"),
+            ("功率", "功率"),
+            ("工作温度", "工作温度"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type == "TVS二极管":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("特殊用途", "TVS类型"),
+            ("极性", "单向/双向"),
+            ("耐压（V）", "VRWM(V)"),
+            ("额定电流", "Ipp/额定电流"),
+            ("DCR", "VBR/钳位参数"),
+            ("封装代码", "封装"),
+            ("功率", "峰值脉冲功率"),
+            ("工作温度", "工作温度"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type == "三极管":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("特殊用途", "管型/用途"),
+            ("极性", "NPN/PNP"),
+            ("耐压（V）", "Vceo(V)"),
+            ("额定电流", "Ic"),
+            ("DCR", "hFE/频率参数"),
             ("封装代码", "封装"),
             ("功率", "功率"),
             ("工作温度", "工作温度"),
@@ -11013,6 +11110,8 @@ def build_component_display_row(spec, allow_online_lookup=False):
     ):
         size_display = body_size
     power_source = clean_text(spec.get("_power", "")) or clean_text(spec.get("功率", ""))
+    if power_source == "" and component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        power_source = find_power_in_text(build_component_context_text(spec))
     return {
         "器件类别": format_component_category_display(component_type),
         "系列": series_code,
@@ -13368,7 +13467,7 @@ def build_component_spec_detail_from_row(row, component_type_hint=""):
         tol=row.get("容值误差", ""),
         volt=row.get("耐压（V）", ""),
         resistance_ohm=find_resistance_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}) else None,
-        power=find_power_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES) else "",
+        power=row.get("功率", "") or (find_power_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES | SEMICONDUCTOR_COMPONENT_TYPES) else ""),
         body_size=clean_text(row.get("尺寸（mm）", "")) or (extract_body_size_from_text(row_text) if component_type in {"铝电解电容", "薄膜电容", "引线型陶瓷电容"} else ""),
         pitch=row.get("脚距（mm）", "") or (extract_pitch_from_text(row_text) if component_type in ({"铝电解电容", "薄膜电容", "引线型陶瓷电容"} | VARISTOR_COMPONENT_TYPES) else ""),
         safety_class=find_safety_class(row_text) if component_type == "薄膜电容" else "",
@@ -23488,7 +23587,7 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
             sanitize_dataframe_for_excel_export(result_df),
         )
     else:
-        export_df = sanitize_dataframe_for_excel_export(result_df) if result_df is not None else pd.DataFrame()
+        export_df = sanitize_dataframe_for_excel_export(build_bom_display_df(result_df)) if result_df is not None else pd.DataFrame()
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="BOM匹配结果")

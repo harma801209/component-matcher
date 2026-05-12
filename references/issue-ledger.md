@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-05-12 - Semiconductor display reused generic capacitor-style detail fields
+
+- Bug: Semiconductor rows such as `SS34`, `AO3400A`, and `MMBT3904` stored their key values in compatibility fields like `耐压（V）` and `DCR`, but the visible detail text collapsed to generic output such as `耐压: 40V`.
+- Cause: The component-specific display schema handled some table headers, but `build_component_detail_lines(...)` had no semiconductor branch, so MOSFET/diode/BJT/TVS detail strings fell through to the generic passive fallback.
+- Fix: Split semiconductor display schemas by device type (`MOSFET`, `二极管`, `TVS二极管`, `三极管`) and added semiconductor-specific detail labels such as `Vds`, `Id`, `Rds(on)`, `VRRM`, `IF(AV)`, `VRWM`, `Vceo`, and `Ic`.
+- Verification: Targeted checks now show semiconductor spec/detail output with device-specific labels instead of capacitor-style generic labels.
+
 ## 2026-05-12 - Zero-ohm resistor shorthand skipped when full fallback is unavailable
 
 - Bug: `0201 1/20W 0R` was parsed as an insufficient capacitor-style spec with only size `0201`, so public fast-index mode could not query the resistor library and displayed the full-library fallback warning.
