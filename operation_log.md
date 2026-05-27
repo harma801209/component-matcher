@@ -2336,3 +2336,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Cache/assets: Refreshed selected prepared-cache/search-sidecar rows for `LR2512-22R001F4`, `LR2512-22R004F4`, and `LRE0805-2CR004F5`; search sidecar now contains `LR2512-22R001F4` in both core and resistor tables. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
 - Verification: `python -m py_compile component_matcher.py resistor_series_rules.py sync_ralec_lr_resistors.py` passed. Bare search replay now parses `LR2512-22R001F4` as `合金电阻 / LR / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched candidates, including `旺诠RALEC LR2512-22R001F4`.
 - Handoff notes: If the visible website still returns 0 after this local fix, the remaining step is deployment/restart: the public page must receive the rebuilt `component_matcher.py`, `resistor_series_rules.py`, and `streamlit_cloud_bundle.zip.part01/part02`.
+
+### 2026-05-27 22:00 [direct] Public RALEC lookup still old because Streamlit deploy is not logged in
+
+- Follow-up: User still saw `LR2512-22R001F4` return 0 on the public page after the fix was pushed.
+- Verification: GitHub `main` is at `ee6ce24 Fix RALEC LR resistor lookup`, and raw GitHub `streamlit_app.py` contains `PUBLIC_RELEASE_STAMP = "2026-05-27T21:18:06+08:00"`. Local search sidecar contains `LR2512-22R001F4` in both `components_search_core` and `components_search_resistor`, and local search replay returns 5 matches.
+- Deployment finding: Running `.\publish_public.ps1 -SkipBundleRebuild -SkipPush -SkipProxyDeploy -TriggerStreamlitDeploy -AllowPublicRuntimeChange` timed out because Streamlit Cloud stayed on the `Sign in - Streamlit` deploy page. The public site can remain old until someone logs into Streamlit Cloud and redeploys/reboots the app.
