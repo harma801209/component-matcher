@@ -159,6 +159,13 @@
 - Fix: Added a PDC `FMF` metal-strip current-sense resistor parser and made PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers require a real two-digit MLCC size code after the series prefix. Updated full and partial parse paths so a failed PDC MLCC attempt falls through to resistor parsing instead of returning `None` early.
 - Verification: Direct search now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.
 
+## 2026-05-28 - Resistor display schema moved series description too far right
+
+- Bug: The FMF display fix made resistor tables inconsistent with MLCC and other component tables by moving `系列说明` after size/value/tolerance/power. Alloy-resistor rows also exposed verbose generated descriptions that repeated brand and pseudo-series.
+- Root cause: The resistor display schema was changed globally to prioritize electrical fields, while display-time series cleanup only filled blank descriptions and did not rewrite stale generated resistor descriptions.
+- Fix: Restored resistor schema order to `系列 -> 系列说明 -> 参数`, added a compact alloy-resistor schema, refreshed resistor series profiles during display cleanup, and shortened resistor fallback descriptions to avoid repeating brand/model fragments.
+- Verification: Direct display checks show `FMF25FPJR001XBHM` as `FMF / 金属条电流检测电阻（AEC-Q200） / 2512 / 1mΩ / ±1% / 2W`; `FRM252WFR001TML` is normalized to `FRM / 高功率合金采样电阻`; generic alloy fallbacks display `合金电阻系列`.
+
 ## 2026-05-27 - RALEC LR current-sense resistor skipped public fast search
 
 - Bug: Query `LR2512-22R001F4` returned `有结果 0` and the public fallback warning even though it is a valid RALEC current-sense resistor.

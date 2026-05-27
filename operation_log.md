@@ -2350,3 +2350,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fix / action: Added a PDC `FMF` metal-strip current-sense resistor parser in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). Tightened PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers and partial parsers to require a real two-digit MLCC size code after the series prefix. Bumped query/public cache stamps and added regression case `RES_PDC_FMF25_1MOHM`.
 - Display fix: Reordered resistor table columns so size, resistance, tolerance, and power appear before long series descriptions; cleaned `nan` power display blanks.
 - Verification: Bare search replay now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.
+
+### 2026-05-28 01:20 [direct] Restored resistor series-description column order
+
+- Received / problem: User pointed out that resistor result tables moved `系列说明` away from `系列`, unlike MLCC and other component tables, and alloy-resistor rows displayed overly long/redundant descriptions.
+- Root cause: The prior FMF display hotfix solved parameter visibility by moving resistor `系列说明` behind the electrical parameters; stale generated descriptions such as `FOJAN(富捷) FRM252WFR 合金电阻系列` were also allowed through at display time.
+- Fix / action: Restored resistor display order to `系列 -> 系列说明 -> 参数`; added a lean alloy-resistor schema showing only common purchasing fields; shortened resistor fallback descriptions so unknown families display concise text like `合金电阻系列` instead of repeating brand and long pseudo-series.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct display checks now show `FMF25FPJR001XBHM -> FMF / 金属条电流检测电阻（AEC-Q200） / 2512 / 1mΩ / ±1% / 2W`, `FRM252WFR001TML -> FRM / 高功率合金采样电阻`, and unknown alloy families as concise `合金电阻系列`.

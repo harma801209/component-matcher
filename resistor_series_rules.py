@@ -860,10 +860,6 @@ def build_resistor_series_description(
         return official_desc
 
     parts = []
-    if brand_text:
-        parts.append(brand_text)
-    if series_text:
-        parts.append(series_text)
     if special_text:
         parts.append(special_text)
     if component_text:
@@ -1781,7 +1777,7 @@ OFFICIAL_RESISTOR_SERIES_CODES.update(
 PDC_BRAND_TOKENS = ("PDC", "PSA", "信昌", "信昌电陶", "PROSPERITY DIELECTRICS")
 PDC_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "FMF": ("PDC FMF 金属条高功率无铅电流检测电阻（AEC-Q200）", "合金电阻", "电流检测 | 金属条 | 低阻 | AEC-Q200"),
+        "FMF": ("金属条电流检测电阻（AEC-Q200）", "合金电阻", "电流检测 | 金属条 | 低阻 | AEC-Q200"),
         "FCF": ("PDC FCF-E 通用厚膜电流检测贴片电阻", "厚膜电阻", "电流检测 | 低阻 | 厚膜"),
         "FBF": ("PDC FBF 低阻厚膜电流检测贴片电阻", "厚膜电阻", "电流检测 | 低阻 | 厚膜"),
         "FPF": ("PDC FPF 高功率厚膜贴片电阻", "厚膜电阻", "高功率 | 厚膜"),

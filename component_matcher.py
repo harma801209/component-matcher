@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 33
+QUERY_RESULT_CACHE_VERSION = 34
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-27T23:18:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-28T01:18:00+08:00"
 
 
 def startup_trace(message):
@@ -11167,15 +11167,25 @@ def get_component_display_schema(spec_or_type):
             ("高度（mm）", "厚度(mm)"),
             ("尺寸来源", "尺寸来源"),
         ]
-    if component_type in RESISTOR_COMPONENT_TYPES:
+    if component_type == "合金电阻":
         return [
             ("系列", "系列"),
+            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸"),
             ("容值", "阻值"),
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+        ]
+    if component_type in RESISTOR_COMPONENT_TYPES:
+        return [
+            ("系列", "系列"),
             ("系列说明", "系列说明"),
+            ("尺寸（inch）", "尺寸"),
+            ("容值", "阻值"),
+            ("容值单位", "阻值单位"),
+            ("容值误差", "误差"),
+            ("功率", "功率"),
             ("耐压（V）", "最高工作电压"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
@@ -12061,6 +12071,7 @@ def ensure_component_display_columns(df):
     if "安规" not in out.columns:
         out["安规"] = out["_safety_class"].astype(str).apply(clean_text) if "_safety_class" in out.columns else blank_series()
     for col in [
+        "容值", "容值单位", "容值误差", "耐压（V）",
         "封装代码", "生产状态", "直径（mm）", "极性", "ESR", "纹波电流",
         "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
         "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
@@ -12191,6 +12202,84 @@ def ensure_component_display_columns(df):
     else:
         out["安装方式"] = out["安装方式"].astype(str).apply(normalize_mounting_style)
     out["特殊用途"] = out["特殊用途"].astype(str).apply(normalize_special_use)
+    if row_count > 0 and row_count <= 5000 and "品牌" in out.columns and "型号" in out.columns and "器件类型" in out.columns:
+        resistor_display_mask = out["器件类型"].astype(str).apply(normalize_component_type).isin(RESISTOR_COMPONENT_TYPES)
+        if resistor_display_mask.any():
+            profile_series = out.loc[resistor_display_mask].apply(
+                lambda row: infer_resistor_series_profile(
+                    row.get("型号", ""),
+                    brand=row.get("品牌", ""),
+                    component_type=row.get("器件类型", ""),
+                    special_use=row.get("特殊用途", ""),
+                ),
+                axis=1,
+                result_type="expand",
+            )
+            if not profile_series.empty:
+                profile_series = profile_series.reindex(columns=["系列", "系列说明", "特殊用途", "器件类型"]).fillna("")
+                current_series = out.loc[resistor_display_mask, "系列"].astype(str).apply(clean_text)
+                profile_series_values = profile_series["系列"].astype(str).apply(clean_text)
+                replace_series_mask = current_series.combine(profile_series_values, resistor_series_should_replace)
+                if replace_series_mask.any():
+                    replace_idx = replace_series_mask[replace_series_mask].index
+                    out.loc[replace_idx, "系列"] = profile_series_values.loc[replace_idx]
+
+                current_desc = out.loc[resistor_display_mask, "系列说明"].astype(str).apply(clean_text)
+                profile_desc = profile_series["系列说明"].astype(str).apply(clean_text)
+                current_brand = out.loc[resistor_display_mask, "品牌"].astype(str).apply(clean_brand)
+
+                def redundant_resistor_desc(current, canonical, brand, series):
+                    current_text = clean_text(current)
+                    canonical_text = clean_text(canonical)
+                    if current_text == "" or canonical_text == "" or current_text == canonical_text:
+                        return False
+                    if len(current_text) <= len(canonical_text) + 4:
+                        return False
+                    current_upper = current_text.upper()
+                    series_upper = clean_text(series).upper()
+                    brand_upper = clean_brand(brand).upper()
+                    brand_tokens = [token for token in re.split(r"[^A-Z0-9]+", brand_upper) if len(token) >= 3]
+                    return (
+                        (series_upper != "" and re.search(rf"(?<![A-Z0-9]){re.escape(series_upper)}(?![A-Z0-9])", current_upper) is not None)
+                        or any(token in current_upper for token in brand_tokens)
+                    )
+
+                redundant_desc_mask = pd.Series(
+                    [
+                        redundant_resistor_desc(current, canonical, brand, series)
+                        for current, canonical, brand, series in zip(
+                            current_desc.tolist(),
+                            profile_desc.tolist(),
+                            current_brand.tolist(),
+                            profile_series_values.tolist(),
+                        )
+                    ],
+                    index=current_desc.index,
+                    dtype="bool",
+                )
+                replace_desc_mask = (
+                    current_desc.eq("")
+                    | replace_series_mask
+                    | current_desc.apply(generated_passive_series_description)
+                    | redundant_desc_mask
+                ) & profile_desc.ne("")
+                if replace_desc_mask.any():
+                    replace_idx = replace_desc_mask[replace_desc_mask].index
+                    out.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
+
+                current_special = out.loc[resistor_display_mask, "特殊用途"].astype(str).apply(clean_text)
+                profile_special = profile_series["特殊用途"].astype(str).apply(normalize_special_use)
+                replace_special_mask = (current_special.eq("") | replace_series_mask) & profile_special.ne("")
+                if replace_special_mask.any():
+                    replace_idx = replace_special_mask[replace_special_mask].index
+                    out.loc[replace_idx, "特殊用途"] = profile_special.loc[replace_idx]
+
+                profile_type = profile_series["器件类型"].astype(str).apply(normalize_component_type)
+                current_type = out.loc[resistor_display_mask, "器件类型"].astype(str).apply(normalize_component_type)
+                replace_type_mask = current_type.eq("") & profile_type.ne("")
+                if replace_type_mask.any():
+                    replace_idx = replace_type_mask[replace_type_mask].index
+                    out.loc[replace_idx, "器件类型"] = profile_type.loc[replace_idx]
     if "品牌" in out.columns and "型号" in out.columns and "器件类型" in out.columns:
         bourns_cm1309_mask = (
             out["品牌"].astype(str).apply(clean_brand).str.upper().eq("BOURNS")
@@ -13240,8 +13329,8 @@ def build_series_description_fallback(component_type, brand="", series="", speci
         return f"{prefix}{series_text} 引线型陶瓷电容系列".strip()
     if component_type in RESISTOR_COMPONENT_TYPES:
         if special_text != "":
-            return f"{prefix}{series_text} {special_text} {component_type}系列".strip()
-        return f"{prefix}{series_text} {component_type}系列".strip()
+            return f"{special_text} {component_type}系列".strip()
+        return f"{component_type}系列".strip()
     if component_type == "热敏电阻":
         if special_text != "":
             return f"{prefix}{series_text} {special_text} 热敏电阻系列".strip()
