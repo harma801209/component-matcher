@@ -35,7 +35,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
-from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile
+from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 
 
 def quiet_nonessential_console_noise():
@@ -89,11 +89,11 @@ APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
-COMPONENTS_SEARCH_CHUNK_ROWS = 50000
+COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 25
+QUERY_RESULT_CACHE_VERSION = 32
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-12T21:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-27T13:55:00+08:00"
 
 
 def startup_trace(message):
@@ -1264,8 +1264,66 @@ def display_text_width(text):
 def clean_brand(x):
     return clean_text(x)
 
+
+JOYIN_DISPLAY_BRAND = "久尹（信昌PDC）"
+BRAND_DISPLAY_ALIAS_COLUMNS = {
+    "品牌",
+    "品牌1",
+    "品牌2",
+    "品牌3",
+    "品牌4",
+    "品牌5",
+    "推荐品牌",
+    "推荐品牌1",
+    "推荐品牌2",
+    "推荐品牌3",
+}
+BRAND_DISPLAY_ALIAS_TEXT_COLUMNS = {
+    "其他品牌型号",
+    "前5个其他品牌型号",
+    "推荐理由",
+    "匹配参数明细",
+    "规格参数明细",
+}
+
+
+def display_brand_label(value):
+    brand = clean_brand(value)
+    if brand == "":
+        return ""
+    if "JOYIN" in brand.upper() or "久尹" in brand:
+        return JOYIN_DISPLAY_BRAND
+    return brand
+
+
+def replace_brand_display_aliases_in_text(value):
+    text = clean_text(value)
+    if text == "" or JOYIN_DISPLAY_BRAND in text:
+        return text
+    marker = "__JOYIN_DISPLAY_BRAND__"
+    text = re.sub(r"(?i)\bJOYIN\s*[\(（]\s*久尹\s*[\)）]", marker, text)
+    text = re.sub(r"(?i)\bJOYIN\b", marker, text)
+    text = text.replace("久尹", marker)
+    return text.replace(marker, JOYIN_DISPLAY_BRAND)
+
+
+def apply_brand_display_aliases(df):
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    for col in BRAND_DISPLAY_ALIAS_COLUMNS:
+        if col in out.columns:
+            out[col] = out[col].apply(display_brand_label)
+    for col in BRAND_DISPLAY_ALIAS_TEXT_COLUMNS:
+        if col in out.columns:
+            out[col] = out[col].apply(replace_brand_display_aliases_in_text)
+    return out
+
+MODEL_WRAPPER_CHARS = "\ufeff'\"`´‘’“”＇＂"
+
 def clean_model(x):
-    return clean_text(x).upper().replace(" ", "")
+    text = clean_text(x).strip(MODEL_WRAPPER_CHARS)
+    return text.upper().replace(" ", "")
 
 def extract_model_like_tokens(text):
     raw = clean_text(text).upper()
@@ -1282,7 +1340,7 @@ def extract_model_like_tokens(text):
         tokens.append(whole)
         seen.add(whole)
     for token in re.findall(r"[A-Z0-9][A-Z0-9._/+\\-]{4,}", raw):
-        compact = clean_model(token.strip(".,;:|()[]{}"))
+        compact = clean_model(token.strip(".,;:|()[]{}'\"`´‘’“”＇＂"))
         if compact == "" or compact in seen or len(compact) < 6:
             continue
         if not (re.search(r"[A-Z]", compact) and re.search(r"\d", compact)):
@@ -1422,6 +1480,19 @@ TAI_RESISTOR_SIZE_MAP = {
     "20": "2010",
     "25": "2512",
 }
+RALEC_LR_POWER_CODE_MAP = {
+    "C": "0.5W",
+    "1": "1W",
+    "A": "1.5W",
+    "2": "2W",
+    "3": "3W",
+    "B": "3.5W",
+    "4": "4W",
+    "5": "5W",
+}
+RALEC_LR_DIMENSIONS_MM = {
+    "2512": ("6.25", "3.20", "1.00"),
+}
 TAI_RLS_OFFICIAL_PROFILE = {
     "系列": "RLS",
     "系列说明": "金属箔电流检测电阻",
@@ -1487,7 +1558,7 @@ UNIROYAL_RESISTOR_SIZE_MAP = {
 
 RESISTOR_COMPONENT_TYPES = {"贴片电阻", "厚膜电阻", "薄膜电阻", "合金电阻", "碳膜电阻", "金属氧化膜电阻", "绕线电阻"}
 VARISTOR_COMPONENT_TYPES = {"压敏电阻", "引线型压敏电阻", "贴片压敏电阻"}
-SPECIAL_RESISTOR_COMPONENT_TYPES = {"热敏电阻"} | VARISTOR_COMPONENT_TYPES
+SPECIAL_RESISTOR_COMPONENT_TYPES = {"热敏电阻", "RTD温度传感器", "电阻应变片"} | VARISTOR_COMPONENT_TYPES
 CAPACITOR_COMPONENT_TYPES = {"MLCC", "薄膜电容", "钽电容", "铝电解电容", "引线型陶瓷电容"}
 INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感", "共模电感", "磁珠"}
 POWER_INDUCTOR_COMPONENT_TYPES = {"功率电感", "射频电感"}
@@ -1512,6 +1583,8 @@ COMPONENT_CATEGORY_DISPLAY_LABELS = {
     "金属氧化膜电阻": "金属氧化膜电阻（Metal Oxide Film Resistor）",
     "绕线电阻": "绕线电阻（Wirewound Resistor）",
     "热敏电阻": "热敏电阻（NTC Thermistor）",
+    "RTD温度传感器": "RTD温度传感器（RTD Temperature Sensor）",
+    "电阻应变片": "电阻应变片（Resistive Strain Gauge）",
     "压敏电阻": "压敏电阻（Varistor）",
     "引线型压敏电阻": "引线压敏电阻（Lead Varistor）",
     "贴片压敏电阻": "贴片压敏电阻（Chip Varistor）",
@@ -3648,6 +3721,69 @@ def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
     }
 
 
+def parse_ralec_lr_alloy_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    match = re.fullmatch(
+        r"(?P<series>LRE|LR)(?P<size>0603|0805|1206|1210|2010|2512H|2512|2725|2728|4527S|4527)"
+        r"-?2(?P<power>[C1A2345B])(?P<res>R\d{3,6})(?P<tol>[DFGJ])(?P<pack>[A1245])",
+        compact,
+    )
+    if match is None:
+        return None
+
+    resistance_ohm = parse_resistor_value_code(match.group("res"))
+    if resistance_ohm is None:
+        return None
+
+    series_code = match.group("series")
+    size = clean_size(match.group("size"))
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
+    power_text = clean_text(RALEC_LR_POWER_CODE_MAP.get(match.group("power"), ""))
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    dimensions = RALEC_LR_DIMENSIONS_MM.get(size, ("", "", ""))
+    series_profile = infer_resistor_series_profile(
+        compact,
+        brand=clean_brand(brand) or "旺诠RALEC",
+        component_type="合金电阻",
+        special_use="电流检测 | 低阻 | 金属合金",
+    )
+    series_desc = clean_text(series_profile.get("系列说明", ""))
+    if series_desc == "":
+        series_desc = f"RALEC {series_code} metal alloy low-resistance current sense resistor"
+    summary_parts = [
+        f"{value_text}{unit_text}" if value_text != "" and unit_text != "" else "",
+        f"±{tol}%" if tol != "" else "",
+        format_power_display(power_text),
+        size,
+        "metal alloy low-resistance current sense resistor",
+    ]
+
+    return {
+        "品牌": clean_brand(brand) or "旺诠RALEC",
+        "型号": compact,
+        "器件类型": "合金电阻",
+        "系列": series_code,
+        "系列说明": series_desc,
+        "特殊用途": "电流检测 | 低阻 | 金属合金",
+        "尺寸（inch）": size,
+        "尺寸（mm）": "6.25*3.20mm" if size == "2512" else "",
+        "长度（mm）": dimensions[0],
+        "宽度（mm）": dimensions[1],
+        "高度（mm）": dimensions[2],
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "安装方式": "贴片",
+        "封装代码": size,
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": "ralec_lr_alloy_resistor_model",
+        "_value_code": match.group("res"),
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power_text else 0]),
+    }
+
+
 def parse_generic_resistor_model(model, brand="", component_type=""):
     normalized_component_type = normalize_component_type(component_type)
     if normalized_component_type not in RESISTOR_COMPONENT_TYPES | {"热敏电阻", ""}:
@@ -3684,6 +3820,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
         parse_murata_mhr_resistor_model,
+        parse_ralec_lr_alloy_resistor_model,
         parse_yageo_chip_resistor_model,
         parse_tai_resistor_model,
         parse_walsin_chip_resistor_model,
@@ -3734,7 +3871,7 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         ("封装代码", clean_text),
         ("规格摘要", clean_text),
         ("容值", clean_text),
-        ("容值单位", lambda x: clean_text(x).upper()),
+        ("容值单位", normalize_library_value_unit),
         ("功率", format_power_display),
         ("脚距", clean_text),
         ("安规", clean_text),
@@ -3898,6 +4035,8 @@ def resistor_series_should_replace(current_value, canonical_value):
     if canonical == "普通厚膜" and re.fullmatch(r"\d{4,5}[A-Z0-9]{2,}", current_upper):
         return True
     if re.fullmatch(r"\d{2,4}", current_upper):
+        if re.search(r"[A-Z]", canonical_upper):
+            return True
         match = re.search(r"\d{2,5}", canonical_upper)
         if match is not None:
             canonical_digits = match.group(0)
@@ -3905,9 +4044,35 @@ def resistor_series_should_replace(current_value, canonical_value):
                 return True
             if canonical_digits == current_upper and re.match(r"^[A-Z]", canonical_upper):
                 return True
+    if current_upper in {"NTC", "PTC"} and canonical_upper.startswith(current_upper) and len(canonical_upper) > len(current_upper):
+        return True
     if len(current_upper) <= 2 and canonical_upper.startswith(current_upper) and len(canonical_upper) > len(current_upper):
         return True
+    current_compact = current_upper.replace("-", "")
+    canonical_compact = canonical_upper.replace("-", "")
+    if current_compact == canonical_compact and current_upper != canonical_upper:
+        return True
+    if current_compact.startswith(canonical_compact) and len(current_compact) > len(canonical_compact):
+        return True
     return current_upper.startswith(canonical_upper) and len(current_upper) > len(canonical_upper)
+
+
+def generated_resistor_series_description(current_value):
+    text = clean_text(current_value)
+    if text == "":
+        return False
+    if text.endswith("电阻系列") or text.endswith("贴片压敏电阻系列") or text.endswith("热敏电阻系列"):
+        return True
+    if " 功率:" in text and "电阻系列" in text:
+        return True
+    return bool(
+        re.search(
+            r"(?:^|[\s/])(?:[A-Z0-9][A-Z0-9./_-]{1,}|[0-9]{2,5})(?:\s*功率:[^\s]+)?\s*"
+            r"(?:贴片|厚膜|薄膜|合金|绕线|碳膜|金属氧化膜|热敏|压敏)?电阻系列$",
+            text,
+            flags=re.I,
+        )
+    )
 
 
 def resistor_series_desc_should_replace(current_value, canonical_value):
@@ -3919,7 +4084,7 @@ def resistor_series_desc_should_replace(current_value, canonical_value):
         return True
     if current == canonical:
         return False
-    return current.endswith("电阻系列")
+    return generated_resistor_series_description(current)
 
 
 def _numeric_fragment_series_should_replace(current_upper, canonical_upper):
@@ -4051,7 +4216,7 @@ MURATA_SERIES_MEANING = {
     "GRT": "车规 / Automotive MLCC",
     "GCJ": "车规软端子 / Automotive soft-termination MLCC",
     "GCG": "导电胶安装 / MLCC for conductive adhesive mounting",
-    "GCQ": "Murata MLCC series",
+    "GCQ": "车规高Q低损耗 / Automotive high-Q low-loss MLCC",
     "GJM": "高Q / High-Q MLCC",
     "GQM": "高Q / High-Q MLCC",
     "GRJ": "软端子 / Soft-termination MLCC",
@@ -4344,6 +4509,10 @@ MURATA_MLCC_SERIES_CLASS = {
     "DHR": "高压",
 }
 
+MURATA_SERIES_SPECIAL_USE = {
+    "GCQ": "车规 | 高Q | 低损耗",
+}
+
 
 def murata_series_profile(series_code):
     code = clean_text(series_code)
@@ -4423,11 +4592,28 @@ WALSIN_MLCC_SERIES_CLASS = {
 WALSIN_NUMERIC_MLCC_DIELECTRIC = {
     "A": "",
     "B": "X7R",
+    "C": "COG(NPO)",
     "F": "Y5V",
     "N": "COG(NPO)",
     "S": "X6S",
     "T": "X7T",
     "X": "X5R",
+}
+SUNWAY_MLCC_SERIES_MEANING = {
+    "MC": "常规 / Commodity general-purpose MLCC",
+    "MH": "高容 / High-capacitance MLCC",
+    "MV": "高压 / High-voltage MLCC",
+    "MQ": "高频 / High-frequency MLCC",
+    "MS": "软端子 / Soft-termination MLCC",
+    "MA": "车规 / Automotive MLCC",
+}
+SUNWAY_MLCC_SERIES_CLASS = {
+    "MC": "常规",
+    "MH": "高容",
+    "MV": "高压",
+    "MQ": "高Q",
+    "MS": "软端子",
+    "MA": "车规",
 }
 TAIYO_MLCC_SERIES_MEANING = {
     "TMK": "高介电常数MLCC（旧料号体系）/ High-dielectric MLCC legacy part number",
@@ -4781,6 +4967,37 @@ def walsin_mlcc_series_profile(series_code):
     }
 
 
+def sunway_mlcc_series_code_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    for prefix in ("MC", "MH", "MV", "MQ", "MS", "MA"):
+        if compact.startswith(prefix):
+            return prefix
+    return ""
+
+
+def sunway_mlcc_series_profile(series_code):
+    code = clean_text(series_code).upper()
+    if code == "":
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    class_text = clean_text(SUNWAY_MLCC_SERIES_CLASS.get(code, ""))
+    special_use = " | ".join(
+        part
+        for part in [
+            "车规" if "车规" in class_text else "",
+            "软端子" if "软端子" in class_text else "",
+        ]
+        if part
+    )
+    return {
+        "系列": code,
+        "系列说明": clean_text(SUNWAY_MLCC_SERIES_MEANING.get(code, "")),
+        "特殊用途": special_use,
+        "_mlcc_series_class": class_text,
+    }
+
+
 def taiyo_mlcc_series_code_from_model(model):
     compact = clean_model(model)
     if compact == "":
@@ -5059,6 +5276,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     is_samwha_brand = "SAMWHA" in brand_upper or "三和" in brand_text
     is_fojan_brand = "FOJAN" in brand_upper or "富捷" in brand_text
     is_kyocera_avx_brand = "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text
+    is_sunway_brand = "SUNWAY" in brand_upper or "信维" in brand_text
     result = {
         "系列": clean_text(series),
         "系列说明": clean_text(series_desc),
@@ -5082,6 +5300,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         taiyo_series_code = taiyo_mlcc_series_code_from_model(model_key if is_taiyo_brand else "")
         samwha_series_code = samwha_mlcc_series_code_from_model(model_key if is_samwha_brand else "")
         fojan_series_code = fojan_mlcc_series_code_from_model(model_key if is_fojan_brand else "")
+        sunway_series_code = sunway_mlcc_series_code_from_model(model_key if is_sunway_brand else "")
         kyocera_avx_profile = kyocera_avx_mlcc_series_profile_from_model(model_key) if is_kyocera_avx_brand else {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
         if pdc_series_code != "":
             profile = pdc_mlcc_series_profile(pdc_series_code)
@@ -5097,6 +5316,8 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = samwha_mlcc_series_profile(samwha_series_code)
         elif fojan_series_code != "":
             profile = fojan_mlcc_series_profile(fojan_series_code)
+        elif sunway_series_code != "":
+            profile = sunway_mlcc_series_profile(sunway_series_code)
         elif clean_text(kyocera_avx_profile.get("系列", "")) != "":
             profile = kyocera_avx_profile
         elif "HRE" in brand_upper or "芯声微" in brand_text:
@@ -5119,6 +5340,8 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = samwha_mlcc_series_profile(series_key)
         elif is_fojan_brand and series_key in FOJAN_MLCC_SERIES_MEANING:
             profile = fojan_mlcc_series_profile(series_key)
+        elif is_sunway_brand and series_key in SUNWAY_MLCC_SERIES_MEANING:
+            profile = sunway_mlcc_series_profile(series_key)
         elif is_kyocera_avx_brand and series_key in KYOCERA_AVX_MLCC_SERIES_MEANING:
             profile = kyocera_avx_mlcc_series_profile(series_key)
         elif series_key == "C" or series_key == "CGA" or series_key.startswith("CGA") or re.match(r"^C\d{4}$", series_key):
@@ -5242,6 +5465,7 @@ def mlcc_series_class_sort_rank(candidate, target):
 NICHICON_SERIES_PREFIX_PATTERN = re.compile(r"^(UV[A-Z0-9])")
 CHEMI_CON_SERIES_PREFIX_PATTERN = re.compile(r"^E([A-Z0-9]{3})")
 NICHICON_GENERIC_SERIES_PREFIX_PATTERN = re.compile(r"^([A-Z]{3})(?=[A-Z0-9])")
+RUBYCON_SERIES_PREFIX_PATTERN = re.compile(r"^\d+(?:\.\d+)?([A-Z]{2,4})(?=\d)")
 
 
 def nichicon_series_code_from_model(model):
@@ -5261,6 +5485,16 @@ def chemi_con_series_code_from_model(model):
     if not compact:
         return ""
     match = CHEMI_CON_SERIES_PREFIX_PATTERN.match(compact)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def rubycon_series_code_from_model(model):
+    compact = clean_model(model)
+    if not compact:
+        return ""
+    match = RUBYCON_SERIES_PREFIX_PATTERN.match(compact)
     if not match:
         return ""
     return match.group(1)
@@ -6472,7 +6706,9 @@ def fill_missing_series_from_model(df):
             if filled_resistor_mask.any():
                 missing_mask.loc[filled_resistor_mask] = False
 
-    series_desc_blank = work["系列说明"].astype("string").fillna("").apply(clean_text).eq("")
+    series_desc_text = work["系列说明"].astype("string").fillna("").apply(clean_text)
+    series_desc_blank = series_desc_text.eq("")
+    series_desc_generated = series_desc_text.apply(generated_passive_series_description)
     special_use_blank = work["特殊用途"].astype("string").fillna("").apply(clean_text).eq("")
     component_type_series = (
         work["器件类型"].astype("string").fillna("").apply(normalize_component_type)
@@ -6485,6 +6721,7 @@ def fill_missing_series_from_model(df):
         & (
             missing_mask
             | series_desc_blank
+            | series_desc_generated
             | (
                 special_use_blank
                 & component_type_series.isin({"热敏电阻", "铝电解电容"} | VARISTOR_COMPONENT_TYPES)
@@ -6532,7 +6769,7 @@ def fill_missing_series_from_model(df):
                 work.loc[replace_idx, "系列"] = profile_series.loc[replace_idx]
                 missing_mask.loc[replace_idx] = False
 
-            desc_fill_mask = (current_desc.eq("") | series_replace_mask) & profile_desc.ne("")
+            desc_fill_mask = (current_desc.eq("") | series_replace_mask | current_desc.apply(generated_passive_series_description)) & profile_desc.ne("")
             if desc_fill_mask.any():
                 replace_idx = desc_fill_mask[desc_fill_mask].index
                 work.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
@@ -7517,7 +7754,14 @@ def parse_samsung_cl(model):
     if not model.startswith("CL") or len(model) < 10:
         return None
     size_map = {"02":"01005","03":"0201","05":"0402","10":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
-    material_map = {"A":"X5R","B":"X7R","C":"COG(NPO)","U":"X7S","Y":"X7T","Z":"X7R"}
+    material_map = {
+        "A": "X5R",
+        "B": "X7R",
+        "C": "COG(NPO)",
+        "X": "X6S",
+        "Y": "X7S",
+        "Z": "X7T",
+    }
     tol_map = {"F":"1","G":"2","J":"5","K":"10","M":"20","Z":"+80/-20"}
     voltage_map = {"R":"4","Q":"6.3","P":"10","O":"16","A":"25","L":"35","B":"50","C":"100","D":"200","E":"250","F":"500","G":"630","H":"1000"}
     try:
@@ -8129,7 +8373,7 @@ def parse_walsin_common(model, brand=""):
     )
     if special_01005_match:
         volt = special_01005_match.group("volt")
-        vmap = {"6R3": "6.3", "100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
+        vmap = {"6R3": "6.3"}
         series_profile = walsin_mlcc_series_profile("01R5")
         return {
             "品牌": "华新科Walsin",
@@ -8143,7 +8387,7 @@ def parse_walsin_common(model, brand=""):
             "材质（介质）": clean_material(material_map.get(special_01005_match.group("mat"), "")),
             "容值_pf": murata_cap_code_to_pf(special_01005_match.group("cap")),
             "容值误差": clean_tol_for_match(tol_map.get(special_01005_match.group("tol"), "")),
-            "耐压（V）": clean_voltage(vmap.get(volt, volt)),
+            "耐压（V）": clean_voltage(vmap.get(volt, decode_walsin_numeric_mlcc_voltage_code(volt))),
             "_model_rule_authority": "walsin_01005_series",
         }
 
@@ -8153,7 +8397,7 @@ def parse_walsin_common(model, brand=""):
     )
     if alpha_match:
         volt = alpha_match.group("volt")
-        vmap = {"6R3": "6.3", "100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
+        vmap = {"6R3": "6.3"}
         series_profile = walsin_mlcc_series_profile(alpha_match.group("prefix"))
         return {
             "品牌": "华新科Walsin",
@@ -8167,7 +8411,7 @@ def parse_walsin_common(model, brand=""):
             "材质（介质）": clean_material(material_map.get(alpha_match.group("mat"), "")),
             "容值_pf": murata_cap_code_to_pf(alpha_match.group("cap")),
             "容值误差": clean_tol_for_match(tol_map.get(alpha_match.group("tol"), "")),
-            "耐压（V）": clean_voltage(vmap.get(volt, volt)),
+            "耐压（V）": clean_voltage(vmap.get(volt, decode_walsin_numeric_mlcc_voltage_code(volt))),
             "_model_rule_authority": "walsin_alpha_prefix",
         }
 
@@ -8185,8 +8429,7 @@ def parse_walsin_common(model, brand=""):
             volt = "6.3"
         elif len(rest) >= 3 and rest[:3].isdigit():
             vcode = rest[:3]
-            vmap = {"100": "10", "160": "16", "250": "25", "500": "50", "630": "63"}
-            volt = vmap.get(vcode, vcode)
+            volt = decode_walsin_numeric_mlcc_voltage_code(vcode)
 
         series_profile = walsin_mlcc_series_profile("常规")
         return {
@@ -9376,10 +9619,26 @@ def parse_semiconductor_spec_query(line, component_type=""):
     return enrich_semiconductor_spec_fields(spec, source_text=raw)
 
 
+def resistor_context_should_block_mlcc(text):
+    raw = clean_text(text)
+    if raw == "":
+        return False
+    upper = raw.upper()
+    compact = normalize_component_keyword_compact(raw)
+    if any(token in upper for token in ["电阻", "電阻", "RESISTOR"]):
+        return True
+    has_ohm_token = "Ω" in upper or re.search(r"(?<![A-Z0-9])OHMS?(?![A-Z0-9])", upper) is not None
+    if has_ohm_token and not any(token in upper or token in compact for token in ["电容", "電容", "CAP", "MLCC", "PF", "NF", "UF"]):
+        return True
+    return False
+
+
 def looks_like_mlcc_context(text):
     upper = clean_text(text).upper()
     compact = normalize_component_keyword_compact(text)
     if upper == "":
+        return False
+    if resistor_context_should_block_mlcc(text):
         return False
     if matches_component_alias(text, "MLCC"):
         return True
@@ -10822,6 +11081,31 @@ def get_component_display_schema(spec_or_type):
             ("安装方式", "安装方式"),
             ("生产状态", "生产状态"),
         ]
+    if component_type == "RTD温度传感器":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("尺寸（inch）", "尺寸"),
+            ("尺寸（mm）", "外形尺寸"),
+            ("阻值@25C", "R0/R25"),
+            ("阻值单位", "阻值单位"),
+            ("阻值误差", "等级/误差"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
+        ]
+    if component_type == "电阻应变片":
+        return [
+            ("系列", "系列"),
+            ("系列说明", "系列说明"),
+            ("尺寸（mm）", "基底/栅区尺寸"),
+            ("阻值@25C", "标称电阻"),
+            ("阻值单位", "阻值单位"),
+            ("阻值误差", "阻值误差"),
+            ("工作温度", "工作温度"),
+            ("安装方式", "安装方式"),
+            ("生产状态", "生产状态"),
+        ]
     if component_type in INDUCTOR_COMPONENT_TYPES:
         if component_type == "磁珠":
             return [
@@ -11914,7 +12198,8 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     for col in (suffix_columns or []):
         if col in out.columns and col not in selected:
             selected.append(col)
-    return out[selected].copy() if selected else out
+    selected_df = out[selected].copy() if selected else out
+    return apply_brand_display_aliases(selected_df)
 
 
 def build_component_column_config(columns, spec_or_type=None):
@@ -11925,6 +12210,11 @@ def build_component_column_config(columns, spec_or_type=None):
         "型号": "medium",
         "推荐品牌": "small",
         "推荐型号": "medium",
+        "可直接回复客户": "small",
+        "销售结论": "medium",
+        "客户回复型号": "large",
+        "备选型号": "large",
+        "风险提示": "large",
         "推荐品牌1": "small",
         "推荐型号1": "medium",
         "推荐品牌2": "small",
@@ -12912,6 +13202,74 @@ PANASONIC_ALUMINUM_SERIES_PATTERNS = [
     re.compile(r"^(FCR\d[A-Z]{3})", flags=re.I),
 ]
 
+NICHICON_ALUMINUM_SERIES_PROFILES = {
+    "UPM": {"系列说明": "Nichicon UPM 低阻抗、高可靠铝电解电容系列", "特殊用途": "低阻抗/高可靠"},
+    "UPJ": {"系列说明": "Nichicon UPJ 开关电源用低阻抗、高可靠铝电解电容系列", "特殊用途": "开关电源/低阻抗/高可靠"},
+    "UPW": {"系列说明": "Nichicon UPW 开关电源用小型低阻抗、高可靠铝电解电容系列", "特殊用途": "开关电源/低阻抗/高可靠"},
+    "UVR": {"系列说明": "Nichicon UVR 通用105℃铝电解电容系列", "特殊用途": "通用/105℃"},
+    "UVK": {"系列说明": "Nichicon UVK 小型化105℃铝电解电容系列", "特殊用途": "小型化/105℃"},
+    "UVZ": {"系列说明": "Nichicon UVZ 小型化高纹波铝电解电容系列", "特殊用途": "小型化/高纹波"},
+    "UVY": {"系列说明": "Nichicon UVY 小型化长寿命铝电解电容系列", "特殊用途": "小型化/长寿命"},
+    "UPS": {"系列说明": "Nichicon UPS 105℃高纹波低阻抗铝电解电容系列", "特殊用途": "高纹波/低阻抗"},
+    "UFW": {"系列说明": "Nichicon UFW 音频用铝电解电容系列", "特殊用途": "音频"},
+    "UHE": {"系列说明": "Nichicon UHE 小型低阻抗、高纹波铝电解电容系列", "特殊用途": "低阻抗/高纹波"},
+    "UHW": {"系列说明": "Nichicon UHW 小型高纹波、高可靠铝电解电容系列", "特殊用途": "高纹波/高可靠"},
+    "UHD": {"系列说明": "Nichicon UHD 高纹波、低阻抗铝电解电容系列", "特殊用途": "高纹波/低阻抗"},
+    "UKL": {"系列说明": "Nichicon UKL 低漏电流铝电解电容系列", "特殊用途": "低漏电流"},
+    "URS": {"系列说明": "Nichicon URS 小型化85℃铝电解电容系列", "特殊用途": "小型化/85℃"},
+    "URZ": {"系列说明": "Nichicon URZ 小型低背105℃宽温铝电解电容系列", "特殊用途": "小型化/低背/105℃"},
+}
+
+CHEMI_CON_ALUMINUM_SERIES_PROFILES = {
+    "37F": {"系列说明": "Chemi-Con 37F 大型基板自立式铝电解电容系列", "特殊用途": "大型/基板自立式"},
+    "37L": {"系列说明": "Chemi-Con 37L 大型基板自立式长寿命铝电解电容系列", "特殊用途": "大型/基板自立式/长寿命"},
+    "37X": {"系列说明": "Chemi-Con 37X 大型基板自立式高纹波铝电解电容系列", "特殊用途": "大型/基板自立式/高纹波"},
+    "AVH": {"系列说明": "Chemi-Con AVH 贴片型125℃耐高温铝电解电容系列", "特殊用途": "高温/贴片"},
+    "CHA": {"系列说明": "Chemi-Con CHA 大型螺栓端子铝电解电容系列", "特殊用途": "大型/螺栓端子"},
+    "GPA": {"系列说明": "Chemi-Con GPA 125℃高温铝电解电容系列", "特殊用途": "高温"},
+    "GPD": {"系列说明": "Chemi-Con GPD 135℃高温铝电解电容系列", "特殊用途": "高温"},
+    "GXF": {"系列说明": "Chemi-Con GXF 高纹波长寿命铝电解电容系列", "特殊用途": "高纹波/长寿命"},
+    "HXC": {"系列说明": "Chemi-Con HXC 导电性高分子混合铝电解电容系列", "特殊用途": "混合电解/低ESR/高纹波"},
+    "HXD": {"系列说明": "Chemi-Con HXD 导电性高分子混合铝电解电容系列", "特殊用途": "混合电解/低ESR/高纹波"},
+    "KZE": {"系列说明": "Chemi-Con KZE 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "KZH": {"系列说明": "Chemi-Con KZH 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "KZM": {"系列说明": "Chemi-Con KZM 高频平滑用长寿命、超低阻抗铝电解电容系列", "特殊用途": "高频平滑/长寿命/超低阻抗"},
+    "KZN": {"系列说明": "Chemi-Con KZN 高频平滑用长寿命、低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/长寿命/低阻抗"},
+    "KYC": {"系列说明": "Chemi-Con KYC 高频平滑用低ESR、小型化铝电解电容系列", "特殊用途": "高频平滑/低ESR/小型化"},
+    "KYB": {"系列说明": "Chemi-Con KYB 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "KYA": {"系列说明": "Chemi-Con KYA 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "LZA": {"系列说明": "Chemi-Con LZA 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "LXZ": {"系列说明": "Chemi-Con LXZ 高频平滑用低阻抗、小型化铝电解电容系列", "特殊用途": "高频平滑/低阻抗/小型化"},
+    "LXY": {"系列说明": "Chemi-Con LXY 高频平滑用低阻抗铝电解电容系列", "特殊用途": "高频平滑/低阻抗"},
+    "LXV": {"系列说明": "Chemi-Con LXV 高频平滑用低阻抗铝电解电容系列", "特殊用途": "高频平滑/低阻抗"},
+    "KXQ": {"系列说明": "Chemi-Con KXQ 电源输入平滑用长寿命、小型化铝电解电容系列", "特殊用途": "输入平滑/长寿命/小型化"},
+    "KXN": {"系列说明": "Chemi-Con KXN 电源输入平滑用长寿命、小型化铝电解电容系列", "特殊用途": "输入平滑/长寿命/小型化"},
+    "KXL": {"系列说明": "Chemi-Con KXL 电源输入平滑用长寿命、小型化铝电解电容系列", "特殊用途": "输入平滑/长寿命/小型化"},
+    "KHV": {"系列说明": "Chemi-Con KHV 105℃高纹波、小型化铝电解电容系列", "特殊用途": "高纹波/小型化"},
+    "KHE": {"系列说明": "Chemi-Con KHE 105℃超小型化铝电解电容系列", "特殊用途": "超小型化"},
+    "KMR": {"系列说明": "Chemi-Con KMR 105℃小型化铝电解电容系列", "特殊用途": "小型化"},
+    "KMQ": {"系列说明": "Chemi-Con KMQ 105℃标准小型化铝电解电容系列", "特殊用途": "标准/小型化"},
+    "KMM": {"系列说明": "Chemi-Con KMM 105℃3000小时铝电解电容系列", "特殊用途": "长寿命"},
+    "KHX": {"系列说明": "Chemi-Con KHX 105℃高纹波、小型化铝电解电容系列", "特殊用途": "高纹波/小型化"},
+    "KHU": {"系列说明": "Chemi-Con KHU 高纹波、小型化铝电解电容系列", "特殊用途": "高纹波/小型化"},
+    "KHS": {"系列说明": "Chemi-Con KHS 105℃小型化铝电解电容系列", "特殊用途": "小型化"},
+    "KMS": {"系列说明": "Chemi-Con KMS 105℃小型化铝电解电容系列", "特殊用途": "小型化"},
+    "KMH": {"系列说明": "Chemi-Con KMH 105℃标准铝电解电容系列", "特殊用途": "标准"},
+    "KMV": {"系列说明": "Chemi-Con KMV 充放电应用铝电解电容系列", "特殊用途": "充放电"},
+}
+
+RUBYCON_ALUMINUM_SERIES_PROFILES = {
+    "YXF": {"系列说明": "Rubycon YXF 105℃长寿命、低阻抗铝电解电容系列", "特殊用途": "长寿命/低阻抗"},
+    "YXS": {"系列说明": "Rubycon YXS 105℃小型化、低阻抗铝电解电容系列", "特殊用途": "小型化/低阻抗"},
+    "YXJ": {"系列说明": "Rubycon YXJ 105℃小型化、长寿命低阻抗铝电解电容系列", "特殊用途": "小型化/长寿命/低阻抗"},
+    "ZL": {"系列说明": "Rubycon ZL 105℃高纹波、低阻抗铝电解电容系列", "特殊用途": "高纹波/低阻抗"},
+    "ZLH": {"系列说明": "Rubycon ZLH 105℃小型化、长寿命低阻抗铝电解电容系列", "特殊用途": "小型化/长寿命/低阻抗"},
+    "ZLS": {"系列说明": "Rubycon ZLS 105℃小型化、低阻抗铝电解电容系列", "特殊用途": "小型化/低阻抗"},
+    "ZLQ": {"系列说明": "Rubycon ZLQ 105℃超小型化、低阻抗铝电解电容系列", "特殊用途": "超小型化/低阻抗"},
+    "ZLJ": {"系列说明": "Rubycon ZLJ 105℃高纹波、长寿命低阻抗铝电解电容系列", "特殊用途": "高纹波/长寿命/低阻抗"},
+    "LLE": {"系列说明": "Rubycon LLE 105℃12000至20000小时长寿命铝电解电容系列", "特殊用途": "长寿命"},
+}
+
 
 def passive_series_should_replace(current_value, canonical_value, model=""):
     current = clean_text(current_value)
@@ -12936,6 +13294,44 @@ def passive_series_should_replace(current_value, canonical_value, model=""):
     return False
 
 
+def aluminum_series_desc_should_replace(current_value, canonical_value):
+    current = clean_text(current_value)
+    canonical = clean_text(canonical_value)
+    if canonical == "":
+        return False
+    if current == "":
+        return True
+    if current == canonical:
+        return False
+    return any(
+        re.fullmatch(pattern, current, flags=re.I)
+        for pattern in (
+            r"Nichicon\s+[A-Z0-9]{2,4}\s+铝电解电容系列",
+            r"Chemi-Con\s+[A-Z0-9]{2,4}\s+铝电解电容系列",
+            r"Rubycon\s+[A-Z0-9]{2,4}\s+铝电解电容系列",
+        )
+    )
+
+
+def generated_passive_series_description(current_value):
+    text = clean_text(current_value)
+    if text == "":
+        return False
+    if generated_resistor_series_description(text):
+        return True
+    generated_patterns = [
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+铝电解电容系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+.+?铝电解电容系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+(?:贴片|引线型)?压敏电阻系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+.+?压敏电阻系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+multilayer varistor series$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+(?:RF高频电感|通用电感|功率电感|射频电感|共模电感|磁珠)系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+.+?(?:射频电感|功率电感|共模电感|共模扼流线圈|片式磁珠|磁珠)系列$",
+        r"^(?:.+?\s+)?[A-Z0-9._/+\\-]{1,24}\s+(?:MLCC|MLCC series|capacitor official series|电容系列)$",
+    ]
+    return any(re.fullmatch(pattern, text, flags=re.I) for pattern in generated_patterns)
+
+
 def merge_series_profile_values(result, profile, model=""):
     if not isinstance(profile, dict):
         return dict(result)
@@ -12952,6 +13348,57 @@ def merge_series_profile_values(result, profile, model=""):
     ):
         merged["系列"] = profile_series
         series_replaced = True
+    if not series_replaced and profile_series and generated_passive_series_description(merged.get("系列说明", "")):
+        current_series = clean_text(merged.get("系列", ""))
+        current_upper = current_series.upper()
+        profile_upper = profile_series.upper()
+        if (
+            current_upper
+            and len(current_upper) <= 4
+            and profile_upper.startswith(current_upper)
+            and len(profile_upper) > len(current_upper)
+        ):
+            merged["系列"] = profile_series
+            series_replaced = True
+    if not series_replaced and profile_series:
+        current_upper = clean_text(merged.get("系列", "")).upper()
+        if re.match(r"^V\d+", current_upper) and profile_series in {
+            "TMOV",
+            "SMOV",
+            "FBMOV",
+            "LVM2P",
+            "AUMLA",
+            "MHS",
+            "MLA",
+            "ML",
+            "CH",
+            "SM20",
+            "SM7",
+            "MA",
+            "RA",
+            "CA",
+            "BB",
+            "BA",
+            "DB",
+            "DA",
+            "HA",
+            "HC",
+            "HB34",
+            "HF34",
+            "HG34",
+            "DHB34",
+            "AUMOV",
+            "HMOV",
+            "C-III",
+            "UltraMOV25S",
+            "Xtreme",
+            "UltraMOV",
+            "LA",
+            "LS",
+            "ZA",
+        }:
+            merged["系列"] = profile_series
+            series_replaced = True
     for col in ("系列说明", "特殊用途"):
         profile_value = clean_text(profile.get(col, ""))
         if profile_value == "":
@@ -12960,6 +13407,7 @@ def merge_series_profile_values(result, profile, model=""):
             clean_text(merged.get(col, "")) == ""
             or series_replaced
             or (use_mlcc_replace and col == "系列说明" and mlcc_series_desc_should_replace(merged.get(col, ""), profile_value, series_replaced))
+            or (col == "系列说明" and generated_passive_series_description(merged.get(col, "")))
         ):
             merged[col] = profile_value
     if normalize_component_type(merged.get("器件类型", "")) == "" and profile_type != "":
@@ -12996,27 +13444,63 @@ def resolve_aluminum_electrolytic_series_profile(brand="", model="", series="", 
     if "NICHICON" in brand_upper or "尼吉康" in brand_text:
         series_code = nichicon_series_code_from_model(model_text)
         if series_code != "":
-            return merge_series_profile_values(
+            profile = NICHICON_ALUMINUM_SERIES_PROFILES.get(series_code, {})
+            resolved = merge_series_profile_values(
                 result,
                 {
                     "系列": series_code,
-                    "系列说明": f"Nichicon {series_code} 铝电解电容系列",
+                    "系列说明": clean_text(profile.get("系列说明", "")) or f"Nichicon {series_code} 铝电解电容系列",
+                    "特殊用途": clean_text(profile.get("特殊用途", "")),
                     "器件类型": "铝电解电容",
                 },
                 model=model_text,
             )
+            profile_desc = clean_text(profile.get("系列说明", ""))
+            if aluminum_series_desc_should_replace(resolved.get("系列说明", ""), profile_desc):
+                resolved["系列说明"] = profile_desc
+            if clean_text(resolved.get("特殊用途", "")) == "" and clean_text(profile.get("特殊用途", "")) != "":
+                resolved["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+            return resolved
     if any(token in brand_upper for token in ("CHEMI-CON", "CHEMICON")) or "贵弥功" in brand_text:
         series_code = chemi_con_series_code_from_model(model_text)
         if series_code != "":
-            return merge_series_profile_values(
+            profile = CHEMI_CON_ALUMINUM_SERIES_PROFILES.get(series_code, {})
+            resolved = merge_series_profile_values(
                 result,
                 {
                     "系列": series_code,
-                    "系列说明": f"Chemi-Con {series_code} 铝电解电容系列",
+                    "系列说明": clean_text(profile.get("系列说明", "")) or f"Chemi-Con {series_code} 铝电解电容系列",
+                    "特殊用途": clean_text(profile.get("特殊用途", "")),
                     "器件类型": "铝电解电容",
                 },
                 model=model_text,
             )
+            profile_desc = clean_text(profile.get("系列说明", ""))
+            if aluminum_series_desc_should_replace(resolved.get("系列说明", ""), profile_desc):
+                resolved["系列说明"] = profile_desc
+            if clean_text(resolved.get("特殊用途", "")) == "" and clean_text(profile.get("特殊用途", "")) != "":
+                resolved["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+            return resolved
+    if "RUBYCON" in brand_upper:
+        series_code = rubycon_series_code_from_model(model_text)
+        if series_code != "":
+            profile = RUBYCON_ALUMINUM_SERIES_PROFILES.get(series_code, {})
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": clean_text(profile.get("系列说明", "")) or f"Rubycon {series_code} 铝电解电容系列",
+                    "特殊用途": clean_text(profile.get("特殊用途", "")),
+                    "器件类型": "铝电解电容",
+                },
+                model=model_text,
+            )
+            profile_desc = clean_text(profile.get("系列说明", ""))
+            if aluminum_series_desc_should_replace(resolved.get("系列说明", ""), profile_desc):
+                resolved["系列说明"] = profile_desc
+            if clean_text(resolved.get("特殊用途", "")) == "" and clean_text(profile.get("特殊用途", "")) != "":
+                resolved["特殊用途"] = clean_text(profile.get("特殊用途", ""))
+            return resolved
     if "PANASONIC" in brand_upper or "松下" in brand_text:
         for pattern in PANASONIC_ALUMINUM_SERIES_PATTERNS:
             match = pattern.match(model_text)
@@ -13038,6 +13522,7 @@ def resolve_aluminum_electrolytic_series_profile(brand="", model="", series="", 
 
 def resolve_thermistor_series_profile(brand="", model="", series="", series_desc="", special_use=""):
     brand_text = clean_brand(brand)
+    brand_upper = brand_text.upper()
     model_text = clean_model(model)
     result = {
         "系列": clean_text(series),
@@ -13047,6 +13532,20 @@ def resolve_thermistor_series_profile(brand="", model="", series="", series_desc
     }
     if model_text == "":
         return result
+    if any(token in brand_upper for token in ("PANASONIC", "MITSUBISHI")) or "三菱" in brand_text:
+        official_profile = lookup_official_resistor_series_profile_by_model(model_text, brand_text)
+        series_code = clean_text(official_profile.get("系列", ""))
+        if series_code != "":
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": clean_text(official_profile.get("系列说明", "")),
+                    "特殊用途": clean_text(official_profile.get("特殊用途", "")),
+                    "器件类型": "热敏电阻",
+                },
+                model=model_text,
+            )
     murata_profile = murata_ntc_series_profile_from_model(model_text)
     murata_series = clean_text(murata_profile.get("系列", ""))
     if murata_series != "":
@@ -13060,6 +13559,34 @@ def resolve_thermistor_series_profile(brand="", model="", series="", series_desc
             },
             model=model_text,
         )
+    if "SUNLORD" in brand_upper or "顺络" in brand_text:
+        sunlord_sdnt_match = re.match(r"^(SDNT\d{4}[A-Z])", model_text)
+        if sunlord_sdnt_match:
+            series_code = clean_text(sunlord_sdnt_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Sunlord {series_code} 片式温度传感 NTC 热敏电阻",
+                    "特殊用途": "测温 | 贴片 | NTC",
+                    "器件类型": "热敏电阻",
+                },
+                model=model_text,
+            )
+    if "TDK" in brand_upper or "东电化" in brand_text or "EPCOS" in brand_upper:
+        tdk_profile = lookup_official_resistor_series_profile_by_model(model_text, brand_text)
+        series_code = clean_text(tdk_profile.get("系列", ""))
+        if series_code != "":
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": clean_text(tdk_profile.get("系列说明", "")),
+                    "特殊用途": clean_text(tdk_profile.get("特殊用途", "")),
+                    "器件类型": "热敏电阻",
+                },
+                model=model_text,
+            )
     for pattern, desc_suffix, inferred_use in THERMISTOR_SERIES_RULES:
         match = pattern.match(model_text)
         if not match:
@@ -13096,6 +13623,7 @@ def resolve_thermistor_series_profile(brand="", model="", series="", series_desc
 
 def resolve_varistor_series_profile(brand="", model="", component_type="", series="", series_desc="", special_use=""):
     brand_text = clean_brand(brand)
+    brand_upper = brand_text.upper()
     model_text = clean_model(model)
     normalized_type = normalize_component_type(component_type) or "压敏电阻"
     result = {
@@ -13106,6 +13634,458 @@ def resolve_varistor_series_profile(brand="", model="", component_type="", serie
     }
     if model_text == "":
         return result
+    if "SUNLORD" in brand_upper or "顺络" in brand_text:
+        svmh_match = re.match(r"^(SVMH\d{4})", model_text)
+        if svmh_match:
+            series_code = clean_text(svmh_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Sunlord {series_code} 高电压多层贴片压敏电阻（浪涌抑制）",
+                    "特殊用途": "高电压 | 多层 | 贴片 | 浪涌抑制 | AC电路",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+        sdv_match = re.match(r"^(SDV\d{4}[A-Z])", model_text)
+        if sdv_match:
+            series_code = clean_text(sdv_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Sunlord {series_code} 多层贴片压敏电阻（ESD/浪涌抑制）",
+                    "特殊用途": "多层 | 贴片 | ESD/浪涌保护",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+        sdvl_match = re.match(r"^(SDVL\d{4}[A-Z]{2})", model_text)
+        if sdvl_match:
+            series_code = clean_text(sdvl_match.group(1)).upper()
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Sunlord {series_code} 大尺寸贴片压敏电阻（浪涌抑制）",
+                    "特殊用途": "贴片 | 浪涌抑制",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+    if "YAGEO" in brand_upper or "国巨" in brand_text:
+        yageo_profile = lookup_official_resistor_series_profile_by_model(model_text, brand_text)
+        series_code = clean_text(yageo_profile.get("系列", ""))
+        if series_code != "":
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": clean_text(yageo_profile.get("系列说明", "")),
+                    "特殊用途": clean_text(yageo_profile.get("特殊用途", "")),
+                    "器件类型": clean_text(yageo_profile.get("器件类型", "")) or normalized_type,
+                },
+                model=model_text,
+            )
+            profile_type = clean_text(yageo_profile.get("器件类型", ""))
+            if profile_type:
+                resolved["器件类型"] = profile_type
+            return resolved
+    if "BRIGHTKING" in brand_upper or "君耀" in brand_text:
+        brightking_match = re.match(r"^(?:\d{3})?KD(?P<diameter>\d{2})(?:[A-Z0-9]|-|$)", model_text)
+        if brightking_match:
+            diameter = clean_text(brightking_match.group("diameter")).lstrip("0") or brightking_match.group("diameter")
+            series_code = f"KD{brightking_match.group('diameter')}"
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"BrightKing {series_code} {diameter}mm 径向引线金属氧化物压敏电阻（MOV）",
+                    "特殊用途": f"MOV | 浪涌抑制 | 径向引线 | {diameter}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+    if "STE(松田)" in brand_text or "松田" in brand_text or "SONGTIAN" in brand_upper:
+        ste_leaded_match = re.match(r"^(STE(?P<diameter>\d{2})D)", model_text)
+        if ste_leaded_match:
+            diameter = clean_text(ste_leaded_match.group("diameter")).lstrip("0") or ste_leaded_match.group("diameter")
+            series_code = clean_text(ste_leaded_match.group(1)).upper()
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"STE {series_code} {diameter}D 标准径向引线金属氧化物压敏电阻（MOV）",
+                    "特殊用途": f"MOV | 浪涌抑制 | 径向引线 | {diameter}D",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+        ste_smdmov_match = re.match(r"^(SMDMOV(?P<size>3225|4032))", model_text)
+        if ste_smdmov_match:
+            size_code = clean_text(ste_smdmov_match.group("size"))
+            series_code = f"SMDMOV{size_code}"
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"STE {series_code} 表面贴装金属氧化物压敏电阻",
+                    "特殊用途": f"MOV | 表面贴装 | 浪涌抑制 | {size_code}",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "贴片压敏电阻"
+            return resolved
+        ste_chip_match = re.match(r"^(ST(?P<size>3225|4032)K)", model_text)
+        if ste_chip_match:
+            size_code = clean_text(ste_chip_match.group("size"))
+            series_code = clean_text(ste_chip_match.group(1)).upper()
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"STE {series_code} 多层贴片压敏电阻",
+                    "特殊用途": f"多层 | 贴片 | ESD/浪涌保护 | {size_code}",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "贴片压敏电阻"
+            return resolved
+    if "MERITEK" in brand_upper:
+        meritek_match = re.match(r"^(MVR(?P<diameter>05|07|10|14|20)D)", model_text)
+        if meritek_match:
+            diameter = clean_text(meritek_match.group("diameter")).lstrip("0") or meritek_match.group("diameter")
+            base_series = clean_text(meritek_match.group(1)).upper()
+            is_high_surge = model_text.endswith("-S")
+            series_code = f"{base_series}-S" if is_high_surge else base_series
+            desc_prefix = "Meritek MVR-S" if is_high_surge else f"Meritek {base_series}"
+            special = "高浪涌" if is_high_surge else "浪涌抑制"
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"{desc_prefix} {diameter}mm 径向引线金属氧化物压敏电阻（MOV）",
+                    "特殊用途": f"MOV | {special} | 径向引线 | {diameter}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+    if "TKS" in brand_upper or "THINKING" in brand_upper or "兴勤" in brand_text:
+        tks_tvr_match = re.match(r"^TVR(?P<diameter>05|07|10|14|20|25|32|34|40|60)\d{3}", model_text)
+        if tks_tvr_match:
+            diameter = clean_text(tks_tvr_match.group("diameter")).lstrip("0") or tks_tvr_match.group("diameter")
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": "TVR",
+                    "系列说明": f"Thinking/TKS TVR {diameter}mm 圆片径向引线金属氧化物压敏电阻（MOV）",
+                    "特殊用途": f"MOV | 通用浪涌保护 | 圆片 | 径向引线 | {diameter}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+        tks_tva_match = re.match(r"^TVA(?P<size>22|25|30|32|34|40|44|48|54|60)\d{3}", model_text)
+        if tks_tva_match:
+            size = clean_text(tks_tva_match.group("size"))
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": "TVA",
+                    "系列说明": f"Thinking/TKS TVA {size}mm 高能量防雷用圆片/方块金属氧化物压敏电阻",
+                    "特殊用途": f"MOV | 防雷保护 | 高能量 | 引线/端子/方块结构 | {size}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+        tks_tvm_match = re.match(r"^TVM(?P<size>[0-6A])(?P<family>[A-Z])", model_text)
+        if tks_tvm_match:
+            size_code = clean_text(tks_tvm_match.group("size")).upper()
+            family = clean_text(tks_tvm_match.group("family")).upper()
+            series_code = f"TVM-{family}"
+            if family == "G":
+                desc = "Thinking/TKS TVM-G 低钳位多层贴片ESD抑制器"
+                use = "ESD保护 | 低钳位 | 多层 | 贴片"
+            elif family == "B":
+                desc = "Thinking/TKS TVM-B 多层贴片浪涌抑制压敏电阻"
+                use = "浪涌保护 | 多层 | 贴片"
+            else:
+                desc = f"Thinking/TKS {series_code} 多层贴片压敏电阻"
+                use = "多层 | 贴片 | ESD/浪涌保护"
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": desc,
+                    "特殊用途": f"{use} | size-code {size_code}",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "贴片压敏电阻"
+            return resolved
+    if "DERSONIC" in brand_upper or "德尔创" in brand_text:
+        dersonic_match = re.match(r"^(?P<prefix>RM)?(?P<diameter>05|07|10|14|20)D", model_text)
+        if dersonic_match:
+            diameter_code = clean_text(dersonic_match.group("diameter"))
+            diameter = diameter_code.lstrip("0") or diameter_code
+            series_code = f"RM{diameter_code}D" if clean_text(dersonic_match.group("prefix")) else f"{diameter_code}D"
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": f"Dersonic {series_code} {diameter}mm 径向引线氧化锌压敏电阻（MOV）",
+                    "特殊用途": f"MOV | 通用浪涌保护 | 径向引线 | {diameter}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+    if "KEMET" in brand_upper or "基美" in brand_text:
+        kemet_smd_match = re.match(r"^(?P<series>VA|VC|VE|VG|VP)(?P<size>0603|0805|1206|1210|1812|2220|3225|4032)", model_text)
+        if kemet_smd_match:
+            series_code = clean_text(kemet_smd_match.group("series")).upper()
+            size_code = clean_text(kemet_smd_match.group("size"))
+            series_profiles = {
+                "VA": ("KEMET VA Automotive Grade 125°C 多层贴片压敏电阻", "车规 | AEC-Q200 | 125°C | 多层 | 贴片"),
+                "VC": ("KEMET VC Low Voltage 125°C 多层贴片压敏电阻", "低压 | 125°C | 多层 | 贴片 | ESD/浪涌保护"),
+                "VE": ("KEMET VE High Temperature 150°C 多层贴片压敏电阻", "高温150°C | 低压 | 多层 | 贴片"),
+                "VG": ("KEMET VG ESD Suppression 125°C 多层贴片压敏/ESD抑制器", "ESD抑制 | AEC-Q200 | 125°C | 多层 | 贴片"),
+                "VP": ("KEMET VP Plastic Encapsulated 85°C 表面贴装塑封压敏电阻", "塑封 | 85°C | 表面贴装 | 中压浪涌保护"),
+            }
+            desc, use = series_profiles.get(series_code, (f"KEMET {series_code} 表面贴装压敏电阻", "贴片 | 浪涌保护"))
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": desc,
+                    "特殊用途": f"{use} | {size_code}",
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "贴片压敏电阻"
+            return resolved
+        kemet_vs_match = re.match(r"^VS(?P<diameter>\d{2})K", model_text)
+        if kemet_vs_match:
+            diameter = clean_text(kemet_vs_match.group("diameter")).lstrip("0") or kemet_vs_match.group("diameter")
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": "VS",
+                    "系列说明": f"KEMET VS {diameter}mm 径向引线圆片金属氧化物压敏电阻",
+                    "特殊用途": f"MOV | 扩展中压 | 圆片 | 径向引线 | {diameter}mm",
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            resolved["器件类型"] = "引线型压敏电阻"
+            return resolved
+    joyin_jmv_match = re.match(r"^JMV\d{4}([SCENB])", model_text)
+    joyin_jvr_match = re.match(r"^JVR\d{2}([NSU])\d{3}[KLMP]", model_text)
+    if "JOYIN" in brand_upper or "久尹" in brand_text or joyin_jmv_match or joyin_jvr_match:
+        jmv_profiles = {
+            "S": ("JMV-S", "JOYIN JMV-S 浪涌/ESD保护多层贴片压敏电阻", "多层 | 贴片 | ESD/浪涌保护"),
+            "C": ("JMV-C", "JOYIN JMV-C 低电容ESD保护多层贴片压敏电阻", "多层 | 贴片 | 低电容 | 高速I/O | ESD保护"),
+            "E": ("JMV-E", "JOYIN JMV-E EMI/ESD双功能多层贴片压敏电阻", "多层 | 贴片 | EMI/ESD双功能"),
+            "N": ("JMV-N", "JOYIN JMV-N 网络保护多层贴片压敏电阻", "多层 | 贴片 | 网络保护 | 高工作电压"),
+            "B": ("JMV-B", "JOYIN JMV-B 基站用高浪涌多层贴片压敏电阻", "多层 | 贴片 | 基站 | 高浪涌"),
+        }
+        if joyin_jmv_match:
+            series_code, desc, use = jmv_profiles.get(joyin_jmv_match.group(1), ("JMV", "JOYIN JMV 多层贴片压敏电阻", "多层 | 贴片"))
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": desc,
+                    "特殊用途": use,
+                    "器件类型": "贴片压敏电阻",
+                },
+                model=model_text,
+            )
+            if generated_passive_series_description(result.get("系列说明", "")) or clean_text(result.get("系列", "")).upper().startswith("JMV"):
+                resolved["系列"] = series_code
+            return resolved
+        jvr_profiles = {
+            "N": ("JVR-N", "JOYIN JVR-N 标准径向引线金属氧化物压敏电阻", "标准 | 径向引线 | 浪涌保护"),
+            "S": ("JVR-S", "JOYIN JVR-S 高浪涌径向引线金属氧化物压敏电阻", "高浪涌 | 径向引线 | 浪涌保护"),
+            "U": ("JVR-U", "JOYIN JVR-U 超高浪涌径向引线金属氧化物压敏电阻", "超高浪涌 | 径向引线 | 浪涌保护"),
+        }
+        if joyin_jvr_match:
+            series_code, desc, use = jvr_profiles.get(joyin_jvr_match.group(1), ("JVR", "JOYIN JVR 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"))
+            resolved = merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": desc,
+                    "特殊用途": use,
+                    "器件类型": "引线型压敏电阻",
+                },
+                model=model_text,
+            )
+            if generated_passive_series_description(result.get("系列说明", "")) or clean_text(result.get("系列", "")).upper().startswith("JVR"):
+                resolved["系列"] = series_code
+            return resolved
+    if "LITTELFUSE" in brand_upper:
+        for pattern, series_code, desc, use in (
+            (r"^TMOV", "TMOV", "Littelfuse TMOV 热保护径向引线金属氧化物压敏电阻", "热保护 | 径向引线 | 浪涌保护"),
+            (r"^SMOV", "SMOV", "Littelfuse SMOV 热保护金属氧化物压敏电阻", "热保护 | 浪涌保护"),
+            (r"^FBMOV", "FBMOV", "Littelfuse FBMOV 熔断体保护金属氧化物压敏电阻", "熔断体保护 | 浪涌保护"),
+            (r"^LVM2P", "LVM2P", "Littelfuse LVM2P 2Pro 低压过压/过流保护组件", "低压 | 过压/过流保护 | 模块"),
+            (r"^V\d+(?:\.\d+)?AUMLA", "AUMLA", "Littelfuse AUMLA 车规多层贴片压敏电阻", "车规 | 多层 | 贴片 | ESD/浪涌保护"),
+            (r"^V\d+(?:\.\d+)?MHS", "MHS", "Littelfuse MHS 多层贴片压敏电阻/ESD抑制器", "多层 | 贴片 | ESD保护"),
+            (r"^V\d+(?:\.\d+)?MLA", "MLA", "Littelfuse MLA 多层贴片压敏电阻", "多层 | 贴片 | ESD/浪涌保护"),
+            (r"^V\d+(?:\.\d+)?ML", "ML", "Littelfuse ML 多层贴片压敏电阻", "多层 | 贴片 | ESD/浪涌保护"),
+            (r"^V\d+CH\d+", "CH", "Littelfuse CH 低剖面贴片金属氧化物压敏电阻", "贴片 | 低剖面 | 浪涌保护"),
+            (r"^V\d+SM20", "SM20", "Littelfuse SM20 20mm 贴片金属氧化物压敏电阻", "贴片 | 20mm | 浪涌保护"),
+            (r"^V\d+SM7", "SM7", "Littelfuse SM7 贴片金属氧化物压敏电阻", "贴片 | 浪涌保护"),
+            (r"^V\d+MT\d+", "MA", "Littelfuse MA 轴向引线金属氧化物压敏电阻", "轴向引线 | 浪涌保护"),
+            (r"^V\d+MA\d+", "MA", "Littelfuse MA 轴向引线金属氧化物压敏电阻", "轴向引线 | 浪涌保护"),
+            (r"^V\d+RA\d+", "RA", "Littelfuse RA 低剖面径向引线金属氧化物压敏电阻", "径向引线 | 低剖面 | 浪涌保护"),
+            (r"^V\d+CA\d+", "CA", "Littelfuse CA 工业高能量圆片金属氧化物压敏电阻", "工业 | 高能量 | 圆片 | 浪涌保护"),
+            (r"^V\d+BB\d+", "BB", "Littelfuse BA/BB 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+BA\d+", "BA", "Littelfuse BA/BB 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+DB\d+", "DB", "Littelfuse DA/DB 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+DA\d+", "DA", "Littelfuse DA/DB 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+HA\d+", "HA", "Littelfuse HA 工业高能量金属氧化物压敏电阻", "工业 | 高能量 | 螺钉/端子安装 | 浪涌保护"),
+            (r"^V\d+HC\d+", "HC", "Littelfuse HC 工业高能量金属氧化物压敏电阻", "工业 | 高能量 | 螺钉/端子安装 | 浪涌保护"),
+            (r"^V\d+HB34", "HB34", "Littelfuse HB34 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+HF34", "HF34", "Littelfuse HF34 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+HG34", "HG34", "Littelfuse HG34 工业高能量端子金属氧化物压敏电阻", "工业 | 高能量 | 端子型 | 浪涌保护"),
+            (r"^V\d+DHB34", "DHB34", "Littelfuse DHB34 工业高能量金属氧化物压敏电阻", "工业 | 高能量 | 通孔端子 | 浪涌保护"),
+            (r"^V\d+LU\d+CP", "C-III", "Littelfuse C-III 高能量径向引线金属氧化物压敏电阻", "高能量 | 径向引线 | 浪涌保护"),
+            (r"^V\d+[HP]\d+AUTO", "AUMOV", "Littelfuse AUMOV 车规径向引线金属氧化物压敏电阻", "车规 | AEC-Q200 | 径向引线 | 浪涌保护"),
+            (r"^V\d+H\d+P", "HMOV", "Littelfuse HMOV 高浪涌高温径向引线金属氧化物压敏电阻", "高浪涌 | 高温 | 径向引线 | 浪涌保护"),
+            (r"^V25S\d+P", "UltraMOV25S", "Littelfuse UltraMOV 25S 径向引线金属氧化物压敏电阻", "高浪涌 | 25mm | 径向引线 | 浪涌保护"),
+            (r"^V(?:05|07|10|11|14|20)X\d+", "Xtreme", "Littelfuse Xtreme 径向引线金属氧化物压敏电阻", "高浪涌 | 径向引线 | 严苛环境 | 浪涌保护"),
+            (r"^V\d+E\d+", "UltraMOV", "Littelfuse UltraMOV 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"),
+            (r"^V\d+P", "UltraMOV", "Littelfuse UltraMOV 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"),
+            (r"^V\d+LU\d+", "LA", "Littelfuse LA 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"),
+            (r"^V\d+L[CT]\d*", "LA", "Littelfuse LA 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"),
+            (r"^V\d+LA", "LA", "Littelfuse LA 径向引线金属氧化物压敏电阻", "径向引线 | 浪涌保护"),
+            (r"^V\d+LS", "LS", "Littelfuse LS 高浪涌径向引线金属氧化物压敏电阻", "高浪涌 | 径向引线"),
+            (r"^V\d+Z[ACSTU]\d*", "ZA", "Littelfuse ZA 低中压径向引线金属氧化物压敏电阻", "低/中压 | 径向引线 | 浪涌保护"),
+            (r"^V\d+ZA", "ZA", "Littelfuse ZA 径向引线金属氧化物压敏电阻", "低压 | 径向引线 | 浪涌保护"),
+        ):
+            if re.match(pattern, model_text):
+                resolved = merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": desc,
+                        "特殊用途": use,
+                        "器件类型": normalized_type,
+                    },
+                    model=model_text,
+                )
+                current_series = clean_text(result.get("系列", ""))
+                if generated_passive_series_description(result.get("系列说明", "")) or re.match(r"^V\d+", current_series.upper()):
+                    resolved["系列"] = series_code
+                return resolved
+    if "TDK" in brand_upper or "东电化" in brand_text or "EPCOS" in brand_upper:
+        if model_text.startswith("B722"):
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": "SIOV",
+                    "系列说明": "TDK/EPCOS SIOV 金属氧化物压敏电阻",
+                    "特殊用途": "浪涌保护 | 引线型",
+                    "器件类型": normalized_type,
+                },
+                model=model_text,
+            )
+        if model_text.startswith(("AVR-M", "AVRM", "AVRL")):
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": "AVR",
+                    "系列说明": "TDK AVR 多层贴片压敏电阻",
+                    "特殊用途": "多层 | 贴片 | ESD/浪涌保护",
+                    "器件类型": normalized_type,
+                },
+                model=model_text,
+            )
+    if "BOURNS" in brand_upper:
+        for pattern, series_code, desc, use in (
+            (r"^GMOV", "GMOV", "Bourns GMOV GDT/MOV混合浪涌保护压敏电阻", "GDT/MOV混合 | 浪涌保护"),
+            (r"^MOV-", "MOV", "Bourns MOV 径向引线金属氧化物压敏电阻", "MOV | 径向引线 | 浪涌保护"),
+            (r"^PV\d+K(?:3225|4032)", "PV", "Bourns PV 低/中压塑封表面贴装金属氧化物压敏电阻", "MOV | 表面贴装 | 塑封 | 低/中压 | 浪涌保护"),
+            (r"^DV\d+K(?:2220|3225|4032)", "DV", "Bourns DV 中压低剖面表面贴装金属氧化物压敏电阻", "MOV | 表面贴装 | 低剖面 | 中压 | 浪涌保护"),
+            (r"^CVQ\d+K(?:7|10|14|20|23)", "CVQ", "Bourns CVQ 扩展中压圆片金属氧化物压敏电阻", "MOV | 圆片 | 扩展中压 | 高能量 | 径向引线"),
+            (r"^CV\d+K(?:5|7|10|14|20|23)", "CV", "Bourns CV 中压圆片金属氧化物压敏电阻", "MOV | 圆片 | 中压 | 径向引线"),
+            (r"^SV\d+K(?:5|7|10|14|20|23)", "SV", "Bourns SV 特殊中压圆片金属氧化物压敏电阻", "MOV | 圆片 | 特殊中压 | 径向引线"),
+            (r"^ZV", "ZV", "Bourns ZV 多层贴片压敏电阻", "多层 | 贴片 | ESD/浪涌保护"),
+            (r"^AV", "AV", "Bourns AV 车规多层贴片压敏电阻", "车规 | 多层 | 贴片"),
+            (r"^CG[A-Z0-9]*ML", "CG", "Bourns ChipGuard 多层贴片压敏电阻", "多层 | 贴片 | ESD保护"),
+        ):
+            if re.match(pattern, model_text):
+                resolved_type = normalized_type
+                if series_code in {"MOV", "CVQ", "CV", "SV"}:
+                    resolved_type = "引线型压敏电阻"
+                elif series_code in {"PV", "DV", "ZV", "AV", "CG"}:
+                    resolved_type = "贴片压敏电阻"
+                return merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": desc,
+                        "特殊用途": use,
+                        "器件类型": resolved_type,
+                    },
+                    model=model_text,
+                )
+    if "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text:
+        kyocera_patterns = (
+            (r"^VLAS", "VLAS", "Kyocera AVX VLAS Low Clamp Automotive TransGuard 多层贴片压敏电阻", "车规 | AEC-Q200 | 低钳位 | 多层 | 贴片 | EMI/RFI滤波", "贴片压敏电阻"),
+            (r"^VCAS", "VCAS", "Kyocera AVX VCAS TransGuard Automotive 多层贴片压敏电阻", "车规 | AEC-Q200 | 多层 | 贴片 | 浪涌/ESD保护 | EMI/RFI滤波", "贴片压敏电阻"),
+            (r"^VGAS|^VGAH", "VGAS", "Kyocera AVX VGAS/VGAH Glass Encapsulated TransGuard Automotive 多层贴片压敏电阻", "车规 | AEC-Q200 | 玻璃封装 | 多层 | 贴片 | 高能量", "贴片压敏电阻"),
+            (r"^VG", "VG", "Kyocera AVX VG Glass Encapsulated TransGuard 多层贴片压敏电阻", "玻璃封装 | 多层 | 贴片 | 浪涌/ESD保护", "贴片压敏电阻"),
+            (r"^VA", "VA", "Kyocera AVX VA Radial Leaded TransGuard 引线型多层压敏电阻", "车规 | AEC-Q200 | 径向引线 | 多层 | 浪涌/ESD保护 | EMI/RFI滤波", "引线型压敏电阻"),
+            (r"^VC", "VC", "Kyocera AVX VC TransGuard 多层贴片压敏电阻", "多层 | 贴片 | 浪涌/ESD保护 | EMI/RFI滤波", "贴片压敏电阻"),
+        )
+        for pattern, series_code, desc, use, resolved_type in kyocera_patterns:
+            if re.match(pattern, model_text):
+                return merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": desc,
+                        "特殊用途": use,
+                        "器件类型": resolved_type,
+                    },
+                    model=model_text,
+                )
+    if "VISHAY" in brand_upper or "威世" in brand_text:
+        for pattern, series_code, desc, use in (
+            (r"^VDRUS", "VDRUS", "Vishay VDRUS 径向引线金属氧化物压敏电阻", "浪涌保护 | 引线型"),
+            (r"^VDRH", "VDRH", "Vishay VDRH 高浪涌金属氧化物压敏电阻", "高浪涌 | 引线型"),
+            (r"^VDRS", "VDRS", "Vishay VDRS 标准金属氧化物压敏电阻", "浪涌保护 | 引线型"),
+            (r"^MLV", "MLV", "Vishay MLV 多层贴片压敏电阻", "多层 | 贴片 | ESD/浪涌保护"),
+        ):
+            if re.match(pattern, model_text):
+                return merge_series_profile_values(
+                    result,
+                    {
+                        "系列": series_code,
+                        "系列说明": desc,
+                        "特殊用途": use,
+                        "器件类型": normalized_type,
+                    },
+                    model=model_text,
+                )
     for pattern, code_builder, desc_suffix in VARISTOR_SERIES_RULES:
         match = pattern.match(model_text)
         if not match:
@@ -13119,7 +14099,7 @@ def resolve_varistor_series_profile(brand="", model="", component_type="", serie
             },
             model=model_text,
         )
-    if "LITTELFUSE" in brand_text.upper():
+    if "LITTELFUSE" in brand_upper:
         littelfuse_match = re.match(r"^(V(?:\d{2}P|8Z[A-Z]))", model_text)
         if littelfuse_match:
             series_code = clean_text(littelfuse_match.group(1)).upper()
@@ -13145,6 +14125,74 @@ def resolve_varistor_series_profile(brand="", model="", component_type="", serie
                 },
                 model=model_text,
             )
+    if clean_text(result.get("系列", "")) != "" and clean_text(result.get("系列说明", "")) == "":
+        result["系列说明"] = build_series_description_fallback(normalized_type, brand=brand_text, series=result["系列"], special_use=result.get("特殊用途", ""))
+    return result
+
+
+def murata_inductor_series_profile_from_model(model="", component_type=""):
+    model_text = clean_model(model)
+    normalized_type = normalize_component_type(component_type)
+    if model_text == "":
+        return {}
+    patterns = [
+        (r"^(LQP\d{2}[A-Z]{2})", "薄膜型高频射频电感", "高Q | 高频 | 薄膜"),
+        (r"^(LQW\d{2}[A-Z]{2})", "绕线型高Q射频电感", "高Q | 高频 | 绕线"),
+        (r"^(LQG\d{2}[A-Z]{2})", "多层型高频射频电感", "高频 | 多层"),
+        (r"^(LQH[0-9A-Z]{4})", "绕线型功率电感", "功率 | 绕线"),
+        (r"^(LQM[0-9A-Z]{4})", "多层型功率电感", "功率 | 多层"),
+        (r"^(DFE[0-9A-Z]*?[A-Z])(?=R?\d)", "金属合金一体成型功率电感", "金属合金 | 一体成型 | 低DCR"),
+        (r"^(DLW[0-9A-Z]{4})", "共模扼流线圈", "共模 | EMI抑制"),
+        (r"^(DLM[0-9A-Z]{4})", "共模扼流线圈", "共模 | EMI抑制"),
+        (r"^(BLM[0-9A-Z]{4})", "片式磁珠", "EMI抑制 | 磁珠"),
+    ]
+    for pattern, family_desc, use in patterns:
+        match = re.match(pattern, model_text)
+        if match is None:
+            continue
+        series_code = clean_text(match.group(1)).upper()
+        resolved_type = normalized_type
+        if resolved_type == "":
+            if series_code.startswith(("DLW", "DLM")):
+                resolved_type = "共模电感"
+            elif series_code.startswith("BLM"):
+                resolved_type = "磁珠"
+            elif series_code.startswith(("LQP", "LQW", "LQG")):
+                resolved_type = "射频电感"
+            else:
+                resolved_type = "功率电感"
+        if resolved_type == "功率电感" and series_code.startswith("LQW"):
+            family_desc = "绕线型功率电感"
+            use = "功率 | 绕线"
+        elif resolved_type == "射频电感" and series_code.startswith("LQW"):
+            family_desc = "绕线型高Q射频电感"
+            use = "高Q | 高频 | 绕线"
+        return {
+            "系列": series_code,
+            "系列说明": f"Murata {series_code} {family_desc}系列",
+            "特殊用途": use,
+            "器件类型": resolved_type,
+        }
+    return {}
+
+
+def resolve_inductor_series_profile(brand="", model="", component_type="", series="", series_desc="", special_use=""):
+    brand_text = clean_brand(brand)
+    brand_upper = brand_text.upper()
+    model_text = clean_model(model)
+    normalized_type = normalize_component_type(component_type) or "功率电感"
+    result = {
+        "系列": clean_text(series),
+        "系列说明": clean_text(series_desc),
+        "特殊用途": normalize_special_use(special_use),
+        "器件类型": normalized_type,
+    }
+    if model_text == "":
+        return result
+    if "MURATA" in brand_upper or "村田" in brand_text:
+        profile = murata_inductor_series_profile_from_model(model_text, normalized_type)
+        if profile:
+            return merge_series_profile_values(result, profile, model=model_text)
     if clean_text(result.get("系列", "")) != "" and clean_text(result.get("系列说明", "")) == "":
         result["系列说明"] = build_series_description_fallback(normalized_type, brand=brand_text, series=result["系列"], special_use=result.get("特殊用途", ""))
     return result
@@ -13238,6 +14286,7 @@ def resolve_generic_mlcc_brand_series_profile(brand="", model="", series="", ser
                 {
                     "系列": series_code,
                     "系列说明": series_desc_text,
+                    "特殊用途": MURATA_SERIES_SPECIAL_USE.get(series_code, ""),
                     "器件类型": "MLCC",
                 },
                 model=model_text,
@@ -13371,6 +14420,19 @@ def resolve_official_series_profile(brand="", model="", component_type="", serie
         result = merge_series_profile_values(
             result,
             resolve_varistor_series_profile(
+                brand=brand_text,
+                model=model_text,
+                component_type=resolved_type,
+                series=result.get("系列", ""),
+                series_desc=result.get("系列说明", ""),
+                special_use=result.get("特殊用途", ""),
+            ),
+            model=model_text,
+        )
+    elif resolved_type in INDUCTOR_COMPONENT_TYPES:
+        result = merge_series_profile_values(
+            result,
+            resolve_inductor_series_profile(
                 brand=brand_text,
                 model=model_text,
                 component_type=resolved_type,
@@ -13759,6 +14821,21 @@ BOM_PREFERRED_DISPLAY_COLUMN_MAP = (
     ("品牌3", "推荐品牌3"),
     ("型号3", "推荐型号3"),
 )
+BOM_SALES_DECISION_COLUMNS = (
+    "可直接回复客户",
+    "销售结论",
+    "客户回复型号",
+    "备选型号",
+    "风险提示",
+)
+BOM_SALES_EXPORT_COLUMNS = (
+    "可直接回复客户",
+    "销售结论",
+    "客户回复型号",
+    "备选型号",
+    "风险提示",
+)
+BOM_MATCHED_REFERENCE_EXPORT_COLUMN = "信昌/华科匹配型号"
 
 
 def brand_alias_matches(brand, aliases):
@@ -13950,6 +15027,128 @@ def format_other_brand_models(frame, limit=None, exclude_aliases=None, exclude_p
     return " | ".join(items)
 
 
+def format_bom_sales_brand_model(brand, model):
+    model_text = clean_text(model)
+    if model_text == "":
+        return ""
+    brand_text = display_brand_label(clean_brand(brand))
+    if brand_text == "":
+        return model_text
+    return f"{brand_text} {model_text}"
+
+
+def first_clean_row_value(row, columns):
+    for col in columns:
+        value = clean_text(row.get(col, "")) if row is not None else ""
+        if value != "":
+            return value
+    return ""
+
+
+def collect_bom_sales_alternative_models(row, limit=3):
+    primary_key = (
+        clean_brand(row.get("推荐品牌", "")) if row is not None else "",
+        clean_text(row.get("推荐型号", "")) if row is not None else "",
+    )
+    items = []
+    seen = set()
+
+    def append_item(brand, model):
+        brand_key = clean_brand(brand)
+        model_key = clean_text(model)
+        if model_key == "":
+            return
+        key = (brand_key, model_key)
+        if key == primary_key or key in seen:
+            return
+        display_text = format_bom_sales_brand_model(brand_key, model_key)
+        if display_text == "":
+            return
+        seen.add(key)
+        items.append(display_text)
+
+    for idx in range(1, BOM_PREFERRED_BRAND_SLOTS + 1):
+        append_item(row.get(f"品牌{idx}", ""), row.get(f"型号{idx}", ""))
+        if len(items) >= limit:
+            return " | ".join(items[:limit])
+
+    for source_col in ["其他品牌型号", "前5个其他品牌型号"]:
+        for brand, model in split_brand_model_list(row.get(source_col, "")):
+            append_item(brand, model)
+            if len(items) >= limit:
+                return " | ".join(items[:limit])
+
+    return " | ".join(items[:limit])
+
+
+def build_bom_sales_decision_fields(row):
+    status = clean_text(row.get("状态", "")) if row is not None else ""
+    parse_status = clean_text(row.get("解析状态", "")) if row is not None else ""
+    level = first_clean_row_value(row, ["首选推荐等级", "推荐等级"])
+    primary_model = format_bom_sales_brand_model(row.get("推荐品牌", ""), row.get("推荐型号", "")) if row is not None else ""
+    reason = first_clean_row_value(row, ["推荐理由", "失败原因", "差异说明", "解析说明"])
+    alternatives = collect_bom_sales_alternative_models(row)
+    can_reply = "否"
+
+    if status == "可推荐":
+        if primary_model == "":
+            conclusion = "有匹配结果，但未生成首选型号"
+            risk = reason or "缺少推荐品牌或型号，不能直接回复客户"
+        elif level == "完全匹配":
+            can_reply = "是"
+            conclusion = "可直接回复客户，优先推荐首选型号"
+            risk = reason or "关键规格完全一致"
+        elif level in {"高代低", "可直接替代"}:
+            can_reply = "是"
+            conclusion = "可回复客户，候选规格不低于需求"
+            risk = reason or "候选规格不低于需求，仍需确认客户是否接受替代"
+        else:
+            can_reply = "是"
+            conclusion = "可回复客户，建议保留规格确认说明"
+            risk = reason or "已按当前识别参数匹配"
+    elif status == "需确认":
+        conclusion = "先内部确认后再回复客户"
+        risk = reason or "存在缺失参数或未确认替代关系"
+    elif status == "参数冲突":
+        conclusion = "不要直接推荐"
+        risk = reason or "候选型号存在关键参数冲突"
+    elif status == "无匹配":
+        conclusion = "暂无可推荐型号"
+        risk = reason or "当前库内没有符合规格的品牌型号"
+    elif status == "解析失败" or parse_status == "解析失败":
+        conclusion = "需补充或修正BOM信息"
+        risk = reason or "输入信息不足或无法解析"
+    elif primary_model != "":
+        conclusion = "需人工确认后再回复客户"
+        risk = reason or "系统未给出明确可推荐状态"
+    else:
+        conclusion = "暂无可推荐型号"
+        risk = reason or "未生成匹配结果"
+
+    return {
+        "可直接回复客户": can_reply,
+        "销售结论": conclusion,
+        "客户回复型号": primary_model,
+        "备选型号": alternatives,
+        "风险提示": risk,
+    }
+
+
+def ensure_bom_sales_decision_columns(df):
+    if df is None:
+        return pd.DataFrame()
+    out = df.copy()
+    for col in BOM_SALES_DECISION_COLUMNS:
+        if col not in out.columns:
+            out[col] = ""
+    if out.empty:
+        return out
+    decisions = out.apply(build_bom_sales_decision_fields, axis=1)
+    for col in BOM_SALES_DECISION_COLUMNS:
+        out[col] = decisions.apply(lambda value: clean_text(value.get(col, "")) if isinstance(value, dict) else "")
+    return out
+
+
 def resolve_mlcc_brand_references(df, spec, matched=None, current_model=""):
     refs = empty_mlcc_reference_result()
     if infer_spec_component_type(spec) != "MLCC":
@@ -14082,6 +15281,7 @@ def build_bom_display_df(result_df):
     if "前5个其他品牌型号" in display_df.columns and "其他品牌型号" not in display_df.columns:
         display_df["其他品牌型号"] = display_df["前5个其他品牌型号"]
     display_df["解析说明"] = display_df.apply(build_bom_parse_summary, axis=1)
+    display_df = ensure_bom_sales_decision_columns(display_df)
 
     preferred_columns = [
         "BOM行号",
@@ -14091,6 +15291,11 @@ def build_bom_display_df(result_df):
         "器件类型",
         "规格参数明细",
         "BOM数量",
+        "可直接回复客户",
+        "销售结论",
+        "客户回复型号",
+        "备选型号",
+        "风险提示",
         "匹配参数明细",
         "首选推荐等级",
         "推荐品牌",
@@ -14108,8 +15313,8 @@ def build_bom_display_df(result_df):
     ]
     existing_columns = [col for col in preferred_columns if col in display_df.columns]
     if not existing_columns:
-        return display_df
-    return display_df[existing_columns]
+        return apply_brand_display_aliases(display_df)
+    return apply_brand_display_aliases(display_df[existing_columns])
 
 
 def count_bom_recommendation_statuses(result_df):
@@ -14337,6 +15542,55 @@ def parse_generic_size_first_mlcc(model, brand=""):
     }
 
 
+def parse_numeric_size_first_mlcc(model, brand=""):
+    model = clean_model(model)
+    match = re.fullmatch(
+        r"(?P<size>01005|\d{4})(?P<mat>[ABCFNSTX])(?P<cap>(?:\d{3,4}|R\d+|\dR\d+))"
+        r"(?P<tol>[ABCDEFGJKMZ])(?P<volt>(?:6R3|\d{3}))(?P<rest>[A-Z0-9]*)",
+        model,
+    )
+    if not match:
+        return None
+
+    size_map = {
+        "01005": "01005", "0201": "0201", "0402": "0402", "0603": "0603",
+        "0805": "0805", "1206": "1206", "1210": "1210", "1808": "1808",
+        "1812": "1812", "2010": "2010", "2220": "2220", "2225": "2225",
+    }
+    tol_map = {
+        "A": "0.05PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
+        "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20",
+    }
+    size = clean_size(size_map.get(match.group("size"), match.group("size")))
+    material = clean_material(WALSIN_NUMERIC_MLCC_DIELECTRIC.get(match.group("mat"), ""))
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    voltage = clean_voltage(decode_walsin_numeric_mlcc_voltage_code(match.group("volt")))
+    tol = clean_tol_for_match(tol_map.get(match.group("tol"), ""))
+    if size == "" or material == "" or cap_pf is None or voltage == "":
+        return None
+
+    brand_text = clean_brand(brand)
+    series_profile = walsin_mlcc_series_profile("常规")
+    cap_value, cap_unit = pf_to_value_unit(cap_pf)
+    return {
+        "品牌": brand_text,
+        "型号": model,
+        "器件类型": "MLCC",
+        "系列": series_profile["系列"],
+        "系列说明": series_profile["系列说明"],
+        "特殊用途": series_profile["特殊用途"],
+        "_mlcc_series_class": series_profile["_mlcc_series_class"],
+        "尺寸（inch）": size,
+        "材质（介质）": material,
+        "容值_pf": cap_pf,
+        "容值": cap_value,
+        "容值单位": cap_unit,
+        "容值误差": tol,
+        "耐压（V）": voltage,
+        "_model_rule_authority": "numeric_size_first_mlcc",
+    }
+
+
 def parse_kyocera_avx_common(model):
     model = clean_model(model)
     match = kyocera_avx_historical_mlcc_match(model)
@@ -14472,7 +15726,14 @@ def parse_samsung_cl_partial(model):
     if not model.startswith("CL") or len(model) < 5:
         return None
     size_map = {"02":"01005","03":"0201","05":"0402","10":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
-    material_map = {"A":"X5R","B":"X7R","C":"COG(NPO)","U":"X7S","Y":"X7T","Z":"X7R"}
+    material_map = {
+        "A": "X5R",
+        "B": "X7R",
+        "C": "COG(NPO)",
+        "X": "X6S",
+        "Y": "X7S",
+        "Z": "X7T",
+    }
     tol_map = {"F":"1","G":"2","J":"5","K":"10","M":"20","Z":"+80/-20"}
     voltage_map = {"R":"4","Q":"6.3","P":"10","O":"16","A":"25","L":"35","B":"50","C":"100","D":"200","E":"250","F":"500","G":"630","H":"1000"}
     size = size_map.get(model[2:4], "") if len(model) >= 4 else ""
@@ -14850,6 +16111,9 @@ def parse_model_rule(model, brand="", component_type=""):
         parsed_generic_size_first = parse_generic_size_first_mlcc(m, brand=brand_text)
         if parsed_generic_size_first is not None:
             return parsed_generic_size_first
+    parsed_numeric_size_first = parse_numeric_size_first_mlcc(m, brand=brand_text)
+    if parsed_numeric_size_first is not None:
+        return parsed_numeric_size_first
     if FENGHUA_AM_MODEL_PATTERN.fullmatch(m):
         parsed = parse_fenghua_am_series(m)
         if parsed is not None:
@@ -14920,7 +16184,10 @@ def parse_model_rule(model, brand="", component_type=""):
     if parsed_resistor is not None:
         return parsed_resistor
     if len(m) >= 11 and (m[:4].isdigit() or re.fullmatch(r"[A-Z]{2}\d{2}.*", m)):
-        return parse_walsin_common(m, brand=brand_text)
+        parsed = parse_walsin_common(m, brand=brand_text)
+        if parsed is not None:
+            return parsed
+        return parse_numeric_size_first_mlcc(m, brand=brand_text)
     return None
 
 
@@ -15121,20 +16388,20 @@ def normalize_library_value_unit(value):
     text = clean_text(value)
     if text == "":
         return ""
-    upper = text.upper()
+    if text in {"mΩ", "MΩ"}:
+        return text
     lower = text.lower()
+    if lower in {"mω", "milliohm", "milliohms"}:
+        return "mΩ"
+    upper = text.upper()
     if upper in {"PF", "NF", "UF", "MF", "F"}:
         return upper
     if upper in {"OHM", "OHMS", "Ω"}:
         return "Ω"
     if upper in {"KOHM", "KΩ"}:
         return "KΩ"
-    if upper in {"MOHM", "MEGOHM", "MEGOHMS", "MΩ"} and text != "mΩ":
+    if upper in {"MOHM", "MEGOHM", "MEGOHMS", "MΩ"}:
         return "MΩ"
-    if lower in {"milliohm", "milliohms"} or text == "mΩ":
-        return "mΩ"
-    if text in {"mΩ", "MΩ"}:
-        return text
     return text
 
 
@@ -17105,10 +18372,19 @@ def backfill_series_fields_in_database(chunk_rows=100000):
     wrote_any = False
 
     try:
+        source_columns = [
+            clean_text(row[1])
+            for row in read_conn.execute('PRAGMA table_info("components")').fetchall()
+            if clean_text(row[1]) != ""
+        ]
         for chunk in pd.read_sql_query("SELECT * FROM components", read_conn, chunksize=int(chunk_rows)):
             if chunk is None or chunk.empty:
                 continue
             filled = fill_missing_series_from_model(chunk)
+            if source_columns:
+                # Keep the rebuilt table aligned with the persisted DB schema.
+                # fill_missing_series_from_model may add transient helper columns.
+                filled = filled.reindex(columns=source_columns, fill_value="")
             filled.to_sql(
                 "components",
                 write_conn,
@@ -19963,7 +21239,7 @@ def reverse_spec(df, model):
         ])
         component_type = infer_db_component_type(row) or normalize_component_type(row.get("器件类型", ""))
         raw_value = clean_text(row.get("容值", ""))
-        raw_unit = clean_text(row.get("容值单位", "")).upper()
+        raw_unit = normalize_library_value_unit(row.get("容值单位", ""))
         row_tol_value = clean_tol_for_match(row.get("容值误差", ""))
         row_voltage_value = clean_voltage(row.get("耐压（V）", ""))
         if component_type in INDUCTOR_COMPONENT_TYPES and (raw_value == "" or raw_unit == ""):
@@ -20219,6 +21495,7 @@ def format_display_df(show_df):
     for col in [
         "品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3",
         "推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3",
+        "可直接回复客户","销售结论","客户回复型号","备选型号","风险提示",
         "信昌料号","华科料号","前5个其他品牌型号","其他品牌型号",
         "器件类别","系列","系列说明","尺寸（inch）","封装代码","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","直径（mm）",
         "材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途",
@@ -20272,7 +21549,7 @@ def format_display_df(show_df):
             show_df[current_col] = show_df[current_col].apply(format_current_display)
     if "推荐等级" in show_df.columns:
         show_df["推荐等级"] = show_df["推荐等级"].astype(str).replace("nan", "").replace("None", "")
-    return show_df
+    return apply_brand_display_aliases(show_df)
 
 
 def annotate_match_display_gaps(show_df, spec):
@@ -22251,6 +23528,10 @@ def detect_query_mode_and_spec(df, line):
         spec = parse_spec_query(line)
         if spec is not None:
             if spec.get("_param_count", 0) < 3:
+                if looks_like_compact_part_query(line):
+                    part_spec = reverse_spec_partial(line)
+                    if part_spec is not None and part_spec.get("_param_count", count_core_params(part_spec)) >= 3:
+                        return "料号片段", part_spec
                 return "规格不足", spec
             return "规格", spec
 
@@ -23510,28 +24791,51 @@ def format_bom_reference_models_for_export(row):
     return "\n\n".join(parts)
 
 
+def append_unique_export_column(export_df, base_name, values):
+    column_name = clean_text(base_name)
+    if column_name == "":
+        return ""
+    if column_name in export_df.columns:
+        suffix_index = 1
+        while True:
+            candidate = f"{column_name}(导出)" if suffix_index == 1 else f"{column_name}(导出{suffix_index})"
+            if candidate not in export_df.columns:
+                column_name = candidate
+                break
+            suffix_index += 1
+    export_df[column_name] = values
+    return column_name
+
+
 def build_bom_matched_export_df(upload_df, result_df):
     if upload_df is None:
         return pd.DataFrame()
 
     export_df = upload_df.copy().reset_index(drop=True)
-    export_col_name = "信昌/华科匹配型号"
-    if export_col_name in export_df.columns:
-        export_col_name = "信昌/华科匹配型号(导出)"
+    max_len = len(export_df)
 
     if result_df is None or result_df.empty:
-        export_df[export_col_name] = ""
+        append_unique_export_column(export_df, BOM_MATCHED_REFERENCE_EXPORT_COLUMN, [""] * max_len)
+        for export_col in BOM_SALES_EXPORT_COLUMNS:
+            append_unique_export_column(export_df, export_col, [""] * max_len)
         return export_df
 
-    result_work = result_df.reset_index(drop=True).copy()
-    max_len = len(export_df)
+    result_work = ensure_bom_sales_decision_columns(result_df.reset_index(drop=True).copy())
     matched_values = []
+    sales_values = {col: [] for col in BOM_SALES_EXPORT_COLUMNS}
     for idx in range(max_len):
         if idx < len(result_work):
-            matched_values.append(format_bom_reference_models_for_export(result_work.iloc[idx]))
+            result_row = result_work.iloc[idx]
+            matched_values.append(format_bom_reference_models_for_export(result_row))
+            for export_col in BOM_SALES_EXPORT_COLUMNS:
+                sales_values[export_col].append(clean_text(result_row.get(export_col, "")))
         else:
             matched_values.append("")
-    export_df[export_col_name] = matched_values
+            for export_col in BOM_SALES_EXPORT_COLUMNS:
+                sales_values[export_col].append("")
+    append_unique_export_column(export_df, BOM_MATCHED_REFERENCE_EXPORT_COLUMN, matched_values)
+    for export_col in BOM_SALES_EXPORT_COLUMNS:
+        append_unique_export_column(export_df, export_col, sales_values[export_col])
     return export_df
 
 
@@ -23750,13 +25054,17 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
 
-        export_col_name = "信昌/华科匹配型号"
-        if export_col_name not in export_df.columns and "信昌/华科匹配型号(导出)" in export_df.columns:
-            export_col_name = "信昌/华科匹配型号(导出)"
-        if export_col_name in export_df.columns:
+        wrap_export_bases = (BOM_MATCHED_REFERENCE_EXPORT_COLUMN,) + BOM_SALES_EXPORT_COLUMNS
+        for export_col_name in export_df.columns:
+            base_name = re.sub(r"\(导出\d*\)$", "", clean_text(export_col_name))
+            if base_name not in wrap_export_bases:
+                continue
             export_col_idx = export_df.columns.get_loc(export_col_name) + 1
             export_letter = get_column_letter(export_col_idx)
-            sheet.column_dimensions[export_letter].width = 28
+            if base_name in {"客户回复型号", "备选型号", "风险提示", BOM_MATCHED_REFERENCE_EXPORT_COLUMN}:
+                sheet.column_dimensions[export_letter].width = 32
+            else:
+                sheet.column_dimensions[export_letter].width = 18
             for excel_row in range(2, len(export_df) + 2):
                 cell = sheet.cell(row=excel_row, column=export_col_idx)
                 cell.alignment = Alignment(wrap_text=True, vertical="top")

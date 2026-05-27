@@ -1,13 +1,16 @@
 case_id,query,expected_mode,expected_size,expected_material,expected_value,expected_unit,expected_tolerance,expected_voltage,min_match_count,notes,expected_top_brand,expected_top_model_contains
 SAMSUNG_5PCT,CL05A105JQ5NNWC,part,0402,X5R,1,UF,5,6.3,0,Samsung 5 percent tolerance should parse correctly
 WALSIN_0402X105,0402X105K6R3CT,part,0402,X5R,1,UF,10,6.3,1,Walsin compact part parser should work
+MLCC_NUMERIC_SIZE_FIRST_1812_10NF_1KV,1812B103K102LT,part,1812,X7R,10,NF,10,1000,3,Numeric size-first MLCC model should parse as part and avoid full-dataframe fallback,信昌PDC,FV43X103K102
 MURATA_100PF,GRM0335C1E101JA01D,part,0201,COG(NPO),100,PF,5,25,1,Murata standard NP0 sample
 MURATA_56NF,GRM155R71C563KA88D,part,0402,X7R,56,NF,10,16,1,Murata X7R sample
 MURATA_3PF,GRM0335C1H3R0WA01,part,0201,COG(NPO),3,PF,0.05pF,50,0,Murata decimal pF code and absolute tolerance
 YAGEO_AA_1OHM,AA0402FR-071RL,part,0402,,1,OHM,1,,0,Yageo AA resistor model should reverse-parse to 0402 1 ohm 1 percent from the model code
+RES_LEADING_APOSTROPHE_UNI_ROYAL,'1206W4J0101T5E,part,1206,,100,OHM,5,,1,Excel leading apostrophe should be stripped before exact model lookup
 MURATA_MHR_1GOHM,MHR0422SA108F70,part,,,1000,MOHM,1,,0,Murata MHR high-voltage resistor should reverse-parse 108 as 1000 megaohm instead of trusting scraped 1 ohm fields
 SPEC_0402_1UF,0402 105 k 6.3 x5r,spec,0402,X5R,1,UF,10,6.3,1,Complete spec query should return same size and capacitance family
 RES_0603_10K,Res't : 10K ohm 1/10W +/-5% 0603SMD,resistor,0603,,10,KOHM,5,,0,Resistor spec query should keep 10K resistance instead of dropping it
+RES_CN_CERAMIC_RES_0603_4K7,陶瓷电阻 ±1% SMD 0603 4.7KΩ,resistor,0603,,4.7,KOHM,1,,1,Chinese ceramic-resistor wording should route to resistor instead of MLCC
 RES_0401_1OHM_K,0401 1ohm k,resistor,0401,,1,OHM,10,,0,Compact resistor query with 0401 size and K tolerance should keep all three parameters instead of dropping size and tolerance
 RES_0603_3K3,3K3 5% 0603,resistor,0603,,3.3,KOHM,5,,0,Compact resistor spec should parse 3K3 correctly
 RES_0603_4K75,4K75 1% 0603,resistor,0603,,4.75,KOHM,1,,0,Compact resistor spec should parse 4K75 correctly
@@ -56,3 +59,5 @@ TIMING_OSC_SITIME_SIT1602,SiT1602BI-13-33E-25.000000,part,2520,,25,MHZ,50PPM,3.3
 RES_SPEC_0201_0R_1_20W,0201 1/20W 0R,resistor,0201,,0,OHM,,,1,Zero-ohm 0201 1/20W resistor spec should use fast resistor index and not skip,,
 TIMING_OSC_SPEC_25MHZ_3V3_CMOS,振荡器 25MHz 3.3V CMOS,oscillator,,,25,MHZ,,3.3,3,Oscillator 25MHz 3.3V CMOS spec should find CMOS oscillator candidates,Abracon,ASE
 ALU_KNSCHA_DHF025M687,DHF025M687G160S1AA,part,,,680,UF,20,25,0,KNSCHA DHF aluminum electrolytic exact part should resolve from source-backed seed,,
+MLCC_SAMSUNG_CL10Y225KO96PJC,CL10Y225KO96PJC,part,0603,X7S,2.2,UF,10,16,0,Samsung official page lists CL10Y225KO96PJ# as X7S 2.2uF 16V; parser must not decode Y as X7T,,
+RES_RALEC_LR2512_1MOHM,LR2512-22R001F4,part,2512,,1,mΩ,1,,1,RALEC LR model should resolve as 2512 1mΩ 1% 2W metal alloy current-sense resistor,旺诠RALEC,LR2512

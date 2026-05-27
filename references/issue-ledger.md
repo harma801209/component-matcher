@@ -1,5 +1,25 @@
 # Issue Ledger
 
+## 2026-05-19 - Chinese ceramic-resistor wording routed to MLCC
+
+- Bug: Inputs such as `陶瓷电阻 ±1% SMD 0603 4.7KΩ` were routed as MLCC because the broad MLCC alias token `陶瓷` matched before resistor parsing. The parser only kept `0603 + ±1%`, missed the `4.7KΩ` resistance, and returned no resistor candidates.
+- Fix: Added a low-level MLCC blocker for explicit resistor wording / ohm units so `陶瓷电阻` and similar Chinese BOM text cannot be stolen by the MLCC route.
+- Verification: `陶瓷电阻 ±1% SMD 0603 4.7KΩ` now routes as `贴片电阻`, parses `0603 / 4.7KΩ / ±1%`, and returns 114 fast-index matches. Regression case `RES_CN_CERAMIC_RES_0603_4K7` passes.
+
+## 2026-05-13 - Series table rebuild leaked transient helper columns into SQLite
+
+- Bug: `python component_matcher.py --backfill-series` failed with `sqlite3.OperationalError: table components has no column named _mlcc_series_class`.
+- Cause: The rebuild path streamed chunks through `fill_missing_series_from_model(...)`; later chunks could carry transient helper columns that are not part of the persisted `components` schema, so `to_sql(..., append)` eventually tried to write a column the destination table never had.
+- Fix: Capture the persisted `components` column order from `PRAGMA table_info("components")` before rebuilding and reindex every filled chunk back to that schema before writing.
+- Verification: The rebuilt code compiles, and subsequent in-place series backfill runs completed successfully without reproducing the schema-drift failure.
+
+## 2026-05-13 - Valid resistor series codes ending in `T` were normalized incorrectly
+
+- Bug: Official resistor series such as Vishay `MCT` could not recover their official description even when the series profile already existed; they fell back to placeholder text like `威世Vishay 0603 薄膜电阻系列`.
+- Cause: `normalize_series_code(...)` stripped a trailing `T` when the shortened code was *not* known, which turned valid codes such as `MCT` into invalid `MC`.
+- Fix: Only strip a trailing `T` when the shortened code *is* a registered official series code.
+- Verification: `MCT06030C1000FP500` now resolves to `MCT / 精密薄膜电阻器`, `TNPW080510K0BEEA` still resolves correctly, and the passive-series unresolved count dropped after backfill.
+
 ## 2026-05-12 - Exact passive part rows downgraded or overwritten during fallback parsing
 
 - Bug: Exact passive models that already existed in the DB could be downgraded to `spec insufficient` / `unrecognized`, or could return the wrong family/value after generic model parsing. Observed examples included `PMR18EZPFU10L0`, `RTT021002FTH`, `CSS2H-2512R-L500F`, `CM0805D900R-10`, `0805USB-901MLC`, and `0402CS-2N2XJLU`.
@@ -55,6 +75,12 @@
 
 - Bug: Public search for `1206 x7r 1uf k` was parsed as `铝电解电容`, with `1206*7mm` treated as an electrolytic body size, so no MLCC candidates were returned.
 - Fix: Added a direct MLCC-first guard in `detect_query_mode_and_spec`: when `looks_like_mlcc_context(...)` is true, parse with `parse_spec_query(...)` before any other-passive/electrolytic parser can run.
+
+## 2026-05-26 - Numeric size-first MLCC part skipped public fast search
+
+- Bug: Brandless compact MLCC numbers such as `1812B103K102LT` were treated as MLCC context, but `parse_spec_query()` extracted only size `1812` and returned `规格不足`. In public/cloud mode this then fell through to the unavailable full-dataframe fallback and displayed `当前环境未加载整库回退数据`.
+- Fix: Added a numeric size-first MLCC parser and wired it into `parse_model_rule()` / `reverse_spec_partial()`. The parser decodes size, dielectric, capacitance, tolerance, and numeric voltage codes, including Walsin-style `102 -> 1000V`.
+- Verification: `1812B103K102LT` now parses as `MLCC / 1812 / X7R / 10NF / ±10% / 1000V`, uses the fast query path, and returns PDC `FV43X103K102...` matches instead of requiring full-dataframe fallback.
 - Verification: Public wrapper search now returns `陶瓷贴片电容（MLCC）规格条件` and MLCC results for `1206 x7r 1uf k`; local targeted check returns 201 MLCC matches.
 
 ## 2026-05-10 - Source-backed semiconductor seed library and prefix safety
@@ -97,3 +123,38 @@
 - Fix: Added narrow verified dimension rules for Walsin, PDC/PSA, and HRE 0603 X7R 100nF 50V MLCC rows, including thickness and source labels from the relevant specification data instead of inferring height from `0603` alone.
 - Fix: Added a targeted `--backfill-mlcc-dimensions --verified-only` path that updates both `components.db` and `cache/components_prepared_v5.parquet`, including refreshes where an existing verified source needs a more precise tolerance value.
 - Verification: `component_matcher.py --backfill-mlcc-dimensions --verified-only` updated 12 database rows and 12 prepared-cache rows after the tolerance correction; direct DB/cache checks now show Walsin, PDC/PSA, and HRE rows with non-blank `高度（mm）` and verified `尺寸来源`.
+
+## 2026-05-13 - Resistor result rows must show real manufacturer series
+
+- Bug: FOJAN resistor rows such as `FRC0402F10R0TS` were displayed with size-fragment pseudo-series like `FRC0402F` instead of the manufacturer family `FRC`; the same regression class still affected Walsin `SR04X...` rows, which surfaced as `SR04X` rather than `SR`.
+- Fix: Added FOJAN official resistor family mappings for `FRC/FRP/FRL/FRS/FRH/FRV/FRQ/FRR/FRG/FRD/FRM/FPM/FPL/FPS/FQP`, then added a Walsin `SR` official series profile and canonical resolver path.
+- Fix: Reused filtered cache synchronization instead of another full global cache rebuild: `5,490` FOJAN prepared rows and `72` Walsin `SR` prepared rows were refreshed from the updated database.
+- Verification: `0402 10R 1%` now returns `FOJAN(富捷) FRC0402F10R0TS -> FRC / 普通厚膜贴片电阻`; `FRQ0402F1000TS` now returns `华新科Walsin SR04X1000FTL -> SR` with the anti-sulfuration automotive series description. The passive-series unresolved total fell from `223,059` to `217,497`.
+
+## 2026-05-13 - Expansion audit must measure series semantics, not only brand presence
+
+- Bug: The expansion audit could report `gaps=0` once a brand/type pair existed in the database, even if that brand still lacked usable manufacturer-series semantics for most rows. That let “brand is present” look like “the library is actually ready.”
+- Fix: Upgraded `audit_library_expansion.py` to track `semantic_ready_rows`, `semantic_gap_rows`, and `semantic_status` (`ready / partial_series / series_gap / brand_gap`) for every target pair.
+- Fix: Added seed-ingest admission checks so `sync_passive_gap_seed.py` refuses rows missing `品牌 / 型号 / 系列 / 系列说明 / 官网链接 / 数据来源`.
+- Verification: The audit now reports `173` brand-covered target pairs but still exposes `66` target pairs with incomplete series semantics, which matches the actual remaining rule debt instead of hiding it behind a zero-gap brand count.
+
+## 2026-05-13 - Series semantics standard applies to the whole component library
+
+- Bug: The working process still referenced passive-specific gap reporting, which understated the user's actual requirement: all component classes, including inductors, timing parts, MOSFETs, diodes, BJTs, and TVS devices, must be modeled by real manufacturer-series rules.
+- Fix: Added `tools/build_series_semantics_gap_report.py` to scan the entire database, not only passive parts, and report semantic-ready vs semantic-gap rows by component type and brand/type pair.
+- Fix: Updated the publish/expansion runbook to explicitly apply the series-rule admission standard to `电容 / 电阻 / 电感 / 磁珠 / 共模 / 压敏 / 热敏 / 晶振 / 振荡器 / MOSFET / 二极管 / 三极管 / TVS`.
+- Verification: The new whole-library report covers `1,458,793` component rows, finds `220,119` series-semantics gap rows, and writes both markdown and JSON artifacts for follow-on cleanup prioritization.
+
+## 2026-05-27 - Samsung CL MLCC dielectric code mapping
+
+- Bug: Brandless Samsung MLCC query `CL10Y225KO96PJC` was generated from the parser instead of a DB row, and the parser decoded Samsung `CL..Y...` as `X7T`. Samsung official product page for `CL10Y225KO96PJ#` lists the part as `X7S`, 2.2uF, +/-10%, 16V, 0603.
+- Root cause: `parse_samsung_cl()` and `parse_samsung_cl_partial()` used an incorrect Samsung CL temperature-characteristic map: `Y -> X7T` and `Z -> X7R`. Official Samsung samples confirm `X -> X6S`, `Y -> X7S`, and `Z -> X7T`.
+- Fix: Corrected both Samsung CL parser maps in `component_matcher.py`, bumped query cache/public code stamps, and added regression case `MLCC_SAMSUNG_CL10Y225KO96PJC`.
+- Verification: Direct parser checks now return `CL10Y225KO96PJC -> X7S / 2.2uF / +/-10% / 16V`, `CL10Z106MP96PNC -> X7T`, `CL10X225KL8NRW -> X6S`, and `CL10B104KB8NNNC -> X7R`.
+
+## 2026-05-27 - RALEC LR current-sense resistor skipped public fast search
+
+- Bug: Query `LR2512-22R001F4` returned `有结果 0` and the public fallback warning even though it is a valid RALEC current-sense resistor.
+- Root cause: The exact model was absent from `components.db`, and the resistor parser did not understand RALEC `LR/LRE` metal-alloy low-resistance naming. The generic resistor extraction also risked interpreting `22R001` as `22.001Ω` instead of using the RALEC segment structure where `22` is terminal/power and `R001` is resistance.
+- Fix: Added a RALEC `LR/LRE` parser that decodes size, terminal/power code, low-ohm value, tolerance, and packaging; added official series profiles; inserted `LR2512-22R001F4`; normalized existing RALEC `LR/LRE` rows; fixed `mΩ` normalization so it is not converted to `MΩ`; bumped cache/public stamps; refreshed selected prepared-cache and search-sidecar rows; rebuilt the public bundle parts.
+- Verification: Direct search now parses `LR2512-22R001F4` as `合金电阻 / LR / 2512 / 1mΩ / +/-1% / 2W` and returns 5 fully matched candidates including `旺诠RALEC LR2512-22R001F4`.
