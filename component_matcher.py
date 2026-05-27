@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-27T23:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-27T23:18:00+08:00"
 
 
 def startup_trace(message):
@@ -11170,12 +11170,12 @@ def get_component_display_schema(spec_or_type):
     if component_type in RESISTOR_COMPONENT_TYPES:
         return [
             ("系列", "系列"),
-            ("系列说明", "系列说明"),
             ("尺寸（inch）", "尺寸"),
             ("容值", "阻值"),
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+            ("系列说明", "系列说明"),
             ("耐压（V）", "最高工作电压"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
@@ -12180,7 +12180,7 @@ def ensure_component_display_columns(df):
     if "寿命（h）" not in out.columns:
         out["寿命（h）"] = blank_series()
     out["寿命（h）"] = out["寿命（h）"].astype(str).apply(format_life_hours_display)
-    out["功率"] = out["功率"].astype(str).apply(format_power_display)
+    out["功率"] = out["功率"].astype(str).replace("nan", "").replace("None", "").apply(format_power_display)
     if "安装方式" not in out.columns:
         out["安装方式"] = blank_series()
     if "封装代码" in out.columns:

@@ -2348,4 +2348,5 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User searched `FMF25FPJR001XBHM`; the page showed one result but the original-part table had no size/value details and incorrectly displayed `信昌PDC / 陶瓷贴片电容（MLCC） / FM / 中压`.
 - Root cause: PDC MLCC parsers accepted `FM*` and returned immediately, so `FMF...` current-sense resistor models were intercepted before resistor parsing.
 - Fix / action: Added a PDC `FMF` metal-strip current-sense resistor parser in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). Tightened PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers and partial parsers to require a real two-digit MLCC size code after the series prefix. Bumped query/public cache stamps and added regression case `RES_PDC_FMF25_1MOHM`.
+- Display fix: Reordered resistor table columns so size, resistance, tolerance, and power appear before long series descriptions; cleaned `nan` power display blanks.
 - Verification: Bare search replay now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.
