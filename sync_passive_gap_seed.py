@@ -1298,9 +1298,30 @@ def clean_model_key(value):
     return str(value or "").upper().replace("-", "").replace(" ", "").replace("_", "")
 
 
+def validate_seed_rows(seed_rows):
+    errors = []
+    required_fields = ("品牌", "型号", "系列", "系列说明", "官网链接", "数据来源")
+    for index, seed in enumerate(seed_rows, start=1):
+        label = f"row#{index} {seed.get('品牌', '')} {seed.get('型号', '')}".strip()
+        missing = [field for field in required_fields if not str(seed.get(field, "") or "").strip()]
+        if missing:
+            errors.append(f"{label}: missing {', '.join(missing)}")
+            continue
+        series = str(seed.get("系列", "") or "").strip()
+        desc = str(seed.get("系列说明", "") or "").strip()
+        if series and series.lower() in {"series", "misc", "unknown"}:
+            errors.append(f"{label}: placeholder 系列={series}")
+        if desc and desc.lower() in {"series", "unknown", "misc"}:
+            errors.append(f"{label}: placeholder 系列说明={desc}")
+    if errors:
+        joined = "\n".join(f"- {error}" for error in errors)
+        raise ValueError(f"passive seed rows fail series/source admission checks:\n{joined}")
+
+
 def sync_rows(dry_run=False):
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(DB_PATH)
+    validate_seed_rows(SEED_ROWS)
     conn = sqlite3.connect(DB_PATH)
     try:
         columns = ensure_columns(conn)

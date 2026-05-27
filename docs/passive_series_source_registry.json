@@ -186,6 +186,25 @@
       "status": "partial"
     },
     {
+      "brand": "FOJAN(富捷)",
+      "passive_types": [
+        "厚膜电阻",
+        "合金电阻"
+      ],
+      "official_sources": [
+        {
+          "kind": "product-center",
+          "url": "https://www.fojan.cn/product"
+        },
+        {
+          "kind": "product-page",
+          "url": "https://www.fojan.cn/product/53.html"
+        }
+      ],
+      "lookup_method": "Official FOJAN resistor product-center family labels plus series-specific product pages and naming PDFs",
+      "status": "partial"
+    },
+    {
       "brand": "三星Samsung",
       "passive_types": [
         "MLCC",
@@ -496,6 +515,42 @@
         }
       ],
       "lookup_method": "Official capacitor family pages, catalogs, and product search/document library for series codes",
+      "status": "partial"
+    },
+    {
+      "brand": "Rubycon",
+      "passive_types": [
+        "铝电解电容"
+      ],
+      "official_sources": [
+        {
+          "kind": "radial-series-list",
+          "url": "https://www.rubycon.co.jp/en/products/al-radial-lead/series-list/"
+        },
+        {
+          "kind": "catalog-index",
+          "url": "https://www.rubycon.co.jp/en/catalog/"
+        }
+      ],
+      "lookup_method": "Official radial-electrolytic series list plus family PDFs for model-series semantics",
+      "status": "partial"
+    },
+    {
+      "brand": "日本贵弥功Chemi-Con",
+      "passive_types": [
+        "铝电解电容"
+      ],
+      "official_sources": [
+        {
+          "kind": "aluminum-series-list",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/serieslist/"
+        },
+        {
+          "kind": "category-page",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/"
+        }
+      ],
+      "lookup_method": "Official aluminum-electrolytic series list and family pages for ordering-code semantics",
       "status": "partial"
     },
     {

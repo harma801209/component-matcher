@@ -1,18 +1,18 @@
 {
-  "generated_at": "2026-04-23T05:25:05+08:00",
+  "generated_at": "2026-05-13T13:42:18+08:00",
   "summary": {
-    "total_passive_rows": 1341695,
-    "unresolved_rows": 415462,
-    "resolved_rows": 926233,
-    "distinct_unresolved_brands": 177,
-    "distinct_unresolved_brand_type_pairs": 370
+    "total_passive_rows": 1341730,
+    "unresolved_rows": 217497,
+    "resolved_rows": 1124233,
+    "distinct_unresolved_brands": 176,
+    "distinct_unresolved_brand_type_pairs": 366
   },
   "top_unresolved_brands": [
     {
       "brand": "威世Vishay",
       "total_rows": 464712,
-      "unresolved_rows": 134033,
-      "coverage_rate": 0.7116,
+      "unresolved_rows": 61874,
+      "coverage_rate": 0.8669,
       "registry_status": "partial",
       "lookup_method": "Official resistor family pages and datasheets",
       "official_sources": [
@@ -34,53 +34,6 @@
       ]
     },
     {
-      "brand": "国巨YAGEO",
-      "total_rows": 178232,
-      "unresolved_rows": 87552,
-      "coverage_rate": 0.5088,
-      "registry_status": "partial",
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
-        }
-      ],
-      "passive_types": [
-        "薄膜电阻",
-        "厚膜电阻",
-        "碳膜电阻",
-        "MLCC",
-        "电感",
-        "压敏电阻"
-      ]
-    },
-    {
-      "brand": "Stackpole",
-      "total_rows": 92327,
-      "unresolved_rows": 29496,
-      "coverage_rate": 0.6805,
-      "registry_status": "partial",
-      "lookup_method": "Official resistor series catalog and datasheets",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.seielect.com/"
-        }
-      ],
-      "passive_types": [
-        "薄膜电阻",
-        "厚膜电阻",
-        "绕线电阻",
-        "金属氧化膜电阻",
-        "碳膜电阻"
-      ]
-    },
-    {
       "brand": "TE Connectivity(泰科电子)",
       "total_rows": 40218,
       "unresolved_rows": 17492,
@@ -96,6 +49,27 @@
       "passive_types": [
         "薄膜电阻",
         "厚膜电阻",
+        "金属氧化膜电阻",
+        "碳膜电阻"
+      ]
+    },
+    {
+      "brand": "Stackpole",
+      "total_rows": 92327,
+      "unresolved_rows": 14660,
+      "coverage_rate": 0.8412,
+      "registry_status": "partial",
+      "lookup_method": "Official resistor series catalog and datasheets",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.seielect.com/"
+        }
+      ],
+      "passive_types": [
+        "薄膜电阻",
+        "厚膜电阻",
+        "绕线电阻",
         "金属氧化膜电阻",
         "碳膜电阻"
       ]
@@ -191,85 +165,36 @@
       ]
     },
     {
-      "brand": "三星Samsung",
-      "total_rows": 8158,
-      "unresolved_rows": 8065,
-      "coverage_rate": 0.0114,
+      "brand": "国巨YAGEO",
+      "total_rows": 178232,
+      "unresolved_rows": 7080,
+      "coverage_rate": 0.9603,
       "registry_status": "partial",
-      "lookup_method": "Official chip resistor product page and part-number query pages",
+      "lookup_method": "YAGEO product guide and official family naming rules",
       "official_sources": [
         {
-          "kind": "product-page",
-          "url": "https://www.samsungsem.com/global/product/passive-component/chip-resistor.do"
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
         },
-        {
-          "kind": "part-query",
-          "url": "https://product.samsungsem.com/cr/RU3216FR025CS.do"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf"
-        }
-      ],
-      "passive_types": [
-        "MLCC",
-        "厚膜电阻"
-      ]
-    },
-    {
-      "brand": "风华Fenghua",
-      "total_rows": 7343,
-      "unresolved_rows": 7244,
-      "coverage_rate": 0.0135,
-      "registry_status": "partial",
-      "lookup_method": "Official product pages and catalog model rules",
-      "official_sources": [
         {
           "kind": "official-site",
-          "url": "https://www.fhcomp.com/en/"
+          "url": "https://www.yageo.com/"
         }
       ],
       "passive_types": [
-        "电阻",
+        "薄膜电阻",
+        "厚膜电阻",
+        "碳膜电阻",
         "MLCC",
         "电感",
-        "压敏电阻",
-        "热敏电阻"
-      ]
-    },
-    {
-      "brand": "旺诠RALEC",
-      "total_rows": 6175,
-      "unresolved_rows": 6175,
-      "coverage_rate": 0.0,
-      "registry_status": "partial",
-      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.ralec.com/en-global/Overview/index"
-        },
-        {
-          "kind": "product-search",
-          "url": "https://www.ralec.com/en-global/product_search/index"
-        },
-        {
-          "kind": "thick-film-chip-resistor",
-          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
-        }
-      ],
-      "passive_types": [
-        "钖勮啘鐢甸樆",
-        "鍘氳啘鐢甸樆",
-        "閲戝睘鍚堥噾鐢甸樆",
-        "纰宠啘鐢甸樆"
+        "压敏电阻"
       ]
     },
     {
       "brand": "Bourns",
-      "total_rows": 6200,
+      "total_rows": 6201,
       "unresolved_rows": 6146,
-      "coverage_rate": 0.0087,
+      "coverage_rate": 0.0089,
       "registry_status": "partial",
       "lookup_method": "Official varistor product pages and ordering-code briefs",
       "official_sources": [
@@ -299,55 +224,31 @@
       "passive_types": []
     },
     {
-      "brand": "华新科Walsin",
-      "total_rows": 5665,
-      "unresolved_rows": 5665,
-      "coverage_rate": 0.0,
-      "registry_status": "partial",
-      "lookup_method": "Official product taxonomy and resistor series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.passivecomponent.com/"
-        },
-        {
-          "kind": "resistor-page",
-          "url": "https://www.passivecomponent.com/products/resistors/"
-        }
-      ],
-      "passive_types": [
-        "MLCC",
-        "厚膜电阻",
-        "薄膜电阻",
-        "压敏电阻",
-        "滤波器"
-      ]
-    },
-    {
       "brand": "日本贵弥功Chemi-Con",
       "total_rows": 5543,
       "unresolved_rows": 5543,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
-    },
-    {
-      "brand": "FOJAN(富捷)",
-      "total_rows": 5491,
-      "unresolved_rows": 5491,
-      "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official aluminum-electrolytic series list and family pages for ordering-code semantics",
+      "official_sources": [
+        {
+          "kind": "aluminum-series-list",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/serieslist/"
+        },
+        {
+          "kind": "category-page",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/"
+        }
+      ],
+      "passive_types": [
+        "铝电解电容"
+      ]
     },
     {
       "brand": "Littelfuse",
       "total_rows": 5222,
-      "unresolved_rows": 5222,
-      "coverage_rate": 0.0,
+      "unresolved_rows": 5221,
+      "coverage_rate": 0.0002,
       "registry_status": "partial",
       "lookup_method": "Official varistor family pages and ordering terminology notes",
       "official_sources": [
@@ -406,8 +307,8 @@
     },
     {
       "brand": "Panasonic",
-      "total_rows": 71250,
-      "unresolved_rows": 4420,
+      "total_rows": 71251,
+      "unresolved_rows": 4419,
       "coverage_rate": 0.938,
       "registry_status": "partial",
       "lookup_method": "Official resistor catalog and part-number family pages",
@@ -539,6 +440,27 @@
       "passive_types": []
     },
     {
+      "brand": "风华Fenghua",
+      "total_rows": 7343,
+      "unresolved_rows": 1917,
+      "coverage_rate": 0.7389,
+      "registry_status": "partial",
+      "lookup_method": "Official product pages and catalog model rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.fhcomp.com/en/"
+        }
+      ],
+      "passive_types": [
+        "电阻",
+        "MLCC",
+        "电感",
+        "压敏电阻",
+        "热敏电阻"
+      ]
+    },
+    {
       "brand": "NTE Electronics",
       "total_rows": 1828,
       "unresolved_rows": 1828,
@@ -597,10 +519,21 @@
       "total_rows": 1055,
       "unresolved_rows": 1055,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
+      "registry_status": "partial",
+      "lookup_method": "Official radial-electrolytic series list plus family PDFs for model-series semantics",
+      "official_sources": [
+        {
+          "kind": "radial-series-list",
+          "url": "https://www.rubycon.co.jp/en/products/al-radial-lead/series-list/"
+        },
+        {
+          "kind": "catalog-index",
+          "url": "https://www.rubycon.co.jp/en/catalog/"
+        }
+      ],
+      "passive_types": [
+        "铝电解电容"
+      ]
     },
     {
       "brand": "厚声UNI-ROYAL",
@@ -860,6 +793,34 @@
       "passive_types": []
     },
     {
+      "brand": "旺诠RALEC",
+      "total_rows": 6175,
+      "unresolved_rows": 199,
+      "coverage_rate": 0.9678,
+      "registry_status": "partial",
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ],
+      "passive_types": [
+        "钖勮啘鐢甸樆",
+        "鍘氳啘鐢甸樆",
+        "閲戝睘鍚堥噾鐢甸樆",
+        "纰宠啘鐢甸樆"
+      ]
+    },
+    {
       "brand": "Dersonic(德尔创)",
       "total_rows": 195,
       "unresolved_rows": 195,
@@ -1112,6 +1073,16 @@
       "passive_types": []
     },
     {
+      "brand": "PSA(信昌电陶)",
+      "total_rows": 102,
+      "unresolved_rows": 54,
+      "coverage_rate": 0.4706,
+      "registry_status": "missing",
+      "lookup_method": "",
+      "official_sources": [],
+      "passive_types": []
+    },
+    {
       "brand": "Hongda(泓达)",
       "total_rows": 54,
       "unresolved_rows": 54,
@@ -1133,9 +1104,9 @@
     },
     {
       "brand": "KNSCHA(科尼盛)",
-      "total_rows": 53,
+      "total_rows": 54,
       "unresolved_rows": 53,
-      "coverage_rate": 0.0,
+      "coverage_rate": 0.0185,
       "registry_status": "missing",
       "lookup_method": "",
       "official_sources": [],
@@ -1186,16 +1157,6 @@
       "total_rows": 44,
       "unresolved_rows": 44,
       "coverage_rate": 0.0,
-      "registry_status": "missing",
-      "lookup_method": "",
-      "official_sources": [],
-      "passive_types": []
-    },
-    {
-      "brand": "PSA(信昌电陶)",
-      "total_rows": 102,
-      "unresolved_rows": 42,
-      "coverage_rate": 0.5882,
       "registry_status": "missing",
       "lookup_method": "",
       "official_sources": [],
@@ -1303,9 +1264,9 @@
     },
     {
       "brand": "Coilcraft",
-      "total_rows": 237,
+      "total_rows": 239,
       "unresolved_rows": 20,
-      "coverage_rate": 0.9156,
+      "coverage_rate": 0.9163,
       "registry_status": "missing",
       "lookup_method": "",
       "official_sources": [],
@@ -1330,6 +1291,31 @@
       "lookup_method": "",
       "official_sources": [],
       "passive_types": []
+    },
+    {
+      "brand": "华新科Walsin",
+      "total_rows": 5665,
+      "unresolved_rows": 15,
+      "coverage_rate": 0.9974,
+      "registry_status": "partial",
+      "lookup_method": "Official product taxonomy and resistor series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.passivecomponent.com/"
+        },
+        {
+          "kind": "resistor-page",
+          "url": "https://www.passivecomponent.com/products/resistors/"
+        }
+      ],
+      "passive_types": [
+        "MLCC",
+        "厚膜电阻",
+        "薄膜电阻",
+        "压敏电阻",
+        "滤波器"
+      ]
     },
     {
       "brand": "LUTE(陆特)",
@@ -1957,6 +1943,28 @@
       ]
     },
     {
+      "brand": "FOJAN(富捷)",
+      "total_rows": 5491,
+      "unresolved_rows": 1,
+      "coverage_rate": 0.9998,
+      "registry_status": "partial",
+      "lookup_method": "Official FOJAN resistor product-center family labels plus series-specific product pages and naming PDFs",
+      "official_sources": [
+        {
+          "kind": "product-center",
+          "url": "https://www.fojan.cn/product"
+        },
+        {
+          "kind": "product-page",
+          "url": "https://www.fojan.cn/product/53.html"
+        }
+      ],
+      "passive_types": [
+        "厚膜电阻",
+        "合金电阻"
+      ]
+    },
+    {
       "brand": "LATTICE(莱迪思)",
       "total_rows": 1,
       "unresolved_rows": 1,
@@ -2129,32 +2137,32 @@
   ],
   "top_unresolved_component_types": [
     {
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 201017
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 68389
     },
     {
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 113400
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 58441
     },
     {
       "component_type": "绕线电阻",
-      "unresolved_rows": 37922
+      "unresolved_rows": 30846
     },
     {
       "component_type": "金属氧化膜电阻",
-      "unresolved_rows": 14957
+      "unresolved_rows": 14950
     },
     {
       "component_type": "贴片压敏电阻",
-      "unresolved_rows": 12739
-    },
-    {
-      "component_type": "碳膜电阻",
-      "unresolved_rows": 11569
+      "unresolved_rows": 12735
     },
     {
       "component_type": "铝电解电容",
       "unresolved_rows": 10744
+    },
+    {
+      "component_type": "碳膜电阻",
+      "unresolved_rows": 8386
     },
     {
       "component_type": "射频电感",
@@ -2174,11 +2182,11 @@
     },
     {
       "component_type": "贴片电阻",
-      "unresolved_rows": 946
+      "unresolved_rows": 940
     },
     {
       "component_type": "合金电阻",
-      "unresolved_rows": 832
+      "unresolved_rows": 730
     },
     {
       "component_type": "共模电感",
@@ -2193,7 +2201,7 @@
     {
       "brand": "威世Vishay",
       "component_type": "薄膜电阻",
-      "unresolved_rows": 100654,
+      "unresolved_rows": 29652,
       "registry_status": "partial",
       "top_prefixes": [
         {
@@ -2201,59 +2209,59 @@
           "count": 2369
         },
         {
-          "prefix": "MCT",
-          "count": 2202
-        },
-        {
-          "prefix": "MMA0204",
-          "count": 1823
-        },
-        {
-          "prefix": "SMM0204",
-          "count": 1586
-        },
-        {
           "prefix": "0402",
           "count": 1325
-        },
-        {
-          "prefix": "CMF551K",
-          "count": 1109
-        },
-        {
-          "prefix": "SFR16",
-          "count": 1083
-        },
-        {
-          "prefix": "ERC551K",
-          "count": 950
         },
         {
           "prefix": "1206",
           "count": 918
         },
         {
-          "prefix": "PLTT0805Z",
-          "count": 886
+          "prefix": "0603",
+          "count": 722
         },
         {
-          "prefix": "PTN1206E",
-          "count": 831
+          "prefix": "0207",
+          "count": 441
         },
         {
-          "prefix": "SFR25",
-          "count": 779
+          "prefix": "3700",
+          "count": 368
+        },
+        {
+          "prefix": "1600",
+          "count": 358
+        },
+        {
+          "prefix": "MCW0406MD",
+          "count": 337
+        },
+        {
+          "prefix": "SMM0207",
+          "count": 248
+        },
+        {
+          "prefix": "0100",
+          "count": 239
+        },
+        {
+          "prefix": "0200",
+          "count": 232
+        },
+        {
+          "prefix": "Y14870R0",
+          "count": 219
         }
       ],
       "sample_models": [
-        "SMM02040C6812FB300",
-        "SMM02040C1009FB300",
-        "SMM02040C1629FB300",
-        "SMM02040C2000FB300",
-        "SMM02040C3322FB300",
-        "SMM02040C3329FB300",
-        "SMM02040C1000FB300",
-        "SMM02040C5109FB300"
+        "OMM02040000000B300",
+        "MMU01020C1201FB300",
+        "MCS04020D7870BE100",
+        "MCS04020D6190BE100",
+        "MCW0406MD4020BP100",
+        "MMB02070C1004FB200",
+        "SMM02070C7501FBP00",
+        "SMM02070C2000FBP00"
       ],
       "lookup_method": "Official resistor family pages and datasheets",
       "official_sources": [
@@ -2268,99 +2276,18 @@
       ]
     },
     {
-      "brand": "国巨YAGEO",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 62993,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "50",
-          "count": 7105
-        },
-        {
-          "prefix": "25",
-          "count": 5283
-        },
-        {
-          "prefix": "MFR-25FR",
-          "count": 1969
-        },
-        {
-          "prefix": "MFR-25FT",
-          "count": 1409
-        },
-        {
-          "prefix": "MFR-50FR",
-          "count": 1133
-        },
-        {
-          "prefix": "FMP-50FR",
-          "count": 1133
-        },
-        {
-          "prefix": "MFR100FRF",
-          "count": 1129
-        },
-        {
-          "prefix": "MFR100FTF",
-          "count": 1127
-        },
-        {
-          "prefix": "MMF-25FR",
-          "count": 1051
-        },
-        {
-          "prefix": "MFR1WSFR",
-          "count": 954
-        },
-        {
-          "prefix": "MF0204FRE",
-          "count": 753
-        },
-        {
-          "prefix": "FMP300FRF",
-          "count": 685
-        }
-      ],
-      "sample_models": [
-        "PE1206FRF470R02L",
-        "PE2512FKF7W0R025L",
-        "MMF-25FRE22K",
-        "MMF-25FRE39K",
-        "MMF207FRE680R",
-        "PE1206FRF070R2L",
-        "PE0805JRF7T0R005L",
-        "MMP200JR-10K"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
-        }
-      ]
-    },
-    {
       "brand": "威世Vishay",
       "component_type": "绕线电阻",
-      "unresolved_rows": 16253,
+      "unresolved_rows": 15096,
       "registry_status": "partial",
       "top_prefixes": [
-        {
-          "prefix": "RWR84N",
-          "count": 745
-        },
-        {
-          "prefix": "AC",
-          "count": 622
-        },
         {
           "prefix": "0101",
           "count": 539
+        },
+        {
+          "prefix": "AC",
+          "count": 527
         },
         {
           "prefix": "0010",
@@ -2397,6 +2324,10 @@
         {
           "prefix": "0007",
           "count": 252
+        },
+        {
+          "prefix": "0020",
+          "count": 227
         }
       ],
       "sample_models": [
@@ -2418,156 +2349,6 @@
         {
           "kind": "official-site",
           "url": "https://www.vishay.com/"
-        }
-      ]
-    },
-    {
-      "brand": "Stackpole",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 13278,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "RNF14FTD",
-          "count": 732
-        },
-        {
-          "prefix": "RNF18FTD",
-          "count": 618
-        },
-        {
-          "prefix": "RNMF14FTD",
-          "count": 567
-        },
-        {
-          "prefix": "RNF14FBD",
-          "count": 535
-        },
-        {
-          "prefix": "RNF12FTD",
-          "count": 534
-        },
-        {
-          "prefix": "RNF14FTC",
-          "count": 527
-        },
-        {
-          "prefix": "CS",
-          "count": 405
-        },
-        {
-          "prefix": "RNF14BAE",
-          "count": 355
-        },
-        {
-          "prefix": "RNF14FBC",
-          "count": 313
-        },
-        {
-          "prefix": "RNF14BTC",
-          "count": 306
-        },
-        {
-          "prefix": "RNF18FBD",
-          "count": 292
-        },
-        {
-          "prefix": "MLFA2",
-          "count": 286
-        }
-      ],
-      "sample_models": [
-        "MLFA1FTC10K0",
-        "HCJ2512ZT0R00",
-        "HCJ1206ZT0R00",
-        "MLFA1FTC22R0",
-        "MLFA1FTC2K20",
-        "MLFA1FTC5K60",
-        "MLFA1FTC330R",
-        "MLFM1FTC6K19"
-      ],
-      "lookup_method": "Official resistor series catalog and datasheets",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.seielect.com/"
-        }
-      ]
-    },
-    {
-      "brand": "国巨YAGEO",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 11286,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "AR0805",
-          "count": 847
-        },
-        {
-          "prefix": "RE1206FRE",
-          "count": 579
-        },
-        {
-          "prefix": "RE1206DRE",
-          "count": 574
-        },
-        {
-          "prefix": "RE0603FRE",
-          "count": 559
-        },
-        {
-          "prefix": "SR0805JR",
-          "count": 381
-        },
-        {
-          "prefix": "SR1206JR",
-          "count": 372
-        },
-        {
-          "prefix": "RE0805FRE",
-          "count": 364
-        },
-        {
-          "prefix": "RV1206FR",
-          "count": 304
-        },
-        {
-          "prefix": "AR0603",
-          "count": 269
-        },
-        {
-          "prefix": "RL1206",
-          "count": 256
-        },
-        {
-          "prefix": "RE0402DRE",
-          "count": 251
-        },
-        {
-          "prefix": "SR1206FR",
-          "count": 247
-        }
-      ],
-      "sample_models": [
-        "SR1210JR-077R5L",
-        "RV1206FR-071M2L",
-        "RV0805FR-071M5L",
-        "RV1206FR-071M5L",
-        "RV1206FR-071M8L",
-        "RV0805FR-071M8L",
-        "RV1206FR-072M2L",
-        "RV1206FR-0764K9L"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
         }
       ]
     },
@@ -2795,164 +2576,6 @@
       ]
     },
     {
-      "brand": "国巨YAGEO",
-      "component_type": "绕线电阻",
-      "unresolved_rows": 8085,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "KNP3WSJB",
-          "count": 188
-        },
-        {
-          "prefix": "KNP3WSJT",
-          "count": 185
-        },
-        {
-          "prefix": "KNP3WSJR",
-          "count": 184
-        },
-        {
-          "prefix": "KNP300JB",
-          "count": 182
-        },
-        {
-          "prefix": "KNP2WSJB",
-          "count": 180
-        },
-        {
-          "prefix": "KNP2WSJT",
-          "count": 178
-        },
-        {
-          "prefix": "KNP2WSJR",
-          "count": 174
-        },
-        {
-          "prefix": "KNP100JR",
-          "count": 169
-        },
-        {
-          "prefix": "KNP200JB",
-          "count": 167
-        },
-        {
-          "prefix": "KNP5WSJB",
-          "count": 167
-        },
-        {
-          "prefix": "KNP5WSJR",
-          "count": 167
-        },
-        {
-          "prefix": "KNP100JB",
-          "count": 166
-        }
-      ],
-      "sample_models": [
-        "PNP300JR-73-1R8",
-        "KNP5WSJT-73-0R25",
-        "PNP7WVJT-91-47R",
-        "PNP7WVFT-91-500R",
-        "PNP7WVFT-91-4R7",
-        "PNP7WVFT-91-680R",
-        "PNP7WVFT-91-560R",
-        "PNP7WVFT-91-1K2"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
-        }
-      ]
-    },
-    {
-      "brand": "三星Samsung",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 8065,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "RC2012",
-          "count": 965
-        },
-        {
-          "prefix": "RC1005",
-          "count": 964
-        },
-        {
-          "prefix": "RC1608",
-          "count": 962
-        },
-        {
-          "prefix": "RC0603",
-          "count": 957
-        },
-        {
-          "prefix": "RCS2012F",
-          "count": 793
-        },
-        {
-          "prefix": "RCS1005F",
-          "count": 792
-        },
-        {
-          "prefix": "RCS1608F",
-          "count": 787
-        },
-        {
-          "prefix": "RC0402",
-          "count": 697
-        },
-        {
-          "prefix": "RCS2012J",
-          "count": 170
-        },
-        {
-          "prefix": "RCS1005J",
-          "count": 169
-        },
-        {
-          "prefix": "RCS1608J",
-          "count": 167
-        },
-        {
-          "prefix": "RCS0603J",
-          "count": 167
-        }
-      ],
-      "sample_models": [
-        "RC1005J180CS",
-        "RC0603F364CS",
-        "RC1005J561CS",
-        "RC1005F303CS",
-        "RC1005F223CS",
-        "RC1005F123CS",
-        "RC1005J514CS",
-        "RCS2012F101CS"
-      ],
-      "lookup_method": "Official chip resistor product page and part-number query pages",
-      "official_sources": [
-        {
-          "kind": "product-page",
-          "url": "https://www.samsungsem.com/global/product/passive-component/chip-resistor.do"
-        },
-        {
-          "kind": "part-query",
-          "url": "https://product.samsungsem.com/cr/RU3216FR025CS.do"
-        },
-        {
-          "kind": "catalog",
-          "url": "https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf"
-        }
-      ]
-    },
-    {
       "brand": "KOA",
       "component_type": "厚膜电阻",
       "unresolved_rows": 7407,
@@ -3103,160 +2726,6 @@
       ]
     },
     {
-      "brand": "旺诠RALEC",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 6109,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "RTT06R",
-          "count": 106
-        },
-        {
-          "prefix": "RTT05R",
-          "count": 87
-        },
-        {
-          "prefix": "RTT25R",
-          "count": 83
-        },
-        {
-          "prefix": "RTT12R",
-          "count": 71
-        },
-        {
-          "prefix": "RTT20R",
-          "count": 70
-        },
-        {
-          "prefix": "RTT03R",
-          "count": 67
-        },
-        {
-          "prefix": "0210",
-          "count": 43
-        },
-        {
-          "prefix": "0310",
-          "count": 41
-        },
-        {
-          "prefix": "RTT061R",
-          "count": 38
-        },
-        {
-          "prefix": "RTT051R",
-          "count": 36
-        },
-        {
-          "prefix": "RLT06R",
-          "count": 33
-        },
-        {
-          "prefix": "RTT031R",
-          "count": 32
-        }
-      ],
-      "sample_models": [
-        "RTT021002FTH",
-        "RTT06R500FTP",
-        "RTT031R10FTP",
-        "RTT031R60FTP",
-        "RTT033R00FTP",
-        "RTT251301FTE",
-        "RTT061R20FTP",
-        "RTT025R1JTH"
-      ],
-      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.ralec.com/en-global/Overview/index"
-        },
-        {
-          "kind": "product-search",
-          "url": "https://www.ralec.com/en-global/product_search/index"
-        },
-        {
-          "kind": "thick-film-chip-resistor",
-          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
-        }
-      ]
-    },
-    {
-      "brand": "Stackpole",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 6054,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "CS",
-          "count": 1280
-        },
-        {
-          "prefix": "RPC1206",
-          "count": 726
-        },
-        {
-          "prefix": "RPC0805",
-          "count": 694
-        },
-        {
-          "prefix": "RPC2010",
-          "count": 426
-        },
-        {
-          "prefix": "RPC1210",
-          "count": 426
-        },
-        {
-          "prefix": "RHC2512F",
-          "count": 400
-        },
-        {
-          "prefix": "RPC0603",
-          "count": 363
-        },
-        {
-          "prefix": "RPC2512",
-          "count": 209
-        },
-        {
-          "prefix": "RHC2512J",
-          "count": 142
-        },
-        {
-          "prefix": "RPC0402",
-          "count": 123
-        },
-        {
-          "prefix": "RVC2512J",
-          "count": 80
-        },
-        {
-          "prefix": "RVC1206J",
-          "count": 73
-        }
-      ],
-      "sample_models": [
-        "HCJ0805ZT0R00",
-        "CSR1225FK3L00",
-        "RPC2512JT180R",
-        "RPC2512JT1R00",
-        "RHC2512FTR250",
-        "RPC0805JT22R0",
-        "RHC2512FT6K80",
-        "RPC0805JT6R80-UP"
-      ],
-      "lookup_method": "Official resistor series catalog and datasheets",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.seielect.com/"
-        }
-      ]
-    },
-    {
       "brand": "威世Vishay",
       "component_type": "金属氧化膜电阻",
       "unresolved_rows": 6042,
@@ -3334,160 +2803,10 @@
       ]
     },
     {
-      "brand": "风华Fenghua",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 5712,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "RS-03K",
-          "count": 751
-        },
-        {
-          "prefix": "RS-05K",
-          "count": 729
-        },
-        {
-          "prefix": "RC-02W",
-          "count": 716
-        },
-        {
-          "prefix": "RS-06K",
-          "count": 670
-        },
-        {
-          "prefix": "RC-02K",
-          "count": 504
-        },
-        {
-          "prefix": "RC-01W",
-          "count": 479
-        },
-        {
-          "prefix": "RS-05L",
-          "count": 219
-        },
-        {
-          "prefix": "RS-06L",
-          "count": 212
-        },
-        {
-          "prefix": "RC-12K",
-          "count": 200
-        },
-        {
-          "prefix": "RS-03L",
-          "count": 189
-        },
-        {
-          "prefix": "RC-02U",
-          "count": 156
-        },
-        {
-          "prefix": "RS-1210K",
-          "count": 122
-        }
-      ],
-      "sample_models": [
-        "RS-05K3002FT",
-        "RC-12K132JT",
-        "RC-12K10R0FT",
-        "RS-10L2R70FT",
-        "RS-10K242JT",
-        "RS-10K302JT",
-        "RC-02W3002FT",
-        "RS-1210K1003FT"
-      ],
-      "lookup_method": "Official product pages and catalog model rules",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.fhcomp.com/en/"
-        }
-      ]
-    },
-    {
-      "brand": "华新科Walsin",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 5649,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "WR02X",
-          "count": 777
-        },
-        {
-          "prefix": "WR06X",
-          "count": 751
-        },
-        {
-          "prefix": "WR04X",
-          "count": 747
-        },
-        {
-          "prefix": "WR08X",
-          "count": 743
-        },
-        {
-          "prefix": "WR12X",
-          "count": 740
-        },
-        {
-          "prefix": "WR06W",
-          "count": 224
-        },
-        {
-          "prefix": "WR08W",
-          "count": 223
-        },
-        {
-          "prefix": "WR12W",
-          "count": 213
-        },
-        {
-          "prefix": "WR04W",
-          "count": 210
-        },
-        {
-          "prefix": "WR02W",
-          "count": 205
-        },
-        {
-          "prefix": "WR25X",
-          "count": 115
-        },
-        {
-          "prefix": "WR20X",
-          "count": 102
-        }
-      ],
-      "sample_models": [
-        "WR04X40R2FTL",
-        "WR04X2R2JTL",
-        "WR08W1404FTL",
-        "WR06W2214FTL",
-        "WR25X1R0JTL",
-        "WR04X2803FTL",
-        "WR06X3902FTL",
-        "WR06X6202FTL"
-      ],
-      "lookup_method": "Official product taxonomy and resistor series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.passivecomponent.com/"
-        },
-        {
-          "kind": "resistor-page",
-          "url": "https://www.passivecomponent.com/products/resistors/"
-        }
-      ]
-    },
-    {
       "brand": "日本贵弥功Chemi-Con",
       "component_type": "铝电解电容",
       "unresolved_rows": 5543,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "KHV",
@@ -3548,81 +2867,22 @@
         "EAVH6R3ELL103MM40S",
         "EAVH100ELL331MJC5S"
       ],
-      "lookup_method": "",
-      "official_sources": []
-    },
-    {
-      "brand": "FOJAN(富捷)",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 5442,
-      "registry_status": "missing",
-      "top_prefixes": [
+      "lookup_method": "Official aluminum-electrolytic series list and family pages for ordering-code semantics",
+      "official_sources": [
         {
-          "prefix": "FRC0805F",
-          "count": 634
+          "kind": "aluminum-series-list",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/serieslist/"
         },
         {
-          "prefix": "FRC0603F",
-          "count": 605
-        },
-        {
-          "prefix": "FRC1206F",
-          "count": 563
-        },
-        {
-          "prefix": "FRC0402F",
-          "count": 519
-        },
-        {
-          "prefix": "FRC1206J",
-          "count": 223
-        },
-        {
-          "prefix": "FRC0805J",
-          "count": 223
-        },
-        {
-          "prefix": "FRC0603J",
-          "count": 178
-        },
-        {
-          "prefix": "FRC0402J",
-          "count": 169
-        },
-        {
-          "prefix": "FRC2512F",
-          "count": 163
-        },
-        {
-          "prefix": "FRC2512J",
-          "count": 153
-        },
-        {
-          "prefix": "FRC2010J",
-          "count": 152
-        },
-        {
-          "prefix": "FRC1210F",
-          "count": 151
+          "kind": "category-page",
+          "url": "https://www.chemi-con.co.jp/products/aluminum/"
         }
-      ],
-      "sample_models": [
-        "FRC0805F2002TS",
-        "FRC0603F1002TS",
-        "FRC0603J200TS",
-        "FRC0805F1R00TS",
-        "FRC0603J105TS",
-        "FRC1210J470TS",
-        "FRC0402F1002TS",
-        "FRC0402J123TS"
-      ],
-      "lookup_method": "",
-      "official_sources": []
+      ]
     },
     {
       "brand": "Littelfuse",
       "component_type": "贴片压敏电阻",
-      "unresolved_rows": 5220,
+      "unresolved_rows": 5219,
       "registry_status": "partial",
       "top_prefixes": [
         {
@@ -3693,83 +2953,6 @@
         {
           "kind": "application-note",
           "url": "https://www.littelfuse.com/~/media/electronics_technical/application_notes/varistors/littelfuse_varistors_connection_and_terminology_application_note.pdf"
-        }
-      ]
-    },
-    {
-      "brand": "国巨YAGEO",
-      "component_type": "碳膜电阻",
-      "unresolved_rows": 5060,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "CFR-25JR",
-          "count": 286
-        },
-        {
-          "prefix": "CFR100JR",
-          "count": 286
-        },
-        {
-          "prefix": "FCR2WSJ",
-          "count": 236
-        },
-        {
-          "prefix": "CFR-25JB",
-          "count": 170
-        },
-        {
-          "prefix": "CFR-50JR",
-          "count": 169
-        },
-        {
-          "prefix": "CFR-12JR",
-          "count": 169
-        },
-        {
-          "prefix": "CFR-12JB",
-          "count": 168
-        },
-        {
-          "prefix": "CFR2WSJT",
-          "count": 168
-        },
-        {
-          "prefix": "CFR25SJR",
-          "count": 167
-        },
-        {
-          "prefix": "CFR-50JB",
-          "count": 165
-        },
-        {
-          "prefix": "CFR-25JT",
-          "count": 147
-        },
-        {
-          "prefix": "FCR-25JR",
-          "count": 145
-        }
-      ],
-      "sample_models": [
-        "MCF-25JR-270R",
-        "MCF-25JR-510R",
-        "MCF-25JR-20K",
-        "MCF-25JR-18R",
-        "MCF-25JR-390R",
-        "MCF-25JR-12K",
-        "MCF-25JR-91R",
-        "MCF-25JR-120R"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
         }
       ]
     },
@@ -4495,6 +3678,83 @@
       ]
     },
     {
+      "brand": "国巨YAGEO",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 2709,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "50",
+          "count": 401
+        },
+        {
+          "prefix": "FMF-50FT",
+          "count": 266
+        },
+        {
+          "prefix": "FMF200FRF",
+          "count": 160
+        },
+        {
+          "prefix": "FMF3WSFR",
+          "count": 145
+        },
+        {
+          "prefix": "FMF1WSFR",
+          "count": 143
+        },
+        {
+          "prefix": "RP0603",
+          "count": 123
+        },
+        {
+          "prefix": "FMF-25FT",
+          "count": 121
+        },
+        {
+          "prefix": "FMF100FTF",
+          "count": 121
+        },
+        {
+          "prefix": "FMF200FTF",
+          "count": 121
+        },
+        {
+          "prefix": "FMF-25FR",
+          "count": 121
+        },
+        {
+          "prefix": "FMF-50FR",
+          "count": 120
+        },
+        {
+          "prefix": "FMF200FRE",
+          "count": 120
+        }
+      ],
+      "sample_models": [
+        "RP0603BRD07309RL",
+        "RP0603BRD0720KL",
+        "RP0603BRD072K55L",
+        "RP0603BRD078K2L",
+        "RP0603BRD07261KL",
+        "RP0603BRD07820RL",
+        "RP1206BRD07200KL",
+        "RP0603BRD0739K2L"
+      ],
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "official_sources": [
+        {
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.yageo.com/"
+        }
+      ]
+    },
+    {
       "brand": "Stackpole",
       "component_type": "碳膜电阻",
       "unresolved_rows": 2659,
@@ -4558,6 +3818,229 @@
         "CF14JT3K90",
         "CF14JT300R",
         "CF14JT68R0"
+      ],
+      "lookup_method": "Official resistor series catalog and datasheets",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.seielect.com/"
+        }
+      ]
+    },
+    {
+      "brand": "Stackpole",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 2495,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "RVC2512J",
+          "count": 80
+        },
+        {
+          "prefix": "RVC1206J",
+          "count": 73
+        },
+        {
+          "prefix": "FRC1206J",
+          "count": 73
+        },
+        {
+          "prefix": "FRC0603J",
+          "count": 72
+        },
+        {
+          "prefix": "FRC1210J",
+          "count": 69
+        },
+        {
+          "prefix": "FRC2010J",
+          "count": 68
+        },
+        {
+          "prefix": "FRC0805J",
+          "count": 67
+        },
+        {
+          "prefix": "RVC2010J",
+          "count": 66
+        },
+        {
+          "prefix": "RVC0805J",
+          "count": 66
+        },
+        {
+          "prefix": "FRC2512J",
+          "count": 66
+        },
+        {
+          "prefix": "RVC0603J",
+          "count": 64
+        },
+        {
+          "prefix": "FRC0402J",
+          "count": 64
+        }
+      ],
+      "sample_models": [
+        "HCJ0805ZT0R00",
+        "CSR1225FK3L00",
+        "RVC1206FT10M0",
+        "RVC0603FT107K",
+        "HGCB0603FTC180M",
+        "HGCB0603FTC47M0",
+        "UHVB3512FCD1G00",
+        "RVC0805FT221R"
+      ],
+      "lookup_method": "Official resistor series catalog and datasheets",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.seielect.com/"
+        }
+      ]
+    },
+    {
+      "brand": "国巨YAGEO",
+      "component_type": "绕线电阻",
+      "unresolved_rows": 2166,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "FKN2WSJT",
+          "count": 108
+        },
+        {
+          "prefix": "FKN200JR",
+          "count": 99
+        },
+        {
+          "prefix": "FKN5WSJR",
+          "count": 70
+        },
+        {
+          "prefix": "FKN2WSJR",
+          "count": 61
+        },
+        {
+          "prefix": "FKN100JR",
+          "count": 59
+        },
+        {
+          "prefix": "FKN300JR",
+          "count": 59
+        },
+        {
+          "prefix": "FKN3WSJR",
+          "count": 58
+        },
+        {
+          "prefix": "FKN3WSJT",
+          "count": 48
+        },
+        {
+          "prefix": "FKN1WSJB",
+          "count": 44
+        },
+        {
+          "prefix": "FKN1WSJT",
+          "count": 44
+        },
+        {
+          "prefix": "FKN1WSJR",
+          "count": 44
+        },
+        {
+          "prefix": "NKN5WSJR",
+          "count": 43
+        }
+      ],
+      "sample_models": [
+        "NKN-50JT-52-10R",
+        "FKN1WSJB-52-2R4",
+        "FKN1WSJB-52-24R",
+        "FKN1WSJB-52-1R5",
+        "FKN1WSJT-52-62R",
+        "FKN1WSJB-52-16R",
+        "FKN1WSJB-52-39R",
+        "FKN1WSJB-52-22R"
+      ],
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "official_sources": [
+        {
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.yageo.com/"
+        }
+      ]
+    },
+    {
+      "brand": "Stackpole",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 2001,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "RNS1FTD1",
+          "count": 141
+        },
+        {
+          "prefix": "PRNF14FTD",
+          "count": 138
+        },
+        {
+          "prefix": "FRN12J",
+          "count": 92
+        },
+        {
+          "prefix": "FRN14J",
+          "count": 89
+        },
+        {
+          "prefix": "RNS1FTD2",
+          "count": 85
+        },
+        {
+          "prefix": "RNS1FTD3",
+          "count": 67
+        },
+        {
+          "prefix": "CSRT2512F",
+          "count": 52
+        },
+        {
+          "prefix": "RNS1FTD4",
+          "count": 48
+        },
+        {
+          "prefix": "CSRT2512FTR",
+          "count": 47
+        },
+        {
+          "prefix": "CSRT1206F",
+          "count": 40
+        },
+        {
+          "prefix": "RNS1FTD5",
+          "count": 36
+        },
+        {
+          "prefix": "RNS1FTD6",
+          "count": 34
+        }
+      ],
+      "sample_models": [
+        "HCJ2512ZT0R00",
+        "HCJ1206ZT0R00",
+        "CSRT2512FT8R20-UP",
+        "CSRT2512FT1R50-UP",
+        "CSRT2512FT6R80-UP",
+        "CSRT2512FT7R50-UP",
+        "CSRT2512FTR330-UP",
+        "HCJ0201ZT0R00"
       ],
       "lookup_method": "Official resistor series catalog and datasheets",
       "official_sources": [
@@ -4637,6 +4120,83 @@
         {
           "kind": "official-site",
           "url": "https://www.ohmite.com/"
+        }
+      ]
+    },
+    {
+      "brand": "国巨YAGEO",
+      "component_type": "碳膜电阻",
+      "unresolved_rows": 1877,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "FCR2WSJ",
+          "count": 236
+        },
+        {
+          "prefix": "FCR-25JR",
+          "count": 145
+        },
+        {
+          "prefix": "FCR-25JT",
+          "count": 144
+        },
+        {
+          "prefix": "FCR3WSJ",
+          "count": 144
+        },
+        {
+          "prefix": "FCR50SJ",
+          "count": 121
+        },
+        {
+          "prefix": "FCR-50JT",
+          "count": 121
+        },
+        {
+          "prefix": "FCR-50JR",
+          "count": 120
+        },
+        {
+          "prefix": "FCR200JR",
+          "count": 120
+        },
+        {
+          "prefix": "FC0204J",
+          "count": 119
+        },
+        {
+          "prefix": "FCR1WSJ",
+          "count": 119
+        },
+        {
+          "prefix": "MCF-25JR",
+          "count": 49
+        },
+        {
+          "prefix": "MCP100JR",
+          "count": 49
+        }
+      ],
+      "sample_models": [
+        "MCF-25JR-270R",
+        "MCF-25JR-510R",
+        "MCF-25JR-20K",
+        "MCF-25JR-18R",
+        "MCF-25JR-390R",
+        "MCF-25JR-12K",
+        "MCF-25JR-91R",
+        "MCF-25JR-120R"
+      ],
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "official_sources": [
+        {
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.yageo.com/"
         }
       ]
     },
@@ -5156,52 +4716,52 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "CL",
-          "count": 1259
+          "prefix": "CL0805FN",
+          "count": 212
         },
         {
-          "prefix": "CF2512JN",
-          "count": 10
+          "prefix": "CL0603FN",
+          "count": 159
         },
         {
-          "prefix": "CF1210JN",
-          "count": 9
+          "prefix": "CL0402FN",
+          "count": 147
         },
         {
-          "prefix": "CF2010JN",
-          "count": 7
+          "prefix": "CL1206FN",
+          "count": 141
         },
         {
-          "prefix": "CF0805FN",
-          "count": 7
+          "prefix": "CL1210FN",
+          "count": 83
         },
         {
-          "prefix": "CF1206FN",
-          "count": 6
+          "prefix": "CL1812JN",
+          "count": 71
         },
         {
-          "prefix": "CF1812JN",
-          "count": 6
+          "prefix": "CL0603JN",
+          "count": 70
         },
         {
-          "prefix": "CF1210FNR",
-          "count": 5
+          "prefix": "CL1210JN",
+          "count": 60
         },
         {
-          "prefix": "CF1210FN",
-          "count": 5
+          "prefix": "CL0402JN",
+          "count": 55
         },
         {
-          "prefix": "CF0805JN",
-          "count": 4
+          "prefix": "CL2512JN",
+          "count": 54
         },
         {
-          "prefix": "CF0603JN",
-          "count": 3
+          "prefix": "CL2512FN",
+          "count": 51
         },
         {
-          "prefix": "CF1206JN",
-          "count": 3
+          "prefix": "CL1812FN",
+          "count": 38
         }
       ],
       "sample_models": [
@@ -5729,7 +5289,7 @@
     {
       "brand": "Panasonic",
       "component_type": "贴片压敏电阻",
-      "unresolved_rows": 1063,
+      "unresolved_rows": 1062,
       "registry_status": "partial",
       "top_prefixes": [
         {
@@ -5785,11 +5345,11 @@
         "ERZV14D681",
         "ERZVA7V241",
         "ERZE14A511",
-        "ERZV14D471",
         "ERZV07D471",
         "ERZVGAD560",
         "ERZV14D221",
-        "ERZV14D621CS"
+        "ERZV14D621CS",
+        "ERZV14D271"
       ],
       "lookup_method": "Official resistor catalog and part-number family pages",
       "official_sources": [
@@ -5807,7 +5367,7 @@
       "brand": "Rubycon",
       "component_type": "铝电解电容",
       "unresolved_rows": 1055,
-      "registry_status": "missing",
+      "registry_status": "partial",
       "top_prefixes": [
         {
           "prefix": "ZLJ",
@@ -5856,8 +5416,17 @@
         "6.3ZLJ1800M10X16",
         "6.3ZLJ2700M10X20"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "Official radial-electrolytic series list plus family PDFs for model-series semantics",
+      "official_sources": [
+        {
+          "kind": "radial-series-list",
+          "url": "https://www.rubycon.co.jp/en/products/al-radial-lead/series-list/"
+        },
+        {
+          "kind": "catalog-index",
+          "url": "https://www.rubycon.co.jp/en/catalog/"
+        }
+      ]
     },
     {
       "brand": "村田Murata",
@@ -6181,52 +5750,52 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "UB5C-0R1",
-          "count": 4
+          "prefix": "UB5C",
+          "count": 214
         },
         {
-          "prefix": "UB3C-0R3",
-          "count": 4
+          "prefix": "UB3C",
+          "count": 187
         },
         {
-          "prefix": "UB5C-0R2",
-          "count": 4
+          "prefix": "S4",
+          "count": 88
         },
         {
-          "prefix": "UB5C-0R3",
-          "count": 4
+          "prefix": "S2",
+          "count": 85
         },
         {
-          "prefix": "UB3C-0R1",
-          "count": 4
+          "prefix": "S3",
+          "count": 83
         },
         {
-          "prefix": "SM15-100",
-          "count": 4
+          "prefix": "S5",
+          "count": 75
         },
         {
-          "prefix": "S2-0R075",
-          "count": 3
+          "prefix": "S1",
+          "count": 47
         },
         {
-          "prefix": "UB3C-0R2",
-          "count": 3
+          "prefix": "SM10",
+          "count": 21
         },
         {
-          "prefix": "SM10-100",
-          "count": 3
+          "prefix": "SM15",
+          "count": 20
         },
         {
-          "prefix": "S2-0R047",
-          "count": 2
+          "prefix": "101",
+          "count": 18
         },
         {
-          "prefix": "S2-0R039",
-          "count": 2
+          "prefix": "UB10",
+          "count": 18
         },
         {
-          "prefix": "S2-0R033",
-          "count": 2
+          "prefix": "UB15",
+          "count": 12
         }
       ],
       "sample_models": [
@@ -6439,52 +6008,40 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "220",
-          "count": 280
+          "prefix": "PF2203",
+          "count": 144
         },
         {
-          "prefix": "247",
+          "prefix": "PFS35",
+          "count": 141
+        },
+        {
+          "prefix": "PF2472",
           "count": 136
         },
         {
-          "prefix": "126",
+          "prefix": "PF1262",
           "count": 136
         },
         {
-          "prefix": "PFS35-0R",
-          "count": 29
+          "prefix": "PF2205",
+          "count": 136
         },
         {
-          "prefix": "060",
+          "prefix": "CAR0603",
           "count": 17
         },
         {
-          "prefix": "080",
+          "prefix": "CAR0805",
           "count": 16
         },
         {
-          "prefix": "PFS35-1K",
-          "count": 6
+          "prefix": "USR2G",
+          "count": 15
         },
         {
-          "prefix": "PFS35-1R",
-          "count": 6
-        },
-        {
-          "prefix": "PFS35-3R",
-          "count": 4
-        },
-        {
-          "prefix": "PFS35-2R",
-          "count": 4
-        },
-        {
-          "prefix": "PFS35-3K",
-          "count": 4
-        },
-        {
-          "prefix": "PFS35-2K",
-          "count": 4
+          "prefix": "MFP55",
+          "count": 8
         }
       ],
       "sample_models": [
@@ -6503,7 +6060,7 @@
     {
       "brand": "Bourns",
       "component_type": "贴片压敏电阻",
-      "unresolved_rows": 738,
+      "unresolved_rows": 737,
       "registry_status": "partial",
       "top_prefixes": [
         {
@@ -7508,16 +7065,8 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "SR1-1206",
-          "count": 143
-        },
-        {
-          "prefix": "SR1-0603",
-          "count": 141
-        },
-        {
-          "prefix": "SR1-0805",
-          "count": 141
+          "prefix": "SR1",
+          "count": 425
         }
       ],
       "sample_models": [
@@ -7600,6 +7149,79 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "风华Fenghua",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 385,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "ABD03K",
+          "count": 36
+        },
+        {
+          "prefix": "ACD03K",
+          "count": 26
+        },
+        {
+          "prefix": "RHC-02W1",
+          "count": 20
+        },
+        {
+          "prefix": "RHC-01W1",
+          "count": 15
+        },
+        {
+          "prefix": "RHC-02W3",
+          "count": 14
+        },
+        {
+          "prefix": "RHC-02W2",
+          "count": 14
+        },
+        {
+          "prefix": "ACE05K",
+          "count": 13
+        },
+        {
+          "prefix": "RHC-01W2",
+          "count": 13
+        },
+        {
+          "prefix": "ABE05K",
+          "count": 12
+        },
+        {
+          "prefix": "RHC-01W3",
+          "count": 11
+        },
+        {
+          "prefix": "RHS-03K1",
+          "count": 11
+        },
+        {
+          "prefix": "RHC-01W4",
+          "count": 9
+        }
+      ],
+      "sample_models": [
+        "ACE05000JT",
+        "ACE05K103JT",
+        "RVS-06L165FT",
+        "ACD03K202JT",
+        "ACD03K203JT",
+        "ACD03K104JT",
+        "ACD03K102JT",
+        "RVS-10L165FT"
+      ],
+      "lookup_method": "Official product pages and catalog model rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.fhcomp.com/en/"
+        }
+      ]
     },
     {
       "brand": "KOA",
@@ -7903,52 +7525,52 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "080",
-          "count": 36
+          "prefix": "PFC10",
+          "count": 137
         },
         {
-          "prefix": "120",
-          "count": 34
-        },
-        {
-          "prefix": "PFC10-0R",
-          "count": 24
-        },
-        {
-          "prefix": "251",
+          "prefix": "HVS0805",
           "count": 19
         },
         {
-          "prefix": "AS",
+          "prefix": "HVS2512",
+          "count": 19
+        },
+        {
+          "prefix": "HVS1206",
+          "count": 19
+        },
+        {
+          "prefix": "PCR0805",
           "count": 17
         },
         {
-          "prefix": "PFC10-1R",
+          "prefix": "PCR1206",
+          "count": 15
+        },
+        {
+          "prefix": "NPS2T",
+          "count": 15
+        },
+        {
+          "prefix": "MT5",
           "count": 6
         },
         {
-          "prefix": "PFC10-1K",
-          "count": 6
+          "prefix": "ASC1206",
+          "count": 5
+        },
+        {
+          "prefix": "ASC0603",
+          "count": 5
         },
         {
           "prefix": "HVC2512",
           "count": 5
         },
         {
-          "prefix": "MT",
+          "prefix": "MT2A",
           "count": 5
-        },
-        {
-          "prefix": "HVC0805",
-          "count": 4
-        },
-        {
-          "prefix": "PFC10-3K",
-          "count": 4
-        },
-        {
-          "prefix": "PFC10-2R",
-          "count": 4
         }
       ],
       "sample_models": [
@@ -8426,52 +8048,44 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "MF1/4W-1",
-          "count": 17
+          "prefix": "MF1/4W",
+          "count": 63
         },
         {
-          "prefix": "MF1/8W-1",
-          "count": 16
+          "prefix": "MF1/8W",
+          "count": 54
         },
         {
-          "prefix": "MF1/4W-2",
-          "count": 15
+          "prefix": "MF2WS",
+          "count": 42
         },
         {
-          "prefix": "MF1/8W-2",
-          "count": 9
+          "prefix": "MF3WS",
+          "count": 38
         },
         {
-          "prefix": "MF1/2W-1",
-          "count": 9
+          "prefix": "MF1W",
+          "count": 38
         },
         {
-          "prefix": "MF1/4W-3",
-          "count": 8
+          "prefix": "MF1/2W",
+          "count": 35
         },
         {
-          "prefix": "MF1/4W-6",
-          "count": 7
-        },
-        {
-          "prefix": "MF1/8W-3",
-          "count": 7
-        },
-        {
-          "prefix": "MF1/2W-2",
-          "count": 7
-        },
-        {
-          "prefix": "MF1/8W-4",
-          "count": 6
-        },
-        {
-          "prefix": "MF1/8W-5",
-          "count": 6
-        },
-        {
-          "prefix": "MF1/2W-0",
+          "prefix": "MF1/2WS",
           "count": 5
+        },
+        {
+          "prefix": "MF3W",
+          "count": 2
+        },
+        {
+          "prefix": "MF2W",
+          "count": 1
+        },
+        {
+          "prefix": "MF5WS",
+          "count": 1
         }
       ],
       "sample_models": [
@@ -8554,6 +8168,83 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "国巨YAGEO",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 271,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "TR1206NR",
+          "count": 47
+        },
+        {
+          "prefix": "TR0805NR",
+          "count": 43
+        },
+        {
+          "prefix": "TR1206MR",
+          "count": 33
+        },
+        {
+          "prefix": "TR0805MR",
+          "count": 31
+        },
+        {
+          "prefix": "TR0603MR",
+          "count": 27
+        },
+        {
+          "prefix": "TR0805KR",
+          "count": 27
+        },
+        {
+          "prefix": "TR0603KR",
+          "count": 21
+        },
+        {
+          "prefix": "TR1206KR",
+          "count": 21
+        },
+        {
+          "prefix": "TR0603NR",
+          "count": 16
+        },
+        {
+          "prefix": "TR0402KR",
+          "count": 2
+        },
+        {
+          "prefix": "TR0402MR",
+          "count": 2
+        },
+        {
+          "prefix": "PH1206FKF",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "PH1206FKF070R02Z",
+        "TR0603KR-071KL",
+        "TR0805MR-0722KL",
+        "TR0603NR-0720KL",
+        "TR0805MR-0747KL",
+        "TR0805MR-07330KL",
+        "TR1206MR-0710KL",
+        "TR0603MR-072KL"
+      ],
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "official_sources": [
+        {
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.yageo.com/"
+        }
+      ]
     },
     {
       "brand": "Kyocera AVX",
@@ -8920,52 +8611,24 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "280-CR5-",
+          "prefix": "261",
+          "count": 86
+        },
+        {
+          "prefix": "262",
+          "count": 85
+        },
+        {
+          "prefix": "280-CR5",
           "count": 24
+        },
+        {
+          "prefix": "283",
+          "count": 15
         },
         {
           "prefix": "280-CR10",
           "count": 10
-        },
-        {
-          "prefix": "262-82-R",
-          "count": 1
-        },
-        {
-          "prefix": "283-470K",
-          "count": 1
-        },
-        {
-          "prefix": "262-22K-",
-          "count": 1
-        },
-        {
-          "prefix": "261-240-",
-          "count": 1
-        },
-        {
-          "prefix": "261-4.3K",
-          "count": 1
-        },
-        {
-          "prefix": "261-560-",
-          "count": 1
-        },
-        {
-          "prefix": "283-100-",
-          "count": 1
-        },
-        {
-          "prefix": "261-680-",
-          "count": 1
-        },
-        {
-          "prefix": "262-4.3K",
-          "count": 1
-        },
-        {
-          "prefix": "261-1.8K",
-          "count": 1
         }
       ],
       "sample_models": [
@@ -9423,52 +9086,16 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "293-10K-",
-          "count": 1
+          "prefix": "293",
+          "count": 95
         },
         {
-          "prefix": "294-7.5K",
-          "count": 1
+          "prefix": "294",
+          "count": 88
         },
         {
-          "prefix": "293-470K",
-          "count": 1
-        },
-        {
-          "prefix": "293-27-R",
-          "count": 1
-        },
-        {
-          "prefix": "294-4.7K",
-          "count": 1
-        },
-        {
-          "prefix": "294-120K",
-          "count": 1
-        },
-        {
-          "prefix": "293-2.4-",
-          "count": 1
-        },
-        {
-          "prefix": "293-1.5M",
-          "count": 1
-        },
-        {
-          "prefix": "293-330-",
-          "count": 1
-        },
-        {
-          "prefix": "293-560K",
-          "count": 1
-        },
-        {
-          "prefix": "293-4.7-",
-          "count": 1
-        },
-        {
-          "prefix": "294-10K-",
-          "count": 1
+          "prefix": "R-294",
+          "count": 2
         }
       ],
       "sample_models": [
@@ -10503,6 +10130,79 @@
       "official_sources": []
     },
     {
+      "brand": "旺诠RALEC",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 133,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "RLT06R",
+          "count": 33
+        },
+        {
+          "prefix": "RLT12R",
+          "count": 29
+        },
+        {
+          "prefix": "RLT25R",
+          "count": 22
+        },
+        {
+          "prefix": "RLT05R",
+          "count": 21
+        },
+        {
+          "prefix": "RLT20R",
+          "count": 15
+        },
+        {
+          "prefix": "RLT03R",
+          "count": 9
+        },
+        {
+          "prefix": "RTN02-10",
+          "count": 1
+        },
+        {
+          "prefix": "0612",
+          "count": 1
+        },
+        {
+          "prefix": "0610",
+          "count": 1
+        },
+        {
+          "prefix": "0651",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "RTN02-10R471JTP",
+        "RLT06R10JTP",
+        "RLT06R062FTP",
+        "RLT06R47JTP",
+        "RLT05R820FTP",
+        "RLT06R82JTP",
+        "RLT12R068FTP",
+        "RLT06R330FTP"
+      ],
+      "lookup_method": "Official product search and resistor family pages for part-number prefix rules",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.ralec.com/en-global/Overview/index"
+        },
+        {
+          "kind": "product-search",
+          "url": "https://www.ralec.com/en-global/product_search/index"
+        },
+        {
+          "kind": "thick-film-chip-resistor",
+          "url": "https://www.ralec.com/en-global/resistance/index/thick_film_chip_resistor"
+        }
+      ]
+    },
+    {
       "brand": "Ohmite",
       "component_type": "贴片电阻",
       "unresolved_rows": 132,
@@ -10582,52 +10282,32 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "CF1/4W-1",
-          "count": 19
+          "prefix": "CF1/4W",
+          "count": 79
         },
         {
-          "prefix": "CF1/4W-2",
-          "count": 14
+          "prefix": "CF1/6W",
+          "count": 31
         },
         {
-          "prefix": "CF1/4W-3",
-          "count": 13
-        },
-        {
-          "prefix": "CF1/6W-1",
-          "count": 9
-        },
-        {
-          "prefix": "CF1/6W-2",
-          "count": 9
-        },
-        {
-          "prefix": "CF1/4W-4",
+          "prefix": "CF3WS",
           "count": 8
         },
         {
-          "prefix": "CF1/4W-5",
-          "count": 7
+          "prefix": "CF1W",
+          "count": 6
         },
         {
-          "prefix": "CF1/4W-6",
-          "count": 7
-        },
-        {
-          "prefix": "CF1/6W-4",
+          "prefix": "CF2WS",
           "count": 4
         },
         {
-          "prefix": "CF1/6W-5",
-          "count": 4
-        },
-        {
-          "prefix": "CF1/4W-8",
+          "prefix": "CF1/2W",
           "count": 3
         },
         {
-          "prefix": "CF1/4W-0",
-          "count": 3
+          "prefix": "CF3W",
+          "count": 1
         }
       ],
       "sample_models": [
@@ -10839,8 +10519,52 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "AS",
-          "count": 111
+          "prefix": "ASR-M-5-",
+          "count": 21
+        },
+        {
+          "prefix": "ASR-M-3-",
+          "count": 13
+        },
+        {
+          "prefix": "ASR-K-5-",
+          "count": 13
+        },
+        {
+          "prefix": "ASR-K-3-",
+          "count": 12
+        },
+        {
+          "prefix": "ASR-M-7-",
+          "count": 12
+        },
+        {
+          "prefix": "ASR-K-7-",
+          "count": 11
+        },
+        {
+          "prefix": "ASR-F-5-",
+          "count": 8
+        },
+        {
+          "prefix": "ASR-F-7-",
+          "count": 6
+        },
+        {
+          "prefix": "ASR-M-10",
+          "count": 4
+        },
+        {
+          "prefix": "ASR-M-26",
+          "count": 3
+        },
+        {
+          "prefix": "ASR-K-59",
+          "count": 2
+        },
+        {
+          "prefix": "ASR-F-3-",
+          "count": 2
         }
       ],
       "sample_models": [
@@ -11469,52 +11193,24 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "MOF3WS-1",
-          "count": 12
+          "prefix": "MOF3WS",
+          "count": 38
         },
         {
-          "prefix": "MOF3WS-2",
-          "count": 8
+          "prefix": "MOF2WS",
+          "count": 24
         },
         {
-          "prefix": "MOF2WS-1",
-          "count": 7
+          "prefix": "MOF5WS",
+          "count": 19
         },
         {
-          "prefix": "MOF3WS-3",
-          "count": 7
-        },
-        {
-          "prefix": "MOF2WS-0",
-          "count": 6
-        },
-        {
-          "prefix": "MOF5WS-1",
-          "count": 6
-        },
-        {
-          "prefix": "MOF3WS-5",
+          "prefix": "MOF5W",
           "count": 3
         },
         {
-          "prefix": "MOF5WS-2",
-          "count": 3
-        },
-        {
-          "prefix": "MOF5WS-0",
-          "count": 3
-        },
-        {
-          "prefix": "MOF2WS-3",
-          "count": 3
-        },
-        {
-          "prefix": "MOF3WS-6",
-          "count": 3
-        },
-        {
-          "prefix": "MOF2WS-2",
-          "count": 3
+          "prefix": "MOF1W",
+          "count": 1
         }
       ],
       "sample_models": [
@@ -11605,52 +11301,8 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "273-82-R",
-          "count": 1
-        },
-        {
-          "prefix": "273-56K-",
-          "count": 1
-        },
-        {
-          "prefix": "273-2.2K",
-          "count": 1
-        },
-        {
-          "prefix": "273-1.5K",
-          "count": 1
-        },
-        {
-          "prefix": "273-5.1K",
-          "count": 1
-        },
-        {
-          "prefix": "273-150K",
-          "count": 1
-        },
-        {
-          "prefix": "273-33-R",
-          "count": 1
-        },
-        {
-          "prefix": "273-22K-",
-          "count": 1
-        },
-        {
-          "prefix": "273-1.5M",
-          "count": 1
-        },
-        {
-          "prefix": "273-330K",
-          "count": 1
-        },
-        {
-          "prefix": "273-51-R",
-          "count": 1
-        },
-        {
-          "prefix": "273-62K-",
-          "count": 1
+          "prefix": "273",
+          "count": 77
         }
       ],
       "sample_models": [
@@ -12134,7 +11786,7 @@
       "top_prefixes": [
         {
           "prefix": "CS",
-          "count": 58
+          "count": 57
         },
         {
           "prefix": "0623",
@@ -12143,6 +11795,10 @@
         {
           "prefix": "10",
           "count": 2
+        },
+        {
+          "prefix": "CSR0204J",
+          "count": 1
         },
         {
           "prefix": "05",
@@ -12267,83 +11923,6 @@
       ],
       "lookup_method": "",
       "official_sources": []
-    },
-    {
-      "brand": "国巨YAGEO",
-      "component_type": "合金电阻",
-      "unresolved_rows": 63,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "PS0612FKF",
-          "count": 10
-        },
-        {
-          "prefix": "PS0306FRF",
-          "count": 8
-        },
-        {
-          "prefix": "PS0612FKM",
-          "count": 7
-        },
-        {
-          "prefix": "PS1225JKF",
-          "count": 7
-        },
-        {
-          "prefix": "PS0306FRL",
-          "count": 6
-        },
-        {
-          "prefix": "PS0612FKG",
-          "count": 3
-        },
-        {
-          "prefix": "PS0612FKP",
-          "count": 3
-        },
-        {
-          "prefix": "PS0306FRM",
-          "count": 3
-        },
-        {
-          "prefix": "PS0612DKF",
-          "count": 2
-        },
-        {
-          "prefix": "PS1206FRE",
-          "count": 2
-        },
-        {
-          "prefix": "PS0612FKL",
-          "count": 2
-        },
-        {
-          "prefix": "PS0612DKG",
-          "count": 2
-        }
-      ],
-      "sample_models": [
-        "PS0612FKG070R01L",
-        "PA1206FRF7W0R003L",
-        "PS0612FKM070R002L",
-        "PS0612FKF7W0R003L",
-        "PS0612FKF070R004L",
-        "PS0306FRP7T0U75L",
-        "PS0306DRF7T0R01L",
-        "PS0612FKP070U5L"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
-        }
-      ]
     },
     {
       "brand": "双羽",
@@ -12979,65 +12558,72 @@
       "official_sources": []
     },
     {
-      "brand": "国巨YAGEO",
-      "component_type": "金属氧化膜电阻",
+      "brand": "PSA(信昌电陶)",
+      "component_type": "厚膜电阻",
       "unresolved_rows": 50,
-      "registry_status": "partial",
+      "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "MOF3WVJT",
-          "count": 24
+          "prefix": "FCF25FP",
+          "count": 12
         },
         {
-          "prefix": "MOF4WVJT",
-          "count": 17
+          "prefix": "FCF25JP",
+          "count": 8
         },
         {
-          "prefix": "RSF200J",
+          "prefix": "FBF06F",
+          "count": 6
+        },
+        {
+          "prefix": "FCF12F",
           "count": 3
         },
         {
-          "prefix": "MOF4WVGT",
+          "prefix": "FCF20JP",
+          "count": 3
+        },
+        {
+          "prefix": "FPS06FT",
+          "count": 3
+        },
+        {
+          "prefix": "FCF03D",
           "count": 2
         },
         {
-          "prefix": "RSF100J",
+          "prefix": "FCF05F",
+          "count": 2
+        },
+        {
+          "prefix": "FCF20FP",
+          "count": 2
+        },
+        {
+          "prefix": "FVF06FT",
           "count": 1
         },
         {
-          "prefix": "RSF200F",
+          "prefix": "06",
           "count": 1
         },
         {
-          "prefix": "RSF1WSJT",
-          "count": 1
-        },
-        {
-          "prefix": "RSF3WMJT",
+          "prefix": "FVF25FP",
           "count": 1
         }
       ],
       "sample_models": [
-        "RSF200JT-73-1M",
-        "RSF100JT-73-100K",
-        "RSF200JT-73-20K",
-        "RSF200JT-73-390R",
-        "RSF200FT-73-4R7",
-        "RSF1WSJT-52-470R",
-        "RSF3WMJT-73-10K",
-        "MOF3WVJT-77-39K"
+        "FCF03DT-30CP",
+        "FVF06FT-3923",
+        "FCF05FT-6800",
+        "FBF06FTPR080",
+        "FCF03DT-6801P",
+        "FVF25FP-1005",
+        "FCF12JT-R091E",
+        "FCF12FT-R020E"
       ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
-        }
-      ]
+      "lookup_method": "",
+      "official_sources": []
     },
     {
       "brand": "风华Fenghua",
@@ -13307,7 +12893,7 @@
           "count": 27
         },
         {
-          "prefix": "280-CR5-",
+          "prefix": "280-CR5",
           "count": 18
         }
       ],
@@ -13550,72 +13136,45 @@
       "official_sources": []
     },
     {
-      "brand": "PSA(信昌电陶)",
-      "component_type": "厚膜电阻",
-      "unresolved_rows": 42,
-      "registry_status": "missing",
+      "brand": "国巨YAGEO",
+      "component_type": "金属氧化膜电阻",
+      "unresolved_rows": 43,
+      "registry_status": "partial",
       "top_prefixes": [
         {
-          "prefix": "FCF25FP",
-          "count": 12
+          "prefix": "MOF3WVJT",
+          "count": 24
         },
         {
-          "prefix": "FCF25JP",
-          "count": 8
+          "prefix": "MOF4WVJT",
+          "count": 17
         },
         {
-          "prefix": "FBF06F",
-          "count": 6
-        },
-        {
-          "prefix": "FCF12F",
-          "count": 3
-        },
-        {
-          "prefix": "FCF20JP",
-          "count": 3
-        },
-        {
-          "prefix": "FCF03D",
+          "prefix": "MOF4WVGT",
           "count": 2
-        },
-        {
-          "prefix": "FCF05F",
-          "count": 2
-        },
-        {
-          "prefix": "FCF20FP",
-          "count": 2
-        },
-        {
-          "prefix": "06",
-          "count": 1
-        },
-        {
-          "prefix": "FCF12J",
-          "count": 1
-        },
-        {
-          "prefix": "FCF06F",
-          "count": 1
-        },
-        {
-          "prefix": "FCF03J",
-          "count": 1
         }
       ],
       "sample_models": [
-        "FCF03DT-30CP",
-        "FCF05FT-6800",
-        "FBF06FTPR080",
-        "FCF03DT-6801P",
-        "FCF12JT-R091E",
-        "FCF12FT-R020E",
-        "FCF25JP-R300E",
-        "FCF25FP-R050E"
+        "MOF3WVJT-77-39K",
+        "MOF3WVJT-77-470R",
+        "MOF3WVJT-77-390K",
+        "MOF3WVJT-77-180K",
+        "MOF3WVJT-77-10R",
+        "MOF3WVJT-77-110K",
+        "MOF3WVJT-77-270R",
+        "MOF3WVJT-77-22R"
       ],
-      "lookup_method": "",
-      "official_sources": []
+      "lookup_method": "YAGEO product guide and official family naming rules",
+      "official_sources": [
+        {
+          "kind": "application-guide",
+          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
+        },
+        {
+          "kind": "official-site",
+          "url": "https://www.yageo.com/"
+        }
+      ]
     },
     {
       "brand": "EVER OHMS(天二科技)",
@@ -13811,58 +13370,6 @@
       "official_sources": []
     },
     {
-      "brand": "FOJAN(富捷)",
-      "component_type": "合金电阻",
-      "unresolved_rows": 40,
-      "registry_status": "missing",
-      "top_prefixes": [
-        {
-          "prefix": "FRM252WFR",
-          "count": 12
-        },
-        {
-          "prefix": "FRM121WFR",
-          "count": 8
-        },
-        {
-          "prefix": "FRM121WJR",
-          "count": 6
-        },
-        {
-          "prefix": "FRM252WJR",
-          "count": 5
-        },
-        {
-          "prefix": "FPM253WFR",
-          "count": 4
-        },
-        {
-          "prefix": "FPM253WJR",
-          "count": 3
-        },
-        {
-          "prefix": "FPM252WFR",
-          "count": 1
-        },
-        {
-          "prefix": "FRM253WJR",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "FRM121WFR020TM",
-        "FRM121WJR005TM",
-        "FRM252WJR300TK",
-        "FRM252WJR200TK",
-        "FRM121WJR001TM",
-        "FPM253WFR004TML",
-        "FPM253WFR002TML",
-        "FRM252WFR030TN"
-      ],
-      "lookup_method": "",
-      "official_sources": []
-    },
-    {
       "brand": "QAMcn(恭成科技)",
       "component_type": "热敏电阻",
       "unresolved_rows": 40,
@@ -14045,51 +13552,39 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "KNP1/2W-",
+          "prefix": "KNP2W",
+          "count": 9
+        },
+        {
+          "prefix": "KNP1W",
+          "count": 8
+        },
+        {
+          "prefix": "KNP1/2W",
           "count": 5
         },
         {
-          "prefix": "KNP2W-10",
+          "prefix": "KNP3WS",
+          "count": 3
+        },
+        {
+          "prefix": "KNP2WS",
+          "count": 3
+        },
+        {
+          "prefix": "KNP5WS",
+          "count": 3
+        },
+        {
+          "prefix": "KNP1/4W",
           "count": 2
         },
         {
-          "prefix": "KNP1/4W-",
-          "count": 2
-        },
-        {
-          "prefix": "KNP2WS-0",
-          "count": 2
-        },
-        {
-          "prefix": "KNP5WS-2",
-          "count": 2
-        },
-        {
-          "prefix": "KNP3WS-1",
+          "prefix": "KNP3W",
           "count": 1
         },
         {
-          "prefix": "KNP1W-47",
-          "count": 1
-        },
-        {
-          "prefix": "KNP2W-22",
-          "count": 1
-        },
-        {
-          "prefix": "KNP3W-20",
-          "count": 1
-        },
-        {
-          "prefix": "KNP1W-4.",
-          "count": 1
-        },
-        {
-          "prefix": "KNP1W-10",
-          "count": 1
-        },
-        {
-          "prefix": "KNP1W-68",
+          "prefix": "KNP5W",
           "count": 1
         }
       ],
@@ -15413,67 +14908,6 @@
       "official_sources": []
     },
     {
-      "brand": "华新科Walsin",
-      "component_type": "薄膜电阻",
-      "unresolved_rows": 15,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "WF08U",
-          "count": 6
-        },
-        {
-          "prefix": "WM04B",
-          "count": 2
-        },
-        {
-          "prefix": "WF08Q",
-          "count": 2
-        },
-        {
-          "prefix": "WF06W",
-          "count": 1
-        },
-        {
-          "prefix": "WF08W",
-          "count": 1
-        },
-        {
-          "prefix": "WF06R",
-          "count": 1
-        },
-        {
-          "prefix": "WF06Q",
-          "count": 1
-        },
-        {
-          "prefix": "WW08DR",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "WF06W1001DTL",
-        "WM04B1001FTLQ",
-        "WM04B6801FTLQ",
-        "WF08U6801DTL",
-        "WF08Q1202BTL",
-        "WF08U7502DTL",
-        "WF08U5602DTL",
-        "WF08W1002BTL"
-      ],
-      "lookup_method": "Official product taxonomy and resistor series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.passivecomponent.com/"
-        },
-        {
-          "kind": "resistor-page",
-          "url": "https://www.passivecomponent.com/products/resistors/"
-        }
-      ]
-    },
-    {
       "brand": "光颉Viking",
       "component_type": "合金电阻",
       "unresolved_rows": 15,
@@ -15832,6 +15266,51 @@
         {
           "kind": "official-site",
           "url": "https://www.yageo.com/"
+        }
+      ]
+    },
+    {
+      "brand": "华新科Walsin",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 13,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "WK12V",
+          "count": 7
+        },
+        {
+          "prefix": "WK08S",
+          "count": 2
+        },
+        {
+          "prefix": "FVF06F",
+          "count": 2
+        },
+        {
+          "prefix": "WK12S",
+          "count": 2
+        }
+      ],
+      "sample_models": [
+        "WK08S1R0JTL",
+        "WK08S2R2JTL",
+        "FVF06FT-2004",
+        "WK12V3003FTL",
+        "WK12V7502FTL",
+        "WK12V1803FTL",
+        "WK12V1503FTL",
+        "WK12V8202FTL"
+      ],
+      "lookup_method": "Official product taxonomy and resistor series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.passivecomponent.com/"
+        },
+        {
+          "kind": "resistor-page",
+          "url": "https://www.passivecomponent.com/products/resistors/"
         }
       ]
     },
@@ -16572,58 +16051,6 @@
       ]
     },
     {
-      "brand": "FOJAN(富捷)",
-      "component_type": "贴片电阻",
-      "unresolved_rows": 9,
-      "registry_status": "missing",
-      "top_prefixes": [
-        {
-          "prefix": "FRC1210F",
-          "count": 2
-        },
-        {
-          "prefix": "FRD0805J",
-          "count": 1
-        },
-        {
-          "prefix": "FRC1812F",
-          "count": 1
-        },
-        {
-          "prefix": "FRG1812F",
-          "count": 1
-        },
-        {
-          "prefix": "FRC2512F",
-          "count": 1
-        },
-        {
-          "prefix": "FRC0402F",
-          "count": 1
-        },
-        {
-          "prefix": "FRC2010F",
-          "count": 1
-        },
-        {
-          "prefix": "FRD1206J",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "FRD0805J751RS",
-        "FRC1812F68R0TS",
-        "FRC1210F6800TS",
-        "FRC1210F1300TS",
-        "FRG1812F1005TS",
-        "FRC2512F5103TS",
-        "FRC0402F8872TS",
-        "FRC2010F2400TS"
-      ],
-      "lookup_method": "",
-      "official_sources": []
-    },
-    {
       "brand": "kayocota(嘉莹兴)",
       "component_type": "碳膜电阻",
       "unresolved_rows": 9,
@@ -17088,7 +16515,7 @@
           "count": 1
         },
         {
-          "prefix": "CC",
+          "prefix": "CCR14R",
           "count": 1
         },
         {
@@ -17696,8 +17123,16 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "AS",
-          "count": 5
+          "prefix": "ASEK-703",
+          "count": 3
+        },
+        {
+          "prefix": "ASEK713ELC",
+          "count": 1
+        },
+        {
+          "prefix": "ASEK712ELC",
+          "count": 1
         }
       ],
       "sample_models": [
@@ -17815,6 +17250,34 @@
           "url": "https://www.vishay.com/"
         }
       ]
+    },
+    {
+      "brand": "PSA(信昌电陶)",
+      "component_type": "贴片电阻",
+      "unresolved_rows": 4,
+      "registry_status": "missing",
+      "top_prefixes": [
+        {
+          "prefix": "FVF06FT",
+          "count": 2
+        },
+        {
+          "prefix": "FHF06JT",
+          "count": 1
+        },
+        {
+          "prefix": "FPF25FQK",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "FHF06JT-107",
+        "FPF25FQK51R0N",
+        "FVF06FT-5104",
+        "FVF06FT-1005"
+      ],
+      "lookup_method": "",
+      "official_sources": []
     },
     {
       "brand": "RLT(瑞率特)",
@@ -18357,6 +17820,33 @@
       ]
     },
     {
+      "brand": "华新科Walsin",
+      "component_type": "薄膜电阻",
+      "unresolved_rows": 2,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "WM04B",
+          "count": 2
+        }
+      ],
+      "sample_models": [
+        "WM04B1001FTLQ",
+        "WM04B6801FTLQ"
+      ],
+      "lookup_method": "Official product taxonomy and resistor series pages",
+      "official_sources": [
+        {
+          "kind": "official-site",
+          "url": "https://www.passivecomponent.com/"
+        },
+        {
+          "kind": "resistor-page",
+          "url": "https://www.passivecomponent.com/products/resistors/"
+        }
+      ]
+    },
+    {
       "brand": "乾坤Cyntec",
       "component_type": "薄膜电阻",
       "unresolved_rows": 2,
@@ -18868,7 +18358,7 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "AS",
+          "prefix": "ASMD1812SL",
           "count": 2
         }
       ],
@@ -19059,6 +18549,32 @@
       ]
     },
     {
+      "brand": "FOJAN(富捷)",
+      "component_type": "厚膜电阻",
+      "unresolved_rows": 1,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "FPQ1206F",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "FPQ1206F6800TS"
+      ],
+      "lookup_method": "Official FOJAN resistor product-center family labels plus series-specific product pages and naming PDFs",
+      "official_sources": [
+        {
+          "kind": "product-center",
+          "url": "https://www.fojan.cn/product"
+        },
+        {
+          "kind": "product-page",
+          "url": "https://www.fojan.cn/product/53.html"
+        }
+      ]
+    },
+    {
       "brand": "Intel/Altera",
       "component_type": "薄膜电阻",
       "unresolved_rows": 1,
@@ -19099,7 +18615,7 @@
       "registry_status": "missing",
       "top_prefixes": [
         {
-          "prefix": "CC",
+          "prefix": "CC2520FC",
           "count": 1
         }
       ],
@@ -19132,32 +18648,6 @@
         {
           "kind": "official-site",
           "url": "https://www.rohm.com/"
-        }
-      ]
-    },
-    {
-      "brand": "国巨YAGEO",
-      "component_type": "贴片电阻",
-      "unresolved_rows": 1,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "RE0402BRE",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "RE0402BRE07510KL"
-      ],
-      "lookup_method": "YAGEO product guide and official family naming rules",
-      "official_sources": [
-        {
-          "kind": "application-guide",
-          "url": "https://yageogroup.com/content/Resource%20Library/Product%20Guide-Catalog/YAGEO%20Group%20SMD%20Chip%20Resistor%20Application%20%26%20Safety%20Guide.pdf"
-        },
-        {
-          "kind": "official-site",
-          "url": "https://www.yageo.com/"
         }
       ]
     },
@@ -19456,32 +18946,6 @@
       ],
       "lookup_method": "",
       "official_sources": []
-    },
-    {
-      "brand": "华新科Walsin",
-      "component_type": "贴片压敏电阻",
-      "unresolved_rows": 1,
-      "registry_status": "partial",
-      "top_prefixes": [
-        {
-          "prefix": "SR390K",
-          "count": 1
-        }
-      ],
-      "sample_models": [
-        "SR390K07DS20C5DEN"
-      ],
-      "lookup_method": "Official product taxonomy and resistor series pages",
-      "official_sources": [
-        {
-          "kind": "official-site",
-          "url": "https://www.passivecomponent.com/"
-        },
-        {
-          "kind": "resistor-page",
-          "url": "https://www.passivecomponent.com/products/resistors/"
-        }
-      ]
     },
     {
       "brand": "Cantherm",
@@ -19899,6 +19363,32 @@
       ],
       "lookup_method": "",
       "official_sources": []
+    },
+    {
+      "brand": "Bourns",
+      "component_type": "合金电阻",
+      "unresolved_rows": 1,
+      "registry_status": "partial",
+      "top_prefixes": [
+        {
+          "prefix": "CSS2H-25",
+          "count": 1
+        }
+      ],
+      "sample_models": [
+        "CSS2H-2512R-L500F"
+      ],
+      "lookup_method": "Official varistor product pages and ordering-code briefs",
+      "official_sources": [
+        {
+          "kind": "varistor-page",
+          "url": "https://www.bourns.com/products/circuit-protection/varistor-products"
+        },
+        {
+          "kind": "technical-library",
+          "url": "https://www.bourns.com/resources/technical-library/library-documents/varistor-products"
+        }
+      ]
     }
   ]
 }
