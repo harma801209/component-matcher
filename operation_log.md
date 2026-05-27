@@ -2342,3 +2342,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Follow-up: User still saw `LR2512-22R001F4` return 0 on the public page after the fix was pushed.
 - Verification: GitHub `main` is at `ee6ce24 Fix RALEC LR resistor lookup`, and raw GitHub `streamlit_app.py` contains `PUBLIC_RELEASE_STAMP = "2026-05-27T21:18:06+08:00"`. Local search sidecar contains `LR2512-22R001F4` in both `components_search_core` and `components_search_resistor`, and local search replay returns 5 matches.
 - Deployment finding: Running `.\publish_public.ps1 -SkipBundleRebuild -SkipPush -SkipProxyDeploy -TriggerStreamlitDeploy -AllowPublicRuntimeChange` timed out because Streamlit Cloud stayed on the `Sign in - Streamlit` deploy page. The public site can remain old until someone logs into Streamlit Cloud and redeploys/reboots the app.
+
+### 2026-05-27 23:00 [direct] Fixed PDC FMF resistor parsed as MLCC
+
+- Received / problem: User searched `FMF25FPJR001XBHM`; the page showed one result but the original-part table had no size/value details and incorrectly displayed `信昌PDC / 陶瓷贴片电容（MLCC） / FM / 中压`.
+- Root cause: PDC MLCC parsers accepted `FM*` and returned immediately, so `FMF...` current-sense resistor models were intercepted before resistor parsing.
+- Fix / action: Added a PDC `FMF` metal-strip current-sense resistor parser in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). Tightened PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers and partial parsers to require a real two-digit MLCC size code after the series prefix. Bumped query/public cache stamps and added regression case `RES_PDC_FMF25_1MOHM`.
+- Verification: Bare search replay now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.

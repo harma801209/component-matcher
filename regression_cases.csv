@@ -61,3 +61,4 @@ TIMING_OSC_SPEC_25MHZ_3V3_CMOS,振荡器 25MHz 3.3V CMOS,oscillator,,,25,MHZ,,3.
 ALU_KNSCHA_DHF025M687,DHF025M687G160S1AA,part,,,680,UF,20,25,0,KNSCHA DHF aluminum electrolytic exact part should resolve from source-backed seed,,
 MLCC_SAMSUNG_CL10Y225KO96PJC,CL10Y225KO96PJC,part,0603,X7S,2.2,UF,10,16,0,Samsung official page lists CL10Y225KO96PJ# as X7S 2.2uF 16V; parser must not decode Y as X7T,,
 RES_RALEC_LR2512_1MOHM,LR2512-22R001F4,part,2512,,1,mΩ,1,,1,RALEC LR model should resolve as 2512 1mΩ 1% 2W metal alloy current-sense resistor,旺诠RALEC,LR2512
+RES_PDC_FMF25_1MOHM,FMF25FPJR001XBHM,part,2512,,1,mΩ,1,,1,PDC FMF metal strip current-sense resistor should not be parsed as FM medium-voltage MLCC,信昌PDC,FMF25

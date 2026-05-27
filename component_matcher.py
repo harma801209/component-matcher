@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 32
+QUERY_RESULT_CACHE_VERSION = 33
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-27T13:55:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-27T23:00:00+08:00"
 
 
 def startup_trace(message):
@@ -1492,6 +1492,37 @@ RALEC_LR_POWER_CODE_MAP = {
 }
 RALEC_LR_DIMENSIONS_MM = {
     "2512": ("6.25", "3.20", "1.00"),
+}
+PDC_FMF_SIZE_CODE_MAP = {
+    "05": "0805",
+    "06": "1206",
+    "25": "2512",
+    "59": "5931",
+}
+PDC_FMF_DIMENSIONS_MM = {
+    "0805": ("2.00", "1.20", "0.45"),
+    "1206": ("3.10", "1.65", "0.60"),
+    "2512": ("6.20", "3.25", "0.60"),
+    "5931": ("15.0", "7.80", "0.70"),
+}
+PDC_FMF_POWER_CODE_MAP = {
+    "D": "1/4W",
+    "F": "1/2W",
+    "H": "1W",
+    "J": "2W",
+    "K": "3W",
+    "M": "5W",
+}
+PDC_FMF_PACKING_CODE_MAP = {
+    "T": "Paper Tape",
+    "P": "Plastic Tape",
+    "Q": "Plastic Tape",
+}
+PDC_FMF_SPECIAL_CODE_MAP = {
+    "LH": "Standard",
+    "BH": "Low EMF",
+    "LHM": "Standard | AEC-Q200",
+    "BHM": "Low EMF | AEC-Q200",
 }
 TAI_RLS_OFFICIAL_PROFILE = {
     "系列": "RLS",
@@ -3784,6 +3815,88 @@ def parse_ralec_lr_alloy_resistor_model(model, brand="", component_type=""):
     }
 
 
+def parse_pdc_fmf_alloy_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    match = re.fullmatch(
+        r"FMF(?P<size_code>05|06|25|59)"
+        r"(?P<tol>[FGJ])(?P<pack>[TPQ])(?P<power>[DFHJKM])"
+        r"(?P<res>R\d{3,6})(?:X)?(?P<special>LHM|BHM|LH|BH)?",
+        compact,
+    )
+    if match is None:
+        return None
+
+    resistance_ohm = parse_resistor_value_code(match.group("res"))
+    if resistance_ohm is None:
+        return None
+
+    size = clean_size(PDC_FMF_SIZE_CODE_MAP.get(match.group("size_code"), ""))
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
+    power_text = clean_text(PDC_FMF_POWER_CODE_MAP.get(match.group("power"), ""))
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    dimensions = PDC_FMF_DIMENSIONS_MM.get(size, ("", "", ""))
+    special_code = clean_text(match.group("special") or "")
+    special_meaning = clean_text(PDC_FMF_SPECIAL_CODE_MAP.get(special_code, ""))
+    special_use_parts = ["电流检测", "金属条", "低阻"]
+    if "AEC-Q200" in special_meaning:
+        special_use_parts.append("AEC-Q200")
+    if "Low EMF" in special_meaning:
+        special_use_parts.append("低热电势")
+    series_profile = infer_resistor_series_profile(
+        compact,
+        brand=clean_brand(brand) or "信昌PDC",
+        component_type="合金电阻",
+        special_use=" | ".join(special_use_parts),
+    )
+    series_desc = clean_text(series_profile.get("系列说明", ""))
+    if series_desc == "":
+        series_desc = "PDC FMF metal strip lead-free current sensing resistor"
+    summary_parts = [
+        f"{value_text}{unit_text}" if value_text != "" and unit_text != "" else "",
+        f"±{tol}%" if tol != "" else "",
+        format_power_display(power_text),
+        size,
+        "metal strip current sensing resistor",
+        special_meaning,
+    ]
+    size_mm = ""
+    if dimensions[0] != "" and dimensions[1] != "":
+        size_mm = f"{dimensions[0]}*{dimensions[1]}mm"
+
+    return {
+        "品牌": clean_brand(brand) or "信昌PDC",
+        "型号": compact,
+        "器件类型": "合金电阻",
+        "系列": "FMF",
+        "系列说明": series_desc,
+        "特殊用途": " | ".join(special_use_parts),
+        "尺寸（inch）": size,
+        "尺寸（mm）": size_mm,
+        "长度（mm）": dimensions[0],
+        "宽度（mm）": dimensions[1],
+        "高度（mm）": dimensions[2],
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "功率": format_power_display(power_text),
+        "工作温度": "-55~170℃",
+        "安装方式": "贴片",
+        "封装代码": size,
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "数据来源": "PDC FMF Series datasheet; HQonline/DigiKey/LCSC cross-reference",
+        "数据状态": "规格书/代理可查",
+        "校验时间": "2026-05-27 22:50",
+        "校验备注": "FMF25=2512; F=±1%; P=plastic tape; J=2W; R001=1mΩ; BHM=Low EMF AEC-Q200",
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": "pdc_fmf_alloy_resistor_model",
+        "_value_code": match.group("res"),
+        "_packing_code": match.group("pack"),
+        "_special_code": special_code,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power_text else 0]),
+    }
+
+
 def parse_generic_resistor_model(model, brand="", component_type=""):
     normalized_component_type = normalize_component_type(component_type)
     if normalized_component_type not in RESISTOR_COMPONENT_TYPES | {"热敏电阻", ""}:
@@ -3820,6 +3933,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
         parse_murata_mhr_resistor_model,
+        parse_pdc_fmf_alloy_resistor_model,
         parse_ralec_lr_alloy_resistor_model,
         parse_yageo_chip_resistor_model,
         parse_tai_resistor_model,
@@ -7826,7 +7940,7 @@ def parse_samsung_clr1(model):
 
 def parse_pdc_fp(model):
     model = clean_model(model)
-    if not model.startswith("FP") or len(model) < 12:
+    if not re.match(r"^FP\d{2}", model) or len(model) < 12:
         return None
     size_map = {"31":"1206","32":"1210","42":"1808","43":"1812","46":"1825","55":"2220"}
     material_map = {"X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -7872,7 +7986,7 @@ def parse_pdc_fs_voltage(model):
 
 def parse_pdc_fs(model):
     model = clean_model(model)
-    if not model.startswith("FS") or len(model) < 11:
+    if not re.match(r"^FS\d{2}", model) or len(model) < 11:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -7899,7 +8013,7 @@ def parse_pdc_fs(model):
 
 def parse_pdc_fn(model):
     model = clean_model(model)
-    if not model.startswith("FN") or len(model) < 12:
+    if not re.match(r"^FN\d{2}", model) or len(model) < 12:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -7926,7 +8040,7 @@ def parse_pdc_fn(model):
 
 def parse_pdc_fm(model):
     model = clean_model(model)
-    if not model.startswith("FM") or len(model) < 12:
+    if not re.match(r"^FM\d{2}", model) or len(model) < 12:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"X":"X7R","N":"COG(NPO)","Y":"Y5V"}
@@ -7953,7 +8067,7 @@ def parse_pdc_fm(model):
 
 def parse_pdc_fv(model):
     model = clean_model(model)
-    if not model.startswith("FV") or len(model) < 12:
+    if not re.match(r"^FV\d{2}", model) or len(model) < 12:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"X":"X7R","N":"COG(NPO)"}
@@ -7981,7 +8095,7 @@ def parse_pdc_fv(model):
 
 def parse_pdc_fk(model):
     model = clean_model(model)
-    if not model.startswith("FK") or len(model) < 12:
+    if not re.match(r"^FK\d{2}", model) or len(model) < 12:
         return None
     size_map = {"08": "1808", "12": "1812", "20": "2220", "21": "2211"}
     material_map = {"N": "COG(NPO)", "X": "X7R"}
@@ -8010,7 +8124,7 @@ def parse_pdc_fk(model):
 
 def parse_pdc_fh(model):
     model = clean_model(model)
-    if not model.startswith("FH") or len(model) < 12:
+    if not re.match(r"^FH\d{2}", model) or len(model) < 12:
         return None
     size_map = {"08": "1808", "12": "1812", "20": "2220"}
     material_map = {"N": "COG(NPO)", "X": "X7R"}
@@ -15748,7 +15862,7 @@ def parse_samsung_cl_partial(model):
 
 def parse_pdc_fp_partial(model):
     model = clean_model(model)
-    if not model.startswith("FP") or len(model) < 5:
+    if not re.match(r"^FP\d{2}", model) or len(model) < 5:
         return None
     size_map = {"31":"1206","32":"1210","42":"1808","43":"1812","46":"1825","55":"2220"}
     material_map = {"X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -15766,7 +15880,7 @@ def parse_pdc_fp_partial(model):
 
 def parse_pdc_fs_partial(model):
     model = clean_model(model)
-    if not model.startswith("FS") or len(model) < 5:
+    if not re.match(r"^FS\d{2}", model) or len(model) < 5:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -15783,7 +15897,7 @@ def parse_pdc_fs_partial(model):
 
 def parse_pdc_fn_partial(model):
     model = clean_model(model)
-    if not model.startswith("FN") or len(model) < 5:
+    if not re.match(r"^FN\d{2}", model) or len(model) < 5:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"B":"X5R","X":"X7R","T":"X7T","N":"COG(NPO)"}
@@ -15800,7 +15914,7 @@ def parse_pdc_fn_partial(model):
 
 def parse_pdc_fm_partial(model):
     model = clean_model(model)
-    if not model.startswith("FM") or len(model) < 5:
+    if not re.match(r"^FM\d{2}", model) or len(model) < 5:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"X":"X7R","N":"COG(NPO)","Y":"Y5V"}
@@ -15817,7 +15931,7 @@ def parse_pdc_fm_partial(model):
 
 def parse_pdc_fv_partial(model):
     model = clean_model(model)
-    if not model.startswith("FV") or len(model) < 5:
+    if not re.match(r"^FV\d{2}", model) or len(model) < 5:
         return None
     size_map = {"15":"0402","18":"0603","21":"0805","31":"1206","32":"1210","42":"1808","43":"1812","55":"2220"}
     material_map = {"X":"X7R","N":"COG(NPO)"}
@@ -15835,7 +15949,7 @@ def parse_pdc_fv_partial(model):
 
 def parse_pdc_fk_partial(model):
     model = clean_model(model)
-    if not model.startswith("FK") or len(model) < 5:
+    if not re.match(r"^FK\d{2}", model) or len(model) < 5:
         return None
     size_map = {"08": "1808", "12": "1812", "20": "2220", "21": "2211"}
     material_map = {"N": "COG(NPO)", "X": "X7R"}
@@ -15854,7 +15968,7 @@ def parse_pdc_fk_partial(model):
 
 def parse_pdc_fh_partial(model):
     model = clean_model(model)
-    if not model.startswith("FH") or len(model) < 5:
+    if not re.match(r"^FH\d{2}", model) or len(model) < 5:
         return None
     size_map = {"08": "1808", "12": "1812", "20": "2220"}
     material_map = {"N": "COG(NPO)", "X": "X7R"}
@@ -15959,19 +16073,33 @@ def reverse_spec_partial(model):
     if m.startswith("CL"):
         return parse_samsung_cl_partial(m)
     if m.startswith("FP"):
-        return parse_pdc_fp_partial(m)
+        parsed = parse_pdc_fp_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FS"):
-        return parse_pdc_fs_partial(m)
+        parsed = parse_pdc_fs_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FN"):
-        return parse_pdc_fn_partial(m)
+        parsed = parse_pdc_fn_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FM"):
-        return parse_pdc_fm_partial(m)
+        parsed = parse_pdc_fm_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FV"):
-        return parse_pdc_fv_partial(m)
+        parsed = parse_pdc_fv_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FK"):
-        return parse_pdc_fk_partial(m)
+        parsed = parse_pdc_fk_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FH"):
-        return parse_pdc_fh_partial(m)
+        parsed = parse_pdc_fh_partial(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("MT"):
         return parse_pdc_mt_partial(m)
     if murata_ntc_series_code_from_model(m):
@@ -16149,19 +16277,33 @@ def parse_model_rule(model, brand="", component_type=""):
     if m.startswith("CL"):
         return parse_samsung_cl(m)
     if m.startswith("FP"):
-        return parse_pdc_fp(m)
+        parsed = parse_pdc_fp(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FS"):
-        return parse_pdc_fs(m)
+        parsed = parse_pdc_fs(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FN"):
-        return parse_pdc_fn(m)
+        parsed = parse_pdc_fn(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FM"):
-        return parse_pdc_fm(m)
+        parsed = parse_pdc_fm(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FV"):
-        return parse_pdc_fv(m)
+        parsed = parse_pdc_fv(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FK"):
-        return parse_pdc_fk(m)
+        parsed = parse_pdc_fk(m)
+        if parsed is not None:
+            return parsed
     if m.startswith("FH"):
-        return parse_pdc_fh(m)
+        parsed = parse_pdc_fh(m)
+        if parsed is not None:
+            return parsed
     if m.startswith(("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ")):
         return parse_murata_common(m)
     if m.startswith("TCC"):

@@ -152,6 +152,13 @@
 - Fix: Corrected both Samsung CL parser maps in `component_matcher.py`, bumped query cache/public code stamps, and added regression case `MLCC_SAMSUNG_CL10Y225KO96PJC`.
 - Verification: Direct parser checks now return `CL10Y225KO96PJC -> X7S / 2.2uF / +/-10% / 16V`, `CL10Z106MP96PNC -> X7T`, `CL10X225KL8NRW -> X6S`, and `CL10B104KB8NNNC -> X7R`.
 
+## 2026-05-27 - PDC FMF current-sense resistor misclassified as MLCC
+
+- Bug: Query `FMF25FPJR001XBHM` displayed as `信昌PDC / 陶瓷贴片电容（MLCC） / FM / 中压`, with blank size/value fields and no useful replacement table.
+- Root cause: The generic PDC MLCC parsers accepted any `FM*`, `FP*`, `FV*`, etc. prefix and returned immediately even when the following characters did not match the capacitor size-code structure. `FMF...` is actually PDC's `FMF` metal-strip current-sense resistor family, so it was intercepted before resistor parsing.
+- Fix: Added a PDC `FMF` metal-strip current-sense resistor parser and made PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers require a real two-digit MLCC size code after the series prefix. Updated full and partial parse paths so a failed PDC MLCC attempt falls through to resistor parsing instead of returning `None` early.
+- Verification: Direct search now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.
+
 ## 2026-05-27 - RALEC LR current-sense resistor skipped public fast search
 
 - Bug: Query `LR2512-22R001F4` returned `有结果 0` and the public fallback warning even though it is a valid RALEC current-sense resistor.
