@@ -172,3 +172,10 @@
 - Root cause: The exact model was absent from `components.db`, and the resistor parser did not understand RALEC `LR/LRE` metal-alloy low-resistance naming. The generic resistor extraction also risked interpreting `22R001` as `22.001Ω` instead of using the RALEC segment structure where `22` is terminal/power and `R001` is resistance.
 - Fix: Added a RALEC `LR/LRE` parser that decodes size, terminal/power code, low-ohm value, tolerance, and packaging; added official series profiles; inserted `LR2512-22R001F4`; normalized existing RALEC `LR/LRE` rows; fixed `mΩ` normalization so it is not converted to `MΩ`; bumped cache/public stamps; refreshed selected prepared-cache and search-sidecar rows; rebuilt the public bundle parts.
 - Verification: Direct search now parses `LR2512-22R001F4` as `合金电阻 / LR / 2512 / 1mΩ / +/-1% / 2W` and returns 5 fully matched candidates including `旺诠RALEC LR2512-22R001F4`.
+
+## 2026-05-28 - HRE CGA size-first MLCC routed as insufficient spec
+
+- Bug: Query `CGA0805X7R225K500MT` returned zero results and the warning `请最少输入三个规格参数`.
+- Root cause: The query looked like MLCC context, so the spec parser ran first and extracted only `0805` plus `X7R`. The full model parser was not reached, even though the model contains package, dielectric, capacitance, tolerance, and voltage codes.
+- Fix: Try compact part-number parsing before returning MLCC `规格不足`; classify brandless HRE-style `CGA/CAA/CAI/CIA/CSA/CSS/CSO` size-first MLCC models as `芯声微HRE`; allow failed TDK `C*` partial parsing to fall through to generic model parsing.
+- Verification: Direct search now parses `CGA0805X7R225K500MT` as `芯声微HRE / CGA / 0805 / X7R / 2.2uF / +/-10% / 50V`, routes as `料号`, and returns same-spec MLCC candidates.

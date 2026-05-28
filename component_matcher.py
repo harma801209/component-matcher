@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 34
+QUERY_RESULT_CACHE_VERSION = 35
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-28T01:18:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-28T11:30:00+08:00"
 
 
 def startup_trace(message):
@@ -15720,14 +15720,26 @@ def parse_generic_size_first_mlcc(model, brand=""):
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
 
     brand_text = clean_brand(brand)
-    if "HRE" in brand_text or "芯声微" in brand_text:
+    prefix_code = clean_text(match.group("prefix")).upper()
+    if "HRE" in brand_text.upper() or "芯声微" in brand_text or (brand_text == "" and prefix_code in {"CAA", "CAI", "CIA", "CGA", "CSA", "CSS", "CSO"}):
         display_brand = "芯声微HRE"
         authority = "hre_generic_size_first"
+        series_profile = hre_mlcc_series_profile(prefix_code)
     else:
         display_brand = clean_brand(brand) or "未知"
         authority = "generic_size_first_mlcc"
-    series_profile = generic_mlcc_series_profile_from_model(model, brand=brand_text)
-    series_code = clean_text(series_profile.get("系列", "")) or clean_text(match.group("prefix"))
+        series_profile = generic_mlcc_series_profile_from_model(model, brand=brand_text)
+    series_code = clean_text(series_profile.get("系列", "")) or prefix_code
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    tol = clean_tol_for_match(tol_map.get(match.group("tol"), ""))
+    voltage = clean_voltage(voltage_map.get(match.group("volt"), ""))
+    param_count = sum([
+        1 if clean_size(size_map.get(match.group("size"), clean_size(match.group("size")))) else 0,
+        1 if clean_material(material_map.get(match.group("mat"), match.group("mat"))) else 0,
+        1 if cap_pf is not None else 0,
+        1 if tol else 0,
+        1 if voltage else 0,
+    ])
 
     return {
         "品牌": display_brand,
@@ -15738,10 +15750,11 @@ def parse_generic_size_first_mlcc(model, brand=""):
         "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
         "尺寸（inch）": size_map.get(match.group("size"), clean_size(match.group("size"))),
         "材质（介质）": clean_material(material_map.get(match.group("mat"), match.group("mat"))),
-        "容值_pf": murata_cap_code_to_pf(match.group("cap")),
-        "容值误差": clean_tol_for_match(tol_map.get(match.group("tol"), "")),
-        "耐压（V）": clean_voltage(voltage_map.get(match.group("volt"), "")),
+        "容值_pf": cap_pf,
+        "容值误差": tol,
+        "耐压（V）": voltage,
         "_model_rule_authority": authority,
+        "_param_count": param_count,
     }
 
 
@@ -16200,7 +16213,9 @@ def reverse_spec_partial(model):
     if m.startswith("CC"):
         return parse_yageo_partial(m)
     if m.startswith("C"):
-        return parse_tdk_partial(m)
+        parsed = parse_tdk_partial(m)
+        if parsed is not None:
+            return parsed
     parsed = parse_model_rule(m, brand="", component_type="")
     if isinstance(parsed, dict) and parsed:
         return parsed
@@ -23754,6 +23769,11 @@ def detect_query_mode_and_spec(df, line):
                 return "规格不足", spec
                 return semiconductor_hint, spec
         return "暂不支持", build_unsupported_semiconductor_spec(line, semiconductor_hint)
+
+    if looks_like_compact_part_query(line):
+        parsed_part = parse_model_rule(line)
+        if parsed_part is not None and count_core_params(parsed_part) >= 3:
+            return "料号", parsed_part
 
     if looks_like_mlcc_context(line):
         spec = parse_spec_query(line)

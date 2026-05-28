@@ -2357,3 +2357,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The prior FMF display hotfix solved parameter visibility by moving resistor `系列说明` behind the electrical parameters; stale generated descriptions such as `FOJAN(富捷) FRM252WFR 合金电阻系列` were also allowed through at display time.
 - Fix / action: Restored resistor display order to `系列 -> 系列说明 -> 参数`; added a lean alloy-resistor schema showing only common purchasing fields; shortened resistor fallback descriptions so unknown families display concise text like `合金电阻系列` instead of repeating brand and long pseudo-series.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct display checks now show `FMF25FPJR001XBHM -> FMF / 金属条电流检测电阻（AEC-Q200） / 2512 / 1mΩ / ±1% / 2W`, `FRM252WFR001TML -> FRM / 高功率合金采样电阻`, and unknown alloy families as concise `合金电阻系列`.
+
+### 2026-05-28 11:30 [direct] Fixed HRE CGA size-first MLCC lookup
+
+- Received / problem: User searched `CGA0805X7R225K500MT`; the page returned `有结果 0` and the warning `请最少输入三个规格参数`, even though the string itself contains enough MLCC parameters.
+- Root cause: `detect_query_mode_and_spec()` entered the MLCC-spec branch first. `parse_spec_query()` only extracted `0805` and `X7R`, counted two parameters, and returned `规格不足` before the full part-number parser could decode `CGA + 0805 + X7R + 225 + K + 500 + MT`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so compact part-looking inputs try full model parsing before the MLCC spec insufficiency branch. Updated the size-first MLCC parser to classify brandless HRE-style `CGA/CAA/CAI/CIA/CSA/CSS/CSO` prefixes as `芯声微HRE` family rules, and changed the `C*` partial parser path so failed TDK parsing falls through instead of blocking other `C`-prefix models.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `MLCC_HRE_CGA0805_SIZE_FIRST`.
+- Verification: Direct checks now parse `CGA0805X7R225K500MT` as `芯声微HRE / CGA / 0805 / X7R / 2.2uF / ±10% / 50V`, route the query as `料号`, and return same-spec MLCC candidates instead of `规格不足`.
