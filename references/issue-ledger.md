@@ -179,3 +179,10 @@
 - Root cause: The query looked like MLCC context, so the spec parser ran first and extracted only `0805` plus `X7R`. The full model parser was not reached, even though the model contains package, dielectric, capacitance, tolerance, and voltage codes.
 - Fix: Try compact part-number parsing before returning MLCC `规格不足`; classify brandless HRE-style `CGA/CAA/CAI/CIA/CSA/CSS/CSO` size-first MLCC models as `芯声微HRE`; allow failed TDK `C*` partial parsing to fall through to generic model parsing.
 - Verification: Direct search now parses `CGA0805X7R225K500MT` as `芯声微HRE / CGA / 0805 / X7R / 2.2uF / +/-10% / 50V`, routes as `料号`, and returns same-spec MLCC candidates.
+
+## 2026-05-28 - Capacitor height hidden because official body-size text was not split
+
+- Bug: Many non-MLCC capacitor rows looked like they had no height/thickness even when official catalog-derived body size text existed, for example Rubycon `5X11` aluminum electrolytic rows.
+- Root cause: The database/cache stored body-size strings in `尺寸（mm）` or `_body_size`, but normalization did not split them into `直径（mm）/长度（mm）/宽度（mm）/高度（mm）`. The fast search sidecar capacitor table also did not carry these display fields, so even corrected rows could lose height in search results.
+- Fix: Added non-MLCC capacitor dimension splitting, cleaned polluted scalar dimension fields, refreshed capacitor rows in the prepared cache, and extended the capacitor sidecar schema to include explicit dimension and source columns.
+- Verification: Direct search for `6.3ZLJ220M5X11` now displays `直径 5` and `高度 11`; direct search for `PCP1CPA330M15V` displays `长度 7.3 / 宽度 4.3 / 高度 1.9`; the capacitor sidecar schema now includes `高度（mm）`.

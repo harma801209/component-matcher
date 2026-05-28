@@ -92,8 +92,8 @@ SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
-SEARCH_INDEX_SCHEMA_VERSION = 6
-QUERY_RESULT_CACHE_VERSION = 35
+SEARCH_INDEX_SCHEMA_VERSION = 7
+QUERY_RESULT_CACHE_VERSION = 36
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-28T11:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-28T13:45:00+08:00"
 
 
 def startup_trace(message):
@@ -12630,6 +12630,63 @@ def normalize_capacitor_body_size_text(value):
     return ""
 
 
+def capacitor_body_size_parts(value):
+    body_size = normalize_capacitor_body_size_text(value)
+    if body_size == "":
+        return []
+    body = body_size[:-2] if body_size.lower().endswith("mm") else body_size
+    parts = [normalize_dimension_mm_value(part) for part in body.split("*")]
+    return [part for part in parts if part != ""]
+
+
+def is_scalar_dimension_value(value):
+    text = normalize_dimension_mm_value(value)
+    if text == "":
+        return False
+    if re.search(r"[*Xx×\s]", text):
+        return False
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(?:±\d+(?:\.\d+)?|\+\d+(?:\.\d+)?/-\d+(?:\.\d+)?)?", text)
+    if match is None:
+        return False
+    try:
+        return 0 < float(match.group(1)) <= 500
+    except Exception:
+        return False
+
+
+def non_mlcc_capacitor_dimension_fields_from_record(record):
+    component_type = normalize_component_type(record.get("_component_type", "")) or normalize_component_type(record.get("器件类型", ""))
+    if component_type not in CAPACITOR_COMPONENT_TYPES or component_type == "MLCC":
+        return {}, "", ""
+
+    source_value = ""
+    parts = []
+    for col in ["_body_size", "尺寸（mm）", "尺寸(mm)", "规格摘要", "备注1", "型号"]:
+        candidate_parts = capacitor_body_size_parts(record.get(col, ""))
+        if len(candidate_parts) in {2, 3}:
+            parts = candidate_parts
+            source_value = normalize_capacitor_body_size_text(record.get(col, ""))
+            break
+    if not parts:
+        return {}, "", ""
+
+    fields = {}
+    if len(parts) == 3:
+        fields.update(build_dimension_field_map(parts[0], parts[1], parts[2]))
+    elif component_type == "铝电解电容":
+        fields["直径（mm）"] = parts[0]
+        fields["高度（mm）"] = parts[1]
+    else:
+        fields.update(build_dimension_field_map(parts[0], parts[1], ""))
+
+    source_label = "已有尺寸字段拆分"
+    data_source = clean_text(record.get("数据来源", ""))
+    official_url = clean_text(record.get("官网链接", ""))
+    if official_url != "" or re.search(r"official|官网|规格书|catalog|pdf", data_source, flags=re.I):
+        source_label = "官方目录尺寸字段拆分"
+    return fields, source_value, source_label
+
+
 def extract_pitch_mm_value_from_text(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -12785,6 +12842,28 @@ def normalize_capacitor_dimension_fields_in_dataframe(df):
             fill_body = fill_body[fill_body.ne("")]
             if len(fill_body) > 0:
                 work.loc[fill_body.index, "_body_size"] = fill_body
+        for idx in work.loc[non_mlcc_mask].index.tolist():
+            row = work.loc[idx].to_dict()
+            fields, normalized_body, source_label = non_mlcc_capacitor_dimension_fields_from_record(row)
+            if not fields:
+                continue
+            if normalized_body != "":
+                if clean_text(work.at[idx, "尺寸（mm）"]) == "" or clean_text(work.at[idx, "尺寸（mm）"]) != normalized_body:
+                    work.at[idx, "尺寸（mm）"] = normalized_body
+                if clean_text(work.at[idx, "_body_size"]) == "":
+                    work.at[idx, "_body_size"] = normalized_body
+            for col in ["长度（mm）", "宽度（mm）", "高度（mm）", "直径（mm）"]:
+                value = normalize_dimension_mm_value(fields.get(col, ""))
+                current_value = clean_text(work.at[idx, col])
+                should_replace = current_value == "" or not is_scalar_dimension_value(current_value)
+                if value != "" and should_replace:
+                    work.at[idx, col] = value
+                elif value == "" and col == "直径（mm）" and current_value != "" and not is_scalar_dimension_value(current_value):
+                    work.at[idx, col] = ""
+            if "尺寸来源" not in work.columns:
+                work["尺寸来源"] = ""
+            if source_label != "" and clean_text(work.at[idx, "尺寸来源"]) == "":
+                work.at[idx, "尺寸来源"] = source_label
     return work
 
 
@@ -17406,6 +17485,11 @@ def build_search_index_dataframe(prepared):
         "_res_ohm": pd.to_numeric(work["_res_ohm"], errors="coerce"),
         "_power_watt": pd.to_numeric(work["_power_watt"], errors="coerce"),
         "_body_size": work["_body_size"].map(null_if_blank),
+        "长度（mm）": work["长度（mm）"].map(null_if_blank) if "长度（mm）" in work.columns else pd.Series([None] * len(work), index=work.index),
+        "宽度（mm）": work["宽度（mm）"].map(null_if_blank) if "宽度（mm）" in work.columns else pd.Series([None] * len(work), index=work.index),
+        "高度（mm）": work["高度（mm）"].map(null_if_blank) if "高度（mm）" in work.columns else pd.Series([None] * len(work), index=work.index),
+        "直径（mm）": work["直径（mm）"].map(null_if_blank) if "直径（mm）" in work.columns else pd.Series([None] * len(work), index=work.index),
+        "尺寸来源": work["尺寸来源"].map(null_if_blank) if "尺寸来源" in work.columns else pd.Series([None] * len(work), index=work.index),
         "_pitch": work["_pitch"].map(null_if_blank),
         "_safety_class": work["_safety_class"].map(null_if_blank),
         "_varistor_voltage": work["_varistor_voltage"].map(null_if_blank),
@@ -17544,7 +17628,12 @@ def get_search_sidecar_table_specs():
             ],
         },
         COMPONENTS_SEARCH_CAPACITOR_TABLE: {
-            "columns": ["品牌", "型号", "_component_type", "_size", "_mat", "_pf", "_tol", "_volt_num", "_body_size", "_pitch", "_safety_class", "_temp_low", "_temp_high", "_life_hours_num", "_mount_style", "_special_use_norm"],
+            "columns": [
+                "品牌", "型号", "_component_type", "_size", "_mat", "_pf", "_tol", "_volt_num",
+                "_body_size", "长度（mm）", "宽度（mm）", "高度（mm）", "直径（mm）", "尺寸来源",
+                "_pitch", "_safety_class", "_temp_low", "_temp_high", "_life_hours_num",
+                "_mount_style", "_special_use_norm",
+            ],
             "numeric": ["_pf", "_volt_num", "_temp_low", "_temp_high", "_life_hours_num"],
             "indexes": [
                 ("brand_model", ["品牌", "型号"]),
@@ -19760,6 +19849,11 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "系列说明": "",
         "尺寸（inch）": clean_size(detail_row.get("_size", "")),
         "尺寸（mm）": clean_text(detail_row.get("_body_size", "")),
+        "长度（mm）": normalize_dimension_mm_value(detail_row.get("长度（mm）", "")),
+        "宽度（mm）": normalize_dimension_mm_value(detail_row.get("宽度（mm）", "")),
+        "高度（mm）": normalize_dimension_mm_value(detail_row.get("高度（mm）", "")),
+        "直径（mm）": normalize_dimension_mm_value(detail_row.get("直径（mm）", "")),
+        "尺寸来源": clean_text(detail_row.get("尺寸来源", "")),
         "材质（介质）": clean_material(detail_row.get("_mat", "")),
         "容值误差": clean_tol_for_display(detail_row.get("_tol", "")),
         "耐压（V）": voltage_display(format_sidecar_numeric_display(detail_row.get("_volt_num", ""))),
