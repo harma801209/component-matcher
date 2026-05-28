@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-05-28 - Prefix-C EIA-size MLCC was misparsed as TDK C series
+
+- Bug: Query `C1812X473K102TFF` was displayed as `TDK / C / 1812 / 1nF`, and replacement candidates were 1nF rows.
+- Root cause: `parse_tdk_c_series()` accepted any `C*` string of sufficient length and returned a partial parse even when the material, voltage, and tolerance slices were invalid. For this EIA-size-first MLCC pattern, `473` is the capacitance code and `102` is the voltage code, but the loose TDK parser treated `102` as capacitance.
+- Fix: Added a dedicated prefix-C EIA-size-first MLCC parser for `C + 1812 + X + 473 + K + 102...`, and made the TDK C-series parser return `None` unless its size/capacitance/tolerance/voltage slices validate. The TDK parser still supports two-letter legacy temperature codes such as `CH/JB`.
+- Verification: Direct search now parses `C1812X473K102TFF` as `1812 / X7R / 47nF / +/-10% / 1000V` and returns fully matched `PDC FP43X473K102...` / `PDC FV43X473K102...` candidates instead of 1nF rows.
+
 ## 2026-05-19 - Chinese ceramic-resistor wording routed to MLCC
 
 - Bug: Inputs such as `陶瓷电阻 ±1% SMD 0603 4.7KΩ` were routed as MLCC because the broad MLCC alias token `陶瓷` matched before resistor parsing. The parser only kept `0603 + ±1%`, missed the `4.7KΩ` resistance, and returned no resistor candidates.

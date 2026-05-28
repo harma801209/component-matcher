@@ -1,4 +1,5 @@
 case_id,query,expected_mode,expected_size,expected_material,expected_value,expected_unit,expected_tolerance,expected_voltage,min_match_count,notes,expected_top_brand,expected_top_model_contains
+MLCC_PREFIX_C_EIA_1812_47NF_1KV,C1812X473K102TFF,part,1812,X7R,47,NF,10,1000,1,Prefix-C EIA-size MLCC must parse 473 as 47nF and 102 as 1000V instead of TDK C-series 1nF fallback,,
 SAMSUNG_5PCT,CL05A105JQ5NNWC,part,0402,X5R,1,UF,5,6.3,0,Samsung 5 percent tolerance should parse correctly
 WALSIN_0402X105,0402X105K6R3CT,part,0402,X5R,1,UF,10,6.3,1,Walsin compact part parser should work
 MLCC_NUMERIC_SIZE_FIRST_1812_10NF_1KV,1812B103K102LT,part,1812,X7R,10,NF,10,1000,3,Numeric size-first MLCC model should parse as part and avoid full-dataframe fallback,信昌PDC,FV43X103K102

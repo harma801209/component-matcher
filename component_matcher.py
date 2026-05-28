@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 36
+QUERY_RESULT_CACHE_VERSION = 37
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-28T13:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-28T19:25:00+08:00"
 
 
 def startup_trace(message):
@@ -4876,6 +4876,7 @@ TAIYO_LEADED_CERAMIC_VOLTAGE_MAP = {
     "U": "50",
 }
 GENERIC_MLCC_SERIES_MEANING = {
+    "C": "常规 / General-purpose MLCC",
     "CL": "常规 / General-purpose MLCC",
     "CLR1": "常规 / General-purpose MLCC",
     "CC": "常规 / General-purpose MLCC",
@@ -4897,6 +4898,7 @@ GENERIC_MLCC_SERIES_MEANING = {
     "CAI": "车规 / AEC-Q200",
 }
 GENERIC_MLCC_SERIES_CLASS = {
+    "C": "常规",
     "CL": "常规",
     "CLR1": "常规",
     "CC": "常规",
@@ -8349,6 +8351,59 @@ def parse_murata_common(model):
     return parsed
 
 
+def parse_prefixed_eia_size_first_mlcc(model, brand=""):
+    model = clean_model(model)
+    match = re.fullmatch(
+        r"(?P<prefix>C)(?P<size>01005|\d{4})(?P<mat>[X])"
+        r"(?P<cap>(?:\d{3,4}|R\d+|\dR\d+))(?P<tol>[BCDFGJKMZ])"
+        r"(?P<volt>(?:6R3|\d{3}))(?P<rest>[A-Z0-9]*)",
+        model,
+    )
+    if not match:
+        return None
+
+    size_map = {
+        "01005": "01005", "0201": "0201", "0402": "0402", "0603": "0603",
+        "0805": "0805", "1206": "1206", "1210": "1210", "1808": "1808",
+        "1812": "1812", "1825": "1825", "2220": "2220", "2225": "2225",
+    }
+    material_map = {"X": "X7R"}
+    tol_map = {
+        "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
+        "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20",
+    }
+
+    size = clean_size(size_map.get(match.group("size"), match.group("size")))
+    material = clean_material(material_map.get(match.group("mat"), ""))
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    tol = clean_tol_for_match(tol_map.get(match.group("tol"), ""))
+    voltage = clean_voltage(decode_pdc_voltage_code(match.group("volt")))
+    if size == "" or material == "" or cap_pf is None or tol == "" or voltage == "":
+        return None
+
+    brand_text = clean_brand(brand)
+    series_profile = generic_mlcc_series_profile("C")
+    cap_value, cap_unit = pf_to_value_unit(cap_pf)
+    return {
+        "品牌": brand_text,
+        "型号": model,
+        "器件类型": "MLCC",
+        "系列": "C",
+        "系列说明": series_profile["系列说明"],
+        "特殊用途": series_profile["特殊用途"],
+        "_mlcc_series_class": series_profile["_mlcc_series_class"],
+        "尺寸（inch）": size,
+        "材质（介质）": material,
+        "容值_pf": cap_pf,
+        "容值": cap_value,
+        "容值单位": cap_unit,
+        "容值误差": tol,
+        "耐压（V）": voltage,
+        "_model_rule_authority": "prefixed_eia_size_first_mlcc",
+        "_param_count": 5,
+    }
+
+
 def parse_tdk_c_series(model):
     model = clean_model(model)
     if not model.startswith("C") or len(model) < 14:
@@ -8376,12 +8431,36 @@ def parse_tdk_c_series(model):
     }
 
     try:
-        size_code = model[1:5]
-        mat_code = model[5:8]
-        volt_code = model[8:10]
-        cap_code = model[10:13]
-        tol_code = model[13]
-        dimension_fields = decode_tdk_dimension_fields_from_model(model)
+        parsed_fields = None
+        for mat_start, mat_end, volt_start, volt_end, cap_start, cap_end, tol_index in (
+            (5, 8, 8, 10, 10, 13, 13),
+            (5, 7, 7, 9, 9, 12, 12),
+        ):
+            if len(model) <= tol_index:
+                continue
+            size_code = model[1:5]
+            mat_code = model[mat_start:mat_end]
+            volt_code = model[volt_start:volt_end]
+            cap_code = model[cap_start:cap_end]
+            tol_code = model[tol_index]
+            size = size_map.get(size_code, "")
+            material = clean_material(material_map.get(mat_code, ""))
+            cap_pf = murata_cap_code_to_pf(cap_code)
+            tol = clean_tol_for_match(tol_map.get(tol_code, ""))
+            voltage = clean_voltage(voltage_map.get(volt_code, ""))
+            if size == "" or cap_pf is None or tol == "" or voltage == "":
+                continue
+            parsed_fields = {
+                "size": size,
+                "material": material,
+                "cap_pf": cap_pf,
+                "tol": tol,
+                "voltage": voltage,
+                "dimension_fields": decode_tdk_dimension_fields_from_model(model) if mat_end - mat_start == 3 else {},
+            }
+            break
+        if parsed_fields is None:
+            return None
         series_profile = tdk_mlcc_series_profile_from_model(model)
 
         return {
@@ -8392,13 +8471,13 @@ def parse_tdk_c_series(model):
             "系列说明": series_profile["系列说明"],
             "特殊用途": series_profile["特殊用途"],
             "_mlcc_series_class": series_profile["_mlcc_series_class"],
-            "尺寸（inch）": size_map.get(size_code, ""),
-            "材质（介质）": clean_material(material_map.get(mat_code, "")),
-            "容值_pf": murata_cap_code_to_pf(cap_code),
-            "容值误差": clean_tol_for_match(tol_map.get(tol_code, "")),
-            "耐压（V）": clean_voltage(voltage_map.get(volt_code, "")),
+            "尺寸（inch）": parsed_fields["size"],
+            "材质（介质）": parsed_fields["material"],
+            "容值_pf": parsed_fields["cap_pf"],
+            "容值误差": parsed_fields["tol"],
+            "耐压（V）": parsed_fields["voltage"],
             "_model_rule_authority": "tdk_c_series",
-            **dimension_fields,
+            **parsed_fields["dimension_fields"],
         }
     except:
         return None
@@ -16389,7 +16468,12 @@ def parse_model_rule(model, brand="", component_type=""):
             if parsed is not None:
                 return parsed
         if m.startswith("C") and len(m) >= 14:
-            return parse_tdk_c_series(m)
+            parsed = parse_tdk_c_series(m)
+            if parsed is not None:
+                return parsed
+            parsed = parse_prefixed_eia_size_first_mlcc(m)
+            if parsed is not None:
+                return parsed
     if m.startswith(("MAAS", "MSAS", "MLAS", "MCAST", "MCAS")):
         parsed = parse_taiyo_new_common(m)
         if parsed is not None:
@@ -16504,7 +16588,12 @@ def parse_model_rule(model, brand="", component_type=""):
         if parsed is not None:
             return parsed
     if m.startswith("C") and len(m) >= 14:
-        return parse_tdk_c_series(m)
+        parsed = parse_tdk_c_series(m)
+        if parsed is not None:
+            return parsed
+        parsed = parse_prefixed_eia_size_first_mlcc(m, brand=brand_text)
+        if parsed is not None:
+            return parsed
     parsed_resistor = parse_resistor_model_rule(m, brand=brand, component_type=component_type)
     if parsed_resistor is not None:
         return parsed_resistor
