@@ -2388,3 +2388,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: `parse_spec_query()` parsed tolerance before capacitance. The token `12PF` was consumed as a pF tolerance, so the actual `5%` token was ignored.
 - Fix / action: Moved explicit capacitance-token parsing ahead of tolerance-token parsing within the spec parser, bumped query/public stamps, and added regression case `MLCC_SPEC_SLASH_0603_NPO_12PF_5PCT_100V`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct search now parses `0603/NPO/12pF/5%/100V` as `0603 / COG(NPO) / 12pF / ±5% / 100V` and returns fully matched Murata `GRM1885C2A120JA01J` and `GRT1885C2A120JA02D`.
+
+### 2026-05-30 00:22 [direct] Backfilled safe MLCC thickness from TDK and PDC model rules
+
+- Received / problem: User noted that many capacitor models still had blank thickness/height fields.
+- Root cause: TDK MLCC suffix thickness codes such as `M030BC`, `M070AC`, and `M022BC` were not decoded unless the model also matched a narrow L/W size map. PDC FN/FS/FM/FV/FP/FK/FH rows had package suffixes containing thickness codes, but only MT/MG/MS used that table.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so TDK thickness is decoded independently from L/W and added TDK `022`/`070` thickness codes. Added PDC general MLCC suffix thickness decoding (`package + thickness + control`) and wired it into PDC parsers and MLCC dimension enrichment. Bumped query/public stamps.
+- Data/cache: Backed up `components.db` to `components.db.mlcc_thickness_20260529_182709.bak`; targeted-updated TDK/PDC MLCC rows only; refreshed `9,822` TDK/PDC rows in `cache/components_prepared_v5.parquet` and the search sidecar; rebuilt `streamlit_cloud_bundle.zip` and regenerated `part01/part02`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Spot checks now show `FK21X102K502EEQ -> 2.20 x 1.10 x 1.60±0.20`, `FP46N783J501EFG -> 1.80 x 2.50 x 2.00±0.20`, `C0510X5R1A474M030BC -> 0.20 x 0.40 x 0.30`, and `CGBDT1X6S0G105M022BC -> 0.20 x 0.40 x 0.22` in DB, prepared cache, and search sidecar.
+- Handoff notes: Do not broad-fill remaining MLCC blank heights from package size alone. Remaining gaps are mostly Murata leaded/DE/R families, Taiyo special families, and TDK `009` large-case suffixes that still need official datasheet confirmation before backfill.

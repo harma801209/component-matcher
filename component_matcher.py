@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 38
+QUERY_RESULT_CACHE_VERSION = 39
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-29T17:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-29T18:16:17+08:00"
 
 
 def startup_trace(message):
@@ -2210,10 +2210,12 @@ TDK_SIZE_DIMENSION_MAP = {
     "7563": ("7.50±0.40", "6.30±0.40"),
 }
 TDK_THICKNESS_CODE_MAP = {
+    "022": "0.22",
     "020": "0.20",
     "030": "0.30",
     "050": "0.50",
     "060": "0.60",
+    "070": "0.70",
     "080": "0.80",
     "085": "0.85",
     "115": "1.15",
@@ -2593,14 +2595,21 @@ def decode_murata_dimension_fields_from_model(model):
 
 def decode_tdk_dimension_fields_from_model(model):
     model_key = clean_model(model)
-    if not model_key.startswith("C") or len(model_key) < 17:
+    if not model_key.startswith("C") or len(model_key) < 14:
         return {}
     size_code = model_key[1:5]
-    thickness_code = model_key[14:17]
+    thickness_code = ""
+    thickness_match = re.search(r"[CDFGJKMZ](?:T)?(?P<thickness>\d{3})[A-Z]{0,4}$", model_key)
+    if thickness_match:
+        thickness_code = thickness_match.group("thickness")
+    elif len(model_key) >= 17:
+        thickness_code = model_key[14:17]
     length_width = TDK_SIZE_DIMENSION_MAP.get(size_code)
     thickness = TDK_THICKNESS_CODE_MAP.get(thickness_code, "")
-    if not length_width:
+    if not length_width and thickness == "":
         return {}
+    if not length_width:
+        return build_dimension_field_map("", "", thickness)
     return build_dimension_field_map(length_width[0], length_width[1], thickness)
 
 
@@ -3084,6 +3093,14 @@ def infer_mlcc_dimension_fields_and_source_from_record(record, allow_online_look
             "TDK命名规则",
         )
 
+    if "PDC" in brand_upper or "PSA" in brand_upper or "信昌" in brand:
+        fields = merge_mlcc_dimension_fields_with_source(
+            fields,
+            decode_pdc_general_mlcc_dimension_fields_from_model(model),
+            source_labels,
+            "信昌命名规则",
+        )
+
     if "WALSIN" in brand_upper:
         fields = merge_mlcc_dimension_fields_with_source(
             fields,
@@ -3271,6 +3288,25 @@ def build_pdc_mt_dimension_fields(size_code, thickness_code):
     if thickness != "":
         fields["高度（mm）"] = thickness
     return fields
+
+
+def decode_pdc_general_mlcc_dimension_fields_from_model(model):
+    model_key = clean_model(model)
+    if len(model_key) < 14:
+        return {}
+    series_code = model_key[:2]
+    if series_code not in {"FN", "FS", "FM", "FV", "FP", "FK", "FH"}:
+        return {}
+
+    # PDC FN/FS/FM/FV/FP/FK/FH suffix layout follows package + thickness + control.
+    suffix = model_key[12:]
+    if len(suffix) < 2:
+        return {}
+    thickness_code = suffix[1]
+    thickness = clean_text(PDC_MT_THICKNESS_CODE_MAP.get(thickness_code, ""))
+    if thickness == "":
+        return {}
+    return {"高度（mm）": thickness}
 
 
 def pdc_mlcc_series_code_from_model(model):
@@ -7963,6 +7999,7 @@ def parse_pdc_fp(model):
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(voltage_map.get(model[9:12], "")),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fp_series",
         }
     except:
@@ -8008,6 +8045,7 @@ def parse_pdc_fs(model):
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":parse_pdc_fs_voltage(model),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fs_series",
         }
     except:
@@ -8035,6 +8073,7 @@ def parse_pdc_fn(model):
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fn_series",
         }
     except:
@@ -8062,6 +8101,7 @@ def parse_pdc_fm(model):
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fm_series",
         }
     except:
@@ -8089,6 +8129,7 @@ def parse_pdc_fv(model):
             "容值_pf":eia_code_to_pf(model[5:8]),
             "容值误差":clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）":clean_voltage(parse_pdc_fs_voltage(model)),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fv_series",
         }
     except:
@@ -8118,6 +8159,7 @@ def parse_pdc_fk(model):
             "容值_pf": eia_code_to_pf(model[5:8]),
             "容值误差": clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）": clean_voltage(voltage_map.get(model[9:12], "")),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fk_series",
         }
     except:
@@ -8147,6 +8189,7 @@ def parse_pdc_fh(model):
             "容值_pf": eia_code_to_pf(model[5:8]),
             "容值误差": clean_tol_for_match(tol_map.get(model[8], "")),
             "耐压（V）": clean_voltage(voltage_map.get(model[9:12], "")),
+            **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fh_series",
         }
     except:
