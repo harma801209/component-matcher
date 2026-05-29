@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-05-29 - Slash-separated MLCC spec treated capacitance as tolerance
+
+- Bug: Query `0603/NPO/12pF/5%/100V` showed `容值误差=12pF` and returned zero matches even though the database contains matching 0603 COG/NPO 12pF 5% 100V MLCC rows.
+- Root cause: In `parse_spec_query()`, tolerance parsing ran before capacitance parsing. Because bare `12PF` can be a valid pF tolerance token in other contexts, the parser consumed the capacitance token as tolerance before it had a chance to set `容值_pf`.
+- Fix: Parse explicit capacitance tokens before tolerance tokens inside the spec-token loop, while still allowing bare pF tolerance tokens after capacitance is already known.
+- Verification: Direct search now parses `0603/NPO/12pF/5%/100V` as `0603 / COG(NPO) / 12pF / +/-5% / 100V` and returns fully matched Murata 0603 COG/NPO 12pF 5% 100V candidates.
+
 ## 2026-05-28 - Prefix-C EIA-size MLCC was misparsed as TDK C series
 
 - Bug: Query `C1812X473K102TFF` was displayed as `TDK / C / 1812 / 1nF`, and replacement candidates were 1nF rows.

@@ -14,7 +14,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Update this stamp when publishing public-facing changes so Streamlit Cloud
 # rechecks the checkout. This does not change runtime behavior.
 # The sync script may refresh this automatically when the public bundle is rebuilt.
-PUBLIC_RELEASE_STAMP = "2026-05-28T19:25:00+08:00"
+PUBLIC_RELEASE_STAMP = "2026-05-29T17:30:00+08:00"
 
 # The public entrypoint must never spend startup time rebuilding data.
 # Keep auto-update disabled unless a manual dev run opts back in explicitly.

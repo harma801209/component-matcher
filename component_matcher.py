@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 37
+QUERY_RESULT_CACHE_VERSION = 38
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-28T19:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-05-29T17:30:00+08:00"
 
 
 def startup_trace(message):
@@ -8964,6 +8964,13 @@ def parse_spec_query(line):
             if embedded_material != "":
                 material = embedded_material
 
+        # capacitance: handle explicit values before tolerance so `12PF`
+        # is not mistaken for a +/-12pF tolerance in slash-separated specs.
+        pf = parse_cap_token_to_pf(t)
+        if cap_pf is None and pf is not None:
+            cap_pf = pf
+            continue
+
         # tolerance
         if tol == "":
             parsed_tol = parse_tolerance_token(t)
@@ -8989,12 +8996,6 @@ def parse_spec_query(line):
         # common bare voltages when clearly voltage-like
         if volt == "" and t in {"4", "6.3", "10", "16", "25", "35", "50", "100", "200", "250", "500", "630", "1000"}:
             volt = clean_voltage(t)
-            continue
-
-        # capacitance
-        pf = parse_cap_token_to_pf(t)
-        if cap_pf is None and pf is not None:
-            cap_pf = pf
             continue
 
     if cap_pf is None:

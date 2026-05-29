@@ -2381,3 +2381,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: `parse_tdk_c_series()` accepted any long `C*` model and returned a partial TDK parse even when its TDK material/voltage/tolerance slices were invalid. This model follows an EIA-size-first pattern: `C + 1812 + X + 473 + K + 102...`, so `473` is 47nF and `102` is 1000V.
 - Fix / action: Added `parse_prefixed_eia_size_first_mlcc()` for this prefix-C EIA-size MLCC pattern, made TDK C-series parsing require a valid size/capacitance/tolerance/voltage slice before returning, kept compatibility for TDK two-letter legacy temperature codes such as `CH/JB`, bumped query/public stamps, and added regression case `MLCC_PREFIX_C_EIA_1812_47NF_1KV`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct search now parses `C1812X473K102TFF` as `1812 / X7R / 47nF / ±10% / 1000V` and returns fully matched `信昌PDC FP43X473K102...` and `FV43X473K102...` candidates. TDK spot checks still parse `C0402X7R1A102K020BC`, `C0402CH1C180J020BC`, and `C0402JB0G102K020BC`.
+
+### 2026-05-29 17:30 [direct] Fixed slash-separated MLCC spec tolerance parsing
+
+- Received / problem: User pointed out that `0603/NPO/12pF/5%/100V` displayed `容值误差=12pF` and returned zero results.
+- Root cause: `parse_spec_query()` parsed tolerance before capacitance. The token `12PF` was consumed as a pF tolerance, so the actual `5%` token was ignored.
+- Fix / action: Moved explicit capacitance-token parsing ahead of tolerance-token parsing within the spec parser, bumped query/public stamps, and added regression case `MLCC_SPEC_SLASH_0603_NPO_12PF_5PCT_100V`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct search now parses `0603/NPO/12pF/5%/100V` as `0603 / COG(NPO) / 12pF / ±5% / 100V` and returns fully matched Murata `GRM1885C2A120JA01J` and `GRT1885C2A120JA02D`.
