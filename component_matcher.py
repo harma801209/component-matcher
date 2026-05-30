@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 39
+QUERY_RESULT_CACHE_VERSION = 40
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-29T18:16:17+08:00"
+PUBLIC_CODE_STAMP = "2026-05-30T14:05:00+08:00"
 
 
 def startup_trace(message):
@@ -4234,6 +4234,14 @@ def resistor_series_desc_should_replace(current_value, canonical_value):
         return True
     if current == canonical:
         return False
+    if re.search(r"[\u4e00-\u9fff]", canonical) and re.search(
+        r"\b(?:chip|film|resistor|current sense|current sensing|general-purpose|"
+        r"automotive|anti-sulfur|anti-sulfuration|anti-surge|high-power|"
+        r"high voltage|low-ohm|precision|power resistor|wide terminal)\b",
+        current,
+        flags=re.I,
+    ):
+        return True
     return generated_resistor_series_description(current)
 
 

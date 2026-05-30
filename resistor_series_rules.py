@@ -112,43 +112,43 @@ YAGEO_OFFICIAL_SERIES_PROFILES = {
 }
 
 RALEC_OFFICIAL_SERIES_PROFILES = {
-    "LR": {"系列说明": "Metal alloy low-resistance current sense resistor", "器件类型": "合金电阻", "特殊用途": "电流检测 | 低阻 | 金属合金"},
-    "LRE": {"系列说明": "Metal alloy low-resistance current sense resistor", "器件类型": "合金电阻", "特殊用途": "电流检测 | 低阻 | 金属合金"},
-    "RAT": {"系列说明": "Automotive grade thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "车规"},
-    "RHW": {"系列说明": "Wide terminal high power thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "wide terminal | high power"},
-    "RTH": {"系列说明": "High power thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high power"},
-    "RTG": {"系列说明": "Anti-surge thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "anti-surge"},
-    "RTR": {"系列说明": "High precision thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high precision"},
-    "RTV": {"系列说明": "High voltage thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high voltage"},
-    "RTT": {"系列说明": "General-purpose thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": ""},
-    "RTW": {"系列说明": "Wide terminal thick film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "wide terminal"},
+    "LR": {"系列说明": "金属合金低阻电流检测贴片电阻", "器件类型": "合金电阻", "特殊用途": "电流检测 | 低阻 | 金属合金"},
+    "LRE": {"系列说明": "金属合金低阻电流检测贴片电阻", "器件类型": "合金电阻", "特殊用途": "电流检测 | 低阻 | 金属合金"},
+    "RAT": {"系列说明": "车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规"},
+    "RHW": {"系列说明": "宽端子高功率厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "宽端子 | 高功率"},
+    "RTH": {"系列说明": "高功率厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "高功率"},
+    "RTG": {"系列说明": "抗浪涌厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "抗浪涌"},
+    "RTR": {"系列说明": "高精度厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "高精度"},
+    "RTV": {"系列说明": "高压厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "高压"},
+    "RTT": {"系列说明": "通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "RTW": {"系列说明": "宽端子厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "宽端子"},
 }
 
 SAMSUNG_OFFICIAL_SERIES_PROFILES = {
-    "RC": {"系列说明": "Samsung standard general chip resistor", "器件类型": "厚膜电阻", "特殊用途": ""},
-    "RCS": {"系列说明": "Samsung anti-sulfur general chip resistor", "器件类型": "厚膜电阻", "特殊用途": "anti-sulfur"},
-    "RCB": {"系列说明": "Samsung reverse-mount chip resistor", "器件类型": "厚膜电阻", "特殊用途": "reverse mount"},
-    "RCA": {"系列说明": "Samsung automotive chip resistor", "器件类型": "厚膜电阻", "特殊用途": "automotive"},
-    "RCW": {"系列说明": "Samsung high-power chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high power"},
-    "RCWS": {"系列说明": "Samsung anti-sulfur high-power chip resistor", "器件类型": "厚膜电阻", "特殊用途": "anti-sulfur | high power"},
-    "RCV": {"系列说明": "Samsung high-voltage chip resistor", "器件类型": "厚膜电阻", "特殊用途": "high voltage"},
-    "RCVS": {"系列说明": "Samsung anti-sulfur high-voltage chip resistor", "器件类型": "厚膜电阻", "特殊用途": "anti-sulfur | high voltage"},
-    "RU": {"系列说明": "Samsung thick-film current sensing resistor", "器件类型": "厚膜电阻", "特殊用途": "current sensing"},
-    "RJ": {"系列说明": "Samsung wide-terminal current sensing resistor", "器件类型": "厚膜电阻", "特殊用途": "current sensing | wide terminal"},
-    "RL": {"系列说明": "Samsung metal current sensing resistor", "器件类型": "合金电阻", "特殊用途": "current sensing"},
+    "RC": {"系列说明": "通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "RCS": {"系列说明": "抗硫化通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "抗硫化"},
+    "RCB": {"系列说明": "反装厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "反装"},
+    "RCA": {"系列说明": "车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规"},
+    "RCW": {"系列说明": "高功率厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "高功率"},
+    "RCWS": {"系列说明": "抗硫化高功率厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "抗硫化 | 高功率"},
+    "RCV": {"系列说明": "高压厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "高压"},
+    "RCVS": {"系列说明": "抗硫化高压厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "抗硫化 | 高压"},
+    "RU": {"系列说明": "厚膜电流检测贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "电流检测"},
+    "RJ": {"系列说明": "宽端子电流检测贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "电流检测 | 宽端子"},
+    "RL": {"系列说明": "金属电流检测贴片电阻", "器件类型": "合金电阻", "特殊用途": "电流检测"},
 }
 
 WALSIN_OFFICIAL_SERIES_PROFILES = {
-    "WR": {"系列说明": "Walsin thick-film general-purpose chip resistor", "器件类型": "厚膜电阻", "特殊用途": ""},
-    "MR": {"系列说明": "Walsin automotive thick-film chip resistor", "器件类型": "厚膜电阻", "特殊用途": "automotive"},
-    "SR": {"系列说明": "Walsin thick-film high-grade anti-sulfuration automotive chip resistor", "器件类型": "厚膜电阻", "特殊用途": "automotive | anti-sulfuration"},
-    "WF": {"系列说明": "Walsin thin-film precision chip resistor", "器件类型": "薄膜电阻", "特殊用途": "precision"},
-    "WW": {"系列说明": "Walsin low-ohm current sense chip resistor", "器件类型": "合金电阻", "特殊用途": "current sensing"},
+    "WR": {"系列说明": "通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "MR": {"系列说明": "车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规"},
+    "SR": {"系列说明": "抗硫化车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规 | 抗硫化"},
+    "WF": {"系列说明": "通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "WW": {"系列说明": "低阻电流检测贴片电阻", "器件类型": "合金电阻", "特殊用途": "电流检测 | 低阻"},
 }
 
 FENGHUA_OFFICIAL_SERIES_PROFILES = {
-    "RC": {"系列说明": "Fenghua general thick-film chip fixed resistor RC family", "器件类型": "厚膜电阻", "特殊用途": ""},
-    "RS": {"系列说明": "Fenghua general thick-film chip fixed resistor RS family", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "RC": {"系列说明": "通用厚膜贴片固定电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
+    "RS": {"系列说明": "通用厚膜贴片固定电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
 }
 
 FOJAN_OFFICIAL_SERIES_PROFILES = {
@@ -1189,8 +1189,8 @@ KAMAYA_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
 
 MERITEK_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "CR": ("General-purpose thick film chip resistor", "厚膜电阻", "general purpose"),
-        "RN73": ("Precision thin film chip resistor", "薄膜电阻", "precision"),
+        "CR": ("通用厚膜贴片电阻", "厚膜电阻", ""),
+        "RN73": ("精密薄膜贴片电阻", "薄膜电阻", "高精密"),
     }
 )
 MERITEK_OFFICIAL_SERIES_PROFILES.update(
@@ -1284,21 +1284,21 @@ EVER_OHMS_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
 
 CAL_CHIP_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "RM": ("General-purpose thick film chip resistor", "鍘氳啘鐢甸樆", "general purpose"),
-        "RN": ("Precision thin film chip resistor", "钖勮啘鐢甸樆", "precision"),
+        "RM": ("通用厚膜贴片电阻", "厚膜电阻", ""),
+        "RN": ("精密薄膜贴片电阻", "薄膜电阻", "高精密"),
     }
 )
 
 OHMITE_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "ACPP": ("Precision thin film chip resistor", "钖勮啘鐢甸樆", "precision"),
-        "MRA": ("Precision MELF resistor", "钖勮啘鐢甸樆", "precision | MELF"),
-        "MOX": ("High-voltage metal oxide / thick film resistor", "鍘氳啘鐢甸樆", "high voltage"),
-        "RW": ("Power wirewound resistor", "缁曠嚎鐢甸樆", "power"),
-        "SM": ("Surface-mount power resistor", "鍘氳啘鐢甸樆", "power"),
-        "MC": ("Surface-mount power resistor", "鍘氳啘鐢甸樆", "power"),
-        "OJ": ("Carbon composition resistor", "纰宠啘鐢甸樆", "carbon composition"),
-        "OL": ("Carbon composition resistor", "纰宠啘鐢甸樆", "carbon composition"),
+        "ACPP": ("精密薄膜贴片电阻", "薄膜电阻", "高精密"),
+        "MRA": ("精密 MELF 电阻", "薄膜电阻", "高精密 | MELF"),
+        "MOX": ("高压金属氧化膜/厚膜电阻", "金属氧化膜电阻", "高压"),
+        "RW": ("线绕功率电阻", "绕线电阻", "高功率"),
+        "SM": ("表面贴装功率电阻", "厚膜电阻", "高功率"),
+        "MC": ("表面贴装功率电阻", "厚膜电阻", "高功率"),
+        "OJ": ("碳质合成电阻", "碳膜电阻", "碳质合成"),
+        "OL": ("碳质合成电阻", "碳膜电阻", "碳质合成"),
     }
 )
 
@@ -1321,17 +1321,17 @@ OHMITE_OFFICIAL_SERIES_PROFILES.update(
 
 BOURNS_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "CR": ("General-purpose thick film chip resistor", "鍘氳啘鐢甸樆", "general purpose"),
-        "CRT": ("Precision thin film chip resistor", "钖勮啘鐢甸樆", "precision"),
-        "CRM": ("High-power thick film chip resistor", "鍘氳啘鐢甸樆", "high power"),
-        "PWR": ("Power resistor family", "缁曠嚎鐢甸樆", "power"),
+        "CR": ("通用厚膜贴片电阻", "厚膜电阻", ""),
+        "CRT": ("精密薄膜贴片电阻", "薄膜电阻", "高精密"),
+        "CRM": ("高功率厚膜贴片电阻", "厚膜电阻", "高功率"),
+        "PWR": ("功率电阻", "绕线电阻", "高功率"),
     }
 )
 
 SUNWAY_OFFICIAL_SERIES_PROFILES = _build_series_profiles(
     {
-        "SC": ("General-purpose thick film chip resistor", "厚膜电阻", "general purpose"),
-        "SM": ("Low-resistance thick film chip resistor", "厚膜电阻", "low resistance | current sensing"),
+        "SC": ("通用厚膜贴片电阻", "厚膜电阻", ""),
+        "SM": ("低阻厚膜贴片电阻", "厚膜电阻", "低阻 | 电流检测"),
     }
 )
 
