@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 41
+QUERY_RESULT_CACHE_VERSION = 42
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-02T22:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-03T00:15:00+08:00"
 
 
 def startup_trace(message):
@@ -21267,9 +21267,14 @@ def match_semiconductor_spec(df, spec):
     levels = work.apply(lambda r: classify_semiconductor_match_level(r, spec), axis=1)
     work["推荐等级"] = [item[0] for item in levels]
     work["_level_rank"] = [item[1] for item in levels]
+    spec_model = clean_model(spec.get("型号", ""))
+    if spec_model != "" and "型号" in work.columns:
+        work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
+    else:
+        work["_exact_model_rank"] = 1
     work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
-    sort_cols = ["_level_rank", "_brand_rank"]
-    ascending = [True, True]
+    sort_cols = ["_exact_model_rank", "_level_rank", "_brand_rank"]
+    ascending = [True, True, True]
     if "品牌" in work.columns:
         sort_cols.append("品牌")
         ascending.append(True)
@@ -21277,7 +21282,7 @@ def match_semiconductor_spec(df, spec):
         sort_cols.append("型号")
         ascending.append(True)
     work = work.sort_values(by=sort_cols, ascending=ascending)
-    return work.drop(columns=["_level_rank", "_brand_rank"], errors="ignore")
+    return work.drop(columns=["_exact_model_rank", "_level_rank", "_brand_rank"], errors="ignore")
 
 
 def match_other_passive_spec(df, spec):

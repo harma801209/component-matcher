@@ -1241,6 +1241,166 @@ SEED_ROWS.extend(
 )
 
 
+for model, voltage in [
+    ("1N5400", "50"),
+    ("1N5401", "100"),
+    ("1N5402", "200"),
+    ("1N5404", "400"),
+    ("1N5406", "600"),
+    ("1N5407", "800"),
+    ("1N5408", "1000"),
+]:
+    SEED_ROWS.append(
+        _seed_row(
+            "onsemi",
+            model,
+            "1N5400-1N5408",
+            "3A axial-lead standard-recovery rectifier diode",
+            "二极管",
+            "通用整流二极管",
+            voltage,
+            "3A",
+            "DO-201AD",
+            "THT",
+            f"{voltage}V 3A standard recovery rectifier DO-201AD",
+            "https://www.onsemi.com/pdf/datasheet/1n5400-d.pdf",
+            "onsemi official 1N5400-1N5408 datasheet",
+            f"VRRM={voltage}V, IO=3A, DO-201AD axial, 1N5400-1N5408 rectifier family",
+            temperature="-55~150℃",
+        )
+    )
+
+for model, voltage in [
+    ("UF4001", "50"),
+    ("UF4002", "100"),
+    ("UF4003", "200"),
+    ("UF4004", "400"),
+    ("UF4005", "600"),
+    ("UF4006", "800"),
+    ("UF4007", "1000"),
+]:
+    SEED_ROWS.append(
+        _seed_row(
+            "onsemi",
+            model,
+            "UF4001-UF4007",
+            "1A ultrafast rectifier diode",
+            "二极管",
+            "超快恢复整流二极管",
+            voltage,
+            "1A",
+            "DO-41",
+            "THT",
+            f"{voltage}V 1A ultrafast rectifier DO-41",
+            "https://www.onsemi.com/pdf/datasheet/uf4007-d.pdf",
+            "onsemi official UF4001-UF4007 datasheet",
+            f"VRRM={voltage}V, IO=1A, trr family max 75ns, DO-41 axial, UF4001-UF4007 fast rectifier family",
+            temperature="-55~150℃",
+        )
+    )
+
+for model, voltage in [
+    ("SS22", "20"),
+    ("SS23", "30"),
+    ("SS24", "40"),
+    ("SS25", "50"),
+    ("SS26", "60"),
+]:
+    SEED_ROWS.append(
+        _seed_row(
+            "Vishay",
+            model,
+            "SS22-SS26",
+            "Surface-mount Schottky barrier rectifier",
+            "二极管",
+            "肖特基整流二极管",
+            voltage,
+            "2A",
+            "SMB/DO-214AA",
+            "SMT",
+            f"{voltage}V 2A Schottky rectifier SMB/DO-214AA",
+            "https://www.vishay.com/en/product/88748/",
+            "Vishay official SS22-SS26 product page/datasheet",
+            f"{model} in SS22-SS26 family: VRRM={voltage}V, IF(AV)=2A, SMB/DO-214AA",
+            temperature="-55~150℃",
+        )
+    )
+
+SMBJ_VRWM_VALUES = [
+    "5.0",
+    "6.0",
+    "6.5",
+    "7.0",
+    "7.5",
+    "8.0",
+    "8.5",
+    "9.0",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "20",
+    "22",
+    "24",
+    "26",
+    "28",
+    "30",
+    "33",
+    "36",
+    "40",
+    "43",
+    "45",
+    "48",
+    "51",
+    "54",
+    "58",
+    "60",
+    "64",
+    "70",
+    "75",
+    "78",
+    "85",
+    "90",
+    "100",
+    "110",
+    "120",
+    "130",
+    "150",
+    "160",
+    "170",
+]
+
+for voltage in SMBJ_VRWM_VALUES:
+    for suffix, polarity in [("A", "单向"), ("CA", "双向")]:
+        model = f"SMBJ{voltage}{suffix}"
+        SEED_ROWS.append(
+            _seed_row(
+                "Littelfuse",
+                model,
+                "SMBJ",
+                "600W surface-mount transient voltage suppressor diode",
+                "TVS二极管",
+                "TVS二极管",
+                voltage,
+                "",
+                "SMB/DO-214AA",
+                "SMT",
+                f"{voltage}V {polarity} 600W TVS diode SMB/DO-214AA",
+                "https://www.littelfuse.com/products/overvoltage-protection/tvs-diodes/surface-mount/smbj",
+                "Littelfuse official SMBJ series product page/datasheet",
+                f"VRWM={voltage}V, peak pulse power 600W, {polarity}, SMB/DO-214AA; verify VBR/VC/IPP from datasheet for exact surge design",
+                polarity=polarity,
+                power="600W",
+                temperature="-55~150℃",
+            )
+        )
+
+
 def ensure_columns(conn):
     columns = [row[1] for row in conn.execute("PRAGMA table_info(components)").fetchall()]
     return columns
@@ -1248,6 +1408,19 @@ def ensure_columns(conn):
 
 def clean_model_key(value):
     return str(value or "").upper().replace("-", "").replace(" ", "").replace("_", "")
+
+
+def dedupe_seed_rows(seed_rows):
+    deduped = {}
+    for seed in seed_rows:
+        key = (
+            str(seed.get("品牌", "") or "").strip(),
+            clean_model_key(seed.get("型号", "")),
+            str(seed.get("器件类型", "") or "").strip(),
+        )
+        if key[0] and key[1] and key[2]:
+            deduped[key] = seed
+    return list(deduped.values())
 
 
 def sync_rows(dry_run=False):
@@ -1258,7 +1431,7 @@ def sync_rows(dry_run=False):
         columns = ensure_columns(conn)
         now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         rows = []
-        for seed in SEED_ROWS:
+        for seed in dedupe_seed_rows(SEED_ROWS):
             row = {col: "" for col in columns}
             row.update({key: value for key, value in seed.items() if key in row})
             if "校验时间" in row:
