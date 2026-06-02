@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 40
+QUERY_RESULT_CACHE_VERSION = 41
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-05-30T14:05:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-02T22:45:00+08:00"
 
 
 def startup_trace(message):
@@ -1414,9 +1414,9 @@ SPEC_EMBEDDED_MATERIALS = [
     ("X6S", "X6S"),
     ("Y5V", "Y5V"),
 ]
-RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
-RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?mΩ|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
-RESISTOR_COMPACT_CONTEXT_PATTERN = re.compile(r"(?<![A-Z0-9])((?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?[RKM](?:\d+)?))(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
+RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
+RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
+RESISTOR_COMPACT_CONTEXT_PATTERN = re.compile(r"(?<![A-Z0-9])((?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?(?:mR|[RKM])(?:\d+)?))(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
 TWO_DIM_SIZE_PATTERN = re.compile(r"(?:[DΦLW]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)", flags=re.I)
 THREE_DIM_SIZE_PATTERN = re.compile(r"(?:[DLWΦ]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)", flags=re.I)
 ELECTROLYTIC_SIZE_PATTERN = TWO_DIM_SIZE_PATTERN
@@ -9102,8 +9102,9 @@ def format_resistance_display(ohm_value):
 
 def parse_resistance_token_to_ohm(token):
     raw = clean_text(token).replace(" ", "")
+    raw = raw.replace("毫欧", "mΩ")
     raw = raw.replace("OHMS", "Ω").replace("OHM", "Ω").replace("ohms", "Ω").replace("ohm", "Ω")
-    milliohm_match = re.fullmatch(r"(\d+(?:\.\d+)?)mΩ", raw, flags=re.I)
+    milliohm_match = re.fullmatch(r"(\d+(?:\.\d+)?)(?:mΩ|mR)", raw, flags=re.I)
     if milliohm_match:
         return float(milliohm_match.group(1)) / 1000.0
     t = raw.upper()

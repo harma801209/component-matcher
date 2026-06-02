@@ -65,3 +65,4 @@ MLCC_SAMSUNG_CL10Y225KO96PJC,CL10Y225KO96PJC,part,0603,X7S,2.2,UF,10,16,0,Samsun
 RES_RALEC_LR2512_1MOHM,LR2512-22R001F4,part,2512,,1,mΩ,1,,1,RALEC LR model should resolve as 2512 1mΩ 1% 2W metal alloy current-sense resistor,旺诠RALEC,LR2512
 RES_PDC_FMF25_1MOHM,FMF25FPJR001XBHM,part,2512,,1,mΩ,1,,1,PDC FMF metal strip current-sense resistor should not be parsed as FM medium-voltage MLCC,信昌PDC,FMF25
 MLCC_HRE_CGA0805_SIZE_FIRST,CGA0805X7R225K500MT,part,0805,X7R,2.2,UF,10,50,1,HRE CGA size-first MLCC model should route as a part query instead of insufficient MLCC spec,芯声微HRE,CGA
+RES_SPEC_0603_510MR_1PCT,0603 510mr 1%,resistor,0603,,510,MILLIOHM,1,,1,mR/mr milliohm notation should parse as 510mΩ and search low-ohm 0603 resistors,,
