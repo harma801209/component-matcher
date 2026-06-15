@@ -200,3 +200,37 @@
 - Root cause: The database/cache stored body-size strings in `尺寸（mm）` or `_body_size`, but normalization did not split them into `直径（mm）/长度（mm）/宽度（mm）/高度（mm）`. The fast search sidecar capacitor table also did not carry these display fields, so even corrected rows could lose height in search results.
 - Fix: Added non-MLCC capacitor dimension splitting, cleaned polluted scalar dimension fields, refreshed capacitor rows in the prepared cache, and extended the capacitor sidecar schema to include explicit dimension and source columns.
 - Verification: Direct search for `6.3ZLJ220M5X11` now displays `直径 5` and `高度 11`; direct search for `PCP1CPA330M15V` displays `长度 7.3 / 宽度 4.3 / 高度 1.9`; the capacitor sidecar schema now includes `高度（mm）`.
+
+## 2026-06-03 - Hyphenated HoLRS milliohm resistor query skipped public search
+
+- Bug: Query `HoLRS6568-5W-0.1mR-1%` returned zero results plus the public fallback warning `当前环境未加载整库回退数据；本条输入已跳过`.
+- Root cause: The exact HoLRS6568 row is not currently in the database, and the generic resistor context regex did not allow `-` after an `mR` milliohm token, so `0.1mR-1%` was not treated as a usable resistor value before the public app tried the unavailable full-dataframe fallback.
+- Fix: Added `-` to resistor token boundaries and classified explicit `HOLRS/LRS` or true milliohm low-ohm notation as `合金电阻` during spec parsing.
+- Verification: Direct parsing maps `HoLRS6568-5W-0.1mR-1%` to `合金电阻 / 0.1mΩ / ±1% / 5W`; the fast search path returns 2 same-resistance candidates instead of triggering full-dataframe fallback; regression case `RES_SPEC_HOLRS_HYPHEN_MR_POWER` passes.
+
+## 2026-06-05 - HoLRS6568 exact row must route as part, not only resistor spec
+
+- Bug: After the parser fix, `HoLRS6568-5W-0.1mR-1%` could be parsed as a resistor spec, but it still did not show as a formal original part because the exact row was absent and `%` caused the compact-part detector to skip exact lookup.
+- Root cause: Some official resistor model numbers encode tolerance as a literal percentage suffix. Treating `%` as a universal spec separator blocked exact lookup for official models such as `...-1%`.
+- Fix: Added a source-backed Milliohm HoLRS6568 sync script, inserted 15 HoLRS6568 family rows, refreshed prepared/search caches, and allowed `%` in no-space compact part queries while still blocking slash/space specification inputs.
+- Verification: Direct query now routes as `料号`, returns `Milliohm(毫欧) HoLRS6568-5W-0.1mR-1%` as `完全匹配`, and regression case `RES_SPEC_HOLRS_HYPHEN_MR_POWER` passes with size `6568`, value `0.1mΩ`, tolerance `±1%`.
+## 2026-06-13 - Resistor `mR` and `MR` unit case collision
+
+- Bug: `0402 1mΩ` / `1mR` searches could surface `105`-coded 1MΩ chip resistors such as `0402WGJ0105TCE`, `CQ02WGJ0105TCE`, and `FRC0402J105TS`.
+- Root cause: Explicit resistance parsing used case-insensitive `mR`, so `MR`/`Mr` was treated as milliohm. The prepared parquet and SQLite sidecar had already cached many `MΩ` text rows as sub-ohm values.
+- Fix: Made `mR/mr` milliohm and `MR/Mr` megaohm in the parser, made the low-ohm branch use a case-sensitive milliohm pattern, bumped the query cache version/stamp, corrected 46,272 cached `MΩ` resistor rows in prepared parquet and search sidecar, and rebuilt the Streamlit cloud bundle parts.
+- Verification: `0402 1mΩ 5% 1/16W` and `0402 1mR 5% 1/16W` return no `105` models; `0402 1MR 5% 1/16W` and `0402 1MΩ 5% 1/16W` return 1MΩ candidates; `1206 0.01R 5% 1/4W` still returns only 10mΩ rows.
+
+## 2026-06-15 - Resistor DB value fields still held stale sub-ohm values
+
+- Bug: Exact part `FRC0402J106TS` displayed `10mΩ` even though its summary and resistor code indicate `10MΩ`; semicolon spec `1M;5%;0402;0402WGJ0105TCE;厚声` could miss the known `105`-coded 1MΩ row because `components.db` still stored `0.001Ω` / `0.01Ω` in structured value fields.
+- Root cause: The earlier `mR`/`MR` repair corrected prepared/search caches but not the underlying DB rows. Exact-part display and later cache refreshes can rehydrate from `components.db`, so stale sub-ohm source fields came back.
+- Fix: Added `sync_resistor_values_from_summary.py` to compare resistor `规格摘要` explicit resistance against structured fields, update only true numeric mismatches in `components.db`, and incrementally refresh affected prepared/search rows. Applied it to `141,336` resistor rows.
+- Verification: DB, prepared parquet, and search sidecar now show `0402WGJ0105TCE` and `FRC0402J105TS` as `1MΩ / 1,000,000Ω`, while `0402WGJ0106TCE` and `FRC0402J106TS` are `10MΩ / 10,000,000Ω`. Direct search for `1M;5%;0402;0402WGJ0105TCE;厚声` returns `0402WGJ0105TCE`; `FRC0402J106TS` no longer appears as milliohm.
+
+## 2026-06-15 - Compound resistor input glued exact model to spec suffix
+
+- Bug: Query `FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声` did not surface FOJAN `FRC0402J105TS`, even though the source row is a valid `1MΩ ±5% 0402` thick-film resistor.
+- Root cause: The query contains a valid model prefix `FRC0402J105TS` immediately followed by the spec token `1M` with no separator. The token extractor treated `FRC0402J105TS1M` as one unknown model-like token, then the MLCC/spec parser classified the whole input as insufficient spec before exact-model lookup could recover.
+- Fix: Added known-model-prefix recovery for model-like query tokens whose suffix looks like a resistor/spec token, and applied that fallback for `无法识别 / 规格不足 / 解析失败` paths before full-dataframe fallback. Regression now exercises this through the same resolver used by the app.
+- Verification: The query now resolves through `model_token_prefix_lookup` as `料号`, reverse-specs `FRC0402J105TS` to `1MΩ / ±5% / 0402`, returns 30 candidates, and places `FOJAN(富捷) FRC0402J105TS` first. Targeted resistor regression cases for `1MR`, lowercase `1mR`, UNI-ROYAL `105`, FOJAN `106`, and the compound FOJAN query all pass.

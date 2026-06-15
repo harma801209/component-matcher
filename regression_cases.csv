@@ -1,4 +1,13 @@
 case_id,query,expected_mode,expected_size,expected_material,expected_value,expected_unit,expected_tolerance,expected_voltage,min_match_count,notes,expected_top_brand,expected_top_model_contains
+RES_SPEC_0402_1MR_MOHM,0402 1MR 5% 1/16W,resistor,0402,,1,MOHM,5,,1,Uppercase MR must parse as megaohm and allow 105-coded 1M resistor candidates,,
+RES_SPEC_0402_1MR_MILLIOHM_LOWER,0402 1mR 5% 1/16W,resistor,0402,,1,MILLIOHM,5,,0,Lowercase mR must remain milliohm and must not be confused with 105-coded 1M resistors,,
+RES_SPEC_UNIROYAL_0402_1M_SEMICOLON,1M;5%;0402;0402WGJ0105TCE;厚声,resistor,0402,,1,MOHM,5,,1,Semicolon resistor spec with a known 105-coded 1M model must return 1MΩ candidates,,
+RES_PART_FOJAN_FRC0402J106TS,FRC0402J106TS,part,0402,,10,MOHM,5,,1,106-coded FOJAN chip resistor must be 10MΩ not milliohm,FOJAN,FRC0402J106TS
+RES_SPEC_COMPOUND_FOJAN_1M_PREFIX,FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声,part,0402,,1,MOHM,5,,1,Compound input with FOJAN model glued to 1M spec must still surface the FOJAN 105-coded part,FOJAN,FRC0402J105TS
+MLCC_PDC_FS_HIGHCAP_X5R_10UF_6R3V,FS21B106K6R3ECG,part,0805,X5R,10,UF,10,6.3,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
+MLCC_PDC_FS_HIGHCAP_X5R_4R7UF_10V,FS21B475K100ECG,part,0805,X5R,4.7,UF,10,10,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
+MLCC_PDC_FS_HIGHCAP_X7R_10UF_10V,FS21X106K100EIG,part,0805,X7R,10,UF,10,10,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
+MLCC_PDC_FS_HIGHCAP_X7R_2R2UF_16V,FS21X225K160EIG,part,0805,X7R,2.2,UF,10,16,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
 MLCC_SPEC_SLASH_0603_NPO_12PF_5PCT_100V,0603/NPO/12pF/5%/100V,spec,0603,COG(NPO),12,PF,5,100,1,Slash-separated MLCC spec must parse 12pF as capacitance and 5% as tolerance,,
 MLCC_PREFIX_C_EIA_1812_47NF_1KV,C1812X473K102TFF,part,1812,X7R,47,NF,10,1000,1,Prefix-C EIA-size MLCC must parse 473 as 47nF and 102 as 1000V instead of TDK C-series 1nF fallback,,
 SAMSUNG_5PCT,CL05A105JQ5NNWC,part,0402,X5R,1,UF,5,6.3,0,Samsung 5 percent tolerance should parse correctly
@@ -66,3 +75,5 @@ RES_RALEC_LR2512_1MOHM,LR2512-22R001F4,part,2512,,1,mΩ,1,,1,RALEC LR model shou
 RES_PDC_FMF25_1MOHM,FMF25FPJR001XBHM,part,2512,,1,mΩ,1,,1,PDC FMF metal strip current-sense resistor should not be parsed as FM medium-voltage MLCC,信昌PDC,FMF25
 MLCC_HRE_CGA0805_SIZE_FIRST,CGA0805X7R225K500MT,part,0805,X7R,2.2,UF,10,50,1,HRE CGA size-first MLCC model should route as a part query instead of insufficient MLCC spec,芯声微HRE,CGA
 RES_SPEC_0603_510MR_1PCT,0603 510mr 1%,resistor,0603,,510,MILLIOHM,1,,1,mR/mr milliohm notation should parse as 510mΩ and search low-ohm 0603 resistors,,
+RES_SPEC_HOLRS_HYPHEN_MR_POWER,HoLRS6568-5W-0.1mR-1%,part,6568,,0.1,MILLIOHM,1,,1,Hyphenated HoLRS milliohm power query should resolve as official-source exact part and avoid full-dataframe fallback,Milliohm,
+RES_MILLIOHM_HOLR2512D_1MR_3PCT,HoLR2512D-3W-1mR-3%,part,2512,,1,MILLIOHM,3,,1,Milliohm HoLR2512D exact part should parse power/resistance/tolerance from the official model rule and return the source-backed row,Milliohm,HoLR2512D-3W-1mR-3%

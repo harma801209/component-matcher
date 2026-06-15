@@ -93,7 +93,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 42
+QUERY_RESULT_CACHE_VERSION = 53
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +118,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-03T00:15:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-15T17:05:00+08:00"
 
 
 def startup_trace(message):
@@ -1357,7 +1357,40 @@ def load_component_rows_by_query_model_tokens(query_text):
         rows = load_component_rows_by_clean_model(token)
         if isinstance(rows, pd.DataFrame) and not rows.empty:
             return rows, tokens, token
+        prefix_rows, prefix = load_component_rows_by_known_model_prefix(token)
+        if isinstance(prefix_rows, pd.DataFrame) and not prefix_rows.empty:
+            return prefix_rows, tokens, prefix
     return pd.DataFrame(), tokens, ""
+
+
+def compound_model_suffix_looks_like_spec(suffix):
+    suffix_text = clean_text(suffix).strip(" \t\r\n,;:|/()[]{}")
+    if suffix_text == "":
+        return False
+    if find_resistance_in_text(suffix_text) is not None:
+        return True
+    if parse_resistor_value_code(suffix_text) is not None:
+        return True
+    if parse_tolerance_token(suffix_text) != "":
+        return True
+    if find_embedded_size(suffix_text) != "":
+        return True
+    return False
+
+
+def load_component_rows_by_known_model_prefix(token):
+    compact = clean_model(token)
+    if len(compact) < 8:
+        return pd.DataFrame(), ""
+    for end in range(len(compact) - 1, 5, -1):
+        prefix = compact[:end]
+        suffix = compact[end:]
+        if not compound_model_suffix_looks_like_spec(suffix):
+            continue
+        rows = load_component_rows_by_clean_model(prefix)
+        if isinstance(rows, pd.DataFrame) and not rows.empty:
+            return rows, prefix
+    return pd.DataFrame(), ""
 
 def clean_material(x):
     x = clean_text(x).upper()
@@ -1414,9 +1447,12 @@ SPEC_EMBEDDED_MATERIALS = [
     ("X6S", "X6S"),
     ("Y5V", "Y5V"),
 ]
-RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
+RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s/|;,:()\-]|$)"
+RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
-RESISTOR_COMPACT_CONTEXT_PATTERN = re.compile(r"(?<![A-Z0-9])((?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?(?:mR|[RKM])(?:\d+)?))(?=(?:\+/-|[\s/|;,:()]|$))", flags=re.I)
+EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])", flags=re.I)
+MILLIOHM_NOTATION_PATTERN = re.compile(r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:mΩ|mR|mr|毫欧)(?![A-Z0-9])")
+RESISTOR_COMPACT_CONTEXT_PATTERN = re.compile(r"(?<![A-Z0-9])((?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?(?:mR|[RKM])(?:\d+)?))(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 TWO_DIM_SIZE_PATTERN = re.compile(r"(?:[DΦLW]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)", flags=re.I)
 THREE_DIM_SIZE_PATTERN = re.compile(r"(?:[DLWΦ]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)", flags=re.I)
 ELECTROLYTIC_SIZE_PATTERN = TWO_DIM_SIZE_PATTERN
@@ -3933,6 +3969,80 @@ def parse_pdc_fmf_alloy_resistor_model(model, brand="", component_type=""):
     }
 
 
+def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    match_2512d = re.fullmatch(
+        r"(?:HO)?LR2512D-?(?P<power>2W|3W|3\.5W)-?(?P<res>\d+(?:\.\d+)?)MR-?(?P<tol>\d+(?:\.\d+)?)%?",
+        compact,
+    )
+    match_6568 = re.fullmatch(
+        r"(?:HO)?LRS6568-?(?P<power>5W)-?(?P<res>\d+(?:\.\d+)?)MR-?(?P<tol>\d+(?:\.\d+)?)%?",
+        compact,
+    )
+    if match_2512d is None and match_6568 is None:
+        return None
+
+    match = match_2512d or match_6568
+    try:
+        resistance_ohm_decimal = Decimal(match.group("res")) / Decimal("1000")
+        resistance_ohm = float(resistance_ohm_decimal)
+    except Exception:
+        return None
+    resistance_ohm_field = format(resistance_ohm_decimal.normalize(), "f")
+    if "." in resistance_ohm_field:
+        resistance_ohm_field = resistance_ohm_field.rstrip("0").rstrip(".")
+    power_text = clean_text(match.group("power")).replace(".0W", "W")
+    tol = clean_tol_for_match(f"{match.group('tol')}%")
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+
+    if match_2512d is not None:
+        series = "HoLR"
+        size = "2512"
+        series_desc = "封体合金电流检测电阻（车规 AEC-Q200）"
+        special_use = "电流检测 | 低阻 | 封体合金 | 车规 | AEC-Q200"
+        body_size = "6.40*3.20*0.80mm" if power_text != "3.5W" else "6.40*3.20mm"
+        model_family = "milliohm_holr2512d_model"
+    else:
+        series = "HoLRS"
+        size = "6568"
+        series_desc = "裸露合金电流采样电阻（5W 6568）"
+        special_use = "电流检测 | 分流器 | 裸露合金 | 低阻 | 高功率"
+        body_size = "6.90*6.60mm"
+        model_family = "milliohm_holrs6568_model"
+
+    summary_parts = [
+        series_desc,
+        size,
+        f"{value_text}{unit_text}" if value_text != "" and unit_text != "" else "",
+        clean_tol_for_display(tol) if tol != "" else "",
+        format_power_display(power_text),
+    ]
+    return {
+        "品牌": clean_brand(brand) or "Milliohm(毫欧)",
+        "型号": compact,
+        "器件类型": "合金电阻",
+        "系列": series,
+        "系列说明": series_desc,
+        "特殊用途": special_use,
+        "尺寸（inch）": size,
+        "尺寸（mm）": body_size,
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "阻值@25C": resistance_ohm_field,
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "功率": format_power_display(power_text),
+        "安装方式": "贴片",
+        "封装代码": "2512D" if match_2512d is not None else "6568",
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": model_family,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power_text else 0]),
+    }
+
+
 def parse_generic_resistor_model(model, brand="", component_type=""):
     normalized_component_type = normalize_component_type(component_type)
     if normalized_component_type not in RESISTOR_COMPONENT_TYPES | {"热敏电阻", ""}:
@@ -3969,6 +4079,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
         parse_murata_mhr_resistor_model,
+        parse_milliohm_holr_alloy_resistor_model,
         parse_pdc_fmf_alloy_resistor_model,
         parse_ralec_lr_alloy_resistor_model,
         parse_yageo_chip_resistor_model,
@@ -4002,7 +4113,9 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         merged["系列"] = parsed_series
     parsed_series_desc = clean_text(parsed_rule.get("系列说明", ""))
     current_series_desc = clean_text(merged.get("系列说明", ""))
-    if parsed_series_desc != "" and (override_conflicts or current_series_desc == ""):
+    brand_upper_for_series_desc = clean_brand(merged.get("品牌", "")).upper()
+    keep_existing_series_desc = "MILLIOHM" in brand_upper_for_series_desc and current_series_desc != ""
+    if parsed_series_desc != "" and not keep_existing_series_desc and (override_conflicts or current_series_desc == ""):
         merged["系列说明"] = parsed_series_desc
 
     for col, cleaner in [
@@ -5005,7 +5118,8 @@ MLCC_SERIES_CLASS_RULES = [
     ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"滤波"]),
     ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
 ]
-MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高容", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
+# "高容" is a family/capacitance coverage label, not a required application or safety constraint.
+MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
 
 
 def mlcc_series_class_tokens(value):
@@ -6849,6 +6963,11 @@ def fill_missing_series_from_model(df):
 
             desc_refresh_mask = current_desc.combine(profile_desc, resistor_series_desc_should_replace)
             desc_fill_mask = series_replace_mask | desc_refresh_mask
+            milliohm_desc_keep_mask = (
+                work.loc[resistor_type_mask, "品牌"].astype(str).apply(clean_brand).str.upper().str.contains("MILLIOHM", na=False)
+                & current_desc.ne("")
+            )
+            desc_fill_mask = desc_fill_mask & ~milliohm_desc_keep_mask
             if desc_fill_mask.any():
                 replace_idx = desc_fill_mask[desc_fill_mask].index
                 work.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
@@ -8857,7 +8976,7 @@ def looks_like_compact_part_query(line):
     raw = clean_model(line)
     if raw == "":
         return False
-    if re.search(r"[\s,/\\|;:%]", clean_text(line).upper()):
+    if re.search(r"[\s,/\\|;:]", clean_text(line).upper()):
         return False
     if not (re.search(r"[A-Z]", raw) and re.search(r"\d", raw)):
         return False
@@ -9100,13 +9219,46 @@ def format_resistance_display(ohm_value):
     text = f"{ohm:.3f}".rstrip("0").rstrip(".")
     return f"{text}Ω"
 
+def parse_explicit_resistance_measurement_to_ohm(value_text, unit_text):
+    try:
+        numeric = float(clean_text(value_text))
+    except Exception:
+        return None
+    unit = clean_text(unit_text).replace("Ω", "Ω").replace("ω", "Ω")
+    if unit == "":
+        return None
+    unit_upper = unit.upper()
+    if unit == "mΩ" or unit in {"mR", "mr", "mohm", "mohms"} or unit == "毫欧":
+        return numeric / 1000.0
+    if unit == "MΩ" or unit in {"MR", "Mr"} or unit_upper in {"MOHM", "MOHMS"}:
+        return numeric * 1_000_000.0
+    if unit_upper in {"KΩ", "KOHM", "KOHMS"}:
+        return numeric * 1000.0
+    if unit_upper in {"OHM", "OHMS", "Ω"}:
+        return numeric
+    return None
+
+
+def find_explicit_resistance_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return None
+    raw = raw.replace("Ω", "Ω").replace("ω", "Ω")
+    raw = re.sub(r"\bohms?\b", "OHM", raw, flags=re.I)
+    for match in EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN.finditer(raw):
+        ohm = parse_explicit_resistance_measurement_to_ohm(match.group(1), match.group(2))
+        if ohm is not None:
+            return ohm
+    return None
+
+
 def parse_resistance_token_to_ohm(token):
     raw = clean_text(token).replace(" ", "")
     raw = raw.replace("毫欧", "mΩ")
     raw = raw.replace("OHMS", "Ω").replace("OHM", "Ω").replace("ohms", "Ω").replace("ohm", "Ω")
-    milliohm_match = re.fullmatch(r"(\d+(?:\.\d+)?)(?:mΩ|mR)", raw, flags=re.I)
-    if milliohm_match:
-        return float(milliohm_match.group(1)) / 1000.0
+    explicit_ohm = find_explicit_resistance_in_text(raw)
+    if explicit_ohm is not None:
+        return explicit_ohm
     t = raw.upper()
     if t.endswith("Ω"):
         bare = t[:-1]
@@ -9142,8 +9294,11 @@ def parse_resistance_token_to_ohm(token):
     return None
 
 def find_resistance_in_text(text):
-    upper = clean_text(text).upper().replace("OHMS", "Ω").replace("OHM", "Ω")
-    upper = upper.replace("±", "+/-").replace("卤", "+/-")
+    raw = clean_text(text).replace("±", "+/-").replace("卤", "+/-")
+    explicit_ohm = find_explicit_resistance_in_text(raw)
+    if explicit_ohm is not None:
+        return explicit_ohm
+    upper = raw.upper().replace("OHMS", "Ω").replace("OHM", "Ω")
     ohm_match = RESISTOR_OHM_PATTERN.search(upper)
     if ohm_match:
         return parse_resistance_token_to_ohm(ohm_match.group(1))
@@ -10483,13 +10638,19 @@ def parse_resistor_spec_query(line):
     normalized = normalized.replace("PLUSMINUS", "+/-")
     tokens = [token.strip().upper() for token in normalized.split(" ") if token.strip()]
 
-    component_type = detect_resistor_subtype_hint(raw) or "贴片电阻"
+    component_type_hint = detect_resistor_subtype_hint(raw)
+    component_type = component_type_hint or "贴片电阻"
     if component_type in SPECIAL_RESISTOR_COMPONENT_TYPES:
         return None
     size = find_embedded_size(raw)
     tol = find_tolerance_in_text(raw)
     resistance_ohm = find_resistance_in_text(raw)
     power = find_power_in_text(raw)
+    if component_type_hint == "" and resistance_ohm is not None:
+        compact_raw = clean_model(raw)
+        low_ohm_notation = MILLIOHM_NOTATION_PATTERN.search(raw.replace("Ω", "Ω").replace("ω", "Ω")) is not None
+        if "HOLRS" in compact_raw or "LRS" in compact_raw or (resistance_ohm < 0.01 and low_ohm_notation):
+            component_type = "合金电阻"
     if size == "":
         for token in tokens:
             embedded_size = find_embedded_size(token)
@@ -12337,6 +12498,7 @@ def ensure_component_display_columns(df):
     if row_count > 0 and row_count <= 5000 and "品牌" in out.columns and "型号" in out.columns and "器件类型" in out.columns:
         resistor_display_mask = out["器件类型"].astype(str).apply(normalize_component_type).isin(RESISTOR_COMPONENT_TYPES)
         if resistor_display_mask.any():
+            original_resistor_series_desc = out["系列说明"].astype(str).apply(clean_text)
             profile_series = out.loc[resistor_display_mask].apply(
                 lambda row: infer_resistor_series_profile(
                     row.get("型号", ""),
@@ -12395,6 +12557,8 @@ def ensure_component_display_columns(df):
                     | current_desc.apply(generated_passive_series_description)
                     | redundant_desc_mask
                 ) & profile_desc.ne("")
+                milliohm_has_desc_mask = current_brand.str.upper().str.contains("MILLIOHM", na=False) & current_desc.ne("")
+                replace_desc_mask = replace_desc_mask & ~milliohm_has_desc_mask
                 if replace_desc_mask.any():
                     replace_idx = replace_desc_mask[replace_desc_mask].index
                     out.loc[replace_idx, "系列说明"] = profile_desc.loc[replace_idx]
@@ -12412,6 +12576,14 @@ def ensure_component_display_columns(df):
                 if replace_type_mask.any():
                     replace_idx = replace_type_mask[replace_type_mask].index
                     out.loc[replace_idx, "器件类型"] = profile_type.loc[replace_idx]
+            milliohm_restore_mask = (
+                resistor_display_mask
+                & out["品牌"].astype(str).apply(clean_brand).str.upper().str.contains("MILLIOHM", na=False)
+                & original_resistor_series_desc.ne("")
+            )
+            if milliohm_restore_mask.any():
+                restore_idx = milliohm_restore_mask[milliohm_restore_mask].index
+                out.loc[restore_idx, "系列说明"] = original_resistor_series_desc.loc[restore_idx]
     if "品牌" in out.columns and "型号" in out.columns and "器件类型" in out.columns:
         bourns_cm1309_mask = (
             out["品牌"].astype(str).apply(clean_brand).str.upper().eq("BOURNS")
@@ -12791,13 +12963,20 @@ def non_mlcc_capacitor_dimension_fields_from_record(record):
     if component_type not in CAPACITOR_COMPONENT_TYPES or component_type == "MLCC":
         return {}, "", ""
 
+    cylindrical_body_hint = any(
+        re.search(r"[ØΦ]", clean_text(record.get(col, "")))
+        for col in ["_body_size", "尺寸（mm）", "尺寸(mm)", "规格摘要", "备注1"]
+    )
     source_value = ""
+    source_raw = ""
     parts = []
     for col in ["_body_size", "尺寸（mm）", "尺寸(mm)", "规格摘要", "备注1", "型号"]:
-        candidate_parts = capacitor_body_size_parts(record.get(col, ""))
+        raw_value = record.get(col, "")
+        candidate_parts = capacitor_body_size_parts(raw_value)
         if len(candidate_parts) in {2, 3}:
             parts = candidate_parts
-            source_value = normalize_capacitor_body_size_text(record.get(col, ""))
+            source_raw = clean_text(raw_value)
+            source_value = normalize_capacitor_body_size_text(raw_value)
             break
     if not parts:
         return {}, "", ""
@@ -12808,6 +12987,9 @@ def non_mlcc_capacitor_dimension_fields_from_record(record):
     elif component_type == "铝电解电容":
         fields["直径（mm）"] = parts[0]
         fields["高度（mm）"] = parts[1]
+    elif cylindrical_body_hint or re.search(r"[ØΦ]", source_raw):
+        fields.update(build_dimension_field_map(parts[1], parts[0], parts[0]))
+        fields["直径（mm）"] = parts[0]
     else:
         fields.update(build_dimension_field_map(parts[0], parts[1], ""))
 
@@ -18972,7 +19154,7 @@ def maybe_update_database(force=False, min_interval_sec=60):
 REGRESSION_CASE_COLUMNS = [
     "case_id", "query", "expected_mode", "expected_size", "expected_material",
     "expected_value", "expected_unit", "expected_tolerance", "expected_voltage",
-    "min_match_count", "notes"
+    "min_match_count", "notes", "expected_top_brand", "expected_top_model_contains"
 ]
 
 REGRESSION_MODE_MAP = {
@@ -19222,10 +19404,14 @@ def make_table_widget_key(prefix, *parts):
 
 def build_regression_case_result(df, case_row):
     query = clean_text(case_row.get("query", ""))
-    detect_df = pd.DataFrame() if looks_like_compact_part_query(query) else df
-    mode, spec = detect_query_mode_and_spec(detect_df, query)
+    resolved = resolve_search_query_dataframe_and_spec(
+        query,
+        get_full_search_df=lambda: df,
+    )
+    mode = resolved.get("mode", "无法识别")
+    spec = resolved.get("spec", None)
     mode_code = REGRESSION_MODE_MAP.get(mode, clean_text(mode).lower())
-    query_df = load_search_dataframe_for_query(mode, spec, query_text=query) if spec is not None else None
+    query_df = resolved.get("query_df", None)
     if not isinstance(query_df, pd.DataFrame) or query_df.empty:
         query_df = df
     matched = cached_run_query_match(query_df, mode, spec, query_text=query)
@@ -19632,6 +19818,46 @@ def prepare_search_dataframe(df):
                 work["_res_ohm"] = work["_res_ohm"].astype("object")
             resistor_text = build_search_text_series(work.loc[resistor_index], resistor_text_columns)
             work.loc[resistor_index, "_res_ohm"] = resistor_text.apply(find_resistance_in_text)
+        explicit_resistor_text_columns = ["规格摘要", "备注1", "备注3"]
+        explicit_resistor_text = build_search_text_series(work.loc[resistor_like_mask], explicit_resistor_text_columns)
+        has_explicit_resistance = explicit_resistor_text.str.contains(
+            r"\d+(?:\.\d+)?\s*(?:mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])",
+            case=False,
+            regex=True,
+            na=False,
+        )
+        if has_explicit_resistance.any():
+            explicit_idx = has_explicit_resistance[has_explicit_resistance].index
+            explicit_res_ohm = explicit_resistor_text.loc[explicit_idx].apply(find_explicit_resistance_in_text)
+            explicit_res_ohm = pd.to_numeric(explicit_res_ohm, errors="coerce").dropna()
+            if len(explicit_res_ohm) > 0:
+                if work["_res_ohm"].dtype != "object":
+                    work["_res_ohm"] = work["_res_ohm"].astype("object")
+                current_res_ohm = pd.to_numeric(work.loc[explicit_res_ohm.index, "_res_ohm"], errors="coerce")
+                difference = (current_res_ohm - explicit_res_ohm).abs()
+                tolerance = explicit_res_ohm.abs().clip(lower=1.0) * 1e-9
+                override_mask = current_res_ohm.isna() | difference.gt(tolerance)
+                override_idx = override_mask[override_mask].index
+                if len(override_idx) > 0:
+                    work.loc[override_idx, "_res_ohm"] = explicit_res_ohm.loc[override_idx].astype(float)
+                normalized_idx = explicit_res_ohm.index
+                if len(normalized_idx) > 0:
+                    if "_resistance_ohm" not in work.columns:
+                        work["_resistance_ohm"] = pd.Series([None] * len(work), index=work.index, dtype="object")
+                    work.loc[normalized_idx, "_resistance_ohm"] = explicit_res_ohm.loc[normalized_idx].astype(float)
+                    normalized_values = pd.DataFrame(
+                        [ohm_to_library_value_unit(value) for value in explicit_res_ohm.loc[normalized_idx]],
+                        index=normalized_idx,
+                        columns=["_normalized_value", "_normalized_unit"],
+                    )
+                    if "容值" in work.columns:
+                        work.loc[normalized_idx, "容值"] = normalized_values["_normalized_value"]
+                    if "容值单位" in work.columns:
+                        work.loc[normalized_idx, "容值单位"] = normalized_values["_normalized_unit"]
+                    if "_value_num" in work.columns:
+                        work.loc[normalized_idx, "_value_num"] = pd.to_numeric(normalized_values["_normalized_value"], errors="coerce")
+                    if "_unit_upper" in work.columns:
+                        work.loc[normalized_idx, "_unit_upper"] = normalized_values["_normalized_unit"].apply(lambda value: normalize_search_sidecar_value(value).upper() if normalize_search_sidecar_value(value) is not None else None)
     return work
 
 
@@ -23953,10 +24179,15 @@ def apply_match_levels_and_sort(df, spec):
         work["_seed_rank"] = work["_model_rule_authority"].astype(str).apply(lambda value: 0 if clean_text(value) == "jianghai_seed" else 1)
     else:
         work["_seed_rank"] = 1
+    spec_model = clean_model(spec.get("型号", ""))
+    if spec_model != "" and "型号" in work.columns:
+        work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
+    else:
+        work["_exact_model_rank"] = 1
     work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
     if target_type in CAPACITOR_COMPONENT_TYPES:
-        sort_cols = ["_seed_rank", "_level_rank", "_brand_rank"]
-        ascending = [True, True, True]
+        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank"]
+        ascending = [True, True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -23966,8 +24197,8 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["品牌", "型号"])
         ascending.extend([True, True])
     else:
-        sort_cols = ["_seed_rank", "_level_rank"]
-        ascending = [True, True]
+        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank"]
+        ascending = [True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -23977,7 +24208,7 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["_brand_rank", "品牌", "型号"])
         ascending.extend([True, True, True])
     work = work.sort_values(by=sort_cols, ascending=ascending)
-    return work.drop(columns=["_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
+    return work.drop(columns=["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
 
 def detect_query_mode_and_spec(df, line):
     semiconductor_hint = detect_unsupported_semiconductor_type(line)
@@ -25886,6 +26117,37 @@ def resolve_search_query_dataframe_and_spec(
                 "used_full_df": False,
                 "candidate_rows": candidate_rows,
             }
+
+    if mode in {"无法识别", "规格不足", "解析失败"}:
+        model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
+        if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
+            token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
+            if token_mode != "无法识别" and token_spec is not None:
+                emit(
+                    2,
+                    "已从粘连输入中识别料号",
+                    f"已命中 {matched_model_token}，按该料号反推规格继续查同规格候选",
+                    "料号拆分",
+                    "success",
+                    candidate_rows=len(model_token_rows),
+                )
+                query_df = load_search_dataframe_for_query(
+                    token_mode,
+                    token_spec,
+                    line,
+                    exact_part_rows=model_token_rows,
+                )
+                candidate_rows = len(query_df) if isinstance(query_df, pd.DataFrame) else 0
+                if isinstance(query_df, pd.DataFrame) and not query_df.empty:
+                    return {
+                        "query_df": query_df,
+                        "mode": token_mode,
+                        "spec": token_spec,
+                        "resolution_path": "model_token_prefix_lookup",
+                        "used_full_df": False,
+                        "candidate_rows": candidate_rows,
+                    }
+                mode, spec = token_mode, token_spec
 
     if looks_like_compact_part_query(line):
         emit(2, "正在按料号直查数据库", "命名规则未完整命中时，先尝试数据库精确料号直查", "数据库直查")
