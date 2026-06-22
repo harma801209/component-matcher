@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-06-22 - FRC 1% zero-ohm rows missed the shared 5% price
+
+- Bug: FOJAN FRC 1% zero-ohm resistor rows showed blank cost because the pricing table has no 1% price in the 0R rows.
+- Root cause: `lookup_resistor_series_pricing()` selected only the tolerance-specific price column. For FRC, zero-ohm 1% pricing is a business exception: it should use the same price as the 5% zero-ohm row for the same size and power.
+- Fix: Added a narrow fallback for `FRC + 1% + 0Ω` to read the matching rule's `Price5Percent` when `Price1Percent` is blank.
+- Verification: Direct checks return `FRC0201/0402/0603/1206 0Ω ±1%` prices from the 5% 0R rows; `FRC0603 10Ω ±1%` still uses the 1% column; FRL pricing is unchanged. Display checks for `0603 0R 1%`, `0402 0R 1%`, and `1206 0R 1%` show FRC cost/MOQ populated.
+
 ## 2026-05-29 - Slash-separated MLCC spec treated capacitance as tolerance
 
 - Bug: Query `0603/NPO/12pF/5%/100V` showed `容值误差=12pF` and returned zero matches even though the database contains matching 0603 COG/NPO 12pF 5% 100V MLCC rows.

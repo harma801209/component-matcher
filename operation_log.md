@@ -2662,3 +2662,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The resistor-context blocker treated any compact `NF/UF/PF` substring as capacitance evidence. `Halogen-free` compacted to `HALOGENFREE`, which contains `NF` but is only an environmental-compliance phrase.
 - Change / action: Added `has_explicit_capacitance_value_token()` and changed resistor context detection to only block on real capacitance values such as `10nF`, `0.1uF`, `33pF`, `4n7`, or `1u0`. Bumped query/public cache stamps and Cloudflare cache buster to `20260622-halogen-resistor-1`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Parser checks route the original query as chip resistor with size `0603`, resistance `10 ohm`, tolerance `5%`; full resolver uses `fast_query` and final matching returns 99 resistor rows with no MLCC rows. Guard query `0603 10nF +/-5% Halogen-free` still routes as MLCC.
+
+### 2026-06-22 16:08 [debug] Added FOJAN FRC 1% zero-ohm price fallback
+
+- Received / problem: User clarified that FRC 1% zero-ohm pricing is omitted from the table but should equal the 5% zero-ohm price for every size.
+- Root cause: The pricing matcher selected only the tolerance-specific price column, so `FRC + 0Ω + ±1%` returned blank cost when the 1% column was empty.
+- Change / action: Added a narrow fallback in `lookup_resistor_series_pricing()` for `FRC + 1% + 0Ω` to use the matched rule's 5% price. Refreshed public stamps and Cloudflare cache buster to `20260622-fojan-zero-ohm-price-1`.
+- Verification: Direct checks return FRC 0201/0402/0603/1206 1% zero-ohm prices from the 5% row, keep FRC 10Ω 1% on the 1% column, and leave FRQ blank because it is not priced. Display checks for `0603 0R 1%`, `0402 0R 1%`, and `1206 0R 1%` show FRC cost/MOQ populated.

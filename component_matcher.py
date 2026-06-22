@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 61
+QUERY_RESULT_CACHE_VERSION = 62
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-22T15:55:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-22T16:08:00+08:00"
 
 
 def startup_trace(message):
@@ -10184,6 +10184,8 @@ def lookup_resistor_series_pricing(row):
         if rule.get("type_dimension_norm") != type_dimension:
             continue
         price = select_resistor_segment_price(rule.get("range", ""), rule.get(price_key, ""), resistance_ohm)
+        if price == "" and series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
+            price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_5", ""), resistance_ohm)
         if price != "":
             return {"成本": price, "MOQ": rule.get("package", "")}
     return {"成本": "", "MOQ": ""}
