@@ -4,6 +4,11 @@ RES_SPEC_0402_1MR_MILLIOHM_LOWER,0402 1mR 5% 1/16W,resistor,0402,,1,MILLIOHM,5,,
 RES_SPEC_UNIROYAL_0402_1M_SEMICOLON,1M;5%;0402;0402WGJ0105TCE;厚声,resistor,0402,,1,MOHM,5,,1,Semicolon resistor spec with a known 105-coded 1M model must return 1MΩ candidates,,
 RES_PART_FOJAN_FRC0402J106TS,FRC0402J106TS,part,0402,,10,MOHM,5,,1,106-coded FOJAN chip resistor must be 10MΩ not milliohm,FOJAN,FRC0402J106TS
 RES_SPEC_COMPOUND_FOJAN_1M_PREFIX,FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声,part,0402,,1,MOHM,5,,1,Compound input with FOJAN model glued to 1M spec must still surface the FOJAN 105-coded part,FOJAN,FRC0402J105TS
+RES_PART_UNIROYAL_2512_470MOHM,25121WF470LT4E,part,2512,,470,MILLIOHM,1,,1,Uni-Royal low-ohm letter code 470L must parse as 470mΩ rather than 47Ω,厚声UNI-ROYAL,25121WF470LT4E
+RES_PART_UNIROYAL_2010_3R9,201007F390KT4E,part,2010,,3.9,OHM,1,,1,Uni-Royal low-ohm letter code 390K must parse as 3.9Ω rather than 390kΩ,厚声UNI-ROYAL,201007F390KT4E
+RES_PART_UNIROYAL_2010_71R5,201007F715JT4E,part,2010,,71.5,OHM,1,,1,Uni-Royal low-ohm letter code 715J must parse as 71.5Ω rather than 7.15MΩ,厚声UNI-ROYAL,201007F715JT4E
+RES_SPEC_0402_1M_1_16W_POWER_BROAD,0402 1M 5% 1/16W,resistor,0402,,1,MOHM,5,,50,Resistor power filtering should keep 63mW and higher-rated same-size candidates for a 1/16W requirement,FOJAN,FRC0402J105TS
+RES_SPEC_1206_10MOHM_1_4W_POWER_BROAD,1206 10mΩ 1% 1/4W,resistor,1206,,10,MILLIOHM,1,,40,Low-ohm resistor search should keep same-size candidates rated at 1/4W or above instead of exact-power pruning,,
 MLCC_PDC_FS_HIGHCAP_X5R_10UF_6R3V,FS21B106K6R3ECG,part,0805,X5R,10,UF,10,6.3,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
 MLCC_PDC_FS_HIGHCAP_X5R_4R7UF_10V,FS21B475K100ECG,part,0805,X5R,4.7,UF,10,10,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
 MLCC_PDC_FS_HIGHCAP_X7R_10UF_10V,FS21X106K100EIG,part,0805,X7R,10,UF,10,10,1,PDC FS high-cap MLCC must not hard-filter same-spec regular MLCC alternatives,,
@@ -77,3 +82,8 @@ MLCC_HRE_CGA0805_SIZE_FIRST,CGA0805X7R225K500MT,part,0805,X7R,2.2,UF,10,50,1,HRE
 RES_SPEC_0603_510MR_1PCT,0603 510mr 1%,resistor,0603,,510,MILLIOHM,1,,1,mR/mr milliohm notation should parse as 510mΩ and search low-ohm 0603 resistors,,
 RES_SPEC_HOLRS_HYPHEN_MR_POWER,HoLRS6568-5W-0.1mR-1%,part,6568,,0.1,MILLIOHM,1,,1,Hyphenated HoLRS milliohm power query should resolve as official-source exact part and avoid full-dataframe fallback,Milliohm,
 RES_MILLIOHM_HOLR2512D_1MR_3PCT,HoLR2512D-3W-1mR-3%,part,2512,,1,MILLIOHM,3,,1,Milliohm HoLR2512D exact part should parse power/resistance/tolerance from the official model rule and return the source-backed row,Milliohm,HoLR2512D-3W-1mR-3%
+RES_MILLIOHM_HOLLR2010_2MR_1PCT,HoLLR2010-1.5W-2mR-1%,part,2010,,2,MILLIOHM,1,,1,Milliohm HoLLR2010 exact part should parse as 2010 2mΩ 1% 1.5W instead of reading the size as resistance,Milliohm,HoLLR2010-1.5W-2mR-1%
+RES_RALEC_LR1210_2MR_5PCT,LR1210-2AR002J4,part,1210,,2,MILLIOHM,5,,1,RALEC LR1210 official low-ohm model should resolve as 1210 2mΩ 5% 1.5W,旺诠RALEC,LR1210-2AR002J4
+RES_BOURNS_CRF0805_1MR_5PCT,CRF0805-JZ-R001ELF,part,0805,,1,MILLIOHM,5,,1,Bourns CRF0805 official metal-foil current-sense row should resolve as 0805 1mΩ 5% 0.5W,Bourns,CRF0805-JZ-R001ELF
+RES_SPEC_0603_1K_5PCT_1_16W,1K 5% 1/16W 0603,resistor,0603,,,,5,,90,0603 1K 5pct 1/16W should keep higher-power FOJAN FRC0603J102TS and FRQ0603J102TS candidates available,,
+RES_PART_FOJAN_FRC0603J102TS,FRC0603J102TS,part,0603,,,,5,,1,FOJAN FRC0603J102TS exact part should remain available as 0603 1K 5pct thick-film resistor,FOJAN,FRC0603J102TS

@@ -25,6 +25,7 @@ import ssl
 import warnings
 import traceback
 from copy import copy
+from decimal import Decimal
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -80,12 +81,17 @@ MLCC_OFFICIAL_DIMENSION_CACHE_PATH = os.path.join(BASE_DIR, "cache", "mlcc_offic
 PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_v5_meta.json")
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
+NO_MATCH_REPORT_DB_PATH = os.path.join(BASE_DIR, "cache", "no_match_reports.sqlite")
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
 STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip.part*")
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
 STREAMLIT_CLOUD_BUNDLE_STATE_PATH = os.path.join(BASE_DIR, "cache", "streamlit_cloud_bundle_state.json")
 MANUAL_CORRECTION_RULES_PATH = os.path.join(BASE_DIR, "cache", "manual_correction_rules.csv")
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
+NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
+NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
+NO_MATCH_ADMIN_DEFAULT_USERNAME = "amdin"
+NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
@@ -93,7 +99,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 53
+QUERY_RESULT_CACHE_VERSION = 59
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -118,7 +124,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-15T17:05:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-18T18:22:00+08:00"
 
 
 def startup_trace(message):
@@ -130,6 +136,494 @@ def startup_trace(message):
             handle.write(f"{time.time():.6f} {message}\n")
     except Exception:
         pass
+
+
+def current_timestamp_text():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def json_safe_value(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return clean_text(value) if "clean_text" in globals() else str(value)
+
+
+def json_safe_dict(data):
+    if not isinstance(data, dict):
+        return {}
+    safe = {}
+    for key, value in data.items():
+        if str(key).startswith("_") and key not in {"_resistance_ohm", "_power", "_unsupported_reason"}:
+            continue
+        safe[str(key)] = json_safe_value(value)
+    return safe
+
+
+def init_no_match_report_db():
+    os.makedirs(os.path.dirname(NO_MATCH_REPORT_DB_PATH), exist_ok=True)
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS no_match_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_text TEXT NOT NULL,
+                normalized_query TEXT NOT NULL,
+                mode TEXT,
+                component_type TEXT,
+                reason TEXT,
+                resolution_path TEXT,
+                candidate_rows INTEGER DEFAULT 0,
+                matched_rows INTEGER DEFAULT 0,
+                part_brand TEXT,
+                part_model TEXT,
+                spec_json TEXT,
+                status TEXT NOT NULL DEFAULT '待处理',
+                report_count INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolved_note TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_no_match_reports_status ON no_match_reports(status, updated_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_no_match_reports_query ON no_match_reports(normalized_query, status)")
+        conn.commit()
+
+
+def normalize_no_match_report_query(query_text):
+    return re.sub(r"\s+", " ", clean_text(query_text)).strip().upper()
+
+
+def first_part_brand_model(part_info_df):
+    if not isinstance(part_info_df, pd.DataFrame) or part_info_df.empty:
+        return "", ""
+    row = part_info_df.iloc[0]
+    return clean_brand(row.get("品牌", "")), clean_model(row.get("型号", ""))
+
+
+def submit_no_match_report(
+    query_text,
+    mode="",
+    spec=None,
+    part_info_df=None,
+    part_brand="",
+    part_model="",
+    reason="",
+    resolution_path="",
+    candidate_rows=0,
+    matched_rows=0,
+):
+    init_no_match_report_db()
+    query_text = clean_text(query_text)
+    normalized_query = normalize_no_match_report_query(query_text)
+    if normalized_query == "":
+        return False, "回报内容为空，未提交。", None
+    component_type = infer_spec_component_type(spec) if isinstance(spec, dict) else ""
+    part_brand = clean_brand(part_brand)
+    part_model = clean_model(part_model)
+    if part_brand == "" and part_model == "":
+        part_brand, part_model = first_part_brand_model(part_info_df)
+    now_text = current_timestamp_text()
+    spec_json = json.dumps(json_safe_dict(spec or {}), ensure_ascii=False, sort_keys=True)
+    try:
+        candidate_rows = int(candidate_rows or 0)
+    except Exception:
+        candidate_rows = 0
+    try:
+        matched_rows = int(matched_rows or 0)
+    except Exception:
+        matched_rows = 0
+
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        existing = conn.execute(
+            """
+            SELECT id, report_count
+            FROM no_match_reports
+            WHERE normalized_query = ? AND status = '待处理'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (normalized_query,),
+        ).fetchone()
+        if existing is not None:
+            report_id, report_count = existing
+            conn.execute(
+                """
+                UPDATE no_match_reports
+                SET report_count = ?, updated_at = ?, mode = ?, component_type = ?, reason = ?,
+                    resolution_path = ?, candidate_rows = ?, matched_rows = ?, part_brand = ?, part_model = ?,
+                    spec_json = ?
+                WHERE id = ?
+                """,
+                (
+                    int(report_count or 1) + 1,
+                    now_text,
+                    clean_text(mode),
+                    clean_text(component_type),
+                    clean_text(reason),
+                    clean_text(resolution_path),
+                    candidate_rows,
+                    matched_rows,
+                    part_brand,
+                    part_model,
+                    spec_json,
+                    int(report_id),
+                ),
+            )
+            conn.commit()
+            return True, f"后台已有同一条待处理回报，已累计回报次数（#{report_id}）。", int(report_id)
+
+        cur = conn.execute(
+            """
+            INSERT INTO no_match_reports (
+                query_text, normalized_query, mode, component_type, reason, resolution_path,
+                candidate_rows, matched_rows, part_brand, part_model, spec_json,
+                status, report_count, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '待处理', 1, ?, ?)
+            """,
+            (
+                query_text,
+                normalized_query,
+                clean_text(mode),
+                clean_text(component_type),
+                clean_text(reason),
+                clean_text(resolution_path),
+                candidate_rows,
+                matched_rows,
+                part_brand,
+                part_model,
+                spec_json,
+                now_text,
+                now_text,
+            ),
+        )
+        conn.commit()
+        return True, f"已提交到后台待处理列表（#{cur.lastrowid}）。", int(cur.lastrowid)
+
+
+def submit_no_match_report_payload(payload):
+    payload = dict(payload or {})
+    ok, message, report_id = submit_no_match_report(**payload)
+    st.session_state["_no_match_report_last_message"] = {
+        "ok": bool(ok),
+        "message": clean_text(message),
+        "report_id": report_id,
+    }
+
+
+def list_no_match_reports(status_filter="待处理"):
+    init_no_match_report_db()
+    status_filter = clean_text(status_filter)
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        if status_filter in {"待处理", "已解决"}:
+            rows = conn.execute(
+                "SELECT * FROM no_match_reports WHERE status = ? ORDER BY updated_at DESC, id DESC",
+                (status_filter,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM no_match_reports ORDER BY updated_at DESC, id DESC").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_no_match_report_counts():
+    init_no_match_report_db()
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        rows = conn.execute("SELECT status, COUNT(*) FROM no_match_reports GROUP BY status").fetchall()
+    counts = {"待处理": 0, "已解决": 0}
+    for status, count in rows:
+        counts[clean_text(status)] = int(count or 0)
+    counts["全部"] = sum(counts.values())
+    return counts
+
+
+def resolve_no_match_report(report_id, resolved_note=""):
+    init_no_match_report_db()
+    now_text = current_timestamp_text()
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        cur = conn.execute(
+            """
+            UPDATE no_match_reports
+            SET status = '已解决', resolved_at = ?, resolved_note = ?, updated_at = ?
+            WHERE id = ? AND status != '已解决'
+            """,
+            (now_text, clean_text(resolved_note), now_text, int(report_id)),
+        )
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def get_config_text(name, default=""):
+    value = None
+    try:
+        secrets = getattr(st, "secrets", {})
+        if hasattr(secrets, "get"):
+            value = secrets.get(name, None)
+    except Exception:
+        value = None
+    if value is None or clean_text(value) == "":
+        value = os.getenv(name, default)
+    value = clean_text(value)
+    return value if value != "" else clean_text(default)
+
+
+def get_no_match_admin_credentials():
+    return (
+        get_config_text(NO_MATCH_ADMIN_USERNAME_ENV, NO_MATCH_ADMIN_DEFAULT_USERNAME),
+        get_config_text(NO_MATCH_ADMIN_PASSWORD_ENV, NO_MATCH_ADMIN_DEFAULT_PASSWORD),
+    )
+
+
+def no_match_admin_login_valid(username, password):
+    expected_username, expected_password = get_no_match_admin_credentials()
+    return hmac.compare_digest(clean_text(username), expected_username) and hmac.compare_digest(
+        clean_text(password),
+        expected_password,
+    )
+
+
+def logout_no_match_admin():
+    st.session_state.pop("_no_match_admin_authenticated", None)
+
+
+def render_no_match_admin_login():
+    st.markdown(
+        '<div class="admin-help-text">后台内容需要登录后查看。</div>',
+        unsafe_allow_html=True,
+    )
+    with st.form("no_match_admin_login_form"):
+        username = st.text_input("账号")
+        password = st.text_input("密码", type="password")
+        submitted = st.form_submit_button("登入后台", use_container_width=True)
+        if submitted:
+            if no_match_admin_login_valid(username, password):
+                st.session_state["_no_match_admin_authenticated"] = True
+                st.success("登录成功。")
+                st.rerun()
+            else:
+                st.error("账号或密码不正确。")
+
+
+def require_no_match_admin_login():
+    if st.session_state.get("_no_match_admin_authenticated") is True:
+        return True
+    render_no_match_admin_login()
+    return False
+
+
+def is_no_match_admin_page_requested():
+    return get_query_param_value("admin").lower() in {"1", "true", "yes", "on", "backend"}
+
+
+def render_no_match_admin_entry_button():
+    admin_active = is_no_match_admin_page_requested()
+    authenticated = st.session_state.get("_no_match_admin_authenticated") is True
+    if admin_active:
+        label = "返回搜索"
+        href = "?admin=0"
+        css_class = "admin-login-fixed secondary"
+    else:
+        label = "进入后台" if authenticated else "登入后台"
+        href = "?admin=1"
+        css_class = "admin-login-fixed"
+    st.markdown(
+        f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_no_match_report_button(
+    query_text,
+    mode="",
+    spec=None,
+    part_info_df=None,
+    reason="",
+    resolution_path="",
+    candidate_rows=0,
+    matched_rows=0,
+    key_prefix="no_match_report",
+):
+    key_source = json.dumps(
+        {
+            "query": clean_text(query_text),
+            "mode": clean_text(mode),
+            "reason": clean_text(reason),
+            "resolution_path": clean_text(resolution_path),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    key_hash = hashlib.sha256(key_source.encode("utf-8")).hexdigest()[:16]
+    part_brand, part_model = first_part_brand_model(part_info_df)
+    payload = {
+        "query_text": query_text,
+        "mode": mode,
+        "spec": spec,
+        "part_brand": part_brand,
+        "part_model": part_model,
+        "reason": reason,
+        "resolution_path": resolution_path,
+        "candidate_rows": candidate_rows,
+        "matched_rows": matched_rows,
+    }
+    st.button(
+        "回报物料无匹配型号",
+        key=f"{key_prefix}_{key_hash}",
+        use_container_width=True,
+        on_click=submit_no_match_report_payload,
+        args=(payload,),
+    )
+
+
+def render_no_alt_match_report_row(
+    query_text,
+    mode="",
+    spec=None,
+    part_info_df=None,
+    reason="已找到原厂料号资料，暂未找到其他品牌替代结果",
+    resolution_path="",
+    candidate_rows=0,
+    matched_rows=0,
+):
+    left_col, right_col = st.columns([0.78, 0.22], gap="small")
+    with left_col:
+        st.markdown(
+            f'<div class="native-no-alt-match-alert">{html.escape(reason)}</div>',
+            unsafe_allow_html=True,
+        )
+    with right_col:
+        render_no_match_report_button(
+            query_text=query_text,
+            mode=mode,
+            spec=spec,
+            part_info_df=part_info_df,
+            reason=reason,
+            resolution_path=resolution_path,
+            candidate_rows=candidate_rows,
+            matched_rows=matched_rows,
+            key_prefix="no_alt_report",
+        )
+
+
+def no_match_report_summary_dataframe(reports):
+    if not reports:
+        return pd.DataFrame()
+    rows = []
+    for report in reports:
+        rows.append(
+            {
+                "ID": report.get("id", ""),
+                "状态": report.get("status", ""),
+                "输入型号/规格": report.get("query_text", ""),
+                "器件类型": report.get("component_type", ""),
+                "原厂品牌": report.get("part_brand", ""),
+                "原厂型号": report.get("part_model", ""),
+                "回报次数": report.get("report_count", 1),
+                "原因": report.get("reason", ""),
+                "提交时间": report.get("created_at", ""),
+                "更新时间": report.get("updated_at", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_no_match_report_admin_page():
+    st.markdown('<div class="result-title">无匹配物料回报后台</div>', unsafe_allow_html=True)
+    if not require_no_match_admin_login():
+        return
+
+    admin_cols = st.columns([0.78, 0.22], gap="small")
+    with admin_cols[0]:
+        st.markdown(
+            '<div class="admin-help-text">这里显示用户回报的“没有匹配型号 / 没有替代型号”记录。'
+            '确认已经补库或修正规则后，点击对应记录的“已解决”即可结案。</div>',
+            unsafe_allow_html=True,
+        )
+    with admin_cols[1]:
+        st.button("退出后台", use_container_width=True, on_click=logout_no_match_admin)
+
+    counts = get_no_match_report_counts()
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("待处理", counts.get("待处理", 0))
+    metric_cols[1].metric("已解决", counts.get("已解决", 0))
+    metric_cols[2].metric("全部", counts.get("全部", 0))
+
+    status_filter = st.radio(
+        "回报状态",
+        ["待处理", "已解决", "全部"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="no_match_report_status_filter",
+    )
+    reports = list_no_match_reports(status_filter)
+    if not reports:
+        st.info("当前没有符合条件的回报。")
+        return
+
+    summary_df = no_match_report_summary_dataframe(reports)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    for report in reports:
+        title_parts = [
+            f"#{report.get('id')}",
+            clean_text(report.get("query_text", "")) or "-",
+        ]
+        part_model = clean_text(report.get("part_model", ""))
+        if part_model:
+            title_parts.append(part_model)
+        with st.expander(" · ".join(title_parts), expanded=clean_text(report.get("status", "")) == "待处理"):
+            detail_cols = st.columns(2)
+            with detail_cols[0]:
+                st.write(f"状态：{report.get('status', '-')}")
+                st.write(f"输入：{report.get('query_text', '-')}")
+                st.write(f"模式：{report.get('mode', '-')}")
+                st.write(f"器件类型：{report.get('component_type', '-')}")
+                st.write(f"原因：{report.get('reason', '-')}")
+            with detail_cols[1]:
+                st.write(f"原厂品牌：{report.get('part_brand') or '-'}")
+                st.write(f"原厂型号：{report.get('part_model') or '-'}")
+                st.write(f"候选数：{report.get('candidate_rows', 0)}")
+                st.write(f"匹配数：{report.get('matched_rows', 0)}")
+                st.write(f"回报次数：{report.get('report_count', 1)}")
+            spec_json = clean_text(report.get("spec_json", ""))
+            if spec_json:
+                try:
+                    spec_data = json.loads(spec_json)
+                except Exception:
+                    spec_data = {}
+                if spec_data:
+                    spec_rows = [
+                        {"字段": key, "值": value}
+                        for key, value in spec_data.items()
+                        if clean_text(value) != ""
+                    ]
+                    if spec_rows:
+                        st.caption("解析到的规格")
+                        st.dataframe(pd.DataFrame(spec_rows), use_container_width=True, hide_index=True)
+            if clean_text(report.get("status", "")) != "已解决":
+                with st.form(f"resolve_no_match_report_{report.get('id')}"):
+                    resolved_note = st.text_area("处理备注", key=f"resolve_note_{report.get('id')}")
+                    submitted = st.form_submit_button("已解决", use_container_width=True)
+                    if submitted:
+                        if resolve_no_match_report(int(report.get("id")), resolved_note):
+                            st.success("已结案。")
+                            st.rerun()
+                        else:
+                            st.warning("这条记录已经结案或不存在。")
+            else:
+                st.write(f"结案时间：{report.get('resolved_at') or '-'}")
+                note = clean_text(report.get("resolved_note", ""))
+                if note:
+                    st.write(f"结案备注：{note}")
 
 
 def bundle_member_path_for_local_path(path):
@@ -756,6 +1250,68 @@ footer {visibility: hidden;}
     color: #6b7280;
     margin-bottom: 12px;
     line-height: 1.55;
+}
+.native-no-alt-match-alert {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    padding: 12px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(59, 130, 246, 0.32);
+    background: linear-gradient(180deg, rgba(219, 234, 254, 0.92), rgba(239, 246, 255, 0.92));
+    color: #1e40af;
+    font-size: 18px;
+    font-weight: 800;
+}
+.admin-help-text {
+    margin: 4px 0 14px 0;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.6;
+}
+.admin-login-fixed {
+    position: fixed;
+    top: 18px;
+    right: 28px;
+    z-index: 100000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    background: #1d4ed8;
+    color: #ffffff !important;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none !important;
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.20);
+}
+.admin-login-fixed:hover {
+    background: #1e40af;
+    color: #ffffff !important;
+    text-decoration: none !important;
+}
+.admin-login-fixed.secondary {
+    border-color: rgba(100, 116, 139, 0.26);
+    background: #475569;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+.admin-login-fixed.secondary:hover {
+    background: #334155;
+}
+@media (max-width: 700px) {
+    .admin-login-fixed {
+        top: 12px;
+        right: 12px;
+        min-width: 86px;
+        height: 34px;
+        padding: 0 12px;
+        font-size: 13px;
+    }
 }
 .interp-chip-row {
     display: flex;
@@ -1527,6 +2083,7 @@ RALEC_LR_POWER_CODE_MAP = {
     "5": "5W",
 }
 RALEC_LR_DIMENSIONS_MM = {
+    "1210": ("3.20", "2.54", "0.88"),
     "2512": ("6.25", "3.20", "1.00"),
 }
 PDC_FMF_SIZE_CODE_MAP = {
@@ -1567,7 +2124,7 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "特殊用途": "车规 | 电流检测",
 }
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
     "01": "01005",
@@ -3485,6 +4042,75 @@ def parse_numeric_resistor_code(code):
     return None
 
 
+UNIROYAL_LOW_OHM_LETTER_MULTIPLIERS = {
+    "J": 0.1,
+    "K": 0.01,
+    "L": 0.001,
+}
+
+
+def parse_uniroyal_resistor_value_code(code):
+    token = clean_text(code).upper().replace("Ω", "").replace("OHMS", "").replace("OHM", "")
+    if token == "":
+        return None
+    low_ohm_match = re.fullmatch(r"(\d{2,4})([JKL])", token)
+    if low_ohm_match is not None:
+        multiplier = UNIROYAL_LOW_OHM_LETTER_MULTIPLIERS.get(low_ohm_match.group(2))
+        if multiplier is None:
+            return None
+        return float(int(low_ohm_match.group(1)) * multiplier)
+    return parse_resistor_value_code(token)
+
+
+def looks_like_uniroyal_resistor_model(model, brand=""):
+    compact = clean_model(model)
+    if compact == "":
+        return False
+    brand_upper = clean_brand(brand).upper()
+    if any(token in brand_upper for token in ["UNI-ROYAL", "UNIROYAL", "厚声"]):
+        return True
+    if re.match(r"^(?:01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)", compact):
+        return True
+    return re.match(r"^(?:AS|CM|CQ|CS|ES|HP|HQ|HS|HV|LE|LT|NM|NQ|NS|PF|PS|TC|VS|WR)\d{2}", compact) is not None
+
+
+def extract_uniroyal_resistor_size_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return ""
+    if compact.startswith("01005"):
+        return "01005"
+    size_match = re.match(r"^(0201|0402|0603|0805|1206|1210|1812|2010|2512)", compact)
+    if size_match is not None:
+        return clean_size(size_match.group(1))
+    prefix_match = re.match(r"^(?:AS|CM|CQ|CS|ES|HP|HQ|HS|HV|LE|LT|NM|NQ|NS|PF|PS|TC|VS|WR)(\d{2})", compact)
+    if prefix_match is None:
+        return ""
+    return clean_size(UNIROYAL_RESISTOR_SIZE_MAP.get(prefix_match.group(1), ""))
+
+
+def extract_uniroyal_resistor_value_from_model(model):
+    compact = clean_model(model)
+    if compact == "":
+        return None, ""
+    value_pattern = r"(?P<value>R\d{3,}|\d+R\d*|\d{2,4}[JKL]|\d{3,4})"
+    structure_patterns = [
+        rf"^(?:01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)[A-Z0-9]{{2}}[BCDFGJKM]{value_pattern}",
+        rf"^(?:01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)[BCDFGJKM]{value_pattern}",
+        rf"^(?:AS|CM|CQ|CS|ES|HP|HQ|HS|HV|LE|LT|NM|NQ|NS|PF|PS|TC|VS|WR)\d{{2}}[A-Z0-9]{{2}}[BCDFGJKM]{value_pattern}",
+        rf"^(?:AS|CM|CQ|CS|ES|HP|HQ|HS|HV|LE|LT|NM|NQ|NS|PF|PS|TC|VS|WR)\d{{2}}[BCDFGJKM]{value_pattern}",
+    ]
+    for pattern in structure_patterns:
+        match = re.match(pattern, compact)
+        if match is None:
+            continue
+        value_code = clean_text(match.group("value")).upper()
+        resistance_ohm = parse_uniroyal_resistor_value_code(value_code)
+        if resistance_ohm is not None:
+            return resistance_ohm, value_code
+    return None, ""
+
+
 def parse_eia96_resistor_code(code):
     token = clean_text(code).upper()
     if not re.fullmatch(r"\d{2}[A-Z]", token):
@@ -3843,6 +4469,7 @@ def parse_ralec_lr_alloy_resistor_model(model, brand="", component_type=""):
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
     power_text = clean_text(RALEC_LR_POWER_CODE_MAP.get(match.group("power"), ""))
     value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    resistance_ohm_text = f"{resistance_ohm:g}"
     dimensions = RALEC_LR_DIMENSIONS_MM.get(size, ("", "", ""))
     series_profile = infer_resistor_series_profile(
         compact,
@@ -3876,6 +4503,10 @@ def parse_ralec_lr_alloy_resistor_model(model, brand="", component_type=""):
         "容值": value_text,
         "容值单位": unit_text,
         "容值误差": tol,
+        "阻值@25C": resistance_ohm_text,
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "功率": format_power_display(power_text),
         "安装方式": "贴片",
         "封装代码": size,
         "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
@@ -3971,6 +4602,10 @@ def parse_pdc_fmf_alloy_resistor_model(model, brand="", component_type=""):
 
 def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
+    match_2010 = re.fullmatch(
+        r"(?:HO)?LLR2010-?(?P<power>1(?:\.5)?W)-?(?P<res>\d+(?:\.\d+)?)MR-?(?P<tol>\d+(?:\.\d+)?)%?",
+        compact,
+    )
     match_2512d = re.fullmatch(
         r"(?:HO)?LR2512D-?(?P<power>2W|3W|3\.5W)-?(?P<res>\d+(?:\.\d+)?)MR-?(?P<tol>\d+(?:\.\d+)?)%?",
         compact,
@@ -3979,10 +4614,10 @@ def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type="")
         r"(?:HO)?LRS6568-?(?P<power>5W)-?(?P<res>\d+(?:\.\d+)?)MR-?(?P<tol>\d+(?:\.\d+)?)%?",
         compact,
     )
-    if match_2512d is None and match_6568 is None:
+    if match_2010 is None and match_2512d is None and match_6568 is None:
         return None
 
-    match = match_2512d or match_6568
+    match = match_2010 or match_2512d or match_6568
     try:
         resistance_ohm_decimal = Decimal(match.group("res")) / Decimal("1000")
         resistance_ohm = float(resistance_ohm_decimal)
@@ -3995,12 +4630,21 @@ def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type="")
     tol = clean_tol_for_match(f"{match.group('tol')}%")
     value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
 
-    if match_2512d is not None:
+    if match_2010 is not None:
+        series = "HoLLR"
+        size = "2010"
+        series_desc = "封体合金电流检测电阻（2010 1.5W AEC-Q200）"
+        special_use = "电流检测 | 低阻 | 封体合金 | 车规 | AEC-Q200"
+        body_size = "5.00*2.50*0.60mm"
+        package_code = "2010"
+        model_family = "milliohm_hollr2010_model"
+    elif match_2512d is not None:
         series = "HoLR"
         size = "2512"
         series_desc = "封体合金电流检测电阻（车规 AEC-Q200）"
         special_use = "电流检测 | 低阻 | 封体合金 | 车规 | AEC-Q200"
         body_size = "6.40*3.20*0.80mm" if power_text != "3.5W" else "6.40*3.20mm"
+        package_code = "2512D"
         model_family = "milliohm_holr2512d_model"
     else:
         series = "HoLRS"
@@ -4008,6 +4652,7 @@ def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type="")
         series_desc = "裸露合金电流采样电阻（5W 6568）"
         special_use = "电流检测 | 分流器 | 裸露合金 | 低阻 | 高功率"
         body_size = "6.90*6.60mm"
+        package_code = "6568"
         model_family = "milliohm_holrs6568_model"
 
     summary_parts = [
@@ -4034,12 +4679,59 @@ def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type="")
         "阻值误差": tol,
         "功率": format_power_display(power_text),
         "安装方式": "贴片",
-        "封装代码": "2512D" if match_2512d is not None else "6568",
+        "封装代码": package_code,
         "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
         "_resistance_ohm": resistance_ohm,
         "_power": power_text,
         "_model_rule_authority": model_family,
         "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power_text else 0]),
+    }
+
+
+def parse_bourns_crf0805_current_sense_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    match = re.fullmatch(r"CRF0805-(?P<tol>[FJ])Z-(?P<res>R\d{3})ELF", compact)
+    if match is None:
+        return None
+    resistance_ohm = parse_resistor_value_code(match.group("res"))
+    if resistance_ohm is None:
+        return None
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    summary_parts = [
+        "Bourns CRF0805 metal foil current sense resistor",
+        "0805",
+        f"{value_text}{unit_text}" if value_text and unit_text else "",
+        clean_tol_for_display(tol) if tol else "",
+        "0.5W",
+    ]
+    return {
+        "品牌": clean_brand(brand) or "Bourns",
+        "型号": compact,
+        "器件类型": "合金电阻",
+        "系列": "CRF0805",
+        "系列说明": "金属箔电流检测电阻",
+        "特殊用途": "电流检测 | 低阻 | 金属箔",
+        "尺寸（inch）": "0805",
+        "尺寸（mm）": "2.00*1.25*0.40mm",
+        "长度（mm）": "2.00",
+        "宽度（mm）": "1.25",
+        "高度（mm）": "0.40",
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "阻值@25C": f"{resistance_ohm:g}",
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "功率": "0.5W",
+        "安装方式": "贴片",
+        "封装代码": "0805",
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "_resistance_ohm": resistance_ohm,
+        "_power": "0.5W",
+        "_model_rule_authority": "bourns_crf0805_current_sense_model",
+        "_value_code": match.group("res"),
+        "_param_count": sum([1 if tol else 0, 1 if resistance_ohm is not None else 0, 1]),
     }
 
 
@@ -4056,8 +4748,20 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
     resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type)
     resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     size = infer_resistor_size_from_model(compact)
+    if looks_like_uniroyal_resistor_model(compact, brand=brand):
+        uniroyal_size = extract_uniroyal_resistor_size_from_model(compact)
+        if uniroyal_size != "":
+            size = uniroyal_size
     tol = infer_resistor_tolerance_from_model(compact, size_hint=size)
-    resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
+    if looks_like_uniroyal_resistor_model(compact, brand=brand):
+        resistance_ohm, value_code = extract_uniroyal_resistor_value_from_model(compact)
+        authority = "uniroyal_resistor_model" if resistance_ohm is not None else "generic_resistor_model"
+    else:
+        resistance_ohm, value_code = None, ""
+        authority = "generic_resistor_model"
+    if resistance_ohm is None:
+        resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
+        authority = "generic_resistor_model"
     if resistance_ohm is None:
         return None
     return {
@@ -4070,7 +4774,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
         "尺寸（inch）": size,
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
-        "_model_rule_authority": "generic_resistor_model",
+        "_model_rule_authority": authority,
         "_value_code": value_code,
         "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0]),
     }
@@ -4080,6 +4784,7 @@ def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
         parse_murata_mhr_resistor_model,
         parse_milliohm_holr_alloy_resistor_model,
+        parse_bourns_crf0805_current_sense_model,
         parse_pdc_fmf_alloy_resistor_model,
         parse_ralec_lr_alloy_resistor_model,
         parse_yageo_chip_resistor_model,
@@ -21110,9 +21815,10 @@ def fetch_search_candidate_pairs(spec):
         power_watt = parse_power_to_watts(power) if power != "" else None
         if power_watt is not None:
             required_search_columns.add("_power_watt")
-            # 许多被动件搜索索引没有完整的功率字段；功率已知时优先精确匹配，
-            # 但允许索引端缺失功率的候选进入后续匹配排序，避免像 NQ 这类官方料号被提前剪掉。
-            where_clauses.append("(_power_watt IS NULL OR ABS(_power_watt - ?) < 1e-12)")
+            # Power is a minimum requirement for resistor substitutes.  Keep
+            # equal and higher-rated rows in the fast index so 1/16W queries do
+            # not drop equivalent 63mW rows or same-size high-power series.
+            where_clauses.append("(_power_watt IS NULL OR _power_watt >= ? - 1e-12)")
             params.append(float(power_watt))
     elif target_type in INDUCTOR_COMPONENT_TYPES:
         size = clean_size(spec.get("尺寸（inch）", ""))
@@ -26329,6 +27035,8 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
         st.stop()
 
 
+render_no_match_admin_entry_button()
+
 logo_b64 = image_to_base64(LOGO_PATH)
 startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
 if logo_b64:
@@ -26346,6 +27054,16 @@ st.markdown('<div class="main-title">富临通元器件匹配系统</div>', unsa
 st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
 startup_trace("after_intro_markdown")
+
+last_report_message = st.session_state.pop("_no_match_report_last_message", None)
+if isinstance(last_report_message, dict) and clean_text(last_report_message.get("message", "")) != "":
+    if last_report_message.get("ok"):
+        st.success(last_report_message.get("message", "已提交到后台。"))
+    else:
+        st.error(last_report_message.get("message", "提交失败。"))
+if is_no_match_admin_page_requested():
+    render_no_match_report_admin_page()
+    st.stop()
 
 with st.form("manual_query_search_form", clear_on_submit=False):
     query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
@@ -26579,6 +27297,16 @@ if search_clicked:
                     extra_chips=base_chips,
                 )
                 st.warning("无法识别输入内容")
+                render_no_match_report_button(
+                    query_text=line,
+                    mode=mode,
+                    spec=spec,
+                    reason="输入无法识别，数据库无法定位匹配型号",
+                    resolution_path=resolution_path,
+                    candidate_rows=candidate_rows,
+                    matched_rows=0,
+                    key_prefix="unrecognized_report",
+                )
                 search_stats["warning"] += 1
                 continue
 
@@ -26592,6 +27320,16 @@ if search_clicked:
                     extra_chips=base_chips,
                 )
                 st.warning("请最少输入三个规格参数")
+                render_no_match_report_button(
+                    query_text=line,
+                    mode=mode,
+                    spec=spec,
+                    reason="规格参数不足，暂时无法匹配型号",
+                    resolution_path=resolution_path,
+                    candidate_rows=candidate_rows,
+                    matched_rows=0,
+                    key_prefix="insufficient_report",
+                )
                 search_stats["warning"] += 1
                 continue
 
@@ -26685,18 +27423,37 @@ if search_clicked:
                         f'{match_card_header_html}'
                         f'{part_info_fragment}'
                         '<div class="match-card-footer"></div>'
-                        '<div class="no-alt-match-alert">已找到原厂料号资料，暂未找到其他品牌替代结果</div>'
                     )
                     components.html(
                         build_result_table_iframe_html(match_card_html),
-                        height=estimate_match_card_iframe_height(len(part_info_df), 0) + 72,
+                        height=estimate_match_card_iframe_height(len(part_info_df), 0) + 12,
                         scrolling=False,
                     )
                     if part_info_df is not None and not part_info_df.empty:
-                        st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
+                        render_no_alt_match_report_row(
+                            query_text=line,
+                            mode=mode,
+                            spec=spec,
+                            part_info_df=part_info_df,
+                            reason="已找到原厂料号资料，暂未找到其他品牌替代结果",
+                            resolution_path=resolution_path,
+                            candidate_rows=candidate_rows,
+                            matched_rows=0,
+                        )
+                        st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
                         search_stats["success"] += 1
                     else:
                         st.warning("未找到其他品牌匹配结果")
+                        render_no_match_report_button(
+                            query_text=line,
+                            mode=mode,
+                            spec=spec,
+                            reason="未找到其他品牌匹配结果",
+                            resolution_path=resolution_path,
+                            candidate_rows=candidate_rows,
+                            matched_rows=0,
+                            key_prefix="part_no_match_report",
+                        )
                         search_stats["no_match"] += 1
                 continue
             elif mode == "料号片段":
@@ -26783,10 +27540,23 @@ if search_clicked:
                 )
                 if mode == "料号":
                     st.warning("未找到其他品牌匹配结果")
+                    report_reason = "未找到其他品牌匹配结果"
                 elif mode == "料号片段":
                     st.warning("未找到符合片段规格的品牌料号（含推荐等级），请确认数据库里已有这些规格资料")
+                    report_reason = "未找到符合片段规格的品牌料号"
                 else:
                     st.warning("未找到符合规格的品牌料号（含推荐等级），请确认数据库里已有这些规格资料")
+                    report_reason = "未找到符合规格的品牌料号"
+                render_no_match_report_button(
+                    query_text=line,
+                    mode=mode,
+                    spec=spec,
+                    reason=report_reason,
+                    resolution_path=resolution_path,
+                    candidate_rows=candidate_rows,
+                    matched_rows=0,
+                    key_prefix="matched_empty_report",
+                )
                 search_stats["no_match"] += 1
 
         processed_queries = search_stats["success"] + search_stats["no_match"] + search_stats["warning"]
