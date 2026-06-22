@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 60
+QUERY_RESULT_CACHE_VERSION = 61
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-22T13:36:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-22T15:55:00+08:00"
 
 
 def startup_trace(message):
@@ -11396,6 +11396,25 @@ def prioritize_component_rows_for_lookup(df):
     return work.drop(columns=["_lookup_priority", "_lookup_order"], errors="ignore")
 
 
+def has_explicit_capacitance_value_token(text):
+    raw = clean_text(text)
+    if raw == "":
+        return False
+    upper = (
+        raw.upper()
+        .replace("μF", "UF")
+        .replace("µF", "UF")
+        .replace("ΜF", "UF")
+    )
+    if re.search(r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:PF|NF|UF)(?![A-Z0-9])", upper):
+        return True
+    if re.search(r"(?<![A-Z0-9])(?:\d+[PNU]\d+|\d+(?:\.\d+)?[PNU])(?![A-Z0-9])", upper):
+        return True
+    if re.search(r"(?<![A-Z0-9])\d{3,4}P(?![A-Z0-9])", upper):
+        return True
+    return False
+
+
 def looks_like_resistor_context(text):
     hint = detect_component_type_hint(text)
     if hint in (VARISTOR_COMPONENT_TYPES | UNSUPPORTED_SEMICONDUCTOR_TYPES | {"热敏电阻", "铝电解电容", "薄膜电容", "钽电容", "功率电感", "共模电感", "磁珠", "晶振", "振荡器", "MLCC"}):
@@ -11406,7 +11425,7 @@ def looks_like_resistor_context(text):
     compact = normalize_component_keyword_compact(text).replace("±", "+/-").replace("卤", "+/-")
     if any(token in upper for token in ["电阻", "RESISTOR", "OHM", "Ω"]) or upper.startswith("RES"):
         return True
-    if any(token in compact for token in ["UF", "NF", "PF"]):
+    if has_explicit_capacitance_value_token(text):
         return False
     has_compact_resistance = RESISTOR_VALUE_PATTERN.search(upper) is not None or RESISTOR_COMPACT_CONTEXT_PATTERN.search(upper) is not None
     if has_compact_resistance and "%" in upper:
