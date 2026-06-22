@@ -1,5 +1,26 @@
 # Issue Ledger
 
+## 2026-06-22 - FOJAN series correction missed final HTML rendering
+
+- Bug: After the first FOJAN series display fix, the page could still show `FRC0402J` for `FRC0402J223 TS` in the rendered match table.
+- Root cause: The library row and display dataframe were normalized, but the final clickable HTML table path could still receive stale/generated series text from an already-built result dataframe.
+- Fix: Applied the FOJAN official-series normalizer again inside `render_clickable_result_table()` after official-status handling and immediately before visible columns are rendered.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A synthetic final-table row with `系列=FRC0402J` renders as `FRC / 普通厚膜贴片电阻`, and rendered HTML for actual `FRC0402J223 TS` contains `FRC` without an `FRC0402J` series cell.
+
+## 2026-06-22 - FOJAN resistor display included size/tolerance in series
+
+- Bug: FOJAN resistor results could display series values such as `FRC0201P`, where `0201` is the size and `P` is the tolerance code; the visible series should be only `FRC`.
+- Root cause: Some display/result-table paths could preserve stale or generated FOJAN series text instead of forcing the official series profile derived from the model.
+- Fix: Added a display-time FOJAN resistor series normalizer that rewrites FOJAN resistor rows from the official model profile before pricing/display column selection and again before final display formatting.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A synthetic row with `系列=FRC0201P` and model `FRC0201P000TS` is normalized to `FRC / 普通厚膜贴片电阻`; the real `FRC0201P000TS` library row and selected display columns also show `FRC`.
+
+## 2026-06-22 - No-match admin resolution did not feed future searches
+
+- Bug: The no-match report admin page only stored a note and closed the report. There was no place to enter the corrected brand/model, so the same reported input could still fail on the next search.
+- Root cause: `no_match_reports` stored only report metadata and `resolved_note`; `resolve_search_query_dataframe_and_spec()` never checked resolved reports before normal parsing/search.
+- Fix: Added schema migration fields for `resolved_brand`, `resolved_model`, `resolved_component_type`, and `library_status`; changed the admin form to require a corrected model before closing; and added a search-first resolver that maps the original reported query or the entered model back to the stored resolution. If the entered model is already in the library it uses that row; otherwise it creates a synthetic backend-supplied row from the captured spec.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A temp SQLite flow submitted `SMD;RES;10K;±1%;0201;1;16W`, resolved it to `富捷 / FRC0603J103 TS`, and subsequent searches for both the original input and `FRC0603J103TS` returned through `no_match_admin_resolution:library_model`. The synthetic fallback builds a searchable row for an unknown test model.
+
 ## 2026-06-22 - FRC 1% zero-ohm rows missed the shared 5% price
 
 - Bug: FOJAN FRC 1% zero-ohm resistor rows showed blank cost because the pricing table has no 1% price in the 0R rows.

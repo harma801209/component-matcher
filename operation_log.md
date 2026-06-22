@@ -2669,3 +2669,23 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The pricing matcher selected only the tolerance-specific price column, so `FRC + 0Ω + ±1%` returned blank cost when the 1% column was empty.
 - Change / action: Added a narrow fallback in `lookup_resistor_series_pricing()` for `FRC + 1% + 0Ω` to use the matched rule's 5% price. Refreshed public stamps and Cloudflare cache buster to `20260622-fojan-zero-ohm-price-1`.
 - Verification: Direct checks return FRC 0201/0402/0603/1206 1% zero-ohm prices from the 5% row, keep FRC 10Ω 1% on the 1% column, and leave FRQ blank because it is not priced. Display checks for `0603 0R 1%`, `0402 0R 1%`, and `1206 0R 1%` show FRC cost/MOQ populated.
+
+### 2026-06-22 16:27 [feature] Added admin fill-in flow for no-match reports
+
+- Received / problem: No-match report admin records only had a note and a resolve button, so admins could not enter the correct brand/model and have the next search use it.
+- Change / action: Added no-match report schema migration fields for `resolved_brand`, `resolved_model`, `resolved_component_type`, and `library_status`; changed the admin form to require a corrected model before closing; added a search-priority backend resolution path for the original report query and the entered model; included no-match report DB mtime in query cache signatures; refreshed public stamps and Cloudflare cache buster to `20260622-no-match-admin-fill-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp SQLite repro submitted `SMD;RES;10K;±1%;0201;1;16W`, resolved it to `富捷 / FRC0603J103 TS`, and subsequent resolver calls for both the original input and `FRC0603J103TS` returned through `no_match_admin_resolution:library_model`. Synthetic fallback generation also produced a searchable backend row for an unknown test model.
+
+### 2026-06-22 17:03 [debug] Fixed FOJAN resistor series display
+
+- Received / problem: User showed `FRC0201P000TS` displaying series `FRC0201P`, but FOJAN series should be `FRC`; `0201` is size and `P` is tolerance.
+- Root cause: FOJAN official model parsing already returns `FRC`, but some result-table display paths could preserve stale/generated series values such as `FRC0201P`.
+- Change / action: Added a FOJAN resistor display normalizer that forces official series/profile values from the model before resistor pricing/display column selection and before final display formatting. Bumped query/public cache stamps and Cloudflare cache buster to `20260622-fojan-series-display-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Synthetic row `FOJAN(富捷) / FRC0201P000TS / 系列=FRC0201P` normalizes to `FRC / 普通厚膜贴片电阻`; the actual `FRC0201P000TS` library row and selected display columns also show `FRC`.
+
+### 2026-06-22 21:00 [debug] Added final HTML guard for FOJAN series display
+
+- Received / problem: User refreshed and still saw `FOJAN(富捷) FRC0402J223 TS` displayed with series `FRC0402J`.
+- Root cause: Dataframe-level normalization produced `FRC`, but stale/generated series text could still reach the final clickable HTML table render path.
+- Change / action: Applied `normalize_fojan_resistor_series_display_fields()` inside `render_clickable_result_table()` immediately before columns are rendered, bumped query/public stamps, and changed Cloudflare cache buster to `20260622-fojan-series-display-2`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A synthetic final-table row with `系列=FRC0402J` renders HTML with `FRC / 普通厚膜贴片电阻`; actual `FRC0402J223 TS` rendered HTML contains `FRC` and not the bad `FRC0402J` series cell.
