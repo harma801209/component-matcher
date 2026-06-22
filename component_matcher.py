@@ -87,6 +87,7 @@ STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundl
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
 STREAMLIT_CLOUD_BUNDLE_STATE_PATH = os.path.join(BASE_DIR, "cache", "streamlit_cloud_bundle_state.json")
 MANUAL_CORRECTION_RULES_PATH = os.path.join(BASE_DIR, "cache", "manual_correction_rules.csv")
+RESISTOR_SERIES_PRICING_PATH = os.path.join(BASE_DIR, "pricing", "fojan_resistor_series_pricing.csv")
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
 NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
@@ -124,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-22T12:50:34+08:00"
+PUBLIC_CODE_STAMP = "2026-06-22T13:36:00+08:00"
 
 
 def startup_trace(message):
@@ -10017,6 +10018,191 @@ def find_resistance_in_text(text):
         return parse_resistance_token_to_ohm(match.group(1))
     return None
 
+
+_RESISTOR_SERIES_PRICING_CACHE = {"mtime": None, "rules": None}
+
+
+def normalize_resistor_pricing_type_dimension(value):
+    raw = clean_text(value).replace("\u3000", " ")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    if raw == "":
+        return ""
+    parts = raw.split(" ")
+    size = clean_size(parts[0]) if parts else ""
+    power = format_power_display(parts[-1]) if len(parts) >= 2 else ""
+    if size == "" or power == "":
+        return raw.upper()
+    return f"{size} {power}"
+
+
+def load_resistor_series_pricing_rules():
+    path = RESISTOR_SERIES_PRICING_PATH
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        _RESISTOR_SERIES_PRICING_CACHE["mtime"] = None
+        _RESISTOR_SERIES_PRICING_CACHE["rules"] = []
+        return []
+    if (
+        _RESISTOR_SERIES_PRICING_CACHE.get("mtime") == mtime
+        and _RESISTOR_SERIES_PRICING_CACHE.get("rules") is not None
+    ):
+        return _RESISTOR_SERIES_PRICING_CACHE["rules"]
+    try:
+        raw_df = pd.read_csv(path, dtype=str).fillna("")
+    except Exception:
+        rules = []
+    else:
+        rules = []
+        for record in raw_df.to_dict("records"):
+            rule = {
+                "series": clean_text(record.get("Series", "")).upper(),
+                "type_dimension": clean_text(record.get("TypeDimension", "")),
+                "type_dimension_norm": normalize_resistor_pricing_type_dimension(record.get("TypeDimension", "")),
+                "range": clean_text(record.get("ResistanceRange", "")),
+                "price_5": clean_text(record.get("Price5Percent", "")),
+                "price_1": clean_text(record.get("Price1Percent", "")),
+                "package": clean_text(record.get("Package", "")),
+            }
+            if rule["series"] != "" and rule["type_dimension_norm"] != "" and rule["range"] != "":
+                rules.append(rule)
+    _RESISTOR_SERIES_PRICING_CACHE["mtime"] = mtime
+    _RESISTOR_SERIES_PRICING_CACHE["rules"] = rules
+    return rules
+
+
+def normalize_resistor_pricing_series(row):
+    brand_text = clean_text(row.get("品牌", "")).upper()
+    if "FOJAN" not in brand_text and "富捷" not in brand_text:
+        return ""
+    series_text = clean_text(row.get("系列", "")).upper()
+    model_text = clean_model(row.get("型号", "")).upper()
+    for prefix in ("FRC", "FRL"):
+        if series_text == prefix or series_text.startswith(prefix):
+            return prefix
+        if model_text.startswith(prefix):
+            return prefix
+    return ""
+
+
+def resistance_range_group_matches(range_group, resistance_ohm):
+    text = clean_text(range_group).upper()
+    if text == "" or resistance_ohm is None:
+        return False
+    text = text.replace("，", ",").replace("－", "-").replace("–", "-").replace("—", "-").replace("~", "-").replace("～", "-")
+    alternatives = [clean_text(part) for part in text.split(",") if clean_text(part) != ""]
+    for part in alternatives:
+        if "-" in part:
+            left, right = [clean_text(piece) for piece in part.split("-", 1)]
+            low = parse_resistance_token_to_ohm(left)
+            high = parse_resistance_token_to_ohm(right)
+            if low is None or high is None:
+                continue
+            if low > high:
+                low, high = high, low
+            epsilon = max(1e-9, abs(resistance_ohm) * 1e-9)
+            if resistance_ohm + epsilon >= low and resistance_ohm - epsilon <= high:
+                return True
+        else:
+            target = parse_resistance_token_to_ohm(part)
+            if target is None:
+                continue
+            epsilon = max(1e-9, abs(target) * 1e-9)
+            if abs(resistance_ohm - target) <= epsilon:
+                return True
+    return False
+
+
+def select_resistor_segment_price(range_text, price_text, resistance_ohm):
+    price_text = clean_text(price_text)
+    if price_text == "":
+        return ""
+    range_groups = [clean_text(part) for part in clean_text(range_text).split("/") if clean_text(part) != ""]
+    if not range_groups:
+        range_groups = [clean_text(range_text)]
+    price_groups = [clean_text(part) for part in price_text.split("/") if clean_text(part) != ""]
+    for idx, range_group in enumerate(range_groups):
+        if not resistance_range_group_matches(range_group, resistance_ohm):
+            continue
+        if len(price_groups) == len(range_groups):
+            return price_groups[idx]
+        return price_text
+    return ""
+
+
+def get_row_resistance_for_pricing(row):
+    for col in ("_res_ohm", "_resistance_ohm"):
+        try:
+            value = row.get(col, None)
+            if value is not None and not pd.isna(value):
+                return float(value)
+        except Exception:
+            pass
+    explicit = find_resistance_in_text(
+        " ".join(
+            clean_text(part)
+            for part in [
+                row.get("阻值@25C", ""),
+                row.get("规格摘要", ""),
+                row.get("匹配参数明细", ""),
+                f"{clean_text(row.get('容值', ''))}{clean_text(row.get('容值单位', ''))}",
+                f"{clean_text(row.get('参数值', ''))}{clean_text(row.get('参数单位', ''))}",
+            ]
+            if clean_text(part) != ""
+        )
+    )
+    return explicit
+
+
+def lookup_resistor_series_pricing(row):
+    component_type = normalize_component_type(row.get("器件类型", ""))
+    if component_type not in RESISTOR_COMPONENT_TYPES:
+        return {"成本": "", "MOQ": ""}
+    series = normalize_resistor_pricing_series(row)
+    if series == "":
+        return {"成本": "", "MOQ": ""}
+    size = clean_size(row.get("尺寸（inch）", ""))
+    if size == "":
+        size = infer_resistor_size_from_model(row.get("型号", ""))
+    power_text = infer_resistor_power_text_from_record(row)
+    if clean_text(power_text) == "":
+        power_text = row.get("功率", "") or row.get("_power", "")
+    power = format_power_display(power_text)
+    if size == "" or power == "":
+        return {"成本": "", "MOQ": ""}
+    resistance_ohm = get_row_resistance_for_pricing(row)
+    if resistance_ohm is None:
+        return {"成本": "", "MOQ": ""}
+    tol = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
+    price_key = "price_1" if tol == "1" else "price_5" if tol == "5" else ""
+    if price_key == "":
+        return {"成本": "", "MOQ": ""}
+    type_dimension = f"{size} {power}"
+    for rule in load_resistor_series_pricing_rules():
+        if rule.get("series") != series:
+            continue
+        if rule.get("type_dimension_norm") != type_dimension:
+            continue
+        price = select_resistor_segment_price(rule.get("range", ""), rule.get(price_key, ""), resistance_ohm)
+        if price != "":
+            return {"成本": price, "MOQ": rule.get("package", "")}
+    return {"成本": "", "MOQ": ""}
+
+
+def enrich_resistor_pricing_columns(df):
+    if df is None:
+        return df
+    out = df.copy()
+    if out.empty:
+        out["成本"] = ""
+        out["MOQ"] = ""
+        return out
+    pricing_rows = out.apply(lookup_resistor_series_pricing, axis=1)
+    out["成本"] = [item.get("成本", "") for item in pricing_rows]
+    out["MOQ"] = [item.get("MOQ", "") for item in pricing_rows]
+    return out
+
+
 def find_inductance_in_text(text):
     upper = clean_text(text).upper().replace("μ", "U").replace("µ", "U").replace("Μ", "U")
     match = INDUCTANCE_PATTERN.search(upper)
@@ -12456,6 +12642,8 @@ def get_component_display_schema(spec_or_type):
 
 def get_component_header_labels(spec_or_type):
     labels = {source: label for source, label in get_component_display_schema(spec_or_type)}
+    labels["成本"] = "成本"
+    labels["MOQ"] = "MOQ"
     labels["前5个其他品牌型号"] = "其他品牌型号"
     labels["推荐品牌1"] = "推荐品牌1"
     labels["推荐型号1"] = "推荐型号1"
@@ -13394,6 +13582,9 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     if df is None:
         return pd.DataFrame()
     out = ensure_component_display_columns(df)
+    display_component_type = resolve_component_display_type(spec_or_type)
+    if display_component_type in RESISTOR_COMPONENT_TYPES:
+        out = enrich_resistor_pricing_columns(out)
     out = enrich_mlcc_dimension_fields_in_dataframe(
         out,
         spec_or_type=spec_or_type,
@@ -13407,6 +13598,10 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     for col in schema_columns:
         if col in out.columns and col not in selected:
             selected.append(col)
+    if display_component_type in RESISTOR_COMPONENT_TYPES:
+        for col in ["成本", "MOQ"]:
+            if col in out.columns and col not in selected:
+                selected.append(col)
     for col in (suffix_columns or []):
         if col in out.columns and col not in selected:
             selected.append(col)
@@ -13420,6 +13615,8 @@ def build_component_column_config(columns, spec_or_type=None):
         "推荐等级": "small",
         "品牌": "small",
         "型号": "medium",
+        "成本": "small",
+        "MOQ": "small",
         "推荐品牌": "small",
         "推荐型号": "medium",
         "可直接回复客户": "small",
@@ -22921,6 +23118,7 @@ def format_display_df(show_df):
         "器件类别","系列","系列说明","尺寸（inch）","封装代码","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","直径（mm）",
         "材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途",
         "备注1","备注2","备注3","规格参数明细","匹配参数明细",
+        "成本","MOQ",
         "功率","脚距","安规","规格","压敏电压","生产状态","极性","ESR","纹波电流",
         "阻值@25C","阻值单位","阻值误差","B值","B值条件",
         "共模阻抗","阻抗单位","额定电流","DCR","回路数","电感值","电感单位","电感误差","饱和电流","屏蔽类型","阻抗@100MHz",
@@ -23313,7 +23511,7 @@ def estimate_result_table_column_width(col, values, header_label):
             sample_lengths.append(display_text_width(text))
     longest = max(sample_lengths) if sample_lengths else display_text_width(header_text)
     width = longest * 8.4 + 24
-    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("推荐品牌"), clean_text("品牌1"), clean_text("推荐品牌1"), clean_text("品牌2"), clean_text("推荐品牌2"), clean_text("品牌3"), clean_text("推荐品牌3"), clean_text("系列"), clean_text("容值单位")}:
+    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("推荐品牌"), clean_text("品牌1"), clean_text("推荐品牌1"), clean_text("品牌2"), clean_text("推荐品牌2"), clean_text("品牌3"), clean_text("推荐品牌3"), clean_text("系列"), clean_text("容值单位"), clean_text("成本"), clean_text("MOQ")}:
         width = max(width, 92)
     if col_text in {clean_text("型号"), clean_text("推荐型号"), clean_text("型号1"), clean_text("推荐型号1"), clean_text("型号2"), clean_text("推荐型号2"), clean_text("型号3"), clean_text("推荐型号3")}:
         width = max(width, 112)
@@ -23835,6 +24033,8 @@ html, body {{
                 '推荐等级': 92,
                 '系列': 92,
                 '容值单位': 92,
+                '成本': 92,
+                'MOQ': 96,
                 '阻值单位': 92,
                 '状态': 92,
                 '器件类型': 92,
