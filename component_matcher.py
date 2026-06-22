@@ -99,7 +99,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 59
+QUERY_RESULT_CACHE_VERSION = 60
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -124,7 +124,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-22T12:18:57+08:00"
+PUBLIC_CODE_STAMP = "2026-06-22T12:50:34+08:00"
 
 
 def startup_trace(message):
@@ -19924,6 +19924,8 @@ def run_query_match(df, mode, spec):
     spec_type = infer_spec_component_type(spec)
     if spec_type in SEMICONDUCTOR_COMPONENT_TYPES:
         return match_semiconductor_spec(df, spec)
+    if spec_type in RESISTOR_COMPONENT_TYPES:
+        return match_by_partial_spec(df, spec)
     if spec_type in OTHER_PASSIVE_TYPES:
         return match_other_passive_spec(df, spec)
     if mode == "料号":
