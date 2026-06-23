@@ -2714,3 +2714,22 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 
 - Change / action: Committed and pushed `df759fac Fix FOJAN FRC0201 resistor spec gaps` to `main`, rebuilt `streamlit_cloud_bundle.zip.part01/part02`, and deployed the Cloudflare Pages worker with cache buster `20260623-fojan-0201-gap-1`.
 - Verification / remaining issue: Cloudflare wrapper now serves the new cache buster and the formal page can find the newly added `FOJAN(富捷) FRC0201F10R0 TS` row for `10R;1%;0201;0201WMF100JTCE;厚声`. However the formal row still displays stale generated series `FRC0201F`, while local current code displays `FRC / 普通厚膜贴片电阻`; `auto_streamlit_deploy.py` is blocked at GitHub login, so Streamlit Cloud needs a logged-in redeploy/reboot to switch from the old backend code.
+
+### 2026-06-23 17:20 [publish] Forced public rebuild nudge but Streamlit login still blocks reboot
+
+- Received / problem: User noted the prior publish note ("Streamlit backend code still on old instance") was not resolved; formal page still showed `FOJAN(富捷) FRC0201F10R0 TS` with `系列=FRC0201F`.
+- Change / action: Bumped `QUERY_RESULT_CACHE_VERSION` to `68`, `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-06-23T16:49:17+08:00`, changed Cloudflare `APP_CACHE_BUSTER` to `20260623-fojan-0201-gap-2`, rebuilt the public bundle manifest, committed/pushed `697bccbd Nudge Streamlit public rebuild`, and deployed Cloudflare Pages (`https://3972e9db.fruition-component.pages.dev`).
+- Verification / remaining issue: GitHub raw `main` contains the new stamps and Cloudflare formal HTML now embeds `v=20260623-fojan-0201-gap-2`. After 60s and 180s Playwright checks, formal search for `FRC0201F10R0 TS` still displayed `系列=FRC0201F` instead of local/cache value `FRC / 普通厚膜贴片电阻`. A visible Streamlit/GitHub login window was opened, but login was not completed; the reboot helper was stopped. Next step requires logging into GitHub/Streamlit Cloud as `harma801209` and using Manage app -> Reboot/Redeploy for `fruition-componentmatche`.
+
+### 2026-06-23 20:43 [publish/debug] Rebooted Streamlit Cloud and fixed public search submit control
+
+- Received / problem: User completed Streamlit Cloud login. After triggering a Cloud app reboot, the formal page switched to newer code but rendered Streamlit's `Missing Submit Button` warning in the front-page search area.
+- Change / action: Used the signed-in Streamlit Cloud dashboard account `harma801209` to open the hidden app action menu for `component-matcher · main · streamlit_app.py` and confirmed `Reboot app`. Replaced the front-page manual search `st.form` with a plain `st.text_area` plus `st.button("搜索")`, bumped `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-06-23T20:42:51+08:00`, committed/pushed `36f263c8 Fix public Streamlit search submit control` to GitHub `main`, and waited for Streamlit Cloud to redeploy.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Playwright against `https://fruition-component.pages.dev/` shows no `Missing Submit Button` warning; searching `FRC0201F10R0 TS` returns `FOJAN(富捷) / FRC0201F10R0 TS` with `系列=FRC` and `系列说明=普通厚膜贴片电阻` in `匹配料号资料`.
+
+### 2026-06-23 21:09 [debug] Blocked resistor specs with invalid size tokens
+
+- Received / problem: User showed a chip-resistor spec with size `0420` still returning partial-match results from real resistor packages; the expected behavior is no result because the size itself is invalid.
+- Root cause: `0420` was not recognized by `find_embedded_size()`, so the query was treated as if no size was provided and matched by resistance/tolerance only.
+- Change / action: Added a leading-zero invalid package-code detector for passive/resistor spec text, routed blocked specs through the existing `暂不支持` safety path with a `尺寸输入错误` message, and bumped `QUERY_RESULT_CACHE_VERSION` to `69` plus public stamps to `2026-06-23T21:09:01+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `贴片电阻 0420 10K 1%` and `SMD;RES;10K;±1%;0420` now resolve with zero candidates and the size-error reason; valid `0402 10K 1%` and `0603 10R ±5%` resistor specs still parse normally.

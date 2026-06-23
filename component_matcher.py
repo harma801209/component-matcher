@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 68
+QUERY_RESULT_CACHE_VERSION = 69
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-23T20:42:51+08:00"
+PUBLIC_CODE_STAMP = "2026-06-23T21:09:01+08:00"
 
 
 def startup_trace(message):
@@ -2504,6 +2504,33 @@ def find_embedded_size(text):
         return ""
     match = SIZE_TOKEN_PATTERN.search(upper)
     return clean_size(match.group(1)) if match else ""
+
+
+def valid_size_tokens_for_component(component_type=""):
+    valid_tokens = {clean_size(token) for token in EMBEDDED_SIZE_TOKENS}
+    component_type = normalize_component_type(component_type)
+    if component_type in (RESISTOR_COMPONENT_TYPES | SPECIAL_RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+        valid_tokens.update(clean_size(token) for token in globals().get("RESISTOR_POWER_BY_SIZE", {}).keys())
+        for size_map in globals().get("RESISTOR_POWER_BY_BRAND_SERIES_SIZE", {}).values():
+            valid_tokens.update(clean_size(token) for token in size_map.keys())
+    return {token for token in valid_tokens if token != ""}
+
+
+def find_invalid_leading_zero_size_token(tokens, component_type=""):
+    valid_tokens = valid_size_tokens_for_component(component_type)
+    for token in tokens or []:
+        candidate = clean_text(token).upper().strip(" \t\r\n,;:|/()[]{}")
+        if not re.fullmatch(r"\d{4,6}", candidate):
+            continue
+        normalized = clean_size(candidate)
+        if normalized in valid_tokens:
+            continue
+        # A standalone 0-prefixed 4/6 digit token in a passive spec is usually
+        # a mistyped package code (for example 0420 instead of 0402). Do not
+        # apply this to non-zero tokens such as EIA resistance/value codes.
+        if candidate.startswith("0"):
+            return candidate
+    return ""
 
 
 def find_embedded_material(text):
@@ -10103,6 +10130,7 @@ def parse_spec_query(line):
     s = re.sub(r"\s+", " ", s).strip()
 
     tokens = s.split(" ")
+    invalid_size_token = find_invalid_leading_zero_size_token(tokens)
 
     size = find_embedded_size(raw)
     material = find_embedded_material(raw)
@@ -10208,7 +10236,7 @@ def parse_spec_query(line):
     if param_count == 0:
         return None
 
-    return {
+    result = {
         "品牌": "",
         "型号": raw,
         "尺寸（inch）": size,
@@ -10218,6 +10246,14 @@ def parse_spec_query(line):
         "耐压（V）": clean_voltage(volt),
         "_param_count": param_count
     }
+    if invalid_size_token != "":
+        result["_invalid_size_token"] = invalid_size_token
+        result["_unsupported_component"] = True
+        result["_unsupported_reason"] = (
+            f"尺寸输入错误：{invalid_size_token} 不是当前规格库支持的封装尺寸；"
+            "请确认尺寸输入是否正确，例如 0201、0402、0603、0805、1206 等。"
+        )
+    return result
 
 def format_resistance_display(ohm_value):
     try:
@@ -11875,6 +11911,7 @@ def parse_resistor_spec_query(line):
     component_type = component_type_hint or "贴片电阻"
     if component_type in SPECIAL_RESISTOR_COMPONENT_TYPES:
         return None
+    invalid_size_token = find_invalid_leading_zero_size_token(tokens, component_type)
     size = find_embedded_size(raw)
     tol = find_tolerance_in_text(raw)
     resistance_ohm = find_resistance_in_text(raw)
@@ -11911,7 +11948,7 @@ def parse_resistor_spec_query(line):
         power,
         size,
     ])
-    return {
+    result = {
         "品牌": "",
         "型号": raw,
         "尺寸（inch）": size,
@@ -11926,6 +11963,14 @@ def parse_resistor_spec_query(line):
         "_core_param_count": param_count,
         "_param_count": param_count,
     }
+    if invalid_size_token != "":
+        result["_invalid_size_token"] = invalid_size_token
+        result["_unsupported_component"] = True
+        result["_unsupported_reason"] = (
+            f"尺寸输入错误：{invalid_size_token} 不是当前贴片电阻库支持的封装尺寸；"
+            "请确认是否应为 0201、0402、0603、0805、1206、1210、2010、2512 等。"
+        )
+    return result
 
 def looks_like_electrolytic_context(text):
     if looks_like_film_capacitor_context(text):
@@ -20461,6 +20506,8 @@ def load_regression_cases():
 def run_query_match(df, mode, spec):
     if spec is None:
         return pd.DataFrame()
+    if bool(spec.get("_unsupported_component", False)):
+        return pd.DataFrame()
     spec_type = infer_spec_component_type(spec)
     if spec_type in SEMICONDUCTOR_COMPONENT_TYPES:
         return match_semiconductor_spec(df, spec)
@@ -25506,6 +25553,8 @@ def detect_query_mode_and_spec(df, line):
     if looks_like_mlcc_context(line):
         spec = parse_spec_query(line)
         if spec is not None:
+            if bool(spec.get("_unsupported_component", False)):
+                return "暂不支持", spec
             if spec.get("_param_count", 0) < 3:
                 if looks_like_compact_part_query(line):
                     part_spec = reverse_spec_partial(line)
@@ -25522,6 +25571,8 @@ def detect_query_mode_and_spec(df, line):
 
     other_spec = parse_other_passive_query(line)
     if other_spec is not None:
+        if bool(other_spec.get("_unsupported_component", False)):
+            return "暂不支持", other_spec
         if count_query_params(other_spec) < other_passive_min_required_params(other_spec):
             return "规格不足", other_spec
         return normalized_other_passive_mode(other_spec), other_spec
@@ -25544,6 +25595,8 @@ def detect_query_mode_and_spec(df, line):
             if exact_row is not None and exact_spec is not None:
                 return "料号", exact_spec
             return "无法识别", None
+        if bool(spec.get("_unsupported_component", False)):
+            return "暂不支持", spec
         if spec.get("_param_count", 0) < 3:
             return "规格不足", spec
         return "规格", spec
@@ -25558,12 +25611,16 @@ def detect_query_mode_and_spec(df, line):
 
     other_spec = parse_other_passive_query(line)
     if other_spec is not None:
+        if bool(other_spec.get("_unsupported_component", False)):
+            return "暂不支持", other_spec
         if count_core_params(other_spec) < 2:
             return "规格不足", other_spec
         return normalized_other_passive_mode(other_spec), other_spec
 
     spec = parse_spec_query(line)
     if spec is not None:
+        if bool(spec.get("_unsupported_component", False)):
+            return "暂不支持", spec
         if spec.get("_param_count", 0) < 3:
             return "规格不足", spec
         return "规格", spec
@@ -27328,7 +27385,7 @@ def resolve_search_query_dataframe_and_spec(
             "query_df": pd.DataFrame(),
             "mode": mode,
             "spec": spec,
-            "resolution_path": "unsupported_semiconductor",
+            "resolution_path": "unsupported_or_invalid_spec",
             "used_full_df": False,
             "candidate_rows": 0,
         }

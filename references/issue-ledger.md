@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-06-23 - Invalid resistor package code still returned partial matches
+
+- Bug: A resistor spec with a mistyped package such as `0420 10K 1%` could still show partial-match resistor results from other package sizes.
+- Root cause: `0420` was not a recognized size token, so the parser treated the query as if no size was provided and matched only on resistance/tolerance.
+- Fix: Detect standalone leading-zero numeric tokens that look like mistyped passive package codes but are not supported size tokens, mark the spec as blocked, and route it through the existing safety warning path instead of matching.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `贴片电阻 0420 10K 1%` and `SMD;RES;10K;±1%;0420` now resolve to `mode=暂不支持` with zero candidates and a `尺寸输入错误` reason, while valid `0402` and `0603` resistor specs still parse normally.
+
 ## 2026-06-22 - FOJAN series correction missed final HTML rendering
 
 - Bug: After the first FOJAN series display fix, the page could still show `FRC0402J` for `FRC0402J223 TS` in the rendered match table.
