@@ -282,3 +282,10 @@
 - Root cause: `looks_like_resistor_context()` blocked resistor parsing whenever the compact text contained `UF`, `NF`, or `PF`. The environmental phrase `Halogen-free` becomes `HALOGENFREE`, which contains the substring `NF`, even though it is not a capacitance value.
 - Fix: Replaced the broad substring blocker with `has_explicit_capacitance_value_token()`, which only treats real capacitance tokens such as `10nF`, `0.1uF`, `33pF`, `4n7`, and `1u0` as capacitor evidence.
 - Verification: Direct parser checks now route `0603 10R +/-5% RoHS reach Halogen-free` as `贴片电阻 / 0603 / 10Ω / +/-5%`; the full search resolver uses `fast_query` and returns 99 resistor matches with no MLCC rows in final matches. Guard query `0603 10nF +/-5% Halogen-free` still routes as MLCC.
+
+## 2026-06-23 - FOJAN exact-part info table kept stale pseudo-series
+
+- Bug: The formal site still showed `FOJAN(富捷) FRC0402J223 TS` in the exact-part `匹配料号资料` table with `系列=FRC0402J` and generated text `FOJAN(富捷) FRC0402J 厚膜电阻系列`, even though the local DB/cache row and final result-table normalizer had already been corrected to `FRC`.
+- Root cause: The exact-part info card can be built from public sidecar/spec-derived rows before final display column selection, so stale/generated FOJAN pseudo-series needed to be corrected earlier in `build_part_info_df()`. The live Streamlit instance also continued serving an older checkout/cache after the previous publish nudge.
+- Fix: Added a FOJAN series normalization pass directly inside `build_part_info_df()` for both exact-hit and synthetic fallback rows, bumped `QUERY_RESULT_CACHE_VERSION`, `PUBLIC_CODE_STAMP`, `PUBLIC_RELEASE_STAMP`, and the Cloudflare iframe cache buster.
+- Verification: Synthetic exact-part rows with `系列=FRC0402J` now render as `FRC / 普通厚膜贴片电阻`; local Streamlit search for `FRC0402J223TS` shows the `匹配料号资料` row as `FRC` with no `FRC0402J` series cell.

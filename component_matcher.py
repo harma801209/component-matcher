@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 65
+QUERY_RESULT_CACHE_VERSION = 66
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-22T21:02:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-23T10:43:31+08:00"
 
 
 def startup_trace(message):
@@ -24651,6 +24651,7 @@ def build_part_info_df(df, spec, query_model):
         show_df["容值误差"] = show_df["容值误差"].apply(clean_tol_for_match)
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
         show_df = fill_component_display_blanks(show_df, spec)
+        show_df = normalize_fojan_resistor_series_display_fields(show_df)
         prioritized_hit = prioritize_component_rows_for_lookup(show_df)
         display_target = prioritized_hit.iloc[0].to_dict() if prioritized_hit is not None and not prioritized_hit.empty else spec
         suffix_columns = ["官网链接", "数据来源"]
@@ -24683,6 +24684,7 @@ def build_part_info_df(df, spec, query_model):
         "型号": spec.get("型号", query_model),
         **build_component_display_row(spec),
     }])
+    row = normalize_fojan_resistor_series_display_fields(row)
     row_target = row.iloc[0].to_dict() if not row.empty else spec
     row = select_component_display_columns(
         row,
