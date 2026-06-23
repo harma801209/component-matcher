@@ -2733,3 +2733,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: `0420` was not recognized by `find_embedded_size()`, so the query was treated as if no size was provided and matched by resistance/tolerance only.
 - Change / action: Added a leading-zero invalid package-code detector for passive/resistor spec text, routed blocked specs through the existing `暂不支持` safety path with a `尺寸输入错误` message, and bumped `QUERY_RESULT_CACHE_VERSION` to `69` plus public stamps to `2026-06-23T21:09:01+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `贴片电阻 0420 10K 1%` and `SMD;RES;10K;±1%;0420` now resolve with zero candidates and the size-error reason; valid `0402 10K 1%` and `0603 10R ±5%` resistor specs still parse normally.
+
+### 2026-06-23 21:38 [debug] Made resistor power strict instead of high-replaces-low
+
+- Received / problem: User questioned why resistor power was treated as `高代低`; BOM-selected resistor power should not default to higher-power substitutes.
+- Root cause: Fast resistor lookup used `_power_watt >= target`, ranking treated higher wattage as `高代低`, and in-memory filtering could fall back to all candidates when same-power rows were not found.
+- Change / action: Changed resistor fast lookup and post-filtering to require exact wattage, removed higher wattage from resistor `高代低`, flagged any power mismatch as a conflict, and bumped query/public cache stamps to `2026-06-23T21:38:21+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py component_matcher_build.py` passed. Local full-search checks show `0603 10R +/-5% 1/10W`, `0603 10R 5% 1/8W`, and `0603 10R 5% 1/4W` each return only candidates with the requested inferred power.

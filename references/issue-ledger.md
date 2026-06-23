@@ -303,3 +303,10 @@
 - Root cause: This was mixed. Inputs like `1;16W` were parsed as literal `16W`, which over-filtered candidates. Separately, the library had only a sparse set of FOJAN FRC0201 rows, so many valid values inside the official range were absent from both `components.db` and the fast search sidecar.
 - Fix: Taught `find_power_in_text()` to interpret split fractional power tokens such as `1;16W` and `1;20W` as `1/16W` and `1/20W`, added `1/20W`/`1/32W` canonical display labels, and inserted nine missing FOJAN FRC0201 rows into the DB/search sidecar: `FRC0201F10R0 TS`, `FRC0201J123 TS`, `FRC0201J303 TS`, `FRC0201F47R0 TS`, `FRC0201F1003 TS`, `FRC0201J224 TS`, `FRC0201F2213 TS`, `FRC0201F5100 TS`, and `FRC0201F9091 TS`.
 - Verification: Direct parser tests map `1;16W` to `1/16W` and `1;20W` to `1/20W`. Full query checks for the no-power 0201 specs above now return FOJAN FRC rows. `0201 1/16W` still correctly excludes FOJAN FRC0201 because FOJAN's provided table rates FRC0201 as `1/20W`, lower than a real `1/16W` requirement.
+
+## 2026-06-23 - Resistor power was treated as high-replaces-low
+
+- Bug: Resistor spec searches could recommend higher-power parts as `高代低`, for example allowing 1/8W or 1/4W candidates into a 1/10W requirement.
+- Root cause: The fast resistor sidecar query used `_power_watt >= target`, and the ranking logic treated a higher wattage as a strictly better resistor parameter. A later in-memory filter also only narrowed to same-power rows when such rows were found, otherwise it left all candidates in place.
+- Fix: Changed resistor power to an exact-match requirement in the fast sidecar query and in-memory filtering, removed higher-wattage as a `高代低` trigger, and changed recommendation conflicts to report any power mismatch rather than only lower power.
+- Verification: `0603 10R +/-5% 1/10W`, `0603 10R 5% 1/8W`, and `0603 10R 5% 1/4W` each return candidates with only the requested inferred power.

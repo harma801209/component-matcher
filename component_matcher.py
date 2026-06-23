@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 69
+QUERY_RESULT_CACHE_VERSION = 70
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-23T21:09:01+08:00"
+PUBLIC_CODE_STAMP = "2026-06-23T21:38:21+08:00"
 
 
 def startup_trace(message):
@@ -22405,10 +22405,9 @@ def fetch_search_candidate_pairs(spec):
         power_watt = parse_power_to_watts(power) if power != "" else None
         if power_watt is not None:
             required_search_columns.add("_power_watt")
-            # Power is a minimum requirement for resistor substitutes.  Keep
-            # equal and higher-rated rows in the fast index so 1/16W queries do
-            # not drop equivalent 63mW rows or same-size high-power series.
-            where_clauses.append("(_power_watt IS NULL OR _power_watt >= ? - 1e-12)")
+            # Resistor power is a BOM-selected rating, not a default
+            # high-replaces-low field. Keep only exact wattage matches.
+            where_clauses.append("_power_watt IS NOT NULL AND ABS(_power_watt - ?) < 1e-9")
             params.append(float(power_watt))
     elif target_type in INDUCTOR_COMPONENT_TYPES:
         size = clean_size(spec.get("尺寸（inch）", ""))
@@ -22966,13 +22965,9 @@ def match_other_passive_spec(df, spec):
             if same_tol.any():
                 work = work[same_tol]
         if spec_power_watt is not None and "_power_watt" in work.columns:
-            trusted_power_mask = pd.Series([True] * len(work), index=work.index)
-            if "_power_source" in work.columns:
-                power_source = work["_power_source"].astype("string").fillna("").str.strip()
-                trusted_power_mask = power_source.isin(TRUSTED_RESISTOR_POWER_SOURCES)
-            same_power = trusted_power_mask & work["_power_watt"].notna() & ((pd.to_numeric(work["_power_watt"], errors="coerce") - spec_power_watt).abs() < 1e-9)
-            if same_power.any():
-                work = work[same_power]
+            power_values = pd.to_numeric(work["_power_watt"], errors="coerce")
+            same_power = power_values.notna() & ((power_values - spec_power_watt).abs() < 1e-9)
+            work = work[same_power]
         if work.empty:
             return pd.DataFrame()
         return apply_match_levels_and_sort(work, spec)
@@ -24850,6 +24845,10 @@ def classify_match_level(row, spec):
             spec_res_value = None
         row_power_watt = parse_power_to_watts(infer_resistor_power_text_from_record(row))
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        power_matches = (
+            spec_power_watt is None or
+            (row_power_watt is not None and abs(row_power_watt - spec_power_watt) <= 1e-9)
+        )
 
         query_complete = (
             spec_size != "" and
@@ -24871,7 +24870,7 @@ def classify_match_level(row, spec):
             exact = False
         if spec_tol and (row_tol_raw == "" or not tolerance_equal(row_tol_raw, spec_tol)):
             exact = False
-        if spec_power_watt is not None and (row_power_watt is None or abs(row_power_watt - spec_power_watt) > 1e-9):
+        if not power_matches:
             exact = False
 
         if query_complete and exact:
@@ -24879,17 +24878,13 @@ def classify_match_level(row, spec):
 
         if not query_complete and same_core:
             tol_ok_partial = (spec_tol == "" or (row_tol_raw != "" and tolerance_equal(row_tol_raw, spec_tol)))
-            power_ok_partial = (spec_power_watt is None or (row_power_watt is not None and abs(row_power_watt - spec_power_watt) <= 1e-9))
-            if tol_ok_partial and power_ok_partial:
+            if tol_ok_partial and power_matches:
                 return "部分参数匹配", 2
 
         if query_complete and same_core:
             tol_ok = tolerance_allows(row_tol_raw, spec_tol)
-            power_ok = row_power_watt is not None and row_power_watt >= spec_power_watt - 1e-9
-            strictly_better = tolerance_strictly_better(row_tol_raw, spec_tol) or (
-                row_power_watt is not None and row_power_watt > spec_power_watt + 1e-9
-            )
-            if tol_ok and power_ok and strictly_better:
+            strictly_better = tolerance_strictly_better(row_tol_raw, spec_tol)
+            if tol_ok and power_matches and strictly_better:
                 return "高代低", 3
 
         return "需确认替代", 4
@@ -25203,9 +25198,9 @@ def collect_recommendation_conflicts(row, spec):
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
         row_power_text = infer_resistor_power_text_from_record(row)
         row_power_watt = parse_power_to_watts(row_power_text)
-        if spec_power_watt is not None and row_power_watt is not None and row_power_watt < spec_power_watt - 1e-9:
+        if spec_power_watt is not None and row_power_watt is not None and abs(row_power_watt - spec_power_watt) > 1e-9:
             conflicts.append(
-                f"功率偏低：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
+                f"功率不一致：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
             )
         return conflicts
 
