@@ -100,7 +100,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 66
+QUERY_RESULT_CACHE_VERSION = 67
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-23T10:43:31+08:00"
+PUBLIC_CODE_STAMP = "2026-06-23T11:12:00+08:00"
 
 
 def startup_trace(message):
@@ -9000,6 +9000,8 @@ def format_power_display(power_text):
     if watts is None:
         return clean_text(power_text)
     common = [
+        (1 / 32, "1/32W"),
+        (1 / 20, "1/20W"),
         (1 / 16, "1/16W"),
         (1 / 10, "1/10W"),
         (1 / 8, "1/8W"),
@@ -10761,6 +10763,13 @@ def find_power_in_text(text):
     if raw == "":
         return ""
     normalized = raw.replace("毫瓦", "mW").replace("瓦", "W")
+    broken_fraction_match = re.search(
+        r"(?<![A-Z0-9.])1\s*[/;；]\s*(2|4|8|10|16|20|32)\s*W(?![A-Z0-9])",
+        normalized,
+        flags=re.I,
+    )
+    if broken_fraction_match:
+        return format_power_display(f"1/{broken_fraction_match.group(1)}W")
     for pattern in [
         r"(?<![A-Z0-9.])(\d+\s*/\s*\d+\s*W)(?![A-Z0-9])",
         r"(?<![A-Z0-9.])(\d+(?:\.\d+)?\s*mW)(?![A-Z0-9])",

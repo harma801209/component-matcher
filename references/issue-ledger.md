@@ -289,3 +289,10 @@
 - Root cause: The exact-part info card can be built from public sidecar/spec-derived rows before final display column selection, so stale/generated FOJAN pseudo-series needed to be corrected earlier in `build_part_info_df()`. The live Streamlit instance also continued serving an older checkout/cache after the previous publish nudge.
 - Fix: Added a FOJAN series normalization pass directly inside `build_part_info_df()` for both exact-hit and synthetic fallback rows, bumped `QUERY_RESULT_CACHE_VERSION`, `PUBLIC_CODE_STAMP`, `PUBLIC_RELEASE_STAMP`, and the Cloudflare iframe cache buster.
 - Verification: Synthetic exact-part rows with `系列=FRC0402J` now render as `FRC / 普通厚膜贴片电阻`; local Streamlit search for `FRC0402J223TS` shows the `匹配料号资料` row as `FRC` with no `FRC0402J` series cell.
+
+## 2026-06-23 - FOJAN FRC0201 resistor specs missed valid range rows
+
+- Bug: Several 0201 resistor spec inputs, such as `10R;1%;0201;0201WMF100JTCE;...`, `12K;5%;0201`, `221K;1%;0201`, and `9.09K;1%;0201`, did not return FOJAN FRC rows even though the FOJAN price range table covers those 0201 values.
+- Root cause: This was mixed. Inputs like `1;16W` were parsed as literal `16W`, which over-filtered candidates. Separately, the library had only a sparse set of FOJAN FRC0201 rows, so many valid values inside the official range were absent from both `components.db` and the fast search sidecar.
+- Fix: Taught `find_power_in_text()` to interpret split fractional power tokens such as `1;16W` and `1;20W` as `1/16W` and `1/20W`, added `1/20W`/`1/32W` canonical display labels, and inserted nine missing FOJAN FRC0201 rows into the DB/search sidecar: `FRC0201F10R0 TS`, `FRC0201J123 TS`, `FRC0201J303 TS`, `FRC0201F47R0 TS`, `FRC0201F1003 TS`, `FRC0201J224 TS`, `FRC0201F2213 TS`, `FRC0201F5100 TS`, and `FRC0201F9091 TS`.
+- Verification: Direct parser tests map `1;16W` to `1/16W` and `1;20W` to `1/20W`. Full query checks for the no-power 0201 specs above now return FOJAN FRC rows. `0201 1/16W` still correctly excludes FOJAN FRC0201 because FOJAN's provided table rates FRC0201 as `1/20W`, lower than a real `1/16W` requirement.
