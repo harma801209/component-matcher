@@ -125,7 +125,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-23T16:49:17+08:00"
+PUBLIC_CODE_STAMP = "2026-06-23T20:42:51+08:00"
 
 
 def startup_trace(message):
@@ -27636,9 +27636,8 @@ if is_no_match_admin_page_requested():
     render_no_match_report_admin_page()
     st.stop()
 
-with st.form("manual_query_search_form", clear_on_submit=False):
-    query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
-    search_clicked = st.form_submit_button("搜索")
+query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
+search_clicked = st.button("搜索")
 startup_trace("after_search_form")
 
 if search_clicked:
