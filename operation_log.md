@@ -2758,3 +2758,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted uploaded BOM exports to append match results after the original last column as `品牌/型号/成本/MOQ`, then `品牌2/型号2/成本2/MOQ2`, etc. Only own brands should be exported: capacitors by `华科 -> 信昌 -> 芯声微`, resistors by `厚声 -> 富捷`.
 - Change / action: Added BOM own-brand export slots, changed candidate selection to use component-specific brand groups, kept non-own brands out of the downloaded BOM columns, preserved duplicate header names when the source BOM already has `品牌` or `型号`, and bumped public stamps to `2026-06-24T09:53:20+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Partial function tests confirmed capacitor ordering, duplicate `品牌/型号` append behavior, and openpyxl worksheet append headers/values.
+
+### 2026-06-24 10:09 [debug] Preserved member login across return-search navigation
+
+- Received / problem: User showed that logging in through the fixed top-right member button worked on the member center page, but clicking `返回搜索` made the search page show `会员登录` again.
+- Root cause: Member sessions were only stored in Streamlit `session_state`; query-param navigation can reload the app and lose that server-side state.
+- Change / action: Added `member_token` URL restore support, preserved that token in fixed member/admin navigation hrefs, restored active members from the URL token in `current_member()`, cleared it on logout, and bumped public stamps to `2026-06-24T10:07:12+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression covered login token writing, empty-session restoration from URL token, return-search href token preservation, and logout token cleanup.

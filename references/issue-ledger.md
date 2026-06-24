@@ -310,3 +310,10 @@
 - Root cause: The fast resistor sidecar query used `_power_watt >= target`, and the ranking logic treated a higher wattage as a strictly better resistor parameter. A later in-memory filter also only narrowed to same-power rows when such rows were found, otherwise it left all candidates in place.
 - Fix: Changed resistor power to an exact-match requirement in the fast sidecar query and in-memory filtering, removed higher-wattage as a `高代低` trigger, and changed recommendation conflicts to report any power mismatch rather than only lower power.
 - Verification: `0603 10R +/-5% 1/10W`, `0603 10R 5% 1/8W`, and `0603 10R 5% 1/4W` each return candidates with only the requested inferred power.
+
+## 2026-06-24 - Member login state was lost after returning to search
+
+- Bug: Logging in from the fixed top-right member entry showed the member center as logged in, but clicking `返回搜索` returned to the search page with the top-right button back at `会员登录`.
+- Root cause: The member token was stored only in Streamlit `session_state`. The fixed navigation links change query params and can reload the Streamlit app/session, so the server-side session token was not available after returning to search.
+- Fix: Added a `member_token` query param restore path, made `current_member()` recover active members from that token, wrote the token to the URL on login/register, preserved it in fixed member/admin navigation links, and cleared it on logout.
+- Verification: Function-level regression simulates login, empty-session reload with URL token, member restoration, token-preserving return-search href, and logout token cleanup.

@@ -99,6 +99,7 @@ NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
 NO_MATCH_ADMIN_DEFAULT_USERNAME = "amdin"
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
+MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
@@ -132,7 +133,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T09:53:20+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T10:07:12+08:00"
 
 
 def startup_trace(message):
@@ -674,11 +675,11 @@ def render_no_match_admin_entry_button():
     authenticated = st.session_state.get("_no_match_admin_authenticated") is True
     if admin_active:
         label = "返回搜索"
-        href = "?admin=0"
+        href = build_app_href(admin="0", member="0")
         css_class = "admin-login-fixed secondary"
     else:
         label = "进入后台" if authenticated else "登入后台"
-        href = "?admin=1"
+        href = build_app_href(admin="1")
         css_class = "admin-login-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
@@ -1029,11 +1030,20 @@ def get_member_by_session_token(token):
 
 
 def current_member():
-    token = clean_text(st.session_state.get("_member_auth_token", ""))
-    member = get_member_by_session_token(token)
-    if member is None and token != "":
+    state_token = clean_text(st.session_state.get("_member_auth_token", ""))
+    query_token = clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+    for token in [state_token, query_token]:
+        if token == "":
+            continue
+        member = get_member_by_session_token(token)
+        if member is not None:
+            st.session_state["_member_auth_token"] = token
+            st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
+            return member
+    if state_token != "":
         st.session_state.pop("_member_auth_token", None)
-    return member
+        st.session_state.pop("_member_display_name", None)
+    return None
 
 
 def set_current_member(member):
@@ -1044,10 +1054,11 @@ def set_current_member(member):
         st.session_state["_member_auth_token"] = token
         st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
         st.session_state.pop("_member_auth_prompt_action", None)
+        update_query_params(**{MEMBER_AUTH_QUERY_PARAM: token})
 
 
 def logout_member():
-    token = clean_text(st.session_state.get("_member_auth_token", ""))
+    token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     if token:
         ensure_member_auth_schema()
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -1056,6 +1067,7 @@ def logout_member():
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
+    update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
 
 
 def is_member_page_requested():
@@ -1066,15 +1078,15 @@ def render_member_entry_button():
     member = current_member()
     if is_member_page_requested():
         label = "返回搜索"
-        href = "?member=0"
+        href = build_app_href(member="0", admin="0")
         css_class = "member-login-fixed secondary"
     elif member:
         label = "会员中心"
-        href = "?member=1"
+        href = build_app_href(member="1")
         css_class = "member-login-fixed active"
     else:
         label = "会员登录"
-        href = "?member=1"
+        href = build_app_href(member="1")
         css_class = "member-login-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
@@ -1973,6 +1985,83 @@ def get_query_param_value(name):
             return str(value).strip()
         except Exception:
             return ""
+
+
+def get_query_params_flat():
+    params = {}
+    try:
+        keys = list(st.query_params.keys())
+        for key in keys:
+            value = st.query_params.get(key, "")
+            if isinstance(value, list):
+                value = value[0] if value else ""
+            params[clean_text(key)] = clean_text(value)
+        return params
+    except Exception:
+        pass
+    try:
+        raw_params = st.experimental_get_query_params()
+    except Exception:
+        raw_params = {}
+    for key, value in (raw_params or {}).items():
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        params[clean_text(key)] = clean_text(value)
+    return params
+
+
+def set_query_params_flat(params):
+    safe_params = {
+        clean_text(key): clean_text(value)
+        for key, value in (params or {}).items()
+        if clean_text(key) != "" and clean_text(value) != ""
+    }
+    try:
+        st.query_params.clear()
+        for key, value in safe_params.items():
+            st.query_params[key] = value
+        return
+    except Exception:
+        pass
+    try:
+        st.experimental_set_query_params(**safe_params)
+    except Exception:
+        pass
+
+
+def update_query_params(**updates):
+    params = get_query_params_flat()
+    for key, value in updates.items():
+        key = clean_text(key)
+        value = clean_text(value)
+        if key == "":
+            continue
+        if value == "":
+            params.pop(key, None)
+        else:
+            params[key] = value
+    set_query_params_flat(params)
+
+
+def build_app_href(**updates):
+    params = get_query_params_flat()
+    for key, value in updates.items():
+        key = clean_text(key)
+        value = clean_text(value)
+        if key == "":
+            continue
+        if value == "":
+            params.pop(key, None)
+        else:
+            params[key] = value
+    query = urllib.parse.urlencode(
+        {
+            key: value
+            for key, value in params.items()
+            if clean_text(key) != "" and clean_text(value) != ""
+        }
+    )
+    return "?" + query if query else "?"
 
 
 def should_render_inline_footer():
