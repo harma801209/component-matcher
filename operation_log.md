@@ -2812,3 +2812,18 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Added `sync_joyin_ntc_thermistors.py` to parse `JSN-A_250121.pdf`, `JSN-C_250121.pdf`, `JSN-G_250121.pdf`, and `JSN-H_250121.pdf`, expand PDF `X` / `Y` tolerance placeholders into real part numbers, and import 6,780 Joyin SMD NTC rows. Refreshed prepared/search sidecar caches. Added Joyin JSN series recognition and B-value/B-condition aware NTC ranking.
 - Deployment note: Rebuilt `streamlit_cloud_bundle.zip`, split it back into `streamlit_cloud_bundle.zip.part01` / `part02`, and bumped public stamps to `2026-06-24T16:05:54+08:00` so Streamlit Cloud can extract the updated search cache.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py` passed. `NCP15XH103F03RC` now resolves through `fast_query` with 61 matches, including 56 `JOYIN(久尹)` rows; B=3380K / 25/50℃ Joyin rows are marked `完全匹配` and sorted ahead of nearby non-B-exact variants.
+
+### 2026-06-24 16:54 [debug] Filled FOJAN FRC0201 resistor range rows
+
+- Received / problem: User asked why `0201 5% 33R` did not return a FOJAN result, noting FOJAN should be able to make it.
+- Root cause: The FOJAN price/range table covers `FRC 0201 1/20W` 5% `10R-10M`, but the local FRC0201 library rows were still sparse. Also, generated resistor rows wrote tolerance to `阻值误差`, while the fast search `_tol` index only read `容值误差`, so tolerance-filtered searches could exclude new resistor rows.
+- Change / action: Added `sync_fojan_frc0201_range_rows.py` to generate FOJAN FRC0201 rows from the range/pricing table, rebuilt 909 generated rows in `components.db`, refreshed prepared/search sidecar caches, added tolerance fallback from `容值误差` to `阻值误差`, and bumped public stamps to `2026-06-24T16:42:15+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_fojan_frc0201_range_rows.py` passed. Sidecar row `FRC0201J330 TS` now has `_tol=5`, `_res_ohm=33.0`, `_power_watt=0.05`. Full query checks for `0201 5% 33R`, `0201 1% 33R`, and `0201 5% 68K` each return one FOJAN FRC0201 row with cost/MOQ populated.
+
+### 2026-06-24 20:52 [debug] Clarified Joyin JSN NTC series matching
+
+- Received / problem: User showed `NCP15XH103F03RC` matching Joyin rows from multiple JSN series, with unclear series descriptions and pseudo-series such as `JSNA103F`.
+- Root cause: Joyin display could reuse stale prefix-derived series text, and thermistor ranking only checked size/resistance/tolerance/B value without separating regular Murata NCP alternatives from Joyin automotive JSN-A/C series.
+- Change / action: Added Joyin JSN suffix semantics and Chinese series descriptions, normalized Joyin display rows by model suffix, treated Murata NCP as a regular target, ranked `JSN-G` first, and downgraded `JSN-H/C/A` to confirmation for regular NCP searches. Reimported 6,780 Joyin NTC rows and refreshed prepared/search caches. Bumped public stamps to `2026-06-24T20:28:00+08:00`.
+- Cleanup: Removed stale `cache/cf_pages_proxy_browser*.png` browser screenshots; the cache screenshot check no longer returns matching files.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py sync_fojan_frc0201_range_rows.py` passed. Full query for `NCP15XH103F03RC` now shows `JSN-G` Joyin rows first as `完全匹配` with Chinese `常规贴片 NTC` descriptions; `JSN-H/C/A` rows are retained as `需确认替代`.

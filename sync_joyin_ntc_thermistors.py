@@ -31,22 +31,22 @@ SERIES_FILES = {
 
 SERIES_PROFILES = {
     "JSN-A": {
-        "description": "JOYIN JSN-A Automotive SMD NTC thermistor series",
+        "description": "久尹 JSN-A 车规高温贴片 NTC 热敏电阻系列（AEC-Q200，-40~175℃）",
         "special_use": "车规 | AEC-Q200 | 175℃ | 测温 | 贴片 | NTC",
         "temperature": "-40~175℃",
     },
     "JSN-C": {
-        "description": "JOYIN JSN-C Automotive SMD NTC thermistor series",
+        "description": "久尹 JSN-C 车规贴片 NTC 热敏电阻系列（AEC-Q200，-40~150℃）",
         "special_use": "车规 | AEC-Q200 | 150℃ | 测温 | 贴片 | NTC",
         "temperature": "-40~150℃",
     },
     "JSN-G": {
-        "description": "JOYIN JSN-G SMD NTC thermistor series",
+        "description": "久尹 JSN-G 常规贴片 NTC 热敏电阻系列（-40~125℃，UL/TUV，通用测温）",
         "special_use": "标准 | UL/TUV | 125℃ | 测温 | 贴片 | NTC",
         "temperature": "-40~125℃",
     },
     "JSN-H": {
-        "description": "JOYIN JSN-H SMD NTC thermistor series",
+        "description": "久尹 JSN-H 常规高温贴片 NTC 热敏电阻系列（-40~150℃，通用测温）",
         "special_use": "标准 | 150℃ | 测温 | 贴片 | NTC",
         "temperature": "-40~150℃",
     },

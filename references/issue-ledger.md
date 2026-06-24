@@ -344,3 +344,17 @@
 - Bug: Searching a Murata NTC such as `NCP15XH103F03RC` could not return 信昌/久尹 equivalents because `components.db` had zero `JOYIN(久尹)` thermal resistor rows; only Joyin varistor rows existed.
 - Fix: Added `sync_joyin_ntc_thermistors.py` to parse the local JSN-A/C/G/H official PDFs, expand the `X` / `Y` tolerance placeholders into real part numbers, import generated Joyin NTC rows, and refresh prepared/search sidecar caches. Added Joyin JSN series recognition and made NTC matching/sorting consider B value and B condition.
 - Verification: Imported 6,780 Joyin JSN NTC rows. `NCP15XH103F03RC` now resolves through `fast_query` with 61 matched rows, including 56 `JOYIN(久尹)` rows; B=3380K / 25/50℃ Joyin rows are marked `完全匹配` and sorted before nearby non-B-exact variants.
+
+## 2026-06-24 - FOJAN FRC0201 5% 33R was absent from searchable range rows
+
+- Bug: Query `0201 5% 33R` returned other resistor brands but no `FOJAN(富捷)` result, even though the FOJAN price range table covers `FRC 0201 1/20W` 5% values from `10R-10M`.
+- Root cause: The previous FRC0201 fix only inserted several user-reported gap values, leaving the wider official range sparse. Generated resistor rows also stored the tolerance in `阻值误差`, while the fast search sidecar's `_tol` field was derived only from `容值误差`, so newly generated resistor rows could still be filtered out by tolerance.
+- Fix: Added `sync_fojan_frc0201_range_rows.py` to rebuild FOJAN FRC0201 range-generated rows from the pricing/range table, set both resistor and generic tolerance fields, and refresh prepared/search sidecar caches. Updated `prepare_search_dataframe()` to fall back from `容值误差` to `阻值误差` when populating `_tol`.
+- Verification: Rebuilt 909 generated FOJAN FRC0201 rows. The resistor sidecar row for `FRC0201J330 TS` now has `_size=0201`, `_tol=5`, `_res_ohm=33.0`, `_power_watt=0.05`. Full query checks return `FOJAN(富捷) FRC0201J330 TS` for `0201 5% 33R`, `FRC0201F33R0TS` for `0201 1% 33R`, and `FRC0201J683 TS` for `0201 5% 68K`, with FOJAN cost/MOQ populated.
+
+## 2026-06-24 - Joyin JSN NTC series semantics were unclear and over-ranked
+
+- Bug: For Murata regular NTC `NCP15XH103F03RC`, the Joyin results could show pseudo-series such as `JSNA103F`, English generic series descriptions, and multiple Joyin JSN-A/C/G/H rows all marked as `完全匹配`.
+- Root cause: Some runtime/display paths could reuse stale series text derived from the part-number prefix instead of the final Joyin suffix. The ranking logic compared electrical parameters and B value but did not distinguish Joyin regular JSN-G/H from automotive JSN-A/C when the source Murata series is regular NCP.
+- Fix: Added Joyin JSN suffix semantics (`A=车规高温`, `C=车规`, `G=常规`, `H=常规高温`), Chinese series descriptions from the Joyin PDFs, display-time normalization for stale Joyin rows, and NCP-to-JSN-G series-class ranking/level rules.
+- Verification: Reimported 6,780 Joyin NTC rows. `NCP15XH103F03RC` now returns `JSN-G` rows first with Chinese `常规贴片 NTC` series descriptions; JSN-H/JSN-C/JSN-A remain visible but are downgraded to `需确认替代`.

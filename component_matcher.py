@@ -116,7 +116,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 71
+QUERY_RESULT_CACHE_VERSION = 73
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -141,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T16:05:54+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T20:28:00+08:00"
 
 
 def startup_trace(message):
@@ -6321,6 +6321,40 @@ def normalize_fojan_resistor_series_display_fields(df):
             current_special = clean_text(out.at[idx, "特殊用途"])
             if special_use != "" and (current_special == "" or current_special != special_use):
                 out.at[idx, "特殊用途"] = special_use
+    return out
+
+
+def normalize_joyin_ntc_series_display_fields(df):
+    if df is None or df.empty:
+        return df
+    if "型号" not in df.columns:
+        return df
+    out = df.copy()
+    if "品牌" in out.columns:
+        brand_mask = out["品牌"].astype(str).apply(clean_brand).apply(
+            lambda value: "JOYIN" in value.upper() or "久尹" in value
+        )
+    else:
+        brand_mask = pd.Series([False] * len(out), index=out.index)
+    model_mask = out["型号"].astype(str).apply(lambda value: joyin_ntc_suffix_from_model(value) != "")
+    target_mask = brand_mask | model_mask
+    if "器件类型" in out.columns:
+        type_mask = out["器件类型"].astype(str).apply(normalize_component_type).isin({"", "热敏电阻"})
+        target_mask &= type_mask
+    if not target_mask.any():
+        return out
+    for idx, row in out.loc[target_mask].iterrows():
+        profile = joyin_ntc_series_profile_from_model(row.get("型号", ""))
+        if not profile:
+            continue
+        if "系列" in out.columns:
+            out.at[idx, "系列"] = profile["系列"]
+        if "系列说明" in out.columns:
+            out.at[idx, "系列说明"] = profile["系列说明"]
+        if "特殊用途" in out.columns:
+            out.at[idx, "特殊用途"] = profile["特殊用途"]
+        if "器件类型" in out.columns:
+            out.at[idx, "器件类型"] = "热敏电阻"
     return out
 
 
@@ -14894,6 +14928,8 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     if display_component_type in RESISTOR_COMPONENT_TYPES:
         out = normalize_fojan_resistor_series_display_fields(out)
         out = enrich_resistor_pricing_columns(out)
+    if display_component_type == "热敏电阻":
+        out = normalize_joyin_ntc_series_display_fields(out)
     out = enrich_mlcc_dimension_fields_in_dataframe(
         out,
         spec_or_type=spec_or_type,
@@ -15974,6 +16010,96 @@ THERMISTOR_SERIES_RULES = [
     (re.compile(r"^(\d+(?:\.\d+)?D)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
     (re.compile(r"^(\d+D)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
 ]
+JOYIN_NTC_MODEL_PATTERN = re.compile(r"^JSN[ZABC]\d{3}[A-Z]\d{3}[A-Z][ABC]B?X([ACGH])$", flags=re.I)
+JOYIN_NTC_SERIES_PROFILES = {
+    "A": {
+        "series": "JSN-A",
+        "description": "久尹 JSN-A 车规高温贴片 NTC 热敏电阻系列（AEC-Q200，-40~175℃）",
+        "special_use": "车规 | AEC-Q200 | 175℃ | 测温 | 贴片 | NTC",
+        "class": "automotive_high_temp",
+    },
+    "C": {
+        "series": "JSN-C",
+        "description": "久尹 JSN-C 车规贴片 NTC 热敏电阻系列（AEC-Q200，-40~150℃）",
+        "special_use": "车规 | AEC-Q200 | 150℃ | 测温 | 贴片 | NTC",
+        "class": "automotive",
+    },
+    "G": {
+        "series": "JSN-G",
+        "description": "久尹 JSN-G 常规贴片 NTC 热敏电阻系列（-40~125℃，UL/TUV，通用测温）",
+        "special_use": "标准 | UL/TUV | 125℃ | 测温 | 贴片 | NTC",
+        "class": "standard",
+    },
+    "H": {
+        "series": "JSN-H",
+        "description": "久尹 JSN-H 常规高温贴片 NTC 热敏电阻系列（-40~150℃，通用测温）",
+        "special_use": "标准 | 150℃ | 测温 | 贴片 | NTC",
+        "class": "standard_high_temp",
+    },
+}
+
+
+def joyin_ntc_suffix_from_model(model):
+    match = JOYIN_NTC_MODEL_PATTERN.match(clean_model(model))
+    return match.group(1).upper() if match else ""
+
+
+def joyin_ntc_series_profile_from_model(model):
+    suffix = joyin_ntc_suffix_from_model(model)
+    profile = JOYIN_NTC_SERIES_PROFILES.get(suffix, {})
+    if not profile:
+        return {}
+    return {
+        "系列": profile["series"],
+        "系列说明": profile["description"],
+        "特殊用途": profile["special_use"],
+        "_joyin_ntc_class": profile["class"],
+    }
+
+
+def joyin_ntc_target_class_from_spec(spec):
+    if not isinstance(spec, dict):
+        return ""
+    model = clean_model(spec.get("型号", ""))
+    series = clean_text(spec.get("系列", "")).upper()
+    combined = " ".join(
+        clean_text(spec.get(key, ""))
+        for key in ("系列说明", "特殊用途", "规格摘要", "备注1", "备注2", "备注3")
+    ).upper()
+    if model.startswith("NCP") or series.startswith("NCP"):
+        return "standard"
+    if "AUTOMOTIVE" in combined or "AEC" in combined or "车规" in combined:
+        return "automotive"
+    return ""
+
+
+def joyin_ntc_series_rank(row, spec):
+    profile = joyin_ntc_series_profile_from_model(row.get("型号", "") if hasattr(row, "get") else "")
+    if not profile:
+        return 0
+    cls = clean_text(profile.get("_joyin_ntc_class", ""))
+    target_class = joyin_ntc_target_class_from_spec(spec)
+    if target_class == "standard":
+        return {"standard": 0, "standard_high_temp": 1, "automotive": 4, "automotive_high_temp": 5}.get(cls, 9)
+    if target_class == "automotive":
+        return {"automotive": 0, "automotive_high_temp": 1, "standard_high_temp": 4, "standard": 5}.get(cls, 9)
+    return {"standard": 0, "standard_high_temp": 1, "automotive": 2, "automotive_high_temp": 3}.get(cls, 9)
+
+
+def joyin_ntc_series_matches_target(row, spec):
+    target_class = joyin_ntc_target_class_from_spec(spec)
+    if target_class == "":
+        return True
+    profile = joyin_ntc_series_profile_from_model(row.get("型号", "") if hasattr(row, "get") else "")
+    if not profile:
+        return True
+    cls = clean_text(profile.get("_joyin_ntc_class", ""))
+    if target_class == "standard":
+        return cls == "standard"
+    if target_class == "automotive":
+        return cls == "automotive"
+    return True
+
 VARISTOR_SERIES_RULES = [
     (re.compile(r"^(K\d{4}ESDA)", flags=re.I), lambda m: m.group(1).upper(), "贴片压敏电阻系列"),
     (re.compile(r"^(KESD\d{4})", flags=re.I), lambda m: m.group(1).upper(), "贴片压敏电阻系列"),
@@ -16380,25 +16506,16 @@ def resolve_thermistor_series_profile(brand="", model="", series="", series_desc
                 },
                 model=model_text,
             )
-    joyin_jsn_match = re.match(r"^JSN[ZABC]\d{3}[A-Z]\d{3}[A-Z][ABC]B?X([ACGH])$", model_text)
+    joyin_jsn_match = JOYIN_NTC_MODEL_PATTERN.match(model_text)
     if "JOYIN" in brand_upper or "久尹" in brand_text or joyin_jsn_match:
-        joyin_suffix_profiles = {
-            "A": ("JSN-A", "JOYIN JSN-A Automotive SMD NTC thermistor series", "车规 | AEC-Q200 | 175℃ | 测温 | 贴片 | NTC"),
-            "C": ("JSN-C", "JOYIN JSN-C Automotive SMD NTC thermistor series", "车规 | AEC-Q200 | 150℃ | 测温 | 贴片 | NTC"),
-            "G": ("JSN-G", "JOYIN JSN-G SMD NTC thermistor series", "标准 | UL/TUV | 125℃ | 测温 | 贴片 | NTC"),
-            "H": ("JSN-H", "JOYIN JSN-H SMD NTC thermistor series", "标准 | 150℃ | 测温 | 贴片 | NTC"),
-        }
         if joyin_jsn_match:
-            series_code, desc, use = joyin_suffix_profiles.get(
-                joyin_jsn_match.group(1),
-                ("JSN", "JOYIN JSN SMD NTC thermistor series", "测温 | 贴片 | NTC"),
-            )
+            profile = joyin_ntc_series_profile_from_model(model_text)
             return merge_series_profile_values(
                 result,
                 {
-                    "系列": series_code,
-                    "系列说明": desc,
-                    "特殊用途": use,
+                    "系列": clean_text(profile.get("系列", "")) or "JSN",
+                    "系列说明": clean_text(profile.get("系列说明", "")) or "久尹 JSN 贴片 NTC 热敏电阻系列",
+                    "特殊用途": clean_text(profile.get("特殊用途", "")) or "测温 | 贴片 | NTC",
                     "器件类型": "热敏电阻",
                 },
                 model=model_text,
@@ -22006,7 +22123,18 @@ def prepare_search_dataframe(df):
     if "_mat" not in work.columns:
         work["_mat"] = work["材质（介质）"].astype(str).apply(clean_material)
     if "_tol" not in work.columns:
-        work["_tol"] = work["容值误差"].astype(str).apply(clean_tol_for_match)
+        if "容值误差" in work.columns:
+            work["_tol"] = work["容值误差"].astype(str).apply(clean_tol_for_match)
+        else:
+            work["_tol"] = pd.Series([""] * len(work), index=work.index, dtype="object")
+    else:
+        work["_tol"] = work["_tol"].astype(str).apply(clean_tol_for_match)
+    if "阻值误差" in work.columns:
+        resistor_tol = work["阻值误差"].astype(str).apply(clean_tol_for_match)
+        blank_tol_mask = work["_tol"].astype("string").fillna("").str.strip().eq("")
+        fill_tol = resistor_tol[blank_tol_mask & resistor_tol.ne("")]
+        if not fill_tol.empty:
+            work.loc[fill_tol.index, "_tol"] = fill_tol
     if "_volt" not in work.columns:
         work["_volt"] = work["耐压（V）"].astype(str).apply(clean_voltage)
     if "_pf" not in work.columns:
@@ -24653,6 +24781,7 @@ def style_exact_match_rows(df, spec=None):
 def format_display_df(show_df):
     show_df = show_df.copy()
     show_df = normalize_fojan_resistor_series_display_fields(show_df)
+    show_df = normalize_joyin_ntc_series_display_fields(show_df)
     for col in [
         "品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3",
         "推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3",
@@ -25719,6 +25848,7 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
     else:
         display_df = show_df.copy()
     display_df = normalize_fojan_resistor_series_display_fields(display_df)
+    display_df = normalize_joyin_ntc_series_display_fields(display_df)
 
     hidden = set(hide_columns or [])
     visible_columns = [col for col in display_df.columns if col != "_量产状态链接" and col not in hidden]
@@ -25859,6 +25989,7 @@ def build_part_info_df(df, spec, query_model):
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
         show_df = fill_component_display_blanks(show_df, spec)
         show_df = normalize_fojan_resistor_series_display_fields(show_df)
+        show_df = normalize_joyin_ntc_series_display_fields(show_df)
         prioritized_hit = prioritize_component_rows_for_lookup(show_df)
         display_target = prioritized_hit.iloc[0].to_dict() if prioritized_hit is not None and not prioritized_hit.empty else spec
         suffix_columns = ["官网链接", "数据来源"]
@@ -25892,6 +26023,7 @@ def build_part_info_df(df, spec, query_model):
         **build_component_display_row(spec),
     }])
     row = normalize_fojan_resistor_series_display_fields(row)
+    row = normalize_joyin_ntc_series_display_fields(row)
     row_target = row.iloc[0].to_dict() if not row.empty else spec
     row = select_component_display_columns(
         row,
@@ -26013,6 +26145,7 @@ def classify_match_level(row, spec):
         b_value_matches = (not is_thermistor or spec_b_value == "" or row_b_value == spec_b_value)
         b_condition_matches = (not is_thermistor or spec_b_condition == "" or row_b_condition == spec_b_condition)
         b_matches = b_value_matches and b_condition_matches
+        thermistor_series_matches = (not is_thermistor or joyin_ntc_series_matches_target(row, spec))
 
         query_complete = (
             spec_size != "" and
@@ -26038,13 +26171,15 @@ def classify_match_level(row, spec):
             exact = False
         if not b_matches:
             exact = False
+        if not thermistor_series_matches:
+            exact = False
 
         if query_complete and exact:
             return "完全匹配", 1
 
         if not query_complete and same_core:
             tol_ok_partial = (spec_tol == "" or (row_tol_raw != "" and tolerance_equal(row_tol_raw, spec_tol)))
-            if tol_ok_partial and power_matches and b_matches:
+            if tol_ok_partial and power_matches and b_matches and thermistor_series_matches:
                 return "部分参数匹配", 2
 
         if query_complete and same_core:
@@ -26662,8 +26797,10 @@ def apply_match_levels_and_sort(df, spec):
             return rank
 
         work["_thermistor_b_rank"] = work.apply(thermistor_b_rank, axis=1)
+        work["_thermistor_series_rank"] = work.apply(lambda row: joyin_ntc_series_rank(row, spec), axis=1)
     else:
         work["_thermistor_b_rank"] = 0
+        work["_thermistor_series_rank"] = 0
     if target_type in CAPACITOR_COMPONENT_TYPES:
         sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank"]
         ascending = [True, True, True, True]
@@ -26676,8 +26813,8 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["品牌", "型号"])
         ascending.extend([True, True])
     else:
-        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_thermistor_b_rank"]
-        ascending = [True, True, True, True]
+        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_thermistor_b_rank", "_thermistor_series_rank"]
+        ascending = [True, True, True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -26687,7 +26824,18 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["_brand_rank", "品牌", "型号"])
         ascending.extend([True, True, True])
     work = work.sort_values(by=sort_cols, ascending=ascending)
-    return work.drop(columns=["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank", "_thermistor_b_rank"], errors="ignore")
+    return work.drop(
+        columns=[
+            "_exact_model_rank",
+            "_seed_rank",
+            "_level_rank",
+            "_brand_rank",
+            "_mlcc_class_rank",
+            "_thermistor_b_rank",
+            "_thermistor_series_rank",
+        ],
+        errors="ignore",
+    )
 
 def detect_query_mode_and_spec(df, line):
     semiconductor_hint = detect_unsupported_semiconductor_type(line)
