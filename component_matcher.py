@@ -116,7 +116,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 74
+QUERY_RESULT_CACHE_VERSION = 75
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -141,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T21:17:50+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T21:28:49+08:00"
 
 
 def startup_trace(message):
@@ -659,7 +659,12 @@ def logout_no_match_admin():
 
 def render_no_match_admin_login():
     st.markdown(
-        '<div class="admin-help-text">后台内容需要登录后查看。</div>',
+        """
+        <div class="admin-login-panel">
+            <div class="admin-login-title">管理员登录</div>
+            <div class="admin-login-desc">请输入后台账号密码后进入管理中心。</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
     with st.form("no_match_admin_login_form"):
@@ -1329,30 +1334,60 @@ def render_member_center_page():
 
 
 def render_member_admin_management_page():
-    st.markdown('<div class="section-title">会员资料管理</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="admin-help-text">这里显示所有注册会员。管理员可以修改账号资料、启用/待审核/停用账号、重置密码或删除会员。</div>',
-        unsafe_allow_html=True,
+    render_admin_section_header(
+        "会员资料管理",
+        "查看所有注册会员，并维护账号资料、状态、角色和密码。",
+        "账号维护",
     )
     members = list_members_for_admin()
     total_count = len(members)
     active_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "active")
     pending_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "pending")
     disabled_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "disabled")
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("会员总数", total_count)
-    metric_cols[1].metric("启用", active_count)
-    metric_cols[2].metric("待审核", pending_count)
-    metric_cols[3].metric("停用", disabled_count)
+    render_admin_metric_cards(
+        [
+            {"label": "会员总数", "value": total_count, "note": "全部注册账号", "tone": "neutral"},
+            {"label": "启用", "value": active_count, "note": "可登录使用", "tone": "green"},
+            {"label": "待审核", "value": pending_count, "note": "等待管理员通过", "tone": "amber"},
+            {"label": "停用", "value": disabled_count, "note": "暂不可登录", "tone": "red"},
+        ]
+    )
 
     if not members:
-        st.info("当前还没有注册会员。")
+        render_admin_empty_state("当前还没有注册会员", "会员注册后会在这里显示。")
         return
 
-    summary_df = member_admin_summary_dataframe(members)
+    filter_cols = st.columns([0.32, 0.68], gap="small")
+    with filter_cols[0]:
+        status_view = st.selectbox(
+            "显示状态",
+            ["全部", "启用", "待审核", "停用"],
+            key="admin_member_status_view",
+        )
+    with filter_cols[1]:
+        keyword = st.text_input(
+            "搜索会员",
+            key="admin_member_keyword",
+            placeholder="输入账号、姓名、公司、邮箱或电话",
+        )
+    status_map = {"启用": "active", "待审核": "pending", "停用": "disabled"}
+    filtered_members = []
+    for member in members:
+        if status_view != "全部" and normalize_member_status(member.get("status", "")) != status_map.get(status_view):
+            continue
+        if not member_matches_admin_keyword(member, keyword):
+            continue
+        filtered_members.append(member)
+
+    if not filtered_members:
+        render_admin_empty_state("没有符合筛选条件的会员", "可以调整状态或关键词后再查看。")
+        return
+
+    st.caption(f"当前显示 {len(filtered_members)} / {len(members)} 个会员")
+    summary_df = member_admin_summary_dataframe(filtered_members)
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-    for member in members:
+    for member in filtered_members:
         member_id = int(member.get("id", 0) or 0)
         username = clean_text(member.get("username", ""))
         display_name = clean_text(member.get("display_name", ""))
@@ -1417,16 +1452,22 @@ def render_member_admin_management_page():
 
 
 def render_member_approval_admin_page():
-    st.markdown('<div class="section-title">会员审核</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="admin-help-text">新注册会员默认进入待审核。审核通过后，该会员才可以登录并使用搜索和 BOM 匹配功能。</div>',
-        unsafe_allow_html=True,
+    render_admin_section_header(
+        "会员审核",
+        "新注册会员默认进入待审核。审核通过后，该会员才可以登录并使用搜索和 BOM 匹配功能。",
+        "准入管理",
     )
     members = list_members_for_admin()
     pending_members = [member for member in members if normalize_member_status(member.get("status", "")) == "pending"]
-    st.metric("待审核会员", len(pending_members))
+    render_admin_metric_cards(
+        [
+            {"label": "待审核会员", "value": len(pending_members), "note": "需要确认后放行", "tone": "amber"},
+            {"label": "已启用会员", "value": sum(1 for member in members if normalize_member_status(member.get("status", "")) == "active"), "note": "当前可登录", "tone": "green"},
+            {"label": "会员总数", "value": len(members), "note": "包含管理员账号", "tone": "neutral"},
+        ]
+    )
     if not pending_members:
-        st.success("当前没有待审核会员。")
+        render_admin_empty_state("当前没有待审核会员", "新注册账号提交后会出现在这里。")
         return
 
     st.dataframe(member_admin_summary_dataframe(pending_members), use_container_width=True, hide_index=True)
@@ -1504,6 +1545,154 @@ def render_no_match_report_button(
     )
 
 
+def admin_escape(value):
+    return html.escape(clean_text(value))
+
+
+def render_admin_hero():
+    st.markdown(
+        """
+        <div class="admin-hero">
+            <div>
+                <div class="admin-eyebrow">后台管理中心</div>
+                <div class="admin-hero-title">系统后台</div>
+                <div class="admin-hero-subtitle">
+                    集中处理无匹配回报、会员审核与会员资料维护。新会员审核通过后才可以登录使用搜索和 BOM 匹配。
+                </div>
+            </div>
+            <div class="admin-hero-badge">
+                <span>权限</span>
+                <strong>管理员</strong>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_admin_section_header(title, description="", meta=""):
+    meta_html = f'<div class="admin-section-meta">{admin_escape(meta)}</div>' if clean_text(meta) else ""
+    desc_html = f'<div class="admin-section-desc">{admin_escape(description)}</div>' if clean_text(description) else ""
+    st.markdown(
+        f"""
+        <div class="admin-section-head">
+            <div>
+                <div class="admin-section-title">{admin_escape(title)}</div>
+                {desc_html}
+            </div>
+            {meta_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_admin_metric_cards(cards):
+    if not cards:
+        return
+    card_html = []
+    for card in cards:
+        tone = clean_text(card.get("tone", "neutral")) or "neutral"
+        card_html.append(
+            f"""
+            <div class="admin-stat-card admin-stat-{admin_escape(tone)}">
+                <div class="admin-stat-label">{admin_escape(card.get("label", ""))}</div>
+                <div class="admin-stat-value">{admin_escape(card.get("value", ""))}</div>
+                <div class="admin-stat-note">{admin_escape(card.get("note", ""))}</div>
+            </div>
+            """
+        )
+    st.markdown(
+        f'<div class="admin-stat-grid">{"".join(card_html)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_admin_module_cards(active_module, report_counts=None, members=None):
+    report_counts = report_counts or {}
+    members = members or []
+    pending_members = [member for member in members if normalize_member_status(member.get("status", "")) == "pending"]
+    active_members = [member for member in members if normalize_member_status(member.get("status", "")) == "active"]
+    modules = [
+        {
+            "name": "无匹配回报",
+            "kicker": "物料处理",
+            "value": report_counts.get("待处理", 0),
+            "unit": "待处理",
+            "desc": "查看前台回报，补入正确型号后结案。",
+            "tone": "red",
+        },
+        {
+            "name": "会员审核",
+            "kicker": "注册审核",
+            "value": len(pending_members),
+            "unit": "待审核",
+            "desc": "新会员通过审核后才可以使用匹配功能。",
+            "tone": "amber",
+        },
+        {
+            "name": "会员资料管理",
+            "kicker": "账号维护",
+            "value": len(active_members),
+            "unit": f"启用 / 共 {len(members)}",
+            "desc": "修改资料、重置密码、启停或删除会员。",
+            "tone": "green",
+        },
+    ]
+    card_html = []
+    for module in modules:
+        active_class = " active" if module["name"] == active_module else ""
+        card_html.append(
+            f"""
+            <div class="admin-module-card admin-module-{admin_escape(module["tone"])}{active_class}">
+                <div class="admin-module-kicker">{admin_escape(module["kicker"])}</div>
+                <div class="admin-module-name">{admin_escape(module["name"])}</div>
+                <div class="admin-module-number">
+                    <span>{admin_escape(module["value"])}</span>
+                    <small>{admin_escape(module["unit"])}</small>
+                </div>
+                <div class="admin-module-desc">{admin_escape(module["desc"])}</div>
+            </div>
+            """
+        )
+    st.markdown(
+        f"""
+        <div class="admin-module-grid">
+            {"".join(card_html)}
+        </div>
+        <div class="admin-switch-hint">选择下方模块即可切换管理内容。</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_admin_empty_state(title, description=""):
+    desc_html = f'<div class="admin-empty-desc">{admin_escape(description)}</div>' if clean_text(description) else ""
+    st.markdown(
+        f"""
+        <div class="admin-empty-state">
+            <div class="admin-empty-title">{admin_escape(title)}</div>
+            {desc_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def member_matches_admin_keyword(member, keyword):
+    keyword = clean_text(keyword).lower()
+    if not keyword:
+        return True
+    fields = [
+        member.get("username", ""),
+        member.get("display_name", ""),
+        member.get("company", ""),
+        member.get("email", ""),
+        member.get("phone", ""),
+    ]
+    return any(keyword in clean_text(value).lower() for value in fields)
+
+
 def render_no_alt_match_report_row(
     query_text,
     mode="",
@@ -1559,18 +1748,22 @@ def no_match_report_summary_dataframe(reports):
 
 
 def render_no_match_report_admin_page():
-    st.markdown('<div class="result-title">系统后台</div>', unsafe_allow_html=True)
+    render_admin_hero()
     if not require_no_match_admin_login():
         return
 
-    admin_cols = st.columns([0.78, 0.22], gap="small")
-    with admin_cols[0]:
+    report_counts = get_no_match_report_counts()
+    admin_members = list_members_for_admin()
+    active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报")) or "无匹配回报"
+    render_admin_module_cards(active_module, report_counts=report_counts, members=admin_members)
+
+    admin_action_cols = st.columns([0.72, 0.28], gap="small")
+    with admin_action_cols[0]:
         st.markdown(
-            '<div class="admin-help-text">后台包含无匹配物料回报处理、会员审核和会员资料管理。'
-            '新会员需审核通过后才能登录使用系统。</div>',
+            '<div class="admin-action-hint">后台操作会直接影响前台匹配结果和会员登录权限，请处理后再确认结案或通过审核。</div>',
             unsafe_allow_html=True,
         )
-    with admin_cols[1]:
+    with admin_action_cols[1]:
         st.button("退出后台", use_container_width=True, on_click=logout_no_match_admin)
 
     backend_module = st.radio(
@@ -1587,12 +1780,19 @@ def render_no_match_report_admin_page():
         render_member_admin_management_page()
         return
 
-    st.markdown('<div class="section-title">无匹配物料回报</div>', unsafe_allow_html=True)
-    counts = get_no_match_report_counts()
-    metric_cols = st.columns(3)
-    metric_cols[0].metric("待处理", counts.get("待处理", 0))
-    metric_cols[1].metric("已解决", counts.get("已解决", 0))
-    metric_cols[2].metric("全部", counts.get("全部", 0))
+    render_admin_section_header(
+        "无匹配物料回报",
+        "前台搜索无匹配时提交的记录会进入这里。补入正确品牌和型号后，系统会写入后台补料映射并结案。",
+        "物料补库",
+    )
+    counts = report_counts
+    render_admin_metric_cards(
+        [
+            {"label": "待处理", "value": counts.get("待处理", 0), "note": "需要补型号", "tone": "red"},
+            {"label": "已解决", "value": counts.get("已解决", 0), "note": "已结案", "tone": "green"},
+            {"label": "全部", "value": counts.get("全部", 0), "note": "累计回报", "tone": "neutral"},
+        ]
+    )
 
     status_filter = st.radio(
         "回报状态",
@@ -1603,9 +1803,10 @@ def render_no_match_report_admin_page():
     )
     reports = list_no_match_reports(status_filter)
     if not reports:
-        st.info("当前没有符合条件的回报。")
+        render_admin_empty_state("当前没有符合条件的回报", "切换状态筛选后可以查看已解决或全部记录。")
         return
 
+    st.caption(f"当前筛选：{status_filter}，共 {len(reports)} 条")
     summary_df = no_match_report_summary_dataframe(reports)
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
@@ -2416,6 +2617,244 @@ footer {visibility: hidden;}
     font-size: 14px;
     line-height: 1.6;
 }
+.admin-hero {
+    margin: 6px 0 18px 0;
+    padding: 22px 24px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+.admin-eyebrow {
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0;
+    margin-bottom: 6px;
+}
+.admin-hero-title {
+    color: #111827;
+    font-size: 26px;
+    font-weight: 900;
+    line-height: 1.2;
+}
+.admin-hero-subtitle {
+    margin-top: 8px;
+    max-width: 760px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.65;
+}
+.admin-hero-badge {
+    min-width: 118px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    background: #eff6ff;
+    color: #1e40af;
+    text-align: center;
+}
+.admin-hero-badge span {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+.admin-hero-badge strong {
+    font-size: 17px;
+}
+.admin-login-panel {
+    margin: 8px 0 14px 0;
+    padding: 18px 20px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.30);
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+}
+.admin-login-title {
+    color: #111827;
+    font-size: 20px;
+    font-weight: 900;
+    margin-bottom: 6px;
+}
+.admin-login-desc {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.6;
+}
+.admin-module-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 12px 0 8px 0;
+}
+.admin-module-card {
+    min-height: 126px;
+    padding: 16px 18px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+.admin-module-card.active {
+    border-color: rgba(37, 99, 235, 0.46);
+    box-shadow: 0 14px 30px rgba(37, 99, 235, 0.12);
+}
+.admin-module-kicker {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+.admin-module-name {
+    color: #111827;
+    font-size: 18px;
+    font-weight: 900;
+}
+.admin-module-number {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 12px 0 6px 0;
+}
+.admin-module-number span {
+    color: #111827;
+    font-size: 30px;
+    font-weight: 900;
+    line-height: 1;
+}
+.admin-module-number small {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+}
+.admin-module-desc {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.admin-module-red.active {
+    background: linear-gradient(180deg, #fff7f7 0%, #ffffff 100%);
+}
+.admin-module-amber.active {
+    background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+.admin-module-green.active {
+    background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+.admin-switch-hint {
+    color: #64748b;
+    font-size: 13px;
+    margin: 2px 0 10px 0;
+}
+.admin-action-hint {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.admin-section-head {
+    margin: 20px 0 12px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+.admin-section-title {
+    color: #111827;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.25;
+}
+.admin-section-desc {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.6;
+}
+.admin-section-meta {
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.20);
+    background: #eff6ff;
+    color: #1e40af;
+    font-size: 13px;
+    font-weight: 800;
+}
+.admin-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin: 12px 0 16px 0;
+}
+.admin-stat-card {
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    background: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+.admin-stat-label {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+}
+.admin-stat-value {
+    margin-top: 8px;
+    color: #111827;
+    font-size: 28px;
+    font-weight: 900;
+    line-height: 1;
+}
+.admin-stat-note {
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
+}
+.admin-stat-green {
+    border-left: 4px solid #16a34a;
+}
+.admin-stat-amber {
+    border-left: 4px solid #f59e0b;
+}
+.admin-stat-red {
+    border-left: 4px solid #ef4444;
+}
+.admin-stat-neutral {
+    border-left: 4px solid #64748b;
+}
+.admin-empty-state {
+    margin: 12px 0 18px 0;
+    padding: 18px 20px;
+    border-radius: 8px;
+    border: 1px dashed rgba(100, 116, 139, 0.35);
+    background: #f8fafc;
+}
+.admin-empty-title {
+    color: #334155;
+    font-size: 17px;
+    font-weight: 900;
+}
+.admin-empty-desc {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.55;
+}
 .admin-login-fixed {
     position: fixed;
     top: 18px;
@@ -2492,6 +2931,25 @@ footer {visibility: hidden;}
     color: #475569 !important;
 }
 @media (max-width: 700px) {
+    .admin-hero {
+        display: block;
+        padding: 18px;
+    }
+    .admin-hero-badge {
+        margin-top: 14px;
+        width: 100%;
+    }
+    .admin-module-grid,
+    .admin-stat-grid {
+        grid-template-columns: 1fr;
+    }
+    .admin-section-head {
+        display: block;
+    }
+    .admin-section-meta {
+        display: inline-flex;
+        margin-top: 10px;
+    }
     .admin-login-fixed {
         top: 12px;
         right: 12px;
