@@ -386,6 +386,13 @@
 - Fix: Rewrote the entrypoint wrapper with valid UTF-8 Chinese startup messages while keeping the same `component_matcher.main()` launch behavior.
 - Verification: Local Streamlit smoke test on port 8511 returned HTTP 200, and `python -m py_compile component_matcher.py streamlit_app.py` passed.
 
+## 2026-06-25 - Backend admin login did not carry member state back to search
+
+- Bug: Logging in through the backend admin entry as `amdin`, then clicking `返回搜索`, returned to the search page with `会员登录` shown again.
+- Root cause: Backend authentication only set `_no_match_admin_authenticated`. It did not create a member session token, and the backend return-search link did not intentionally carry a member token.
+- Fix: After successful backend admin credential validation, the app now synchronizes the configured admin member account, creates a normal member session, writes `member_token` into query params, and preserves that token on the backend `返回搜索` link.
+- Verification: Function-level temp DB test confirmed backend admin login creates a valid admin member session and renders a return-search URL with `member_token`. Local Streamlit browser flow confirmed `admin=1` login returns to search with `会员中心` visible and `会员登录` hidden.
+
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 
 - Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.

@@ -142,7 +142,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T23:18:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T02:28:00+08:00"
 
 
 def startup_trace(message):
@@ -914,6 +914,7 @@ def render_no_match_admin_login():
         if submitted:
             if no_match_admin_login_valid(username, password):
                 st.session_state["_no_match_admin_authenticated"] = True
+                set_current_member_from_admin_login(username, password)
                 st.success("登录成功。")
                 st.rerun()
             else:
@@ -936,7 +937,13 @@ def render_no_match_admin_entry_button():
     authenticated = st.session_state.get("_no_match_admin_authenticated") is True
     if admin_active:
         label = "返回搜索"
-        href = build_app_href(admin="0", member="0")
+        member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
+            get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
+        )
+        href_updates = {"admin": "0", "member": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "admin-login-fixed secondary"
     else:
         label = "进入后台" if authenticated else "登入后台"
@@ -1454,6 +1461,21 @@ def set_current_member(member):
         st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
         st.session_state.pop("_member_auth_prompt_action", None)
         update_query_params(**{MEMBER_AUTH_QUERY_PARAM: token})
+
+
+def set_current_member_from_admin_login(username, password):
+    if not no_match_admin_login_valid(username, password):
+        return None
+    ensure_configured_admin_member_account()
+    member = get_member_by_username(username)
+    if not member or normalize_member_status(member.get("status", "")) != "active":
+        return None
+    token = create_member_session(int(member["id"]))
+    member = get_member_by_id(int(member["id"]))
+    if member:
+        member["_session_token"] = token
+        set_current_member(member)
+    return member
 
 
 def logout_member():
