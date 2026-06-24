@@ -132,7 +132,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T07:42:56+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T08:59:08+08:00"
 
 
 def startup_trace(message):
@@ -828,6 +828,149 @@ def create_member_account(username, password, display_name="", company="", email
         return False, f"注册失败：{exc}"
 
 
+def normalize_member_status(value):
+    value = clean_text(value).lower()
+    if value in {"disabled", "停用", "inactive", "blocked", "ban", "banned"}:
+        return "disabled"
+    return "active"
+
+
+def format_member_status(value):
+    return "停用" if normalize_member_status(value) == "disabled" else "启用"
+
+
+def normalize_member_role(value):
+    value = clean_text(value).lower()
+    return "admin" if value == "admin" else "member"
+
+
+def format_member_role(value):
+    return "管理员" if normalize_member_role(value) == "admin" else "会员"
+
+
+def list_members_for_admin():
+    ensure_member_auth_schema()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, username, display_name, company, email, phone, role, status,
+                   created_at, updated_at, last_login_at
+            FROM members
+            ORDER BY id DESC
+            """
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
+def member_admin_summary_dataframe(members):
+    rows = []
+    for member in members or []:
+        rows.append(
+            {
+                "ID": member.get("id", ""),
+                "账号": member.get("username", ""),
+                "姓名/称呼": member.get("display_name", ""),
+                "公司": member.get("company", ""),
+                "邮箱": member.get("email", ""),
+                "电话": member.get("phone", ""),
+                "角色": format_member_role(member.get("role", "")),
+                "状态": format_member_status(member.get("status", "")),
+                "注册时间": member.get("created_at", ""),
+                "最后登录": member.get("last_login_at", ""),
+                "更新时间": member.get("updated_at", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password=""):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。"
+    username = clean_text(username)
+    if not member_username_is_valid(username):
+        return False, "账号只能使用 3-64 位英文、数字、点号、下划线、加号、减号或 @。"
+    password_text = str(new_password or "")
+    if password_text != "" and len(password_text) < 6:
+        return False, "重置密码至少需要 6 位；如果不改密码请留空。"
+    status_value = normalize_member_status(status)
+    role_value = normalize_member_role(role)
+    now = current_timestamp_text()
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            exists = conn.execute("SELECT id FROM members WHERE id=?", (member_id,)).fetchone()
+            if exists is None:
+                return False, "会员不存在或已被删除。"
+            if password_text:
+                conn.execute(
+                    """
+                    UPDATE members
+                    SET username=?, display_name=?, company=?, email=?, phone=?, role=?, status=?,
+                        password_hash=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        username,
+                        clean_text(display_name) or username,
+                        clean_text(company),
+                        clean_text(email),
+                        clean_text(phone),
+                        role_value,
+                        status_value,
+                        hash_member_password(password_text),
+                        now,
+                        member_id,
+                    ),
+                )
+                conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+            else:
+                conn.execute(
+                    """
+                    UPDATE members
+                    SET username=?, display_name=?, company=?, email=?, phone=?, role=?, status=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        username,
+                        clean_text(display_name) or username,
+                        clean_text(company),
+                        clean_text(email),
+                        clean_text(phone),
+                        role_value,
+                        status_value,
+                        now,
+                        member_id,
+                    ),
+                )
+                if status_value != "active":
+                    conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+            conn.commit()
+        return True, "会员资料已更新。"
+    except sqlite3.IntegrityError:
+        return False, "这个账号已经被其他会员使用。"
+    except Exception as exc:
+        return False, f"更新失败：{exc}"
+
+
+def delete_member_account_admin(member_id):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。"
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        exists = conn.execute("SELECT id FROM members WHERE id=?", (member_id,)).fetchone()
+        if exists is None:
+            return False, "会员不存在或已被删除。"
+        conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+        cursor = conn.execute("DELETE FROM members WHERE id=?", (member_id,))
+        conn.commit()
+    return int(cursor.rowcount or 0) > 0, "会员已删除。"
+
+
 def create_member_session(member_id):
     ensure_member_auth_schema()
     token = secrets.token_urlsafe(32)
@@ -947,7 +1090,7 @@ def render_member_auth_panel(action_text=""):
         """
         <div class="tool-panel">
             <div class="tool-panel-title">会员登录</div>
-            <div class="tool-panel-note">页面可以先浏览；执行搜索匹配或 BOM 上传匹配时需要会员登录。密码只保存加盐哈希，不保存明文。</div>
+            <div class="tool-panel-note">页面可以先浏览；执行搜索匹配或 BOM 上传匹配时需要会员登录。</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1023,6 +1166,91 @@ def render_member_center_page():
     if st.button("退出会员登录", use_container_width=True):
         logout_member()
         st.rerun()
+
+
+def render_member_admin_management_page():
+    st.markdown('<div class="section-title">会员资料管理</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="admin-help-text">这里显示所有注册会员。管理员可以修改账号资料、启用/停用账号、重置密码或删除会员。</div>',
+        unsafe_allow_html=True,
+    )
+    members = list_members_for_admin()
+    total_count = len(members)
+    active_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "active")
+    disabled_count = total_count - active_count
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("会员总数", total_count)
+    metric_cols[1].metric("启用", active_count)
+    metric_cols[2].metric("停用", disabled_count)
+
+    if not members:
+        st.info("当前还没有注册会员。")
+        return
+
+    summary_df = member_admin_summary_dataframe(members)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    for member in members:
+        member_id = int(member.get("id", 0) or 0)
+        username = clean_text(member.get("username", ""))
+        display_name = clean_text(member.get("display_name", ""))
+        title = f"#{member_id} · {username}"
+        if display_name and display_name != username:
+            title += f" · {display_name}"
+        with st.expander(title, expanded=False):
+            with st.form(f"member_admin_edit_{member_id}"):
+                field_cols = st.columns([0.22, 0.22, 0.28, 0.28], gap="small")
+                with field_cols[0]:
+                    edit_username = st.text_input("账号", value=username, key=f"admin_member_username_{member_id}")
+                    edit_display_name = st.text_input("姓名/称呼", value=display_name, key=f"admin_member_display_{member_id}")
+                with field_cols[1]:
+                    edit_company = st.text_input("公司", value=clean_text(member.get("company", "")), key=f"admin_member_company_{member_id}")
+                    edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")), key=f"admin_member_phone_{member_id}")
+                with field_cols[2]:
+                    edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")), key=f"admin_member_email_{member_id}")
+                    status_options = ["启用", "停用"]
+                    status_index = 0 if normalize_member_status(member.get("status", "")) == "active" else 1
+                    edit_status_label = st.selectbox("状态", status_options, index=status_index, key=f"admin_member_status_{member_id}")
+                with field_cols[3]:
+                    role_options = ["会员", "管理员"]
+                    role_index = 1 if normalize_member_role(member.get("role", "")) == "admin" else 0
+                    edit_role_label = st.selectbox("角色", role_options, index=role_index, key=f"admin_member_role_{member_id}")
+                    reset_password = st.text_input("重置密码（留空不改）", type="password", key=f"admin_member_password_{member_id}")
+                confirm_delete = st.checkbox(
+                    "确认删除此会员",
+                    key=f"admin_member_confirm_delete_{member_id}",
+                    help="删除会同时清除该会员当前登录状态。",
+                )
+                action_cols = st.columns([0.5, 0.5], gap="small")
+                save_clicked = action_cols[0].form_submit_button("保存修改", use_container_width=True)
+                delete_clicked = action_cols[1].form_submit_button("删除会员", use_container_width=True)
+                if save_clicked:
+                    ok, message = update_member_account_admin(
+                        member_id=member_id,
+                        username=edit_username,
+                        display_name=edit_display_name,
+                        company=edit_company,
+                        email=edit_email,
+                        phone=edit_phone,
+                        role="admin" if edit_role_label == "管理员" else "member",
+                        status="disabled" if edit_status_label == "停用" else "active",
+                        new_password=reset_password,
+                    )
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                if delete_clicked:
+                    if not confirm_delete:
+                        st.warning("请先勾选“确认删除此会员”。")
+                    else:
+                        ok, message = delete_member_account_admin(member_id)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
 
 
 def require_member_login_for_action(action_text):
@@ -1131,20 +1359,32 @@ def no_match_report_summary_dataframe(reports):
 
 
 def render_no_match_report_admin_page():
-    st.markdown('<div class="result-title">无匹配物料回报后台</div>', unsafe_allow_html=True)
+    st.markdown('<div class="result-title">系统后台</div>', unsafe_allow_html=True)
     if not require_no_match_admin_login():
         return
 
     admin_cols = st.columns([0.78, 0.22], gap="small")
     with admin_cols[0]:
         st.markdown(
-            '<div class="admin-help-text">这里显示用户回报的“没有匹配型号 / 没有替代型号”记录。'
-            '在记录里填入核对后的正确品牌和型号并结案后，下一次相同输入会优先命中这条后台补料。</div>',
+            '<div class="admin-help-text">后台包含无匹配物料回报处理和会员资料管理。'
+            '会员资料管理可查看、修改、停用、重置密码或删除注册会员。</div>',
             unsafe_allow_html=True,
         )
     with admin_cols[1]:
         st.button("退出后台", use_container_width=True, on_click=logout_no_match_admin)
 
+    backend_module = st.radio(
+        "后台模块",
+        ["无匹配回报", "会员资料管理"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="admin_backend_module",
+    )
+    if backend_module == "会员资料管理":
+        render_member_admin_management_page()
+        return
+
+    st.markdown('<div class="section-title">无匹配物料回报</div>', unsafe_allow_html=True)
     counts = get_no_match_report_counts()
     metric_cols = st.columns(3)
     metric_cols[0].metric("待处理", counts.get("待处理", 0))
