@@ -133,7 +133,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T10:27:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T10:45:00+08:00"
 
 
 def startup_trace(message):
@@ -808,7 +808,7 @@ def create_member_account(username, password, display_name="", company="", email
                     username, password_hash, display_name, company, email, phone,
                     role, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'member', 'pending', ?, ?)
                 """,
                 (
                     username,
@@ -822,7 +822,7 @@ def create_member_account(username, password, display_name="", company="", email
                 ),
             )
             conn.commit()
-        return True, "注册成功，已为你自动登录。"
+        return True, "注册申请已提交，请等待管理员审核通过后再登录。"
     except sqlite3.IntegrityError:
         return False, "这个账号已经存在，请直接登录。"
     except Exception as exc:
@@ -831,13 +831,18 @@ def create_member_account(username, password, display_name="", company="", email
 
 def normalize_member_status(value):
     value = clean_text(value).lower()
+    if value in {"pending", "待审核", "待審核", "review", "reviewing", "unapproved"}:
+        return "pending"
     if value in {"disabled", "停用", "inactive", "blocked", "ban", "banned"}:
         return "disabled"
     return "active"
 
 
 def format_member_status(value):
-    return "停用" if normalize_member_status(value) == "disabled" else "启用"
+    status = normalize_member_status(value)
+    if status == "pending":
+        return "待审核"
+    return "停用" if status == "disabled" else "启用"
 
 
 def normalize_member_role(value):
@@ -915,6 +920,22 @@ def list_members_for_admin():
             """
         ).fetchall()
     return [member_row_to_dict(row) for row in rows]
+
+
+def approve_member_account_admin(member_id):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。"
+    now = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        exists = conn.execute("SELECT id FROM members WHERE id=?", (member_id,)).fetchone()
+        if exists is None:
+            return False, "会员不存在或已被删除。"
+        conn.execute("UPDATE members SET status='active', updated_at=? WHERE id=?", (now, member_id))
+        conn.commit()
+    return True, "审核通过，会员现在可以登录。"
 
 
 def member_admin_summary_dataframe(members):
@@ -1045,7 +1066,10 @@ def authenticate_member(username, password):
     member = get_member_by_username(username)
     if not member:
         return None, "账号或密码不正确。"
-    if normalize_member_status(member.get("status", "")) != "active":
+    status_value = normalize_member_status(member.get("status", ""))
+    if status_value == "pending":
+        return None, "账号正在等待管理员审核，通过后才能登录。"
+    if status_value != "active":
         return None, "账号尚未开通或已停用，请联系管理员。"
     if not verify_member_password(password, member.get("password_hash", "")):
         return None, "账号或密码不正确。"
@@ -1077,7 +1101,7 @@ def get_member_by_session_token(token):
             conn.commit()
             return None
     member = member_row_to_dict(row)
-    if member and clean_text(member.get("status", "")) == "active":
+    if member and normalize_member_status(member.get("status", "")) == "active":
         member["_session_token"] = token
         return member
     return None
@@ -1184,7 +1208,7 @@ def render_member_auth_panel(action_text=""):
             phone = st.text_input("电话", key="member_register_phone")
             password = st.text_input("密码", type="password", key="member_register_password")
             password2 = st.text_input("确认密码", type="password", key="member_register_password2")
-            submitted = st.form_submit_button("注册并登录", use_container_width=True)
+            submitted = st.form_submit_button("提交注册申请", use_container_width=True)
             if submitted:
                 if password != password2:
                     st.error("两次输入的密码不一致。")
@@ -1198,15 +1222,7 @@ def render_member_auth_panel(action_text=""):
                         phone=phone,
                     )
                     if ok:
-                        member, error = authenticate_member(username, password)
-                        if member:
-                            set_current_member(member)
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.success(message)
-                            if error:
-                                st.info(error)
+                        st.success(message)
                     else:
                         st.error(message)
 
@@ -1237,17 +1253,19 @@ def render_member_center_page():
 def render_member_admin_management_page():
     st.markdown('<div class="section-title">会员资料管理</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="admin-help-text">这里显示所有注册会员。管理员可以修改账号资料、启用/停用账号、重置密码或删除会员。</div>',
+        '<div class="admin-help-text">这里显示所有注册会员。管理员可以修改账号资料、启用/待审核/停用账号、重置密码或删除会员。</div>',
         unsafe_allow_html=True,
     )
     members = list_members_for_admin()
     total_count = len(members)
     active_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "active")
-    disabled_count = total_count - active_count
-    metric_cols = st.columns(3)
+    pending_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "pending")
+    disabled_count = sum(1 for member in members if normalize_member_status(member.get("status", "")) == "disabled")
+    metric_cols = st.columns(4)
     metric_cols[0].metric("会员总数", total_count)
     metric_cols[1].metric("启用", active_count)
-    metric_cols[2].metric("停用", disabled_count)
+    metric_cols[2].metric("待审核", pending_count)
+    metric_cols[3].metric("停用", disabled_count)
 
     if not members:
         st.info("当前还没有注册会员。")
@@ -1274,8 +1292,9 @@ def render_member_admin_management_page():
                     edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")), key=f"admin_member_phone_{member_id}")
                 with field_cols[2]:
                     edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")), key=f"admin_member_email_{member_id}")
-                    status_options = ["启用", "停用"]
-                    status_index = 0 if normalize_member_status(member.get("status", "")) == "active" else 1
+                    status_options = ["启用", "待审核", "停用"]
+                    current_status = normalize_member_status(member.get("status", ""))
+                    status_index = {"active": 0, "pending": 1, "disabled": 2}.get(current_status, 0)
                     edit_status_label = st.selectbox("状态", status_options, index=status_index, key=f"admin_member_status_{member_id}")
                 with field_cols[3]:
                     role_options = ["会员", "管理员"]
@@ -1299,7 +1318,7 @@ def render_member_admin_management_page():
                         email=edit_email,
                         phone=edit_phone,
                         role="admin" if edit_role_label == "管理员" else "member",
-                        status="disabled" if edit_status_label == "停用" else "active",
+                        status={"启用": "active", "待审核": "pending", "停用": "disabled"}.get(edit_status_label, "active"),
                         new_password=reset_password,
                     )
                     if ok:
@@ -1317,6 +1336,43 @@ def render_member_admin_management_page():
                             st.rerun()
                         else:
                             st.error(message)
+
+
+def render_member_approval_admin_page():
+    st.markdown('<div class="section-title">会员审核</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="admin-help-text">新注册会员默认进入待审核。审核通过后，该会员才可以登录并使用搜索和 BOM 匹配功能。</div>',
+        unsafe_allow_html=True,
+    )
+    members = list_members_for_admin()
+    pending_members = [member for member in members if normalize_member_status(member.get("status", "")) == "pending"]
+    st.metric("待审核会员", len(pending_members))
+    if not pending_members:
+        st.success("当前没有待审核会员。")
+        return
+
+    st.dataframe(member_admin_summary_dataframe(pending_members), use_container_width=True, hide_index=True)
+    for member in pending_members:
+        member_id = int(member.get("id", 0) or 0)
+        username = clean_text(member.get("username", ""))
+        display_name = clean_text(member.get("display_name", "")) or username
+        with st.expander(f"#{member_id} · {username} · {display_name}", expanded=False):
+            detail_rows = [
+                {"字段": "账号", "值": username},
+                {"字段": "姓名/称呼", "值": display_name},
+                {"字段": "公司", "值": clean_text(member.get("company", ""))},
+                {"字段": "邮箱", "值": clean_text(member.get("email", ""))},
+                {"字段": "电话", "值": clean_text(member.get("phone", ""))},
+                {"字段": "提交时间", "值": clean_text(member.get("created_at", ""))},
+            ]
+            st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+            if st.button("审核通过", key=f"approve_member_{member_id}", use_container_width=True):
+                ok, message = approve_member_account_admin(member_id)
+                if ok:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
 
 
 def require_member_login_for_action(action_text):
@@ -1432,8 +1488,8 @@ def render_no_match_report_admin_page():
     admin_cols = st.columns([0.78, 0.22], gap="small")
     with admin_cols[0]:
         st.markdown(
-            '<div class="admin-help-text">后台包含无匹配物料回报处理和会员资料管理。'
-            '会员资料管理可查看、修改、停用、重置密码或删除注册会员。</div>',
+            '<div class="admin-help-text">后台包含无匹配物料回报处理、会员审核和会员资料管理。'
+            '新会员需审核通过后才能登录使用系统。</div>',
             unsafe_allow_html=True,
         )
     with admin_cols[1]:
@@ -1441,11 +1497,14 @@ def render_no_match_report_admin_page():
 
     backend_module = st.radio(
         "后台模块",
-        ["无匹配回报", "会员资料管理"],
+        ["无匹配回报", "会员审核", "会员资料管理"],
         horizontal=True,
         label_visibility="collapsed",
         key="admin_backend_module",
     )
+    if backend_module == "会员审核":
+        render_member_approval_admin_page()
+        return
     if backend_module == "会员资料管理":
         render_member_admin_management_page()
         return
