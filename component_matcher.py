@@ -93,6 +93,10 @@ MEMBER_AUTH_DB_PATH = os.path.abspath(
     os.getenv("MEMBER_AUTH_DB_PATH", os.path.join(BASE_DIR, "cache", "member_auth.sqlite")) or
     os.path.join(BASE_DIR, "cache", "member_auth.sqlite")
 )
+COST_PRICE_DB_PATH = os.path.abspath(
+    os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
+    os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
+)
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
 STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip.part*")
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
@@ -142,7 +146,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T02:28:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T03:38:00+08:00"
 
 
 def startup_trace(message):
@@ -1903,6 +1907,435 @@ def member_matches_admin_keyword(member, keyword):
     return any(keyword in clean_text(value).lower() for value in fields)
 
 
+COST_PRICE_TARGET_COLUMNS = ("品牌", "型号", "规格参数", "成本", "MOQ", "L&T")
+COST_PRICE_LOOKUP_COLUMNS = ("成本", "MOQ", "L&T")
+_COST_PRICE_LOOKUP_CACHE = {"signature": None, "lookup": None}
+
+
+def format_file_size(value):
+    try:
+        size = float(value or 0)
+    except Exception:
+        size = 0.0
+    units = ["B", "KB", "MB", "GB"]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
+        size /= 1024
+
+
+def normalize_cost_price_header(value):
+    text = clean_text(value).lower()
+    text = text.replace("＆", "&")
+    text = re.sub(r"[\s\u3000_\\/\-:：()（）\\[\\]【】]+", "", text)
+    return text
+
+
+def cost_price_header_matches(header, keywords):
+    raw = clean_text(header).lower()
+    normalized = normalize_cost_price_header(header)
+    for keyword in keywords:
+        key_raw = clean_text(keyword).lower()
+        key_norm = normalize_cost_price_header(keyword)
+        if key_raw and key_raw in raw:
+            return True
+        if key_norm and key_norm in normalized:
+            return True
+    return False
+
+
+def find_cost_price_column(columns, include_keywords, exclude_keywords=()):
+    for column in columns:
+        if not cost_price_header_matches(column, include_keywords):
+            continue
+        if exclude_keywords and cost_price_header_matches(column, exclude_keywords):
+            continue
+        return column
+    return None
+
+
+def guess_cost_price_column_mapping(df):
+    columns = list(df.columns) if isinstance(df, pd.DataFrame) else []
+    return {
+        "brand": find_cost_price_column(columns, ("品牌", "厂牌", "廠牌", "brand", "manufacturer", "mfr", "供应商")),
+        "model": find_cost_price_column(
+            columns,
+            ("型号", "型號", "料号", "料號", "part number", "partno", "part no", "mpn", "model", "p/n", "pn"),
+            ("规格", "描述", "description", "desc"),
+        ),
+        "spec": find_cost_price_column(columns, ("规格参数", "规格", "規格", "描述", "description", "desc", "参数", "品名")),
+        "cost": find_cost_price_column(columns, ("成本", "单价", "單價", "价格", "價格", "price", "unit price", "cost", "含税", "rmb", "usd")),
+        "moq": find_cost_price_column(columns, ("moq", "最小起订", "最低订购", "起订量", "package", "包装")),
+        "lead_time": find_cost_price_column(columns, ("l&t", "lt", "leadtime", "lead time", "交期", "货期", "貨期", "delivery", "周期")),
+    }
+
+
+def init_cost_price_db():
+    os.makedirs(os.path.dirname(COST_PRICE_DB_PATH), exist_ok=True)
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS cost_price_lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                file_sha256 TEXT NOT NULL DEFAULT '',
+                file_size INTEGER NOT NULL DEFAULT 0,
+                uploaded_at TEXT NOT NULL,
+                uploaded_by TEXT NOT NULL DEFAULT '',
+                row_count INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 0,
+                note TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS cost_price_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                list_id INTEGER NOT NULL,
+                sheet_name TEXT NOT NULL DEFAULT '',
+                row_index INTEGER NOT NULL DEFAULT 0,
+                brand TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                model_clean TEXT NOT NULL DEFAULT '',
+                spec_text TEXT NOT NULL DEFAULT '',
+                cost TEXT NOT NULL DEFAULT '',
+                moq TEXT NOT NULL DEFAULT '',
+                lead_time TEXT NOT NULL DEFAULT '',
+                raw_json TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(list_id) REFERENCES cost_price_lists(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cost_price_lists_active
+            ON cost_price_lists(active, uploaded_at);
+
+            CREATE INDEX IF NOT EXISTS idx_cost_price_items_model
+            ON cost_price_items(model_clean, list_id);
+            """
+        )
+        conn.commit()
+
+
+def clear_cost_price_lookup_cache():
+    _COST_PRICE_LOOKUP_CACHE["signature"] = None
+    _COST_PRICE_LOOKUP_CACHE["lookup"] = None
+
+
+def cost_price_file_signature(raw_bytes):
+    try:
+        return hashlib.sha256(raw_bytes or b"").hexdigest()
+    except Exception:
+        return ""
+
+
+def cost_price_list_summary_dataframe(rows):
+    if not rows:
+        return pd.DataFrame(columns=["ID", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
+    return pd.DataFrame(
+        [
+            {
+                "ID": row.get("id", ""),
+                "当前使用": "是" if int(row.get("active", 0) or 0) == 1 else "",
+                "文件名": row.get("file_name", ""),
+                "上传时间": row.get("uploaded_at", ""),
+                "上传人": row.get("uploaded_by", ""),
+                "行数": row.get("row_count", 0),
+                "文件大小": format_file_size(row.get("file_size", 0)),
+            }
+            for row in rows
+        ]
+    )
+
+
+def list_cost_price_lists():
+    init_cost_price_db()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM cost_price_lists
+            ORDER BY active DESC, uploaded_at DESC, id DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_active_cost_price_list():
+    init_cost_price_db()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT *
+            FROM cost_price_lists
+            WHERE active = 1
+            ORDER BY uploaded_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def set_cost_price_list_active(list_id):
+    init_cost_price_db()
+    try:
+        list_id = int(list_id)
+    except Exception:
+        return False, "清单 ID 无效。"
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        exists = conn.execute("SELECT id FROM cost_price_lists WHERE id=?", (list_id,)).fetchone()
+        if exists is None:
+            return False, "清单不存在。"
+        conn.execute("UPDATE cost_price_lists SET active=0")
+        conn.execute("UPDATE cost_price_lists SET active=1 WHERE id=?", (list_id,))
+        conn.commit()
+    clear_cost_price_lookup_cache()
+    return True, "已切换当前使用的成本清单。"
+
+
+def list_cost_price_items(list_id=None, limit=300):
+    init_cost_price_db()
+    active = get_active_cost_price_list() if list_id is None else None
+    if list_id is None:
+        if not active:
+            return []
+        list_id = active.get("id")
+    try:
+        list_id = int(list_id)
+    except Exception:
+        return []
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT brand, model, spec_text, cost, moq, lead_time, sheet_name, row_index
+            FROM cost_price_items
+            WHERE list_id=?
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (list_id, int(limit or 300)),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cost_price_items_preview_dataframe(items):
+    if not items:
+        return pd.DataFrame(columns=["品牌", "型号", "规格参数", "成本", "MOQ", "L&T", "分页", "行号"])
+    return pd.DataFrame(
+        [
+            {
+                "品牌": row.get("brand", ""),
+                "型号": row.get("model", ""),
+                "规格参数": row.get("spec_text", ""),
+                "成本": row.get("cost", ""),
+                "MOQ": row.get("moq", ""),
+                "L&T": row.get("lead_time", ""),
+                "分页": row.get("sheet_name", ""),
+                "行号": row.get("row_index", ""),
+            }
+            for row in items
+        ]
+    )
+
+
+def build_cost_price_items_from_workbook(uploaded_file):
+    workbook = read_uploaded_bom_workbook(uploaded_file)
+    if workbook.get("read_error") and not workbook.get("sheet_frames"):
+        return [], workbook.get("read_error", "成本清单读取失败。")
+    items = []
+    for sheet_info in workbook.get("sheet_frames", []) or []:
+        sheet_name = clean_text(sheet_info.get("sheet_name", ""))
+        df = sheet_info.get("df", pd.DataFrame())
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            continue
+        df = df.fillna("")
+        mapping = guess_cost_price_column_mapping(df)
+        for row_index, (_, row) in enumerate(df.iterrows(), start=2):
+            raw_record = {clean_text(key): clean_text(value) for key, value in row.to_dict().items()}
+            brand = clean_brand(row.get(mapping.get("brand"), "")) if mapping.get("brand") else ""
+            model = clean_text(row.get(mapping.get("model"), "")) if mapping.get("model") else ""
+            spec_text = clean_text(row.get(mapping.get("spec"), "")) if mapping.get("spec") else ""
+            cost = clean_text(row.get(mapping.get("cost"), "")) if mapping.get("cost") else ""
+            moq = clean_text(row.get(mapping.get("moq"), "")) if mapping.get("moq") else ""
+            lead_time = clean_text(row.get(mapping.get("lead_time"), "")) if mapping.get("lead_time") else ""
+            if clean_text(model) == "" and spec_text == "":
+                continue
+            if cost == "" and moq == "" and lead_time == "":
+                continue
+            items.append(
+                {
+                    "sheet_name": sheet_name,
+                    "row_index": row_index,
+                    "brand": brand,
+                    "model": model,
+                    "model_clean": clean_model(model),
+                    "spec_text": spec_text,
+                    "cost": cost,
+                    "moq": moq,
+                    "lead_time": lead_time,
+                    "raw_json": json.dumps(json_safe_dict(raw_record), ensure_ascii=False, sort_keys=True),
+                }
+            )
+    if not items:
+        warning = clean_text(workbook.get("read_warning", ""))
+        suffix = f"；{warning}" if warning else ""
+        return [], f"未识别到可导入的成本数据，请确认清单中有型号/规格参数以及成本、MOQ 或 L&T 字段{suffix}"
+    return items, ""
+
+
+def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
+    if uploaded_file is None:
+        return False, "请先选择要上传的成本清单。", None
+    init_cost_price_db()
+    file_name = clean_text(getattr(uploaded_file, "name", "")) or "成本清单"
+    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    if not raw_bytes:
+        return False, "上传文件内容为空。", None
+    items, error = build_cost_price_items_from_workbook(uploaded_file)
+    if not items:
+        return False, error or "未识别到可导入的成本数据。", None
+    now_text = current_timestamp_text()
+    file_sha = cost_price_file_signature(raw_bytes)
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("UPDATE cost_price_lists SET active=0")
+        cur = conn.execute(
+            """
+            INSERT INTO cost_price_lists (
+                file_name, file_sha256, file_size, uploaded_at, uploaded_by, row_count, active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+            """,
+            (file_name, file_sha, len(raw_bytes), now_text, clean_text(uploaded_by), len(items)),
+        )
+        list_id = int(cur.lastrowid)
+        conn.executemany(
+            """
+            INSERT INTO cost_price_items (
+                list_id, sheet_name, row_index, brand, model, model_clean, spec_text,
+                cost, moq, lead_time, raw_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    list_id,
+                    item.get("sheet_name", ""),
+                    int(item.get("row_index", 0) or 0),
+                    item.get("brand", ""),
+                    item.get("model", ""),
+                    item.get("model_clean", ""),
+                    item.get("spec_text", ""),
+                    item.get("cost", ""),
+                    item.get("moq", ""),
+                    item.get("lead_time", ""),
+                    item.get("raw_json", ""),
+                )
+                for item in items
+            ],
+        )
+        conn.commit()
+    clear_cost_price_lookup_cache()
+    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行。", list_id
+
+
+def get_cost_price_lookup_signature():
+    active = get_active_cost_price_list()
+    if not active:
+        return None
+    try:
+        mtime = os.path.getmtime(COST_PRICE_DB_PATH)
+    except Exception:
+        mtime = 0
+    return (
+        int(active.get("id", 0) or 0),
+        int(active.get("row_count", 0) or 0),
+        clean_text(active.get("uploaded_at", "")),
+        mtime,
+    )
+
+
+def load_active_cost_price_lookup():
+    signature = get_cost_price_lookup_signature()
+    if signature is None:
+        return {}
+    if _COST_PRICE_LOOKUP_CACHE.get("signature") == signature and isinstance(_COST_PRICE_LOOKUP_CACHE.get("lookup"), dict):
+        return _COST_PRICE_LOOKUP_CACHE["lookup"]
+    active = get_active_cost_price_list()
+    if not active:
+        return {}
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT brand, model, model_clean, spec_text, cost, moq, lead_time
+            FROM cost_price_items
+            WHERE list_id=? AND model_clean <> ''
+            ORDER BY id ASC
+            """,
+            (int(active.get("id", 0)),),
+        ).fetchall()
+    lookup = {}
+    for row in rows:
+        item = dict(row)
+        model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
+        if model_clean == "":
+            continue
+        lookup.setdefault(model_clean, []).append(item)
+    _COST_PRICE_LOOKUP_CACHE["signature"] = signature
+    _COST_PRICE_LOOKUP_CACHE["lookup"] = lookup
+    return lookup
+
+
+def lookup_active_cost_price_for_row(row, lookup=None):
+    if row is None:
+        return {}
+    lookup = load_active_cost_price_lookup() if lookup is None else lookup
+    if not lookup:
+        return {}
+    model_clean = clean_model(row.get("型号", ""))
+    if model_clean == "":
+        return {}
+    entries = lookup.get(model_clean, [])
+    if not entries:
+        return {}
+    row_brand = clean_brand(row.get("品牌", ""))
+    for entry in entries:
+        entry_brand = clean_brand(entry.get("brand", ""))
+        if entry_brand and brand_matches_loose(row_brand, entry_brand):
+            return entry
+    for entry in entries:
+        if clean_brand(entry.get("brand", "")) == "":
+            return entry
+    return entries[0]
+
+
+def enrich_component_cost_columns(df):
+    if df is None:
+        return df
+    out = df.copy()
+    for column in COST_PRICE_LOOKUP_COLUMNS:
+        if column not in out.columns:
+            out[column] = ""
+    if out.empty:
+        return out
+    lookup = load_active_cost_price_lookup()
+    if not lookup:
+        return out
+    for idx, row in out.iterrows():
+        price = lookup_active_cost_price_for_row(row, lookup=lookup)
+        if not price:
+            continue
+        updates = {
+            "成本": clean_text(price.get("cost", "")),
+            "MOQ": clean_text(price.get("moq", "")),
+            "L&T": clean_text(price.get("lead_time", "")),
+        }
+        for column, value in updates.items():
+            if value != "":
+                out.at[idx, column] = value
+    return out
+
+
 def render_no_alt_match_report_row(
     query_text,
     mode="",
@@ -1957,12 +2390,91 @@ def no_match_report_summary_dataframe(reports):
     return pd.DataFrame(rows)
 
 
+def render_cost_price_admin_page():
+    render_admin_section_header(
+        "成本清单更新",
+        "上传各品牌元器件成本清单后，系统会把当前启用清单用于匹配结果和 BOM 导出中的成本、MOQ、L&T 字段。",
+        "成本维护",
+    )
+    active = get_active_cost_price_list()
+    lists = list_cost_price_lists()
+    render_admin_metric_cards(
+        [
+            {
+                "label": "当前清单",
+                "value": clean_text(active.get("file_name", "")) if active else "未上传",
+                "note": active.get("uploaded_at", "") if active else "暂无成本数据",
+                "tone": "green" if active else "neutral",
+            },
+            {
+                "label": "当前行数",
+                "value": active.get("row_count", 0) if active else 0,
+                "note": "当前用于匹配",
+                "tone": "neutral",
+            },
+            {
+                "label": "历史清单",
+                "value": len(lists),
+                "note": "可切换启用",
+                "tone": "blue",
+            },
+        ]
+    )
+
+    member = current_member()
+    uploaded_by = clean_text((member or {}).get("username", "")) or clean_text(get_no_match_admin_credentials()[0])
+    with st.container(border=True):
+        st.subheader("上传新成本清单")
+        st.caption("支持 Excel/CSV。系统会自动识别 品牌、型号/料号、规格参数、成本、MOQ、L&T/交期 等列；上传成功后自动设为当前使用清单。")
+        uploaded_file = st.file_uploader(
+            "选择成本清单",
+            type=["xlsx", "xls", "csv"],
+            key="cost_price_admin_upload",
+        )
+        if st.button("上传并启用", key="cost_price_admin_upload_submit", use_container_width=True):
+            ok, message, _ = import_cost_price_list_from_upload(uploaded_file, uploaded_by=uploaded_by)
+            if ok:
+                st.success(message)
+                st.rerun()
+            else:
+                st.warning(message)
+
+    st.subheader("成本清单历史")
+    if lists:
+        st.dataframe(cost_price_list_summary_dataframe(lists), use_container_width=True, hide_index=True)
+        for row in lists:
+            with st.expander(
+                f"#{row.get('id')} · {row.get('file_name')} · {row.get('uploaded_at')}"
+                + (" · 当前使用" if int(row.get("active", 0) or 0) == 1 else ""),
+                expanded=int(row.get("active", 0) or 0) == 1,
+            ):
+                cols = st.columns([0.28, 0.24, 0.24, 0.24], gap="small")
+                cols[0].write(f"上传时间：{row.get('uploaded_at') or '-'}")
+                cols[1].write(f"上传人：{row.get('uploaded_by') or '-'}")
+                cols[2].write(f"导入行数：{row.get('row_count', 0)}")
+                cols[3].write(f"文件大小：{format_file_size(row.get('file_size', 0))}")
+                if int(row.get("active", 0) or 0) != 1:
+                    if st.button("设为当前使用清单", key=f"activate_cost_price_list_{row.get('id')}", use_container_width=True):
+                        ok, message = set_cost_price_list_active(row.get("id"))
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.warning(message)
+                preview_items = list_cost_price_items(row.get("id"), limit=80)
+                if preview_items:
+                    st.caption("预览前 80 行")
+                    st.dataframe(cost_price_items_preview_dataframe(preview_items), use_container_width=True, hide_index=True)
+    else:
+        render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
+
+
 def render_no_match_report_admin_page():
     if not require_no_match_admin_login():
         return
 
     report_counts = get_no_match_report_counts()
-    module_options = ["无匹配回报", "会员审核", "会员资料管理"]
+    module_options = ["无匹配回报", "成本清单", "会员审核", "会员资料管理"]
     active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
     nav_cols = st.columns([0.76, 0.24], gap="small")
     with nav_cols[0]:
@@ -1980,6 +2492,9 @@ def render_no_match_report_admin_page():
         return
     if backend_module == "会员资料管理":
         render_member_admin_management_page()
+        return
+    if backend_module == "成本清单":
+        render_cost_price_admin_page()
         return
 
     render_admin_section_header(
@@ -14713,6 +15228,7 @@ def get_component_header_labels(spec_or_type):
     labels = {source: label for source, label in get_component_display_schema(spec_or_type)}
     labels["成本"] = "成本"
     labels["MOQ"] = "MOQ"
+    labels["L&T"] = "L&T"
     labels["前5个其他品牌型号"] = "其他品牌型号"
     labels["推荐品牌1"] = "推荐品牌1"
     labels["推荐型号1"] = "推荐型号1"
@@ -15655,6 +16171,7 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     if display_component_type in RESISTOR_COMPONENT_TYPES:
         out = normalize_fojan_resistor_series_display_fields(out)
         out = enrich_resistor_pricing_columns(out)
+    out = enrich_component_cost_columns(out)
     if display_component_type == "热敏电阻":
         out = normalize_joyin_ntc_series_display_fields(out)
     out = enrich_mlcc_dimension_fields_in_dataframe(
@@ -15670,10 +16187,9 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     for col in schema_columns:
         if col in out.columns and col not in selected:
             selected.append(col)
-    if display_component_type in RESISTOR_COMPONENT_TYPES:
-        for col in ["成本", "MOQ"]:
-            if col in out.columns and col not in selected:
-                selected.append(col)
+    for col in COST_PRICE_LOOKUP_COLUMNS:
+        if col in out.columns and col not in selected:
+            selected.append(col)
     for col in (suffix_columns or []):
         if col in out.columns and col not in selected:
             selected.append(col)
@@ -15689,6 +16205,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "型号": "medium",
         "成本": "small",
         "MOQ": "small",
+        "L&T": "small",
         "推荐品牌": "small",
         "推荐型号": "medium",
         "可直接回复客户": "small",
@@ -18528,8 +19045,8 @@ BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
         if clean_text(alias) != ""
     }
 )
-BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "MOQ")
-BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有MOQ")
+BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "MOQ", "L&T")
+BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有MOQ", "自有L&T")
 BOM_OWN_BRAND_EXPORT_MAX_SLOTS = max(
     len(BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS),
     len(BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS),
@@ -18635,6 +19152,7 @@ def prepare_bom_own_brand_candidate_frame(frame, component_type):
     if ctype in RESISTOR_COMPONENT_TYPES:
         work = normalize_fojan_resistor_series_display_fields(work)
         work = enrich_resistor_pricing_columns(work)
+    work = enrich_component_cost_columns(work)
     return work
 
 
@@ -18773,6 +19291,7 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
                     "型号": model,
                     "成本": clean_text(row.get("成本", "")),
                     "MOQ": clean_text(row.get("MOQ", "")),
+                    "L&T": clean_text(row.get("L&T", "")),
                 }
             )
         for item in sort_bom_own_brand_candidates(brand_candidates, component_type, spec=spec):
@@ -18789,6 +19308,7 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
         slots[bom_own_brand_internal_column("自有型号", idx)] = item.get("型号", "")
         slots[bom_own_brand_internal_column("自有成本", idx)] = item.get("成本", "")
         slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
+        slots[bom_own_brand_internal_column("自有L&T", idx)] = item.get("L&T", "")
     return slots
 
 
@@ -25929,7 +26449,7 @@ def estimate_result_table_column_width(col, values, header_label):
             sample_lengths.append(display_text_width(text))
     longest = max(sample_lengths) if sample_lengths else display_text_width(header_text)
     width = longest * 8.4 + 24
-    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("推荐品牌"), clean_text("品牌1"), clean_text("推荐品牌1"), clean_text("品牌2"), clean_text("推荐品牌2"), clean_text("品牌3"), clean_text("推荐品牌3"), clean_text("系列"), clean_text("容值单位"), clean_text("成本"), clean_text("MOQ")}:
+    if col_text in {clean_text("推荐等级"), clean_text("品牌"), clean_text("推荐品牌"), clean_text("品牌1"), clean_text("推荐品牌1"), clean_text("品牌2"), clean_text("推荐品牌2"), clean_text("品牌3"), clean_text("推荐品牌3"), clean_text("系列"), clean_text("容值单位"), clean_text("成本"), clean_text("MOQ"), clean_text("L&T")}:
         width = max(width, 92)
     if col_text in {clean_text("型号"), clean_text("推荐型号"), clean_text("型号1"), clean_text("推荐型号1"), clean_text("型号2"), clean_text("推荐型号2"), clean_text("型号3"), clean_text("推荐型号3")}:
         width = max(width, 112)
