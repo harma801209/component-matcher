@@ -2778,3 +2778,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User requested that new member registrations require administrator approval before the account can log in.
 - Change / action: Changed new member registration to create `pending` accounts instead of immediately active accounts, removed auto-login after registration, added pending-login rejection text, added backend module `会员审核` with an `审核通过` action, and extended member management to display/edit `启用 / 待审核 / 停用` statuses. Bumped public stamps to `2026-06-24T10:45:00+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression covered new account pending status, blocked login before approval, approval changing status to active, successful login after approval, wrong password rejection, and continued `amdin/123456` admin-member login. Root screenshot check shows only `logo.png`; the temporary approval regression DB was deleted.
+
+### 2026-06-24 10:52 [debug] Fixed member timestamps to use Beijing time
+
+- Received / problem: User showed member admin registration/login/update timestamps around `01:xx`, visibly wrong for China-time usage.
+- Root cause: `current_timestamp_text()` used the server's local timezone. Streamlit Cloud runs in UTC, so member timestamps were stored and displayed 8 hours behind Beijing time.
+- Change / action: Made timestamp generation explicitly use `Asia/Shanghai`, added a one-time member-auth DB migration marker, and on UTC-hosted environments shift existing member/session timestamp text by +8 hours exactly once. Bumped public stamps to `2026-06-24T10:52:15+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression confirmed legacy `2026-06-24 01:56:26` migrates to `2026-06-24 09:56:26`, migration does not repeat, and new timestamps are within two minutes of `Asia/Shanghai` time. Temporary time-regression DB was deleted; root screenshot check showed only `logo.png`.

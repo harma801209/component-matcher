@@ -324,3 +324,10 @@
 - Root cause: The backend admin credential check and the member system were separate. Member authentication only read rows from `cache/member_auth.sqlite` and never seeded the configured backend admin into the `members` table.
 - Fix: Added configured-admin member synchronization before member authentication and member admin listing. The configured admin is created or repaired as an active `admin` member, with the password stored as the existing PBKDF2 salted hash rather than plaintext.
 - Verification: Temp DB regression confirmed `amdin/123456` logs in as an active admin member, wrong password fails, the stored hash is not plaintext, and the account appears in the member-management list; `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-24 - Member admin timestamps were shown in UTC
+
+- Bug: Member admin columns such as `注册时间`, `最后登录`, and `更新时间` showed times around `01:xx` when the user expected current China-time values.
+- Root cause: `current_timestamp_text()` used `time.strftime()` with the server's local timezone. Streamlit Cloud's host timezone is UTC, so timestamps were written and displayed 8 hours behind Beijing time.
+- Fix: Made timestamp generation explicitly use `Asia/Shanghai`, added `member_auth_meta` with a one-time migration key, and when running on a UTC-hosted environment shifted existing member/session timestamp strings by +8 hours exactly once.
+- Verification: Temp DB regression confirmed legacy UTC member timestamps migrate to Beijing time, migration does not repeat, and new timestamps match `Asia/Shanghai`; `python -m py_compile component_matcher.py streamlit_app.py` passed.

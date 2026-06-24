@@ -26,7 +26,12 @@ import ssl
 import warnings
 import traceback
 from copy import copy
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -101,6 +106,9 @@ NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
+MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
+APP_TIMEZONE_NAME = "Asia/Shanghai"
+APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME) if ZoneInfo is not None else timezone(timedelta(hours=8))
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
@@ -133,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T10:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T10:52:15+08:00"
 
 
 def startup_trace(message):
@@ -148,7 +156,15 @@ def startup_trace(message):
 
 
 def current_timestamp_text():
-    return time.strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(APP_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def system_utc_offset_seconds():
+    try:
+        offset = datetime.now().astimezone().utcoffset()
+        return int(offset.total_seconds()) if offset is not None else 0
+    except Exception:
+        return 0
 
 
 def json_safe_value(value):
@@ -687,6 +703,65 @@ def render_no_match_admin_entry_button():
     )
 
 
+def migrate_member_timestamp_timezone_if_needed(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS member_auth_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
+    row = conn.execute(
+        "SELECT value FROM member_auth_meta WHERE key=?",
+        (MEMBER_TIMESTAMP_TZ_MIGRATION_KEY,),
+    ).fetchone()
+    if row is not None:
+        return
+
+    # Before this fix timestamps were produced with the server's local
+    # timezone. Streamlit Cloud runs in UTC, while users expect China time.
+    if system_utc_offset_seconds() == 0:
+        conn.execute(
+            """
+            UPDATE members
+            SET
+                created_at = CASE
+                    WHEN created_at != '' AND datetime(created_at, '+8 hours') IS NOT NULL
+                    THEN datetime(created_at, '+8 hours')
+                    ELSE created_at
+                END,
+                updated_at = CASE
+                    WHEN updated_at != '' AND datetime(updated_at, '+8 hours') IS NOT NULL
+                    THEN datetime(updated_at, '+8 hours')
+                    ELSE updated_at
+                END,
+                last_login_at = CASE
+                    WHEN last_login_at != '' AND datetime(last_login_at, '+8 hours') IS NOT NULL
+                    THEN datetime(last_login_at, '+8 hours')
+                    ELSE last_login_at
+                END
+            """
+        )
+        conn.execute(
+            """
+            UPDATE member_sessions
+            SET created_at = CASE
+                WHEN created_at != '' AND datetime(created_at, '+8 hours') IS NOT NULL
+                THEN datetime(created_at, '+8 hours')
+                ELSE created_at
+            END
+            """
+        )
+        migration_value = f"applied_utc_to_{APP_TIMEZONE_NAME}_{current_timestamp_text()}"
+    else:
+        migration_value = f"skipped_system_local_{current_timestamp_text()}"
+    conn.execute(
+        "INSERT OR REPLACE INTO member_auth_meta (key, value) VALUES (?, ?)",
+        (MEMBER_TIMESTAMP_TZ_MIGRATION_KEY, migration_value),
+    )
+
+
 def ensure_member_auth_schema():
     os.makedirs(os.path.dirname(MEMBER_AUTH_DB_PATH), exist_ok=True)
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -722,6 +797,7 @@ def ensure_member_auth_schema():
             ON member_sessions(expires_at_ts);
             """
         )
+        migrate_member_timestamp_timezone_if_needed(conn)
         conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
         conn.commit()
 
