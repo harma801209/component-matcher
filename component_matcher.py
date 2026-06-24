@@ -103,6 +103,7 @@ STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_b
 STREAMLIT_CLOUD_BUNDLE_STATE_PATH = os.path.join(BASE_DIR, "cache", "streamlit_cloud_bundle_state.json")
 MANUAL_CORRECTION_RULES_PATH = os.path.join(BASE_DIR, "cache", "manual_correction_rules.csv")
 RESISTOR_SERIES_PRICING_PATH = os.path.join(BASE_DIR, "pricing", "fojan_resistor_series_pricing.csv")
+RESISTOR_SERIES_PRICING_UPDATED_AT = os.getenv("RESISTOR_SERIES_PRICING_UPDATED_AT", "2026-06-22 13:46:44")
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
 NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
@@ -146,7 +147,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T03:38:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T03:38:01+08:00"
 
 
 def startup_trace(message):
@@ -1907,8 +1908,8 @@ def member_matches_admin_keyword(member, keyword):
     return any(keyword in clean_text(value).lower() for value in fields)
 
 
-COST_PRICE_TARGET_COLUMNS = ("品牌", "型号", "规格参数", "成本", "MOQ", "L&T")
-COST_PRICE_LOOKUP_COLUMNS = ("成本", "MOQ", "L&T")
+COST_PRICE_TARGET_COLUMNS = ("品牌", "型号", "规格参数", "成本", "更新时间", "MOQ", "L&T")
+COST_PRICE_LOOKUP_COLUMNS = ("成本", "更新时间", "MOQ", "L&T")
 _COST_PRICE_LOOKUP_CACHE = {"signature": None, "lookup": None}
 
 
@@ -1997,6 +1998,7 @@ def init_cost_price_db():
                 model_clean TEXT NOT NULL DEFAULT '',
                 spec_text TEXT NOT NULL DEFAULT '',
                 cost TEXT NOT NULL DEFAULT '',
+                cost_updated_at TEXT NOT NULL DEFAULT '',
                 moq TEXT NOT NULL DEFAULT '',
                 lead_time TEXT NOT NULL DEFAULT '',
                 raw_json TEXT NOT NULL DEFAULT '',
@@ -2008,6 +2010,21 @@ def init_cost_price_db():
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_items_model
             ON cost_price_items(model_clean, list_id);
+            """
+        )
+        try:
+            conn.execute("ALTER TABLE cost_price_items ADD COLUMN cost_updated_at TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        conn.execute(
+            """
+            UPDATE cost_price_items
+            SET cost_updated_at = COALESCE(
+                (SELECT uploaded_at FROM cost_price_lists WHERE cost_price_lists.id = cost_price_items.list_id),
+                ''
+            )
+            WHERE cost_updated_at = ''
             """
         )
         conn.commit()
@@ -2023,6 +2040,87 @@ def cost_price_file_signature(raw_bytes):
         return hashlib.sha256(raw_bytes or b"").hexdigest()
     except Exception:
         return ""
+
+
+def normalize_cost_value_for_compare(value):
+    text = clean_text(value)
+    if text == "":
+        return ""
+    compact = (
+        text.replace(",", "")
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("$", "")
+        .strip()
+    )
+    try:
+        decimal_value = Decimal(compact)
+        normalized = format(decimal_value.normalize(), "f")
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
+        return normalized or "0"
+    except Exception:
+        return re.sub(r"\s+", "", text).upper()
+
+
+def normalize_cost_price_spec_key(value):
+    text = clean_text(value).upper()
+    if text == "":
+        return ""
+    return re.sub(r"[\s\u3000;；,，/\\|_\-]+", "", text)
+
+
+def cost_price_item_change_key(item):
+    if not isinstance(item, dict):
+        return None
+    brand = clean_brand(item.get("brand", "")).upper()
+    model = clean_model(item.get("model_clean", "") or item.get("model", ""))
+    if model != "":
+        return ("model", brand, model)
+    spec_key = normalize_cost_price_spec_key(item.get("spec_text", ""))
+    if spec_key != "":
+        return ("spec", brand, spec_key)
+    return None
+
+
+def load_active_cost_price_change_map(conn):
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT
+            i.brand, i.model, i.model_clean, i.spec_text, i.cost, i.cost_updated_at,
+            l.uploaded_at AS list_uploaded_at
+        FROM cost_price_items i
+        JOIN cost_price_lists l ON l.id = i.list_id
+        WHERE l.active = 1
+        ORDER BY i.id ASC
+        """
+    ).fetchall()
+    change_map = {}
+    for row in rows:
+        item = dict(row)
+        key = cost_price_item_change_key(item)
+        if key is None:
+            continue
+        change_map[key] = {
+            "cost_compare": normalize_cost_value_for_compare(item.get("cost", "")),
+            "cost_updated_at": clean_text(item.get("cost_updated_at", "")) or clean_text(item.get("list_uploaded_at", "")),
+        }
+    return change_map
+
+
+def apply_cost_price_item_update_times(items, previous_change_map, now_text):
+    for item in items or []:
+        key = cost_price_item_change_key(item)
+        previous = previous_change_map.get(key) if key is not None and isinstance(previous_change_map, dict) else None
+        cost_compare = normalize_cost_value_for_compare(item.get("cost", ""))
+        previous_time = clean_text(previous.get("cost_updated_at", "")) if isinstance(previous, dict) else ""
+        previous_cost = clean_text(previous.get("cost_compare", "")) if isinstance(previous, dict) else ""
+        if previous is not None and previous_cost == cost_compare and previous_time != "":
+            item["cost_updated_at"] = previous_time
+        else:
+            item["cost_updated_at"] = now_text
+    return items
 
 
 def cost_price_list_summary_dataframe(rows):
@@ -2106,7 +2204,7 @@ def list_cost_price_items(list_id=None, limit=300):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT brand, model, spec_text, cost, moq, lead_time, sheet_name, row_index
+            SELECT brand, model, spec_text, cost, cost_updated_at, moq, lead_time, sheet_name, row_index
             FROM cost_price_items
             WHERE list_id=?
             ORDER BY id ASC
@@ -2119,7 +2217,7 @@ def list_cost_price_items(list_id=None, limit=300):
 
 def cost_price_items_preview_dataframe(items):
     if not items:
-        return pd.DataFrame(columns=["品牌", "型号", "规格参数", "成本", "MOQ", "L&T", "分页", "行号"])
+        return pd.DataFrame(columns=["品牌", "型号", "规格参数", "成本", "更新时间", "MOQ", "L&T", "分页", "行号"])
     return pd.DataFrame(
         [
             {
@@ -2127,6 +2225,7 @@ def cost_price_items_preview_dataframe(items):
                 "型号": row.get("model", ""),
                 "规格参数": row.get("spec_text", ""),
                 "成本": row.get("cost", ""),
+                "更新时间": row.get("cost_updated_at", ""),
                 "MOQ": row.get("moq", ""),
                 "L&T": row.get("lead_time", ""),
                 "分页": row.get("sheet_name", ""),
@@ -2197,6 +2296,8 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
     file_sha = cost_price_file_signature(raw_bytes)
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.execute("PRAGMA busy_timeout = 30000")
+        previous_change_map = load_active_cost_price_change_map(conn)
+        items = apply_cost_price_item_update_times(items, previous_change_map, now_text)
         conn.execute("UPDATE cost_price_lists SET active=0")
         cur = conn.execute(
             """
@@ -2212,9 +2313,9 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
             """
             INSERT INTO cost_price_items (
                 list_id, sheet_name, row_index, brand, model, model_clean, spec_text,
-                cost, moq, lead_time, raw_json
+                cost, cost_updated_at, moq, lead_time, raw_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -2226,6 +2327,7 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
                     item.get("model_clean", ""),
                     item.get("spec_text", ""),
                     item.get("cost", ""),
+                    item.get("cost_updated_at", ""),
                     item.get("moq", ""),
                     item.get("lead_time", ""),
                     item.get("raw_json", ""),
@@ -2267,7 +2369,7 @@ def load_active_cost_price_lookup():
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT brand, model, model_clean, spec_text, cost, moq, lead_time
+            SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time
             FROM cost_price_items
             WHERE list_id=? AND model_clean <> ''
             ORDER BY id ASC
@@ -2327,6 +2429,7 @@ def enrich_component_cost_columns(df):
             continue
         updates = {
             "成本": clean_text(price.get("cost", "")),
+            "更新时间": clean_text(price.get("cost_updated_at", "")),
             "MOQ": clean_text(price.get("moq", "")),
             "L&T": clean_text(price.get("lead_time", "")),
         }
@@ -12704,10 +12807,10 @@ def get_row_resistance_for_pricing(row):
 def lookup_resistor_series_pricing(row):
     component_type = normalize_component_type(row.get("器件类型", ""))
     if component_type not in RESISTOR_COMPONENT_TYPES:
-        return {"成本": "", "MOQ": ""}
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     series = normalize_resistor_pricing_series(row)
     if series == "":
-        return {"成本": "", "MOQ": ""}
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     size = clean_size(row.get("尺寸（inch）", ""))
     if size == "":
         size = infer_resistor_size_from_model(row.get("型号", ""))
@@ -12716,14 +12819,14 @@ def lookup_resistor_series_pricing(row):
         power_text = row.get("功率", "") or row.get("_power", "")
     power = format_power_display(power_text)
     if size == "" or power == "":
-        return {"成本": "", "MOQ": ""}
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     resistance_ohm = get_row_resistance_for_pricing(row)
     if resistance_ohm is None:
-        return {"成本": "", "MOQ": ""}
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     tol = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
     price_key = "price_1" if tol == "1" else "price_5" if tol == "5" else ""
     if price_key == "":
-        return {"成本": "", "MOQ": ""}
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     type_dimension = f"{size} {power}"
     for rule in load_resistor_series_pricing_rules():
         if rule.get("series") != series:
@@ -12734,8 +12837,8 @@ def lookup_resistor_series_pricing(row):
         if price == "" and series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
             price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_5", ""), resistance_ohm)
         if price != "":
-            return {"成本": price, "MOQ": rule.get("package", "")}
-    return {"成本": "", "MOQ": ""}
+            return {"成本": price, "更新时间": RESISTOR_SERIES_PRICING_UPDATED_AT, "MOQ": rule.get("package", "")}
+    return {"成本": "", "更新时间": "", "MOQ": ""}
 
 
 def enrich_resistor_pricing_columns(df):
@@ -12744,10 +12847,12 @@ def enrich_resistor_pricing_columns(df):
     out = df.copy()
     if out.empty:
         out["成本"] = ""
+        out["更新时间"] = ""
         out["MOQ"] = ""
         return out
     pricing_rows = out.apply(lookup_resistor_series_pricing, axis=1)
     out["成本"] = [item.get("成本", "") for item in pricing_rows]
+    out["更新时间"] = [item.get("更新时间", "") for item in pricing_rows]
     out["MOQ"] = [item.get("MOQ", "") for item in pricing_rows]
     return out
 
@@ -15227,6 +15332,7 @@ def get_component_display_schema(spec_or_type):
 def get_component_header_labels(spec_or_type):
     labels = {source: label for source, label in get_component_display_schema(spec_or_type)}
     labels["成本"] = "成本"
+    labels["更新时间"] = "更新时间"
     labels["MOQ"] = "MOQ"
     labels["L&T"] = "L&T"
     labels["前5个其他品牌型号"] = "其他品牌型号"
@@ -16204,6 +16310,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "品牌": "small",
         "型号": "medium",
         "成本": "small",
+        "更新时间": "medium",
         "MOQ": "small",
         "L&T": "small",
         "推荐品牌": "small",
@@ -19045,8 +19152,8 @@ BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
         if clean_text(alias) != ""
     }
 )
-BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "MOQ", "L&T")
-BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有MOQ", "自有L&T")
+BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "更新时间", "MOQ", "L&T")
+BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有更新时间", "自有MOQ", "自有L&T")
 BOM_OWN_BRAND_EXPORT_MAX_SLOTS = max(
     len(BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS),
     len(BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS),
@@ -19290,6 +19397,7 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
                     "品牌": label,
                     "型号": model,
                     "成本": clean_text(row.get("成本", "")),
+                    "更新时间": clean_text(row.get("更新时间", "")),
                     "MOQ": clean_text(row.get("MOQ", "")),
                     "L&T": clean_text(row.get("L&T", "")),
                 }
@@ -19307,6 +19415,7 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
         slots[bom_own_brand_internal_column("自有品牌", idx)] = item.get("品牌", "")
         slots[bom_own_brand_internal_column("自有型号", idx)] = item.get("型号", "")
         slots[bom_own_brand_internal_column("自有成本", idx)] = item.get("成本", "")
+        slots[bom_own_brand_internal_column("自有更新时间", idx)] = item.get("更新时间", "")
         slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
         slots[bom_own_brand_internal_column("自有L&T", idx)] = item.get("L&T", "")
     return slots
@@ -26972,6 +27081,7 @@ html, body {{
                 '系列': 92,
                 '容值单位': 92,
                 '成本': 92,
+                '更新时间': 136,
                 'MOQ': 96,
                 '阻值单位': 92,
                 '状态': 92,

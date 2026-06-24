@@ -2882,3 +2882,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Baseline: There is no local runtime uploaded cost-list database at `cache/cost_price_lists.sqlite`, so the new backend upload module currently has no local uploaded active list to compare against.
 - Existing cost source: The active built-in resistor cost baseline comes from the user's previously provided FOJAN resistor pricing image, converted into `pricing/fojan_resistor_series_pricing.csv`. The file has 88 rules: FRC 40 rows and FRL 48 rows, covering FRC sizes 0201/0402/0603/0805/1206/1210/1812/2010/2512 and FRL sizes 0402/0603/0805/1206/1210/1812/2010/2512. SHA256: `C2A7FAD602E94361B34C351F877ABD918A2A15223F341F0FEF5E1944D5844338`.
 - Note: Future uploaded Excel/CSV cost lists should be checked separately from this image-derived built-in FOJAN FRC/FRL pricing rule set.
+
+### 2026-06-25 03:24 [feature] Track per-model cost update time
+
+- Received / problem: User requested a new `更新时间` column immediately after `成本`, with item-level update time changing only when that model's cost changes in a newly uploaded cost list.
+- Change / action: Added `cost_updated_at` to the backend cost item store with automatic migration/backfill. New uploads compare each incoming row against the previous active list by brand and normalized model (or spec fallback); unchanged costs carry forward their old update time, while new or changed costs receive the current upload time. Matching results, admin cost-list previews, and BOM own-brand export slots now include `更新时间` after `成本`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A temp-DB two-upload test confirmed only the row with changed cost refreshed to the second upload time, while unchanged costs including `1.40` vs `1.4` retained the original update time.
