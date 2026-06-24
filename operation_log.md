@@ -2740,3 +2740,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: Fast resistor lookup used `_power_watt >= target`, ranking treated higher wattage as `高代低`, and in-memory filtering could fall back to all candidates when same-power rows were not found.
 - Change / action: Changed resistor fast lookup and post-filtering to require exact wattage, removed higher wattage from resistor `高代低`, flagged any power mismatch as a conflict, and bumped query/public cache stamps to `2026-06-23T21:38:21+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py component_matcher_build.py` passed. Local full-search checks show `0603 10R +/-5% 1/10W`, `0603 10R 5% 1/8W`, and `0603 10R 5% 1/4W` each return only candidates with the requested inferred power.
+
+### 2026-06-24 08:05 [feature] Added member login gate for search and BOM actions
+
+- Received / problem: User requested a membership system where the public page and input framework remain visible, but clicking search or uploading a BOM requires member login first. Password/member data storage needed to avoid plaintext passwords.
+- Change / action: Added `cache/member_auth.sqlite` as a separate member auth database with `members` and `member_sessions` tables, PBKDF2-SHA256 salted password hashes, 12-hour session tokens, a fixed top-right member login/center button, login/register UI, and action gates before search matching and BOM processing. Bumped public stamps to `2026-06-24T07:42:56+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct auth regression confirmed hashes are not plaintext and sessions load members. Local Streamlit on `http://localhost:8511` showed the homepage/search/BOM framework before login, blocked search with a member login panel, registered/logged in a test member, and then completed `0603 10R 5% 1/10W` search without the login block.

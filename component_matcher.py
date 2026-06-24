@@ -12,6 +12,7 @@ import threading
 import time
 import base64
 import html
+import secrets
 import sys
 import streamlit.components.v1 as components
 import re
@@ -82,6 +83,10 @@ PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
 NO_MATCH_REPORT_DB_PATH = os.path.join(BASE_DIR, "cache", "no_match_reports.sqlite")
+MEMBER_AUTH_DB_PATH = os.path.abspath(
+    os.getenv("MEMBER_AUTH_DB_PATH", os.path.join(BASE_DIR, "cache", "member_auth.sqlite")) or
+    os.path.join(BASE_DIR, "cache", "member_auth.sqlite")
+)
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
 STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip.part*")
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
@@ -93,6 +98,8 @@ NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
 NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
 NO_MATCH_ADMIN_DEFAULT_USERNAME = "amdin"
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
+MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
+MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 COMPONENT_MATCHER_PUBLIC_MODE_ENV = "COMPONENT_MATCHER_PUBLIC_MODE"
 COMPONENTS_SEARCH_LEGACY_TABLE = "components_search"
 SEARCH_META_TABLE = "search_meta"
@@ -125,7 +132,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-23T21:38:21+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T07:42:56+08:00"
 
 
 def startup_trace(message):
@@ -677,6 +684,353 @@ def render_no_match_admin_entry_button():
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
         unsafe_allow_html=True,
     )
+
+
+def ensure_member_auth_schema():
+    os.makedirs(os.path.dirname(MEMBER_AUTH_DB_PATH), exist_ok=True)
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                display_name TEXT NOT NULL DEFAULT '',
+                company TEXT NOT NULL DEFAULT '',
+                email TEXT NOT NULL DEFAULT '',
+                phone TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT 'member',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login_at TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS member_sessions (
+                token TEXT PRIMARY KEY,
+                member_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at_ts INTEGER NOT NULL,
+                FOREIGN KEY(member_id) REFERENCES members(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_sessions_member_id
+            ON member_sessions(member_id);
+
+            CREATE INDEX IF NOT EXISTS idx_member_sessions_expires
+            ON member_sessions(expires_at_ts);
+            """
+        )
+        conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
+        conn.commit()
+
+
+def member_row_to_dict(row):
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys()}
+
+
+def hash_member_password(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password or "").encode("utf-8"),
+        salt,
+        MEMBER_PASSWORD_PBKDF2_ITERATIONS,
+    )
+    return "pbkdf2_sha256${iterations}${salt}${digest}".format(
+        iterations=MEMBER_PASSWORD_PBKDF2_ITERATIONS,
+        salt=base64.b64encode(salt).decode("ascii"),
+        digest=base64.b64encode(digest).decode("ascii"),
+    )
+
+
+def verify_member_password(password, stored_hash):
+    try:
+        algo, iterations_text, salt_b64, digest_b64 = clean_text(stored_hash).split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_text)
+        salt = base64.b64decode(salt_b64.encode("ascii"))
+        expected = base64.b64decode(digest_b64.encode("ascii"))
+    except Exception:
+        return False
+    actual = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password or "").encode("utf-8"),
+        salt,
+        iterations,
+    )
+    return hmac.compare_digest(actual, expected)
+
+
+def member_username_is_valid(username):
+    username = clean_text(username)
+    if len(username) < 3 or len(username) > 64:
+        return False
+    return re.fullmatch(r"[A-Za-z0-9_.@+-]+", username) is not None
+
+
+def get_member_by_username(username):
+    ensure_member_auth_schema()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM members WHERE lower(username)=lower(?)",
+            (clean_text(username),),
+        ).fetchone()
+    return member_row_to_dict(row)
+
+
+def get_member_by_id(member_id):
+    ensure_member_auth_schema()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM members WHERE id=?", (int(member_id),)).fetchone()
+    return member_row_to_dict(row)
+
+
+def create_member_account(username, password, display_name="", company="", email="", phone=""):
+    ensure_member_auth_schema()
+    username = clean_text(username)
+    if not member_username_is_valid(username):
+        return False, "账号只能使用 3-64 位英文、数字、点号、下划线、加号、减号或 @。"
+    if len(str(password or "")) < 6:
+        return False, "密码至少需要 6 位。"
+    now = current_timestamp_text()
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.execute(
+                """
+                INSERT INTO members (
+                    username, password_hash, display_name, company, email, phone,
+                    role, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?)
+                """,
+                (
+                    username,
+                    hash_member_password(password),
+                    clean_text(display_name) or username,
+                    clean_text(company),
+                    clean_text(email),
+                    clean_text(phone),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        return True, "注册成功，已为你自动登录。"
+    except sqlite3.IntegrityError:
+        return False, "这个账号已经存在，请直接登录。"
+    except Exception as exc:
+        return False, f"注册失败：{exc}"
+
+
+def create_member_session(member_id):
+    ensure_member_auth_schema()
+    token = secrets.token_urlsafe(32)
+    expires_at_ts = int(time.time()) + MEMBER_AUTH_SESSION_TTL_SECONDS
+    now = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.execute(
+            "INSERT INTO member_sessions (token, member_id, created_at, expires_at_ts) VALUES (?, ?, ?, ?)",
+            (token, int(member_id), now, expires_at_ts),
+        )
+        conn.execute("UPDATE members SET last_login_at=?, updated_at=? WHERE id=?", (now, now, int(member_id)))
+        conn.commit()
+    return token
+
+
+def authenticate_member(username, password):
+    member = get_member_by_username(username)
+    if not member:
+        return None, "账号或密码不正确。"
+    if clean_text(member.get("status", "")) != "active":
+        return None, "账号尚未开通或已停用，请联系管理员。"
+    if not verify_member_password(password, member.get("password_hash", "")):
+        return None, "账号或密码不正确。"
+    token = create_member_session(int(member["id"]))
+    member = get_member_by_id(int(member["id"]))
+    if member:
+        member["_session_token"] = token
+    return member, ""
+
+
+def get_member_by_session_token(token):
+    ensure_member_auth_schema()
+    token = clean_text(token)
+    if token == "":
+        return None
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT m.*
+            FROM member_sessions s
+            JOIN members m ON m.id = s.member_id
+            WHERE s.token=? AND s.expires_at_ts > ?
+            """,
+            (token, int(time.time())),
+        ).fetchone()
+        if row is None:
+            conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
+            conn.commit()
+            return None
+    member = member_row_to_dict(row)
+    if member and clean_text(member.get("status", "")) == "active":
+        member["_session_token"] = token
+        return member
+    return None
+
+
+def current_member():
+    token = clean_text(st.session_state.get("_member_auth_token", ""))
+    member = get_member_by_session_token(token)
+    if member is None and token != "":
+        st.session_state.pop("_member_auth_token", None)
+    return member
+
+
+def set_current_member(member):
+    if not isinstance(member, dict):
+        return
+    token = clean_text(member.get("_session_token", ""))
+    if token:
+        st.session_state["_member_auth_token"] = token
+        st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
+        st.session_state.pop("_member_auth_prompt_action", None)
+
+
+def logout_member():
+    token = clean_text(st.session_state.get("_member_auth_token", ""))
+    if token:
+        ensure_member_auth_schema()
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
+            conn.commit()
+    st.session_state.pop("_member_auth_token", None)
+    st.session_state.pop("_member_display_name", None)
+    st.session_state.pop("_member_auth_prompt_action", None)
+
+
+def is_member_page_requested():
+    return get_query_param_value("member").lower() in {"1", "true", "yes", "on", "login", "center"}
+
+
+def render_member_entry_button():
+    member = current_member()
+    if is_member_page_requested():
+        label = "返回搜索"
+        href = "?member=0"
+        css_class = "member-login-fixed secondary"
+    elif member:
+        label = "会员中心"
+        href = "?member=1"
+        css_class = "member-login-fixed active"
+    else:
+        label = "会员登录"
+        href = "?member=1"
+        css_class = "member-login-fixed"
+    st.markdown(
+        f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_member_auth_panel(action_text=""):
+    context_text = clean_text(action_text)
+    if context_text:
+        st.warning(f"请先登录会员后再使用{context_text}。")
+    st.markdown(
+        """
+        <div class="tool-panel">
+            <div class="tool-panel-title">会员登录</div>
+            <div class="tool-panel-note">页面可以先浏览；执行搜索匹配或 BOM 上传匹配时需要会员登录。密码只保存加盐哈希，不保存明文。</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    login_tab, register_tab = st.tabs(["登录会员", "注册会员"])
+    with login_tab:
+        with st.form("member_login_form", clear_on_submit=False):
+            username = st.text_input("账号", key="member_login_username")
+            password = st.text_input("密码", type="password", key="member_login_password")
+            submitted = st.form_submit_button("登录", use_container_width=True)
+            if submitted:
+                member, error = authenticate_member(username, password)
+                if member:
+                    set_current_member(member)
+                    st.success("登录成功。")
+                    st.rerun()
+                else:
+                    st.error(error or "登录失败。")
+    with register_tab:
+        with st.form("member_register_form", clear_on_submit=False):
+            username = st.text_input("账号", key="member_register_username", help="3-64 位英文、数字、点号、下划线、加号、减号或 @。")
+            display_name = st.text_input("姓名/称呼", key="member_register_display_name")
+            company = st.text_input("公司", key="member_register_company")
+            email = st.text_input("邮箱", key="member_register_email")
+            phone = st.text_input("电话", key="member_register_phone")
+            password = st.text_input("密码", type="password", key="member_register_password")
+            password2 = st.text_input("确认密码", type="password", key="member_register_password2")
+            submitted = st.form_submit_button("注册并登录", use_container_width=True)
+            if submitted:
+                if password != password2:
+                    st.error("两次输入的密码不一致。")
+                else:
+                    ok, message = create_member_account(
+                        username=username,
+                        password=password,
+                        display_name=display_name,
+                        company=company,
+                        email=email,
+                        phone=phone,
+                    )
+                    if ok:
+                        member, error = authenticate_member(username, password)
+                        if member:
+                            set_current_member(member)
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.success(message)
+                            if error:
+                                st.info(error)
+                    else:
+                        st.error(message)
+
+
+def render_member_center_page():
+    st.markdown('<div class="result-title">会员中心</div>', unsafe_allow_html=True)
+    member = current_member()
+    if not member:
+        render_member_auth_panel()
+        return
+    st.success(f"已登录：{clean_text(member.get('display_name', '')) or clean_text(member.get('username', ''))}")
+    profile_rows = [
+        {"字段": "账号", "值": member.get("username", "")},
+        {"字段": "姓名/称呼", "值": member.get("display_name", "")},
+        {"字段": "公司", "值": member.get("company", "")},
+        {"字段": "邮箱", "值": member.get("email", "")},
+        {"字段": "电话", "值": member.get("phone", "")},
+        {"字段": "状态", "值": member.get("status", "")},
+        {"字段": "注册时间", "值": member.get("created_at", "")},
+        {"字段": "最后登录", "值": member.get("last_login_at", "")},
+    ]
+    st.dataframe(pd.DataFrame(profile_rows), use_container_width=True, hide_index=True)
+    if st.button("退出会员登录", use_container_width=True):
+        logout_member()
+        st.rerun()
+
+
+def require_member_login_for_action(action_text):
+    if current_member():
+        return True
+    st.session_state["_member_auth_prompt_action"] = clean_text(action_text)
+    render_member_auth_panel(action_text)
+    return False
 
 
 def render_no_match_report_button(
@@ -1576,9 +1930,58 @@ footer {visibility: hidden;}
 .admin-login-fixed.secondary:hover {
     background: #334155;
 }
+.member-login-fixed {
+    position: fixed;
+    top: 68px;
+    right: 28px;
+    z-index: 100000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    background: #ffffff;
+    color: #1d4ed8 !important;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+.member-login-fixed:hover {
+    background: #eff6ff;
+    color: #1e40af !important;
+    text-decoration: none !important;
+}
+.member-login-fixed.active {
+    background: #16a34a;
+    border-color: rgba(22, 163, 74, 0.22);
+    color: #ffffff !important;
+    box-shadow: 0 10px 24px rgba(22, 163, 74, 0.18);
+}
+.member-login-fixed.active:hover {
+    background: #15803d;
+    color: #ffffff !important;
+}
+.member-login-fixed.secondary {
+    border-color: rgba(100, 116, 139, 0.26);
+    background: #ffffff;
+    color: #475569 !important;
+}
 @media (max-width: 700px) {
     .admin-login-fixed {
         top: 12px;
+        right: 12px;
+        min-width: 86px;
+        height: 34px;
+        padding: 0 12px;
+        font-size: 13px;
+    }
+    .member-login-fixed {
+        top: 54px;
         right: 12px;
         min-width: 86px;
         height: 34px;
@@ -27659,6 +28062,7 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
 
 
 render_no_match_admin_entry_button()
+render_member_entry_button()
 
 logo_b64 = image_to_base64(LOGO_PATH)
 startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
@@ -27687,12 +28091,21 @@ if isinstance(last_report_message, dict) and clean_text(last_report_message.get(
 if is_no_match_admin_page_requested():
     render_no_match_report_admin_page()
     st.stop()
+if is_member_page_requested():
+    render_member_center_page()
+    st.stop()
 
 query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
 search_clicked = st.button("搜索")
 startup_trace("after_search_form")
 
+pending_member_action = clean_text(st.session_state.get("_member_auth_prompt_action", ""))
+if pending_member_action and not current_member() and not search_clicked:
+    render_member_auth_panel(pending_member_action)
+
 if search_clicked:
+    if not require_member_login_for_action("搜索匹配"):
+        st.stop()
     if not query_input.strip():
         st.warning("请输入料号或规格参数")
     else:
@@ -28213,6 +28626,8 @@ uploaded_file = st.file_uploader("上传 BOM Excel/CSV", type=["xlsx", "xls", "c
 startup_trace("after_file_uploader")
 
 if uploaded_file is not None:
+    if not require_member_login_for_action("BOM 批量上传匹配"):
+        st.stop()
     progress_placeholder = st.empty()
     try:
         render_bom_progress_card(
