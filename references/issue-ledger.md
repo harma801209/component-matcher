@@ -365,3 +365,10 @@
 - Root cause: The backend entry button and member entry button were rendered independently. `render_member_entry_button()` did not check whether `admin=1` backend mode was active.
 - Fix: Made `render_member_entry_button()` return without rendering whenever the backend admin page is requested.
 - Verification: Function-level regression confirmed that in admin mode the member entry renderer does not call `current_member()` and does not emit `st.markdown()`.
+
+## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
+
+- Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.
+- Root cause: Backend resolution only updated `cache/no_match_reports.sqlite` as a mapping. It did not write a component row into `components.db` or the fast search sidecar. For direct backend-resolution hits, the candidate row could also be filtered out by the normal second-stage matching/exclusion path.
+- Fix: Backend resolution now builds a supplemental component row, upserts it into `components.db`, appends it to the appropriate fast search sidecar table, refreshes sidecar metadata, clears query/data caches, and marks direct resolution specs so `run_query_match()` preserves the backend candidate.
+- Verification: Isolated temp-DB flow submitted a no-match report, resolved it as `FOJAN(富捷) / FRC0603J103 TS`, confirmed the row was inserted into `components.db`, confirmed the resistor sidecar row contained `0603 / 10000Ω / 5% / 0.1W`, confirmed direct report lookup returned one `后台补料` row, and confirmed equivalent spec search `0603 10K ±5% 1/10W` returned one `完全匹配` row.

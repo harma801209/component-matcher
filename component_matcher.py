@@ -117,7 +117,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 76
+QUERY_RESULT_CACHE_VERSION = 77
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -142,7 +142,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T21:51:36+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T22:31:20+08:00"
 
 
 def startup_trace(message):
@@ -196,6 +196,7 @@ NO_MATCH_REPORT_EXTRA_COLUMNS = {
     "resolved_component_type": "TEXT",
     "library_status": "TEXT",
 }
+ADMIN_SUPPLEMENTAL_COMPONENT_SOURCE = "后台无匹配回报补料"
 
 
 def ensure_no_match_report_schema(conn):
@@ -408,7 +409,7 @@ def resolve_no_match_report(
     resolved_brand = clean_brand(resolved_brand)
     resolved_model = clean_text(resolved_model)
     resolved_component_type = normalize_component_type(resolved_component_type)
-    library_status = "后台补料映射已生效" if resolved_model else ""
+    library_status = "后台补料待写入" if resolved_model else ""
     with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
         cur = conn.execute(
             """
@@ -436,8 +437,33 @@ def resolve_no_match_report(
         )
         conn.commit()
     if cur.rowcount > 0:
-        clear_session_query_caches()
+        report = get_no_match_report_by_id(report_id)
+        persisted, persist_message = persist_no_match_resolution_to_library(report)
+        if clean_text(persist_message) != "":
+            library_status = persist_message
+            try:
+                with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+                    conn.execute(
+                        "UPDATE no_match_reports SET library_status = ?, updated_at = ? WHERE id = ?",
+                        (library_status, current_timestamp_text(), int(report_id)),
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+        clear_data_load_caches()
     return cur.rowcount > 0
+
+
+def get_no_match_report_by_id(report_id):
+    init_no_match_report_db()
+    try:
+        report_id = int(report_id)
+    except Exception:
+        return None
+    with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM no_match_reports WHERE id = ?", (report_id,)).fetchone()
+    return dict(row) if row is not None else None
 
 
 def no_match_report_spec_dict(report):
@@ -487,12 +513,12 @@ def brand_matches_loose(row_brand, target_brand):
     return row_text == target_text or target_text in row_text or row_text in target_text
 
 
-def build_no_match_resolution_synthetic_row(report):
+def build_no_match_resolution_record(report):
     report = dict(report or {})
     spec = no_match_report_spec_dict(report)
     model_text = clean_text(report.get("resolved_model", ""))
     if model_text == "":
-        return pd.DataFrame()
+        return {}
     brand = clean_brand(report.get("resolved_brand", "")) or clean_brand(report.get("part_brand", "")) or "后台补料"
     component_type = (
         normalize_component_type(report.get("resolved_component_type", ""))
@@ -523,9 +549,13 @@ def build_no_match_resolution_synthetic_row(report):
         "工作温度": clean_text(spec.get("工作温度", "")),
         "生产状态": clean_text(spec.get("生产状态", "")),
         "规格摘要": "",
-        "备注1": "后台无匹配回报补料",
+        "备注1": ADMIN_SUPPLEMENTAL_COMPONENT_SOURCE,
         "备注2": clean_text(report.get("query_text", "")),
         "备注3": clean_text(report.get("resolved_note", "")),
+        "数据来源": ADMIN_SUPPLEMENTAL_COMPONENT_SOURCE,
+        "数据状态": "后台补入",
+        "校验时间": current_timestamp_text(),
+        "校验备注": clean_text(report.get("reason", "")),
     }
     resistance_ohm = spec.get("_resistance_ohm", None)
     if resistance_ohm not in (None, ""):
@@ -552,7 +582,215 @@ def build_no_match_resolution_synthetic_row(report):
     parsed_rule = parse_model_rule(model_text, brand=brand, component_type=component_type)
     if isinstance(parsed_rule, dict) and parsed_rule:
         record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
+    if clean_text(record.get("_model_rule_authority", "")) == "":
+        record["_model_rule_authority"] = "admin_no_match_resolution"
+    return record
+
+
+def build_no_match_resolution_synthetic_row(report):
+    record = build_no_match_resolution_record(report)
+    if not record:
+        return pd.DataFrame()
     return prepare_search_dataframe(pd.DataFrame([record]))
+
+
+def component_table_columns(conn):
+    try:
+        rows = conn.execute('PRAGMA table_info("components")').fetchall()
+    except Exception:
+        return []
+    return [clean_text(row[1]) for row in rows if len(row) > 1 and clean_text(row[1]) != ""]
+
+
+def ensure_components_table_for_admin_record(conn, record):
+    columns = component_table_columns(conn)
+    if columns:
+        return columns
+    seed_columns = [
+        "品牌", "型号", "系列", "尺寸（inch）", "材质（介质）", "容值", "容值单位", "容值误差",
+        "耐压（V）", "特殊用途", "备注1", "备注2", "备注3", "器件类型", "安装方式", "封装代码",
+        "尺寸（mm）", "规格摘要", "生产状态", "长度（mm）", "宽度（mm）", "高度（mm）", "官网链接",
+        "数据来源", "数据状态", "校验时间", "校验备注", "容值_pf", "系列说明", "_model_rule_authority",
+        "_resistance_ohm", "_body_size", "尺寸来源",
+    ]
+    for column in record.keys():
+        if clean_text(column) != "" and column not in seed_columns:
+            seed_columns.append(clean_text(column))
+    quoted_columns = ", ".join([f'"{column}" TEXT' for column in seed_columns])
+    conn.execute(f'CREATE TABLE IF NOT EXISTS "components" ({quoted_columns})')
+    conn.commit()
+    return component_table_columns(conn)
+
+
+def normalized_model_sql_expression(column_name='"型号"'):
+    return (
+        f"REPLACE(REPLACE(REPLACE(UPPER(IFNULL({column_name}, '')), '-', ''), ' ', ''), '_', '')"
+    )
+
+
+def upsert_admin_component_record_to_database(record):
+    if not record or clean_text(record.get("型号", "")) == "":
+        return False, "补料型号为空，未写入主库"
+    os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    try:
+        columns = ensure_components_table_for_admin_record(conn, record)
+        if not columns:
+            return False, "主库表结构不可用，未写入"
+        brand = clean_brand(record.get("品牌", ""))
+        model_clean = clean_model(record.get("型号", ""))
+        component_type = normalize_component_type(record.get("器件类型", ""))
+        conn.execute(
+            f"""
+            DELETE FROM components
+            WHERE IFNULL("品牌", '') = ?
+              AND {normalized_model_sql_expression('"型号"')} = ?
+              AND IFNULL("器件类型", '') = ?
+              AND IFNULL("数据来源", '') = ?
+            """,
+            (brand, model_clean, component_type, ADMIN_SUPPLEMENTAL_COMPONENT_SOURCE),
+        )
+        insert_columns = [column for column in columns if column in record]
+        if "品牌" not in insert_columns:
+            insert_columns.append("品牌")
+        if "型号" not in insert_columns:
+            insert_columns.append("型号")
+        if "器件类型" in columns and "器件类型" not in insert_columns:
+            insert_columns.append("器件类型")
+        insert_columns = [column for column in insert_columns if column in columns]
+        placeholders = ", ".join(["?"] * len(insert_columns))
+        column_sql = ", ".join([f'"{column}"' for column in insert_columns])
+        values = [json_safe_value(record.get(column, "")) for column in insert_columns]
+        conn.execute(
+            f'INSERT INTO components ({column_sql}) VALUES ({placeholders})',
+            values,
+        )
+        create_database_indexes(conn)
+        conn.commit()
+        return True, "主库已写入"
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False, f"主库写入失败：{exc}"
+    finally:
+        conn.close()
+
+
+def search_sidecar_table_columns(conn, table_name):
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except Exception:
+        return []
+    return [clean_text(row[1]) for row in rows if len(row) > 1 and clean_text(row[1]) != ""]
+
+
+def ensure_search_sidecar_table(conn, table_name, columns):
+    if search_table_exists(conn, table_name=table_name):
+        return
+    pd.DataFrame(columns=list(columns)).to_sql(table_name, conn, if_exists="replace", index=False)
+
+
+def delete_admin_search_sidecar_rows(conn, brand, model_clean):
+    if model_clean == "":
+        return
+    for table_name in get_search_sidecar_table_specs().keys():
+        if not search_table_exists(conn, table_name=table_name):
+            continue
+        columns = set(search_sidecar_table_columns(conn, table_name))
+        if "型号" not in columns:
+            continue
+        clauses = [f'{normalized_model_sql_expression(chr(34) + "型号" + chr(34))} = ?']
+        params = [model_clean]
+        if "品牌" in columns and clean_text(brand) != "":
+            clauses.append('IFNULL("品牌", "") = ?')
+            params.append(clean_text(brand))
+        try:
+            conn.execute(f"DELETE FROM {table_name} WHERE {' AND '.join(clauses)}", params)
+        except Exception:
+            continue
+
+
+def append_admin_component_record_to_search_sidecar(record):
+    if not record or clean_text(record.get("型号", "")) == "":
+        return False, "搜索索引未写入：型号为空"
+    prepared = prepare_search_dataframe(pd.DataFrame([record]))
+    if not isinstance(prepared, pd.DataFrame) or prepared.empty:
+        return False, "搜索索引未写入：补料记录无法规范化"
+    frames = build_search_sidecar_frames(prepared)
+    if not frames:
+        return False, "搜索索引未写入：补料记录无法生成索引"
+    search_dir = os.path.dirname(SEARCH_DB_PATH)
+    if search_dir:
+        os.makedirs(search_dir, exist_ok=True)
+    conn = sqlite3.connect(SEARCH_DB_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    try:
+        table_specs = get_search_sidecar_table_specs()
+        for table_name, spec in table_specs.items():
+            ensure_search_sidecar_table(conn, table_name, spec["columns"])
+        delete_admin_search_sidecar_rows(conn, clean_text(record.get("品牌", "")), clean_model(record.get("型号", "")))
+        written_rows = 0
+        for table_name, frame in frames.items():
+            if frame is None or frame.empty:
+                continue
+            spec = table_specs.get(table_name, {})
+            normalized = normalize_search_sidecar_frame(
+                frame,
+                spec.get("columns", frame.columns),
+                numeric_columns=spec.get("numeric", ()),
+                dedupe_columns=("品牌", "型号", "_component_type"),
+            )
+            if normalized.empty:
+                continue
+            normalized.to_sql(
+                table_name,
+                conn,
+                if_exists="append",
+                index=False,
+                method="multi",
+                chunksize=sqlite_bulk_insert_chunksize(normalized),
+            )
+            written_rows += int(len(normalized))
+        create_search_sidecar_indexes(conn)
+        row_counts = {}
+        for table_name in table_specs.keys():
+            try:
+                row_counts[table_name] = int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0] or 0)
+            except Exception:
+                row_counts[table_name] = 0
+        write_search_index_meta(conn, row_counts)
+        conn.commit()
+        if written_rows <= 0:
+            return False, "搜索索引未写入：没有有效索引行"
+        return True, "搜索索引已写入"
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False, f"搜索索引写入失败：{exc}"
+    finally:
+        conn.close()
+
+
+def persist_no_match_resolution_to_library(report):
+    report = dict(report or {})
+    record = build_no_match_resolution_record(report)
+    if not record:
+        return False, "补料型号为空，仍仅保留后台回报记录"
+    db_ok, db_message = upsert_admin_component_record_to_database(record)
+    search_ok, search_message = append_admin_component_record_to_search_sidecar(record)
+    clear_data_load_caches()
+    if db_ok and search_ok:
+        return True, "已写入主库和搜索索引"
+    if db_ok:
+        return False, f"已写入主库；{search_message}"
+    if search_ok:
+        return False, f"{db_message}；已写入搜索索引"
+    return False, f"{db_message}；{search_message}"
 
 
 def load_no_match_resolution_query_rows(report):
@@ -614,6 +852,7 @@ def resolve_no_match_report_as_query(line):
         spec["器件类型"] = resolved_component_type
     elif normalize_component_type(report.get("component_type", "")):
         spec["器件类型"] = normalize_component_type(report.get("component_type", ""))
+    spec["_admin_no_match_resolution"] = True
     if clean_text(spec.get("规格摘要", "")) == "":
         spec["规格摘要"] = build_component_summary_from_spec(spec)
     return {
@@ -20998,6 +21237,10 @@ def build_search_sidecar_frames(prepared):
     work["_model_clean"] = work["_model_clean"].astype("string")
     work["_component_type"] = work["_component_type"].astype("string")
     table_specs = get_search_sidecar_table_specs()
+    for spec in table_specs.values():
+        for column in spec.get("columns", []):
+            if column not in work.columns:
+                work[column] = None
     frames = {}
     for table_name, spec in table_specs.items():
         if table_name == COMPONENTS_SEARCH_CORE_TABLE:
@@ -22214,6 +22457,13 @@ def run_query_match(df, mode, spec):
     if spec is None:
         return pd.DataFrame()
     if bool(spec.get("_unsupported_component", False)):
+        return pd.DataFrame()
+    if bool(spec.get("_admin_no_match_resolution", False)):
+        work = prepare_search_dataframe(df)
+        if isinstance(work, pd.DataFrame) and not work.empty:
+            work = work.copy()
+            work["推荐等级"] = "后台补料"
+            return work
         return pd.DataFrame()
     spec_type = infer_spec_component_type(spec)
     if spec_type in SEMICONDUCTOR_COMPONENT_TYPES:
@@ -29801,7 +30051,8 @@ if search_clicked:
             if mode == "料号":
                 part_info_df = build_part_info_df(query_df, spec, line)
                 matched = cached_run_query_match(query_df, mode, spec, query_text=line)
-                matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
+                if not resolution_path.startswith("no_match_admin_resolution:"):
+                    matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
                 part_info_fragment = render_clickable_result_table(
                     part_info_df,
                     show_official_status=False,
