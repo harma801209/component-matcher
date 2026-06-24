@@ -2765,3 +2765,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: Member sessions were only stored in Streamlit `session_state`; query-param navigation can reload the app and lose that server-side state.
 - Change / action: Added `member_token` URL restore support, preserved that token in fixed member/admin navigation hrefs, restored active members from the URL token in `current_member()`, cleared it on logout, and bumped public stamps to `2026-06-24T10:07:12+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression covered login token writing, empty-session restoration from URL token, return-search href token preservation, and logout token cleanup.
+
+### 2026-06-24 10:27 [debug] Allowed configured admin account to log in as member
+
+- Received / problem: User asked why the member-login page rejected the administrator account `amdin`.
+- Root cause: Backend/no-match admin login and member login used separate stores. `amdin/123456` was only checked by the backend credential function, while member login only queried the `members` table in `cache/member_auth.sqlite`.
+- Change / action: Added configured-admin member synchronization before member authentication and member admin listing. The configured backend admin username is kept as an active `admin` member account, with its password stored through the existing PBKDF2 salted hash path. Bumped public stamps to `2026-06-24T10:27:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression confirmed `amdin/123456` creates/logs in as an active admin member, the stored password is not plaintext, wrong password is rejected, and the admin appears in the member-management list. Root screenshot check shows only `logo.png`; the temporary regression DB was deleted.

@@ -133,7 +133,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T10:07:12+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T10:27:00+08:00"
 
 
 def startup_trace(message):
@@ -849,7 +849,60 @@ def format_member_role(value):
     return "管理员" if normalize_member_role(value) == "admin" else "会员"
 
 
+def ensure_configured_admin_member_account():
+    ensure_member_auth_schema()
+    username, password = get_no_match_admin_credentials()
+    username = clean_text(username)
+    password_text = str(password or "")
+    if username == "" or password_text == "" or not member_username_is_valid(username):
+        return
+    now = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM members WHERE lower(username)=lower(?)",
+            (username,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO members (
+                    username, password_hash, display_name, company, email, phone,
+                    role, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, '', '', '', 'admin', 'active', ?, ?)
+                """,
+                (username, hash_member_password(password_text), username, now, now),
+            )
+        else:
+            member = member_row_to_dict(row)
+            updates = []
+            values = []
+            if not verify_member_password(password_text, member.get("password_hash", "")):
+                updates.append("password_hash=?")
+                values.append(hash_member_password(password_text))
+            if clean_text(member.get("display_name", "")) == "":
+                updates.append("display_name=?")
+                values.append(username)
+            if normalize_member_role(member.get("role", "")) != "admin":
+                updates.append("role=?")
+                values.append("admin")
+            if normalize_member_status(member.get("status", "")) != "active":
+                updates.append("status=?")
+                values.append("active")
+            if updates:
+                updates.append("updated_at=?")
+                values.append(now)
+                values.append(int(member["id"]))
+                conn.execute(
+                    "UPDATE members SET " + ", ".join(updates) + " WHERE id=?",
+                    tuple(values),
+                )
+        conn.commit()
+
+
 def list_members_for_admin():
+    ensure_configured_admin_member_account()
     ensure_member_auth_schema()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -988,10 +1041,11 @@ def create_member_session(member_id):
 
 
 def authenticate_member(username, password):
+    ensure_configured_admin_member_account()
     member = get_member_by_username(username)
     if not member:
         return None, "账号或密码不正确。"
-    if clean_text(member.get("status", "")) != "active":
+    if normalize_member_status(member.get("status", "")) != "active":
         return None, "账号尚未开通或已停用，请联系管理员。"
     if not verify_member_password(password, member.get("password_hash", "")):
         return None, "账号或密码不正确。"

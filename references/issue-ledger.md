@@ -317,3 +317,10 @@
 - Root cause: The member token was stored only in Streamlit `session_state`. The fixed navigation links change query params and can reload the Streamlit app/session, so the server-side session token was not available after returning to search.
 - Fix: Added a `member_token` query param restore path, made `current_member()` recover active members from that token, wrote the token to the URL on login/register, preserved it in fixed member/admin navigation links, and cleared it on logout.
 - Verification: Function-level regression simulates login, empty-session reload with URL token, member restoration, token-preserving return-search href, and logout token cleanup.
+
+## 2026-06-24 - Configured backend admin could not log in as member
+
+- Bug: The member login page rejected `amdin/123456`, even though that account was the configured backend administrator account.
+- Root cause: The backend admin credential check and the member system were separate. Member authentication only read rows from `cache/member_auth.sqlite` and never seeded the configured backend admin into the `members` table.
+- Fix: Added configured-admin member synchronization before member authentication and member admin listing. The configured admin is created or repaired as an active `admin` member, with the password stored as the existing PBKDF2 salted hash rather than plaintext.
+- Verification: Temp DB regression confirmed `amdin/123456` logs in as an active admin member, wrong password fails, the stored hash is not plaintext, and the account appears in the member-management list; `python -m py_compile component_matcher.py streamlit_app.py` passed.
