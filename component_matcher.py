@@ -141,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T11:06:08+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T11:24:53+08:00"
 
 
 def startup_trace(message):
@@ -17613,6 +17613,46 @@ BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS = (
     ("厚声", ("厚声", "UNI-ROYAL", "UNIROYAL")),
     ("富捷", ("富捷", "FOJAN")),
 )
+BOM_RESISTOR_GENERAL_SERIES_CODES = {
+    "FRC",
+    "RM",
+    "RC",
+    "RTT",
+    "WR",
+    "WF",
+    "普通厚膜",
+    "普通厚膜电阻",
+}
+BOM_RESISTOR_GENERAL_SERIES_KEYWORDS = (
+    "普通厚膜",
+    "通用厚膜",
+    "GENERAL-PURPOSE",
+    "GENERAL PURPOSE",
+    "STANDARD THICK FILM",
+)
+BOM_RESISTOR_SPECIAL_SERIES_KEYWORDS = (
+    "抗硫",
+    "防硫",
+    "SULFUR",
+    "高功率",
+    "大功率",
+    "HIGH POWER",
+    "高压",
+    "HIGH VOLTAGE",
+    "车规",
+    "汽车",
+    "AUTOMOTIVE",
+    "抗浪涌",
+    "抗突波",
+    "SURGE",
+    "防静电",
+    "ESD",
+    "低阻值",
+    "LOW OHM",
+    "LOW RESISTANCE",
+    "电流检测",
+    "CURRENT SENSE",
+)
 BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
     {
         alias
@@ -17731,6 +17771,54 @@ def prepare_bom_own_brand_candidate_frame(frame, component_type):
     return work
 
 
+def bom_spec_has_special_requirement(spec):
+    if not isinstance(spec, dict):
+        return False
+    values = [
+        spec.get("特殊用途", ""),
+        spec.get("系列说明", ""),
+        spec.get("规格摘要", ""),
+    ]
+    for value in values:
+        text = clean_text(value)
+        if text == "":
+            continue
+        upper = text.upper()
+        if any(keyword.upper() in upper for keyword in BOM_RESISTOR_SPECIAL_SERIES_KEYWORDS):
+            return True
+    return False
+
+
+def bom_resistor_general_series_priority(row):
+    series = clean_text(row.get("系列", "")).upper()
+    desc = clean_text(row.get("系列说明", ""))
+    special = clean_text(row.get("特殊用途", ""))
+    model = clean_text(row.get("型号", "")).upper()
+    combined = " ".join([series, desc, special, model]).upper()
+    if series in {clean_text(code).upper() for code in BOM_RESISTOR_GENERAL_SERIES_CODES}:
+        return 0
+    if any(keyword.upper() in combined for keyword in BOM_RESISTOR_GENERAL_SERIES_KEYWORDS):
+        return 0
+    if special == "" and not any(keyword.upper() in combined for keyword in BOM_RESISTOR_SPECIAL_SERIES_KEYWORDS):
+        return 1
+    return 2
+
+
+def sort_bom_own_brand_candidates(candidates, component_type, spec=None):
+    if not candidates:
+        return []
+    ctype = normalize_component_type(component_type)
+    if ctype not in RESISTOR_COMPONENT_TYPES or bom_spec_has_special_requirement(spec):
+        return sorted(candidates, key=lambda item: item.get("_order", 0))
+    return sorted(
+        candidates,
+        key=lambda item: (
+            bom_resistor_general_series_priority(item.get("_row", {})),
+            item.get("_order", 0),
+        ),
+    )
+
+
 def match_bom_preferred_brand_label(brand):
     for label, aliases in BOM_PREFERRED_BRAND_ALIAS_GROUPS:
         if brand_alias_matches(brand, aliases):
@@ -17799,7 +17887,8 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
     selected = []
     seen = set()
     for label, aliases in brand_groups:
-        for _, row in work.iterrows():
+        brand_candidates = []
+        for order, (_, row) in enumerate(work.iterrows()):
             if not brand_alias_matches(row.get("品牌", ""), aliases):
                 continue
             model = clean_text(row.get("型号", ""))
@@ -17808,15 +17897,22 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
             key = (label, model)
             if key in seen:
                 continue
-            seen.add(key)
-            selected.append(
+            brand_candidates.append(
                 {
+                    "_order": order,
+                    "_row": row,
+                    "key": key,
                     "品牌": label,
                     "型号": model,
                     "成本": clean_text(row.get("成本", "")),
                     "MOQ": clean_text(row.get("MOQ", "")),
                 }
             )
+        for item in sort_bom_own_brand_candidates(brand_candidates, component_type, spec=spec):
+            if item["key"] in seen:
+                continue
+            seen.add(item["key"])
+            selected.append(item)
             break
         if len(selected) >= int(limit or 0):
             break
