@@ -19,7 +19,7 @@ import re
 import unicodedata
 import zipfile
 import shutil
-from io import BytesIO
+from io import BytesIO, StringIO
 import urllib.parse
 import urllib.request
 import ssl
@@ -141,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T10:52:15+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T11:06:08+08:00"
 
 
 def startup_trace(message):
@@ -26690,6 +26690,67 @@ def get_uploaded_file_bytes(uploaded_file):
         return b""
 
 
+def normalize_uploaded_bom_frame(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    bom_df = df.dropna(how="all").copy()
+    if bom_df.empty:
+        return pd.DataFrame()
+    bom_df.columns = make_unique_column_names(bom_df.columns)
+    return bom_df
+
+
+def build_uploaded_bom_workbook(kind, file_name, raw_bytes, sheet_frames):
+    safe_frames = []
+    for idx, item in enumerate(sheet_frames or [], start=1):
+        sheet_name = clean_text(item.get("sheet_name", "")) or f"Sheet{idx}"
+        bom_df = normalize_uploaded_bom_frame(item.get("df", pd.DataFrame()))
+        if bom_df.empty:
+            continue
+        safe_frames.append({"sheet_name": sheet_name, "df": bom_df})
+    return {
+        "kind": kind,
+        "file_name": file_name,
+        "file_bytes": raw_bytes,
+        "sheet_frames": safe_frames,
+        "sheet_names": [item["sheet_name"] for item in safe_frames],
+    }
+
+
+def read_html_tables_from_bom_bytes(raw_bytes):
+    if not raw_bytes:
+        return []
+    for encoding in ("utf-8-sig", "gb18030", "big5", "latin1"):
+        try:
+            text = raw_bytes.decode(encoding)
+        except Exception:
+            continue
+        if "<table" not in text.lower():
+            continue
+        try:
+            tables = pd.read_html(StringIO(text))
+        except Exception:
+            tables = []
+        if tables:
+            return [table.astype(str) for table in tables]
+    tables = []
+    try:
+        tables = pd.read_html(BytesIO(raw_bytes))
+    except Exception:
+        tables = []
+    if tables:
+        return [table.astype(str) for table in tables]
+    return []
+
+
+def read_uploaded_bom_html_workbook(file_name, raw_bytes):
+    tables = read_html_tables_from_bom_bytes(raw_bytes)
+    sheet_frames = []
+    for idx, table_df in enumerate(tables, start=1):
+        sheet_frames.append({"sheet_name": f"HTML表格{idx}", "df": table_df})
+    return build_uploaded_bom_workbook("html", file_name, raw_bytes, sheet_frames)
+
+
 def read_uploaded_bom_workbook(uploaded_file):
     if uploaded_file is None:
         return {
@@ -26709,48 +26770,29 @@ def read_uploaded_bom_workbook(uploaded_file):
             bom_df = pd.read_csv(BytesIO(raw_bytes), dtype=str)
         except Exception:
             bom_df = pd.DataFrame()
-        if bom_df is None or bom_df.empty:
-            return {
-                "kind": "csv",
-                "file_name": file_name,
-                "file_bytes": raw_bytes,
-                "sheet_frames": [],
-                "sheet_names": [],
-            }
-        bom_df = bom_df.dropna(how="all").copy()
-        bom_df.columns = make_unique_column_names(bom_df.columns)
-        return {
-            "kind": "csv",
-            "file_name": file_name,
-            "file_bytes": raw_bytes,
-            "sheet_frames": [{"sheet_name": os.path.splitext(file_name or "CSV")[0] or "CSV", "df": bom_df}],
-            "sheet_names": [os.path.splitext(file_name or "CSV")[0] or "CSV"],
-        }
+        return build_uploaded_bom_workbook(
+            "csv",
+            file_name,
+            raw_bytes,
+            [{"sheet_name": os.path.splitext(file_name or "CSV")[0] or "CSV", "df": bom_df}],
+        )
 
     try:
         xls = pd.ExcelFile(BytesIO(raw_bytes))
     except Exception:
+        html_workbook = read_uploaded_bom_html_workbook(file_name, raw_bytes)
+        if html_workbook.get("sheet_frames"):
+            return html_workbook
         try:
             fallback_df = pd.read_excel(BytesIO(raw_bytes), dtype=str)
         except Exception:
             fallback_df = pd.DataFrame()
-        if fallback_df is None or fallback_df.empty:
-            return {
-                "kind": "excel",
-                "file_name": file_name,
-                "file_bytes": raw_bytes,
-                "sheet_frames": [],
-                "sheet_names": [],
-            }
-        fallback_df = fallback_df.dropna(how="all").copy()
-        fallback_df.columns = make_unique_column_names(fallback_df.columns)
-        return {
-            "kind": "excel",
-            "file_name": file_name,
-            "file_bytes": raw_bytes,
-            "sheet_frames": [{"sheet_name": "Sheet1", "df": fallback_df}],
-            "sheet_names": ["Sheet1"],
-        }
+        return build_uploaded_bom_workbook(
+            "excel",
+            file_name,
+            raw_bytes,
+            [{"sheet_name": "Sheet1", "df": fallback_df}],
+        )
 
     sheet_frames = []
     for sheet_name in xls.sheet_names:
@@ -26758,21 +26800,15 @@ def read_uploaded_bom_workbook(uploaded_file):
             bom_df = xls.parse(sheet_name=sheet_name, dtype=str)
         except Exception:
             continue
-        if bom_df is None or bom_df.empty:
-            continue
-        bom_df = bom_df.dropna(how="all").copy()
-        if bom_df.empty:
-            continue
-        bom_df.columns = make_unique_column_names(bom_df.columns)
         sheet_frames.append({"sheet_name": sheet_name, "df": bom_df})
 
-    return {
-        "kind": "excel",
-        "file_name": file_name,
-        "file_bytes": raw_bytes,
-        "sheet_frames": sheet_frames,
-        "sheet_names": [item["sheet_name"] for item in sheet_frames],
-    }
+    excel_workbook = build_uploaded_bom_workbook("excel", file_name, raw_bytes, sheet_frames)
+    if excel_workbook.get("sheet_frames"):
+        return excel_workbook
+    html_workbook = read_uploaded_bom_html_workbook(file_name, raw_bytes)
+    if html_workbook.get("sheet_frames"):
+        return html_workbook
+    return excel_workbook
 
 
 def read_uploaded_bom(uploaded_file):

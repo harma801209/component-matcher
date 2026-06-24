@@ -331,3 +331,10 @@
 - Root cause: `current_timestamp_text()` used `time.strftime()` with the server's local timezone. Streamlit Cloud's host timezone is UTC, so timestamps were written and displayed 8 hours behind Beijing time.
 - Fix: Made timestamp generation explicitly use `Asia/Shanghai`, added `member_auth_meta` with a one-time migration key, and when running on a UTC-hosted environment shifted existing member/session timestamp strings by +8 hours exactly once.
 - Verification: Temp DB regression confirmed legacy UTC member timestamps migrate to Beijing time, migration does not repeat, and new timestamps match `Asia/Shanghai`; `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-24 - BOM `.xls` uploads could be misreported as empty
+
+- Bug: Uploading a data-bearing `.xls` BOM could show `上传文件内容为空，未能生成可匹配数据`.
+- Root cause: The deployed requirements did not include `xlrd`, so true legacy BIFF `.xls` files could fail to parse. Additionally, ERP exports commonly save HTML tables with an `.xls` suffix; the reader only tried Excel engines and collapsed parse failures into an empty workbook.
+- Fix: Added `xlrd` to requirements and added an HTML table fallback for Excel uploads, with explicit `utf-8-sig`, `gb18030`, `big5`, and `latin1` decode attempts before parsing so Chinese headers survive.
+- Verification: Function-level regression confirmed a GB18030 HTML table named `.xls` loads as a non-empty workbook with Chinese columns and rows, while CSV upload still works; `python -m py_compile component_matcher.py streamlit_app.py` passed.

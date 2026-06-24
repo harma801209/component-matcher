@@ -2785,3 +2785,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: `current_timestamp_text()` used the server's local timezone. Streamlit Cloud runs in UTC, so member timestamps were stored and displayed 8 hours behind Beijing time.
 - Change / action: Made timestamp generation explicitly use `Asia/Shanghai`, added a one-time member-auth DB migration marker, and on UTC-hosted environments shift existing member/session timestamp text by +8 hours exactly once. Bumped public stamps to `2026-06-24T10:52:15+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression confirmed legacy `2026-06-24 01:56:26` migrates to `2026-06-24 09:56:26`, migration does not repeat, and new timestamps are within two minutes of `Asia/Shanghai` time. Temporary time-regression DB was deleted; root screenshot check showed only `logo.png`.
+
+### 2026-06-24 11:06 [debug] Fixed BOM upload reader for legacy XLS and HTML exports
+
+- Received / problem: User uploaded `阻容待下6-22.xls`; the app showed `上传文件内容为空，未能生成可匹配数据` even though the BOM contains data.
+- Root cause: The public requirements did not include `xlrd`, so true legacy `.xls` files could not be parsed. Some ERP `.xls` exports are also HTML tables saved with an `.xls` suffix; the reader only tried Excel engines and then converted all failures to an empty-file state.
+- Change / action: Added `xlrd>=2.0,<3` to requirements, refactored upload workbook normalization, and added an HTML table fallback that decodes `utf-8-sig / gb18030 / big5 / latin1` before parsing so Chinese headers do not become mojibake. Bumped public stamps to `2026-06-24T11:06:08+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression confirmed a GB18030 HTML table saved as `.xls` loads as a non-empty BOM workbook with Chinese columns and rows, and the CSV reader path still works. Root screenshot check showed only `logo.png`.
