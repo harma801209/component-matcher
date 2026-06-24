@@ -338,3 +338,9 @@
 - Root cause: The deployed requirements did not include `xlrd`, so true legacy BIFF `.xls` files could fail to parse. Additionally, ERP exports commonly save HTML tables with an `.xls` suffix; the reader only tried Excel engines and collapsed parse failures into an empty workbook.
 - Fix: Added `xlrd` to requirements and added an HTML table fallback for Excel uploads, with explicit `utf-8-sig`, `gb18030`, `big5`, and `latin1` decode attempts before parsing so Chinese headers survive.
 - Verification: Function-level regression confirmed a GB18030 HTML table named `.xls` loads as a non-empty workbook with Chinese columns and rows, while CSV upload still works; `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-24 - Joyin JSN NTC equivalents were absent from the local library
+
+- Bug: Searching a Murata NTC such as `NCP15XH103F03RC` could not return 信昌/久尹 equivalents because `components.db` had zero `JOYIN(久尹)` thermal resistor rows; only Joyin varistor rows existed.
+- Fix: Added `sync_joyin_ntc_thermistors.py` to parse the local JSN-A/C/G/H official PDFs, expand the `X` / `Y` tolerance placeholders into real part numbers, import generated Joyin NTC rows, and refresh prepared/search sidecar caches. Added Joyin JSN series recognition and made NTC matching/sorting consider B value and B condition.
+- Verification: Imported 6,780 Joyin JSN NTC rows. `NCP15XH103F03RC` now resolves through `fast_query` with 61 matched rows, including 56 `JOYIN(久尹)` rows; B=3380K / 25/50℃ Joyin rows are marked `完全匹配` and sorted before nearby non-B-exact variants.

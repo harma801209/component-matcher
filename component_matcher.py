@@ -116,7 +116,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 70
+QUERY_RESULT_CACHE_VERSION = 71
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -141,7 +141,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T11:24:53+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T16:05:54+08:00"
 
 
 def startup_trace(message):
@@ -16380,6 +16380,29 @@ def resolve_thermistor_series_profile(brand="", model="", series="", series_desc
                 },
                 model=model_text,
             )
+    joyin_jsn_match = re.match(r"^JSN[ZABC]\d{3}[A-Z]\d{3}[A-Z][ABC]B?X([ACGH])$", model_text)
+    if "JOYIN" in brand_upper or "久尹" in brand_text or joyin_jsn_match:
+        joyin_suffix_profiles = {
+            "A": ("JSN-A", "JOYIN JSN-A Automotive SMD NTC thermistor series", "车规 | AEC-Q200 | 175℃ | 测温 | 贴片 | NTC"),
+            "C": ("JSN-C", "JOYIN JSN-C Automotive SMD NTC thermistor series", "车规 | AEC-Q200 | 150℃ | 测温 | 贴片 | NTC"),
+            "G": ("JSN-G", "JOYIN JSN-G SMD NTC thermistor series", "标准 | UL/TUV | 125℃ | 测温 | 贴片 | NTC"),
+            "H": ("JSN-H", "JOYIN JSN-H SMD NTC thermistor series", "标准 | 150℃ | 测温 | 贴片 | NTC"),
+        }
+        if joyin_jsn_match:
+            series_code, desc, use = joyin_suffix_profiles.get(
+                joyin_jsn_match.group(1),
+                ("JSN", "JOYIN JSN SMD NTC thermistor series", "测温 | 贴片 | NTC"),
+            )
+            return merge_series_profile_values(
+                result,
+                {
+                    "系列": series_code,
+                    "系列说明": desc,
+                    "特殊用途": use,
+                    "器件类型": "热敏电阻",
+                },
+                model=model_text,
+            )
     if "TDK" in brand_upper or "东电化" in brand_text or "EPCOS" in brand_upper:
         tdk_profile = lookup_official_resistor_series_profile_by_model(model_text, brand_text)
         series_code = clean_text(tdk_profile.get("系列", ""))
@@ -25966,6 +25989,7 @@ def classify_match_level(row, spec):
     target_type = infer_spec_component_type(spec)
 
     if target_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+        is_thermistor = target_type == "热敏电阻"
         row_res = row.get("_res_ohm", None)
         try:
             row_res_value = float(row_res) if row_res is not None and not pd.isna(row_res) else None
@@ -25982,12 +26006,19 @@ def classify_match_level(row, spec):
             spec_power_watt is None or
             (row_power_watt is not None and abs(row_power_watt - spec_power_watt) <= 1e-9)
         )
+        row_b_value = normalize_b_value_text(row.get("B值", ""))
+        spec_b_value = normalize_b_value_text(spec.get("B值", ""))
+        row_b_condition = clean_text(row.get("B值条件", ""))
+        spec_b_condition = clean_text(spec.get("B值条件", ""))
+        b_value_matches = (not is_thermistor or spec_b_value == "" or row_b_value == spec_b_value)
+        b_condition_matches = (not is_thermistor or spec_b_condition == "" or row_b_condition == spec_b_condition)
+        b_matches = b_value_matches and b_condition_matches
 
         query_complete = (
             spec_size != "" and
             spec_res_value is not None and
             spec_tol != "" and
-            spec_power_watt is not None
+            (is_thermistor or spec_power_watt is not None)
         )
 
         same_core = True
@@ -26005,13 +26036,15 @@ def classify_match_level(row, spec):
             exact = False
         if not power_matches:
             exact = False
+        if not b_matches:
+            exact = False
 
         if query_complete and exact:
             return "完全匹配", 1
 
         if not query_complete and same_core:
             tol_ok_partial = (spec_tol == "" or (row_tol_raw != "" and tolerance_equal(row_tol_raw, spec_tol)))
-            if tol_ok_partial and power_matches:
+            if tol_ok_partial and power_matches and b_matches:
                 return "部分参数匹配", 2
 
         if query_complete and same_core:
@@ -26616,6 +26649,21 @@ def apply_match_levels_and_sort(df, spec):
     else:
         work["_exact_model_rank"] = 1
     work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
+    if target_type == "热敏电阻":
+        spec_b_value = normalize_b_value_text(spec.get("B值", ""))
+        spec_b_condition = clean_text(spec.get("B值条件", ""))
+
+        def thermistor_b_rank(row):
+            rank = 0
+            if spec_b_value != "" and normalize_b_value_text(row.get("B值", "")) != spec_b_value:
+                rank += 1
+            if spec_b_condition != "" and clean_text(row.get("B值条件", "")) != spec_b_condition:
+                rank += 1
+            return rank
+
+        work["_thermistor_b_rank"] = work.apply(thermistor_b_rank, axis=1)
+    else:
+        work["_thermistor_b_rank"] = 0
     if target_type in CAPACITOR_COMPONENT_TYPES:
         sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank"]
         ascending = [True, True, True, True]
@@ -26628,8 +26676,8 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["品牌", "型号"])
         ascending.extend([True, True])
     else:
-        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank"]
-        ascending = [True, True, True]
+        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_thermistor_b_rank"]
+        ascending = [True, True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -26639,7 +26687,7 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["_brand_rank", "品牌", "型号"])
         ascending.extend([True, True, True])
     work = work.sort_values(by=sort_cols, ascending=ascending)
-    return work.drop(columns=["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank"], errors="ignore")
+    return work.drop(columns=["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank", "_mlcc_class_rank", "_thermistor_b_rank"], errors="ignore")
 
 def detect_query_mode_and_spec(df, line):
     semiconductor_hint = detect_unsupported_semiconductor_type(line)

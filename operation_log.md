@@ -2804,3 +2804,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wants the whole matching-system workspace and related source materials moved to a portable drive so copying to another PC still allows normal running, editing, expansion, and deployment.
 - Change / action: Audited repo data paths, `.gitignore`, `.gitattributes`, runtime/cache locations, workspace sizes, external source-document folder size, and sensitive local state. Added `docs/portable_migration_plan.md` with required files, optional files, sensitive files, restore steps, and migration options. Added `tools/create_portable_bundle.ps1` to build a portable working copy with optional Git history, backup files, browser profiles, secrets, and external source documents.
 - Cleanup: Removed stale operation screenshot `cache/cf_pages_proxy_browser_after_status_patch.png`; remaining checked image files are `logo.png`, `cloudflare-pages-proxy/dist/favicon.png`, and `mlcc_edit_work/original_Q2-0601-0605.png`.
+
+### 2026-06-24 16:00 [feature] Imported JOYIN/Joyin JSN NTC thermistor library
+
+- Received / problem: User noted 信昌/久尹 NTC equivalents were still missing, e.g. `NCP15XH103F03RC` could not match Joyin alternatives.
+- Root cause: `components.db` contained the Murata NTC row but had zero `JOYIN(久尹)` thermal resistor rows; the local JSN-A/C/G/H PDFs had not been converted into database rows.
+- Change / action: Added `sync_joyin_ntc_thermistors.py` to parse `JSN-A_250121.pdf`, `JSN-C_250121.pdf`, `JSN-G_250121.pdf`, and `JSN-H_250121.pdf`, expand PDF `X` / `Y` tolerance placeholders into real part numbers, and import 6,780 Joyin SMD NTC rows. Refreshed prepared/search sidecar caches. Added Joyin JSN series recognition and B-value/B-condition aware NTC ranking.
+- Deployment note: Rebuilt `streamlit_cloud_bundle.zip`, split it back into `streamlit_cloud_bundle.zip.part01` / `part02`, and bumped public stamps to `2026-06-24T16:05:54+08:00` so Streamlit Cloud can extract the updated search cache.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py` passed. `NCP15XH103F03RC` now resolves through `fast_query` with 61 matches, including 56 `JOYIN(久尹)` rows; B=3380K / 25/50℃ Joyin rows are marked `完全匹配` and sorted ahead of nearby non-B-exact variants.
