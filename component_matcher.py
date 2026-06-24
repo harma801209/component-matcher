@@ -132,7 +132,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T08:59:08+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T09:53:20+08:00"
 
 
 def startup_trace(message):
@@ -17320,12 +17320,20 @@ MLCC_REFERENCE_ALIAS_MAP = {
 MLCC_REFERENCE_EXCLUDE_ALIASES = tuple({alias for aliases in MLCC_REFERENCE_ALIAS_MAP.values() for alias in aliases if clean_text(alias) != ""})
 BOM_PREFERRED_BRAND_SLOTS = 3
 BOM_PREFERRED_BRAND_ALIAS_GROUPS = (
-    ("信昌", ("信昌", "PDC")),
-    ("华新科", ("华新科", "WALSIN", "华科")),
+    ("华科", ("华科", "华新科", "WALSIN")),
+    ("信昌", ("信昌", "PDC", "PSA")),
     ("芯声微", ("芯声微", "HRE")),
     ("厚声", ("厚声", "UNI-ROYAL", "UNIROYAL")),
-    ("江海", ("江海", "JIANGHAI", "NANTONG JIANGHAI")),
-    ("爱普生", ("爱普生", "EPSON")),
+    ("富捷", ("富捷", "FOJAN")),
+)
+BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS = (
+    ("华科", ("华科", "华新科", "WALSIN")),
+    ("信昌", ("信昌", "PDC", "PSA")),
+    ("芯声微", ("芯声微", "HRE")),
+)
+BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS = (
+    ("厚声", ("厚声", "UNI-ROYAL", "UNIROYAL")),
+    ("富捷", ("富捷", "FOJAN")),
 )
 BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
     {
@@ -17334,6 +17342,12 @@ BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
         for alias in aliases
         if clean_text(alias) != ""
     }
+)
+BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "MOQ")
+BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有MOQ")
+BOM_OWN_BRAND_EXPORT_MAX_SLOTS = max(
+    len(BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS),
+    len(BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS),
 )
 BOM_PREFERRED_SLOT_COLUMNS = tuple(
     col
@@ -17386,6 +17400,59 @@ def empty_bom_preferred_brand_slots(limit=BOM_PREFERRED_BRAND_SLOTS):
     return slots
 
 
+def bom_slot_name(base, idx):
+    base = clean_text(base)
+    return base if int(idx or 1) <= 1 else f"{base}{int(idx)}"
+
+
+def bom_own_brand_internal_column(prefix, idx):
+    return bom_slot_name(prefix, idx)
+
+
+def empty_bom_own_brand_export_slots(limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS):
+    slots = {}
+    for idx in range(1, int(limit or 0) + 1):
+        for prefix in BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES:
+            slots[bom_own_brand_internal_column(prefix, idx)] = ""
+    return slots
+
+
+def bom_own_brand_groups_for_component(component_type):
+    ctype = normalize_component_type(component_type)
+    if ctype in RESISTOR_COMPONENT_TYPES:
+        return BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS
+    if ctype in CAPACITOR_COMPONENT_TYPES or ctype == "MLCC":
+        return BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS
+    return ()
+
+
+def infer_bom_own_brand_component_type(spec=None, frame=None):
+    if spec is not None:
+        ctype = infer_spec_component_type(spec)
+        if clean_text(ctype) != "":
+            return ctype
+        ctype = clean_text(spec.get("器件类型", "")) if isinstance(spec, dict) else ""
+        if ctype != "":
+            return ctype
+    if isinstance(frame, pd.DataFrame) and not frame.empty and "器件类型" in frame.columns:
+        for value in frame["器件类型"].astype(str).tolist():
+            ctype = normalize_component_type(value)
+            if ctype != "":
+                return ctype
+    return ""
+
+
+def prepare_bom_own_brand_candidate_frame(frame, component_type):
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    work = frame.copy()
+    ctype = normalize_component_type(component_type)
+    if ctype in RESISTOR_COMPONENT_TYPES:
+        work = normalize_fojan_resistor_series_display_fields(work)
+        work = enrich_resistor_pricing_columns(work)
+    return work
+
+
 def match_bom_preferred_brand_label(brand):
     for label, aliases in BOM_PREFERRED_BRAND_ALIAS_GROUPS:
         if brand_alias_matches(brand, aliases):
@@ -17432,6 +17499,55 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
     for idx, (brand, model) in enumerate(items, start=1):
         slots[f"品牌{idx}"] = brand
         slots[f"型号{idx}"] = model
+    return slots
+
+
+def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS):
+    slots = empty_bom_own_brand_export_slots(limit=limit)
+    if frame is None or frame.empty:
+        return slots
+    if "品牌" not in frame.columns or "型号" not in frame.columns:
+        return slots
+
+    component_type = infer_bom_own_brand_component_type(spec=spec, frame=frame)
+    brand_groups = bom_own_brand_groups_for_component(component_type)
+    if not brand_groups:
+        return slots
+
+    work = prepare_bom_own_brand_candidate_frame(frame, component_type)
+    if work.empty:
+        return slots
+
+    selected = []
+    seen = set()
+    for label, aliases in brand_groups:
+        for _, row in work.iterrows():
+            if not brand_alias_matches(row.get("品牌", ""), aliases):
+                continue
+            model = clean_text(row.get("型号", ""))
+            if model == "":
+                continue
+            key = (label, model)
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(
+                {
+                    "品牌": label,
+                    "型号": model,
+                    "成本": clean_text(row.get("成本", "")),
+                    "MOQ": clean_text(row.get("MOQ", "")),
+                }
+            )
+            break
+        if len(selected) >= int(limit or 0):
+            break
+
+    for idx, item in enumerate(selected[: int(limit or 0)], start=1):
+        slots[bom_own_brand_internal_column("自有品牌", idx)] = item.get("品牌", "")
+        slots[bom_own_brand_internal_column("自有型号", idx)] = item.get("型号", "")
+        slots[bom_own_brand_internal_column("自有成本", idx)] = item.get("成本", "")
+        slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
     return slots
 
 
@@ -26853,6 +26969,7 @@ def build_bom_result_row(df, line):
         "推荐理由": "",
         "状态": ""
     }
+    row.update(empty_bom_own_brand_export_slots())
 
     if mode == "无法识别" or spec is None:
         row["状态"] = "解析失败"
@@ -26903,6 +27020,7 @@ def build_bom_result_row(df, line):
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
         row["推荐型号"] = clean_text(display_match.get("型号", ""))
+    row.update(build_bom_own_brand_export_slots(matched, spec=spec))
     row.update(
         build_bom_preferred_brand_slots(
             matched,
@@ -26966,6 +27084,7 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         "推荐理由": "",
         "状态": "解析失败",
     }
+    result_row.update(empty_bom_own_brand_export_slots())
 
     extra_values = collect_bom_extra_spec_values(record, column_mapping)
     candidates = build_bom_query_candidates(model_value, spec_value, name_value, extra_values=extra_values)
@@ -27022,6 +27141,7 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
         result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
         result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
+        result_row.update(build_bom_own_brand_export_slots(matched, spec=spec))
         result_row.update(
             build_bom_preferred_brand_slots(
                 matched,
@@ -27481,36 +27601,55 @@ def append_unique_export_column(export_df, base_name, values):
     return column_name
 
 
+def build_bom_own_brand_append_columns(result_df, row_count):
+    max_len = max(0, int(row_count or 0))
+    if result_df is None or result_df.empty:
+        result_work = pd.DataFrame()
+    else:
+        result_work = result_df.reset_index(drop=True).copy()
+
+    max_slot = 1
+    for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1):
+        slot_has_value = False
+        for prefix in BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES:
+            col = bom_own_brand_internal_column(prefix, idx)
+            if col in result_work.columns and result_work[col].astype(str).apply(clean_text).ne("").any():
+                slot_has_value = True
+                break
+        if slot_has_value:
+            max_slot = idx
+
+    append_columns = []
+    for idx in range(1, max_slot + 1):
+        for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
+            source_col = bom_own_brand_internal_column(internal_prefix, idx)
+            values = []
+            for row_idx in range(max_len):
+                if row_idx < len(result_work) and source_col in result_work.columns:
+                    values.append(clean_text(result_work.iloc[row_idx].get(source_col, "")))
+                else:
+                    values.append("")
+            append_columns.append(
+                {
+                    "header": bom_slot_name(header_base, idx),
+                    "values": values,
+                }
+            )
+    return append_columns
+
+
 def build_bom_matched_export_df(upload_df, result_df):
     if upload_df is None:
         return pd.DataFrame()
 
     export_df = upload_df.copy().reset_index(drop=True)
     max_len = len(export_df)
-
-    if result_df is None or result_df.empty:
-        append_unique_export_column(export_df, BOM_MATCHED_REFERENCE_EXPORT_COLUMN, [""] * max_len)
-        for export_col in BOM_SALES_EXPORT_COLUMNS:
-            append_unique_export_column(export_df, export_col, [""] * max_len)
-        return export_df
-
-    result_work = ensure_bom_sales_decision_columns(result_df.reset_index(drop=True).copy())
-    matched_values = []
-    sales_values = {col: [] for col in BOM_SALES_EXPORT_COLUMNS}
-    for idx in range(max_len):
-        if idx < len(result_work):
-            result_row = result_work.iloc[idx]
-            matched_values.append(format_bom_reference_models_for_export(result_row))
-            for export_col in BOM_SALES_EXPORT_COLUMNS:
-                sales_values[export_col].append(clean_text(result_row.get(export_col, "")))
-        else:
-            matched_values.append("")
-            for export_col in BOM_SALES_EXPORT_COLUMNS:
-                sales_values[export_col].append("")
-    append_unique_export_column(export_df, BOM_MATCHED_REFERENCE_EXPORT_COLUMN, matched_values)
-    for export_col in BOM_SALES_EXPORT_COLUMNS:
-        append_unique_export_column(export_df, export_col, sales_values[export_col])
-    return export_df
+    append_columns = build_bom_own_brand_append_columns(result_df, max_len)
+    append_df = pd.DataFrame(
+        {item["header"]: item.get("values", [""] * max_len) for item in append_columns},
+        index=export_df.index,
+    )
+    return pd.concat([export_df, append_df], axis=1)
 
 
 def copy_excel_cell_style(src_cell, dst_cell):
@@ -27557,27 +27696,27 @@ def build_bom_workbook_run_signature(uploaded_file, sheet_mappings):
     )
 
 
-def append_export_columns_to_worksheet(ws, source_df, export_df):
-    if ws is None or export_df is None or export_df.empty:
+def append_export_columns_to_worksheet(ws, source_df, append_columns):
+    if ws is None or not append_columns:
         return
 
     source_columns = list(source_df.columns) if source_df is not None and not source_df.empty else []
-    added_columns = [col for col in export_df.columns if col not in source_columns]
-    if not added_columns:
-        return
-
     base_col = max(1, len(source_columns) if source_columns else int(ws.max_column or 1))
     header_template_col = max(1, min(base_col, int(ws.max_column or base_col)))
-    max_rows = len(export_df) + 1
+    max_value_len = max([len(item.get("values", []) or []) for item in append_columns] + [0])
+    max_rows = max_value_len + 1
 
-    for offset, column_name in enumerate(added_columns, start=1):
+    for offset, item in enumerate(append_columns, start=1):
+        column_name = clean_text(item.get("header", ""))
+        if column_name == "":
+            continue
+        values = list(item.get("values", []) or [])
         target_col = base_col + offset
         header_cell = ws.cell(row=1, column=target_col)
         header_cell.value = column_name
         copy_excel_cell_style(ws.cell(row=1, column=header_template_col), header_cell)
         header_cell.alignment = Alignment(wrap_text=True, vertical="center")
 
-        values = export_df[column_name].tolist()
         width_hint = max([len(clean_text(column_name))] + [len(clean_text(x)) for x in values[:50]] + [12])
         ws.column_dimensions[get_column_letter(target_col)].width = min(max(width_hint * 1.2, 16), 40)
 
@@ -27585,7 +27724,7 @@ def append_export_columns_to_worksheet(ws, source_df, export_df):
             cell = ws.cell(row=row_idx, column=target_col)
             value_index = row_idx - 2
             cell.value = values[value_index] if value_index < len(values) else ""
-            source_row_idx = min(max(1, row_idx), len(export_df) + 1)
+            source_row_idx = min(max(1, row_idx), max_value_len + 1)
             copy_excel_cell_style(ws.cell(row=source_row_idx, column=header_template_col), cell)
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
@@ -27697,8 +27836,8 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
                         continue
                     safe_source_df = sanitize_dataframe_for_excel_export(payload.get("source_df"))
                     safe_result_df = sanitize_dataframe_for_excel_export(payload.get("result_df"))
-                    export_df = build_bom_matched_export_df(safe_source_df, safe_result_df)
-                    append_export_columns_to_worksheet(ws, safe_source_df, export_df)
+                    append_columns = build_bom_own_brand_append_columns(safe_result_df, len(safe_source_df))
+                    append_export_columns_to_worksheet(ws, safe_source_df, append_columns)
                     try:
                         ws.freeze_panes = ws.freeze_panes or "A2"
                     except Exception:
@@ -27728,14 +27867,17 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
 
-        wrap_export_bases = (BOM_MATCHED_REFERENCE_EXPORT_COLUMN,) + BOM_SALES_EXPORT_COLUMNS
-        for export_col_name in export_df.columns:
+        wrap_export_bases = {
+            bom_slot_name(base, idx)
+            for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
+            for base in BOM_OWN_BRAND_EXPORT_BASE_COLUMNS
+        }
+        for export_col_idx, export_col_name in enumerate(export_df.columns, start=1):
             base_name = re.sub(r"\(导出\d*\)$", "", clean_text(export_col_name))
             if base_name not in wrap_export_bases:
                 continue
-            export_col_idx = export_df.columns.get_loc(export_col_name) + 1
             export_letter = get_column_letter(export_col_idx)
-            if base_name in {"客户回复型号", "备选型号", "风险提示", BOM_MATCHED_REFERENCE_EXPORT_COLUMN}:
+            if base_name.startswith("型号"):
                 sheet.column_dimensions[export_letter].width = 32
             else:
                 sheet.column_dimensions[export_letter].width = 18

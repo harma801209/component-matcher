@@ -2752,3 +2752,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted the member login panel to stop showing the password-hash wording, and wanted the admin backend to show all registered members with edit/delete controls.
 - Change / action: Removed the public member-login hash note, added member admin helpers for listing/updating/deleting accounts, added backend module switching between no-match reports and member management, and added editable member forms with status, role, contact fields, optional password reset, and delete confirmation. Bumped public stamps to `2026-06-24T08:59:08+08:00`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression covered create/update/disable/reset-login/delete. Local Streamlit on `http://localhost:8512` verified the text removal, admin login, member management list, and expanded edit/delete/reset controls.
+
+### 2026-06-24 09:54 [feature] Changed BOM Excel export to own-brand candidate columns
+
+- Received / problem: User wanted uploaded BOM exports to append match results after the original last column as `品牌/型号/成本/MOQ`, then `品牌2/型号2/成本2/MOQ2`, etc. Only own brands should be exported: capacitors by `华科 -> 信昌 -> 芯声微`, resistors by `厚声 -> 富捷`.
+- Change / action: Added BOM own-brand export slots, changed candidate selection to use component-specific brand groups, kept non-own brands out of the downloaded BOM columns, preserved duplicate header names when the source BOM already has `品牌` or `型号`, and bumped public stamps to `2026-06-24T09:53:20+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Partial function tests confirmed capacitor ordering, duplicate `品牌/型号` append behavior, and openpyxl worksheet append headers/values.
