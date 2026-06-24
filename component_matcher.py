@@ -25,6 +25,7 @@ import urllib.request
 import ssl
 import warnings
 import traceback
+import textwrap
 from copy import copy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -116,7 +117,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 75
+QUERY_RESULT_CACHE_VERSION = 76
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -141,7 +142,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T21:28:49+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T21:51:36+08:00"
 
 
 def startup_trace(message):
@@ -1549,31 +1550,14 @@ def admin_escape(value):
     return html.escape(clean_text(value))
 
 
-def render_admin_hero():
-    st.markdown(
-        """
-        <div class="admin-hero">
-            <div>
-                <div class="admin-eyebrow">后台管理中心</div>
-                <div class="admin-hero-title">系统后台</div>
-                <div class="admin-hero-subtitle">
-                    集中处理无匹配回报、会员审核与会员资料维护。新会员审核通过后才可以登录使用搜索和 BOM 匹配。
-                </div>
-            </div>
-            <div class="admin-hero-badge">
-                <span>权限</span>
-                <strong>管理员</strong>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def render_admin_html(markup):
+    st.markdown(textwrap.dedent(clean_text(markup)).strip(), unsafe_allow_html=True)
 
 
 def render_admin_section_header(title, description="", meta=""):
     meta_html = f'<div class="admin-section-meta">{admin_escape(meta)}</div>' if clean_text(meta) else ""
     desc_html = f'<div class="admin-section-desc">{admin_escape(description)}</div>' if clean_text(description) else ""
-    st.markdown(
+    render_admin_html(
         f"""
         <div class="admin-section-head">
             <div>
@@ -1582,8 +1566,7 @@ def render_admin_section_header(title, description="", meta=""):
             </div>
             {meta_html}
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
@@ -1594,88 +1577,54 @@ def render_admin_metric_cards(cards):
     for card in cards:
         tone = clean_text(card.get("tone", "neutral")) or "neutral"
         card_html.append(
-            f"""
+            textwrap.dedent(
+                f"""
             <div class="admin-stat-card admin-stat-{admin_escape(tone)}">
                 <div class="admin-stat-label">{admin_escape(card.get("label", ""))}</div>
                 <div class="admin-stat-value">{admin_escape(card.get("value", ""))}</div>
                 <div class="admin-stat-note">{admin_escape(card.get("note", ""))}</div>
             </div>
             """
+            ).strip()
         )
-    st.markdown(
-        f'<div class="admin-stat-grid">{"".join(card_html)}</div>',
-        unsafe_allow_html=True,
-    )
+    render_admin_html(f'<div class="admin-stat-grid">{"".join(card_html)}</div>')
 
 
-def render_admin_module_cards(active_module, report_counts=None, members=None):
-    report_counts = report_counts or {}
-    members = members or []
-    pending_members = [member for member in members if normalize_member_status(member.get("status", "")) == "pending"]
-    active_members = [member for member in members if normalize_member_status(member.get("status", "")) == "active"]
-    modules = [
-        {
-            "name": "无匹配回报",
-            "kicker": "物料处理",
-            "value": report_counts.get("待处理", 0),
-            "unit": "待处理",
-            "desc": "查看前台回报，补入正确型号后结案。",
-            "tone": "red",
-        },
-        {
-            "name": "会员审核",
-            "kicker": "注册审核",
-            "value": len(pending_members),
-            "unit": "待审核",
-            "desc": "新会员通过审核后才可以使用匹配功能。",
-            "tone": "amber",
-        },
-        {
-            "name": "会员资料管理",
-            "kicker": "账号维护",
-            "value": len(active_members),
-            "unit": f"启用 / 共 {len(members)}",
-            "desc": "修改资料、重置密码、启停或删除会员。",
-            "tone": "green",
-        },
-    ]
-    card_html = []
-    for module in modules:
-        active_class = " active" if module["name"] == active_module else ""
-        card_html.append(
-            f"""
-            <div class="admin-module-card admin-module-{admin_escape(module["tone"])}{active_class}">
-                <div class="admin-module-kicker">{admin_escape(module["kicker"])}</div>
-                <div class="admin-module-name">{admin_escape(module["name"])}</div>
-                <div class="admin-module-number">
-                    <span>{admin_escape(module["value"])}</span>
-                    <small>{admin_escape(module["unit"])}</small>
-                </div>
-                <div class="admin-module-desc">{admin_escape(module["desc"])}</div>
-            </div>
-            """
+def render_admin_segmented_control(label, options, key, default=None):
+    options = [clean_text(option) for option in options if clean_text(option)]
+    if not options:
+        return ""
+    default = clean_text(default) if clean_text(default) in options else options[0]
+    if hasattr(st, "segmented_control"):
+        if clean_text(st.session_state.get(key, "")) not in options:
+            st.session_state[key] = default
+        value = st.segmented_control(
+            label,
+            options,
+            selection_mode="single",
+            key=key,
+            label_visibility="collapsed",
+            width="stretch",
         )
-    st.markdown(
-        f"""
-        <div class="admin-module-grid">
-            {"".join(card_html)}
-        </div>
-        <div class="admin-switch-hint">选择下方模块即可切换管理内容。</div>
-        """,
-        unsafe_allow_html=True,
+        return clean_text(value) if clean_text(value) in options else default
+    return st.radio(
+        label,
+        options,
+        horizontal=True,
+        label_visibility="collapsed",
+        key=key,
     )
 
 
 def render_admin_empty_state(title, description=""):
     desc_html = f'<div class="admin-empty-desc">{admin_escape(description)}</div>' if clean_text(description) else ""
-    st.markdown(
+    render_admin_html(
         f"""
         <div class="admin-empty-state">
             <div class="admin-empty-title">{admin_escape(title)}</div>
             {desc_html}
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
@@ -1748,31 +1697,23 @@ def no_match_report_summary_dataframe(reports):
 
 
 def render_no_match_report_admin_page():
-    render_admin_hero()
     if not require_no_match_admin_login():
         return
 
     report_counts = get_no_match_report_counts()
-    admin_members = list_members_for_admin()
-    active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报")) or "无匹配回报"
-    render_admin_module_cards(active_module, report_counts=report_counts, members=admin_members)
-
-    admin_action_cols = st.columns([0.72, 0.28], gap="small")
-    with admin_action_cols[0]:
-        st.markdown(
-            '<div class="admin-action-hint">后台操作会直接影响前台匹配结果和会员登录权限，请处理后再确认结案或通过审核。</div>',
-            unsafe_allow_html=True,
+    module_options = ["无匹配回报", "会员审核", "会员资料管理"]
+    active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
+    nav_cols = st.columns([0.76, 0.24], gap="small")
+    with nav_cols[0]:
+        backend_module = render_admin_segmented_control(
+            "后台模块",
+            module_options,
+            key="admin_backend_module_segmented",
+            default=active_module,
         )
-    with admin_action_cols[1]:
+        st.session_state["admin_backend_module"] = backend_module
+    with nav_cols[1]:
         st.button("退出后台", use_container_width=True, on_click=logout_no_match_admin)
-
-    backend_module = st.radio(
-        "后台模块",
-        ["无匹配回报", "会员审核", "会员资料管理"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="admin_backend_module",
-    )
     if backend_module == "会员审核":
         render_member_approval_admin_page()
         return
@@ -1794,12 +1735,11 @@ def render_no_match_report_admin_page():
         ]
     )
 
-    status_filter = st.radio(
+    status_filter = render_admin_segmented_control(
         "回报状态",
         ["待处理", "已解决", "全部"],
-        horizontal=True,
-        label_visibility="collapsed",
         key="no_match_report_status_filter",
+        default="待处理",
     )
     reports = list_no_match_reports(status_filter)
     if not reports:
@@ -2685,6 +2625,40 @@ footer {visibility: hidden;}
     color: #64748b;
     font-size: 14px;
     line-height: 1.6;
+}
+div[data-testid="stSegmentedControl"] {
+    margin: 4px 0 14px 0;
+}
+div[data-testid="stSegmentedControl"] > div {
+    width: 100%;
+}
+div[data-testid="stSegmentedControl"] div[role="group"],
+div[data-testid="stSegmentedControl"] div[role="radiogroup"] {
+    width: 100%;
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 8px;
+    background: #f8fafc;
+}
+div[data-testid="stSegmentedControl"] button {
+    min-height: 42px;
+    border-radius: 6px !important;
+    border: 0 !important;
+    color: #475569 !important;
+    font-weight: 900 !important;
+}
+div[data-testid="stSegmentedControl"] button:hover {
+    background: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+div[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+div[data-testid="stSegmentedControl"] button[aria-selected="true"],
+div[data-testid="stSegmentedControl"] button[data-selected="true"] {
+    background: #111827 !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
 }
 .admin-module-grid {
     display: grid;

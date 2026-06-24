@@ -2841,3 +2841,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Added a dedicated admin hero, module cards, statistic cards, section headers, empty states, and an admin login panel. Reworked the no-match report, member approval, and member management modules to use the shared backend UI. Added member status filtering and keyword search to the member management page.
 - Scope note: Business logic for report resolution, member approval, account editing, deletion, and password reset was kept unchanged.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A function-level render smoke check confirmed the new admin card helpers can render numeric, empty, and module-summary data without errors.
+
+### 2026-06-24 21:58 [fix] Removed backend intro and fixed admin HTML rendering
+
+- Received / problem: User reported the backend intro block was unnecessary, admin functions looked broken after login, and module switching still looked like plain radio clicks.
+- Root cause: Admin card HTML was emitted with leading indentation, so Streamlit Markdown rendered it as escaped code text instead of HTML. The backend also still rendered an explanatory hero block and used `st.radio` for module switching.
+- Change / action: Removed the backend intro block from the authenticated backend page, normalized admin HTML output with dedent/strip, and replaced backend module and report-status radios with Streamlit `segmented_control` for a cleaner tab-like switch.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A helper-level render smoke check confirmed admin metric and empty-state HTML now starts at column 0 and is emitted with `unsafe_allow_html=True`.
