@@ -2827,3 +2827,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Added Joyin JSN suffix semantics and Chinese series descriptions, normalized Joyin display rows by model suffix, treated Murata NCP as a regular target, ranked `JSN-G` first, and downgraded `JSN-H/C/A` to confirmation for regular NCP searches. Reimported 6,780 Joyin NTC rows and refreshed prepared/search caches. Bumped public stamps to `2026-06-24T20:28:00+08:00`.
 - Cleanup: Removed stale `cache/cf_pages_proxy_browser*.png` browser screenshots; the cache screenshot check no longer returns matching files.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py sync_fojan_frc0201_range_rows.py` passed. Full query for `NCP15XH103F03RC` now shows `JSN-G` Joyin rows first as `完全匹配` with Chinese `常规贴片 NTC` descriptions; `JSN-H/C/A` rows are retained as `需确认替代`.
+
+### 2026-06-24 21:19 [debug] Hid member login entry on backend page
+
+- Received / problem: User was logged into the backend admin page but still saw the fixed top-right `会员登录` button.
+- Root cause: Backend and member fixed-entry buttons were independent; the member entry renderer did not suppress itself when the backend page was active.
+- Change / action: Changed `render_member_entry_button()` to skip rendering during backend admin mode, and bumped public stamps to `2026-06-24T21:17:50+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression patched admin mode on and confirmed the member button renderer made zero `current_member()` calls and zero `st.markdown()` calls.

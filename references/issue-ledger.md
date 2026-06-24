@@ -358,3 +358,10 @@
 - Root cause: Some runtime/display paths could reuse stale series text derived from the part-number prefix instead of the final Joyin suffix. The ranking logic compared electrical parameters and B value but did not distinguish Joyin regular JSN-G/H from automotive JSN-A/C when the source Murata series is regular NCP.
 - Fix: Added Joyin JSN suffix semantics (`A=车规高温`, `C=车规`, `G=常规`, `H=常规高温`), Chinese series descriptions from the Joyin PDFs, display-time normalization for stale Joyin rows, and NCP-to-JSN-G series-class ranking/level rules.
 - Verification: Reimported 6,780 Joyin NTC rows. `NCP15XH103F03RC` now returns `JSN-G` rows first with Chinese `常规贴片 NTC` series descriptions; JSN-H/JSN-C/JSN-A remain visible but are downgraded to `需确认替代`.
+
+## 2026-06-24 - Member login entry was visible inside backend admin
+
+- Bug: The fixed top-right `会员登录` button was still visible while the user was already on the authenticated backend admin page.
+- Root cause: The backend entry button and member entry button were rendered independently. `render_member_entry_button()` did not check whether `admin=1` backend mode was active.
+- Fix: Made `render_member_entry_button()` return without rendering whenever the backend admin page is requested.
+- Verification: Function-level regression confirmed that in admin mode the member entry renderer does not call `current_member()` and does not emit `st.markdown()`.
