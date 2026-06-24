@@ -2875,3 +2875,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User needed an admin-only module to upload Excel/CSV cost lists containing brand, model/spec, cost, MOQ, and L&T, track upload history, and let the matching system use the current active list.
 - Change / action: Added `cache/cost_price_lists.sqlite` runtime storage with `cost_price_lists` and `cost_price_items`, automatic column detection for common Chinese/English headers, upload-and-activate flow, active-list switching, history/preview UI in a new backend `成本清单` module, and model/brand-based enrichment for matching result cost, MOQ, and L&T. BOM own-brand export now appends `品牌/型号/成本/MOQ/L&T` slots.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp-DB import test uploaded two mock cost lists, confirmed the newest list becomes active, verified switching active list, confirmed `FOJAN(富捷) / FRC0603J103 TS` cost/MOQ/L&T overrides matching rows, and confirmed BOM append headers include `L&T`. Local backend browser smoke test on port 8524 rendered the new `成本清单` module with upload, current-list metrics, and history sections.
+
+### 2026-06-25 03:11 [note] Cost list baseline before next upload
+
+- Received / problem: User asked to record the current cost-list situation before uploading a new cost list for comparison.
+- Baseline: There is no local runtime uploaded cost-list database at `cache/cost_price_lists.sqlite`, so the new backend upload module currently has no local uploaded active list to compare against.
+- Existing cost source: The active built-in resistor cost baseline comes from the user's previously provided FOJAN resistor pricing image, converted into `pricing/fojan_resistor_series_pricing.csv`. The file has 88 rules: FRC 40 rows and FRL 48 rows, covering FRC sizes 0201/0402/0603/0805/1206/1210/1812/2010/2512 and FRL sizes 0402/0603/0805/1206/1210/1812/2010/2512. SHA256: `C2A7FAD602E94361B34C351F877ABD918A2A15223F341F0FEF5E1944D5844338`.
+- Note: Future uploaded Excel/CSV cost lists should be checked separately from this image-derived built-in FOJAN FRC/FRL pricing rule set.
