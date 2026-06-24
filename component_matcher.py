@@ -142,7 +142,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-24T22:31:20+08:00"
+PUBLIC_CODE_STAMP = "2026-06-24T23:18:00+08:00"
 
 
 def startup_trace(message):
@@ -3754,9 +3754,11 @@ def extract_model_like_tokens(text):
         return []
     tokens = []
     seen = set()
+    has_separators = re.search(r"[\s,;；|/\\]", raw) is not None
     whole = clean_model(raw)
     if (
-        len(whole) >= 6
+        not has_separators
+        and len(whole) >= 6
         and re.search(r"[A-Z]", whole)
         and re.search(r"\d", whole)
     ):
@@ -3777,13 +3779,33 @@ def load_component_rows_by_query_model_tokens(query_text):
     if not tokens:
         return pd.DataFrame(), [], ""
     for token in tokens:
-        rows = load_component_rows_by_clean_model(token)
+        rows = load_component_rows_by_clean_models_map([token], use_database=False).get(clean_model(token), pd.DataFrame())
         if isinstance(rows, pd.DataFrame) and not rows.empty:
             return rows, tokens, token
         prefix_rows, prefix = load_component_rows_by_known_model_prefix(token)
         if isinstance(prefix_rows, pd.DataFrame) and not prefix_rows.empty:
             return prefix_rows, tokens, prefix
+        rows = load_component_rows_by_clean_model(token)
+        if isinstance(rows, pd.DataFrame) and not rows.empty:
+            return rows, tokens, token
     return pd.DataFrame(), tokens, ""
+
+
+def should_try_model_token_lookup_before_fast_query(line, mode, spec, exact_part_rows=None):
+    if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty:
+        return False
+    if clean_text(mode) == "料号":
+        return False
+    if spec is not None and bool(spec.get("_unsupported_component", False)):
+        return False
+    text = clean_text(line)
+    if text == "" or not re.search(r"[\s,;；|/\\]", text):
+        return False
+    whole = clean_model(text)
+    for token in extract_model_like_tokens(text):
+        if token and token != whole:
+            return True
+    return False
 
 
 def compound_model_suffix_looks_like_spec(suffix):
@@ -3805,11 +3827,21 @@ def load_component_rows_by_known_model_prefix(token):
     compact = clean_model(token)
     if len(compact) < 8:
         return pd.DataFrame(), ""
+    prefix_candidates = []
     for end in range(len(compact) - 1, 5, -1):
         prefix = compact[:end]
         suffix = compact[end:]
         if not compound_model_suffix_looks_like_spec(suffix):
             continue
+        prefix_candidates.append(prefix)
+    if not prefix_candidates:
+        return pd.DataFrame(), ""
+    prefix_map = load_component_rows_by_clean_models_map(prefix_candidates, use_database=False)
+    for prefix in prefix_candidates:
+        rows = prefix_map.get(prefix, pd.DataFrame())
+        if isinstance(rows, pd.DataFrame) and not rows.empty:
+            return rows, prefix
+    for prefix in prefix_candidates:
         rows = load_component_rows_by_clean_model(prefix)
         if isinstance(rows, pd.DataFrame) and not rows.empty:
             return rows, prefix
@@ -23849,7 +23881,7 @@ def load_component_rows_by_clean_models_from_database(unique_models):
             conn.close()
 
 
-def load_component_rows_by_clean_models_map(models):
+def load_component_rows_by_clean_models_map(models, use_database=True):
     model_clean_list = [
         clean_model(model)
         for model in (models or [])
@@ -23859,8 +23891,12 @@ def load_component_rows_by_clean_models_map(models):
     if not unique_models:
         return {}
     required_columns = {"品牌", "型号", "_model_clean"}
-    direct_db_map = load_component_rows_by_clean_models_from_database(unique_models)
-    if all(isinstance(frame, pd.DataFrame) and not frame.empty for frame in direct_db_map.values()):
+    direct_db_map = (
+        load_component_rows_by_clean_models_from_database(unique_models)
+        if use_database
+        else {model_clean: pd.DataFrame() for model_clean in unique_models}
+    )
+    if use_database and all(isinstance(frame, pd.DataFrame) and not frame.empty for frame in direct_db_map.values()):
         return direct_db_map
     conn = open_search_db_connection(timeout_sec=10)
     try:
@@ -24259,6 +24295,10 @@ def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
         return exact_part_rows
     if not looks_like_compact_part_query(query_text):
         return pd.DataFrame()
+    model_clean = clean_model(query_text)
+    rows = load_component_rows_by_clean_models_map([query_text], use_database=False).get(model_clean, pd.DataFrame())
+    if isinstance(rows, pd.DataFrame) and not rows.empty:
+        return rows
     rows = load_component_rows_by_clean_model(query_text)
     if isinstance(rows, pd.DataFrame):
         return rows
@@ -27727,6 +27767,19 @@ def read_uploaded_bom_html_workbook(file_name, raw_bytes):
     return build_uploaded_bom_workbook("html", file_name, raw_bytes, sheet_frames)
 
 
+def summarize_bom_read_error(exc, file_name=""):
+    message = clean_text(exc)
+    lower_message = message.lower()
+    lower_name = clean_text(file_name).lower()
+    if "xlrd" in lower_message and lower_name.endswith(".xls"):
+        return "当前运行环境缺少 xlrd，无法读取旧版 .xls；请安装 requirements.txt 依赖并重启，或把文件另存为 .xlsx 后上传。"
+    if "html5lib" in lower_message or "lxml" in lower_message:
+        return "当前运行环境缺少 HTML 表格读取依赖，无法读取网页表格格式的 BOM；请安装 requirements.txt 依赖并重启。"
+    if message:
+        return f"BOM 文件读取失败：{message}"
+    return "BOM 文件读取失败，请确认文件没有损坏。"
+
+
 def read_uploaded_bom_workbook(uploaded_file):
     if uploaded_file is None:
         return {
@@ -27739,51 +27792,76 @@ def read_uploaded_bom_workbook(uploaded_file):
 
     file_name = clean_text(getattr(uploaded_file, "name", ""))
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    read_errors = []
+    if not raw_bytes:
+        workbook = build_uploaded_bom_workbook("empty", file_name, raw_bytes, [])
+        workbook["read_error"] = "上传文件内容为空。"
+        return workbook
     lower_name = file_name.lower()
 
     if lower_name.endswith(".csv"):
         try:
             bom_df = pd.read_csv(BytesIO(raw_bytes), dtype=str)
-        except Exception:
+        except Exception as exc:
             bom_df = pd.DataFrame()
-        return build_uploaded_bom_workbook(
+            read_errors.append(summarize_bom_read_error(exc, file_name))
+        workbook = build_uploaded_bom_workbook(
             "csv",
             file_name,
             raw_bytes,
             [{"sheet_name": os.path.splitext(file_name or "CSV")[0] or "CSV", "df": bom_df}],
         )
+        if not workbook.get("sheet_frames"):
+            workbook["read_error"] = read_errors[-1] if read_errors else "CSV 文件没有可识别的表格内容。"
+        return workbook
 
     try:
         xls = pd.ExcelFile(BytesIO(raw_bytes))
-    except Exception:
+    except Exception as exc:
+        read_errors.append(summarize_bom_read_error(exc, file_name))
         html_workbook = read_uploaded_bom_html_workbook(file_name, raw_bytes)
         if html_workbook.get("sheet_frames"):
+            if read_errors:
+                html_workbook["read_warning"] = "；".join(read_errors)
             return html_workbook
         try:
             fallback_df = pd.read_excel(BytesIO(raw_bytes), dtype=str)
-        except Exception:
+        except Exception as fallback_exc:
             fallback_df = pd.DataFrame()
-        return build_uploaded_bom_workbook(
+            read_errors.append(summarize_bom_read_error(fallback_exc, file_name))
+        workbook = build_uploaded_bom_workbook(
             "excel",
             file_name,
             raw_bytes,
             [{"sheet_name": "Sheet1", "df": fallback_df}],
         )
+        if not workbook.get("sheet_frames"):
+            workbook["read_error"] = "；".join(dict.fromkeys(read_errors)) if read_errors else "BOM 文件没有可识别的表格内容。"
+        return workbook
 
     sheet_frames = []
     for sheet_name in xls.sheet_names:
         try:
             bom_df = xls.parse(sheet_name=sheet_name, dtype=str)
-        except Exception:
+        except Exception as exc:
+            read_errors.append(f"{sheet_name}: {summarize_bom_read_error(exc, file_name)}")
             continue
         sheet_frames.append({"sheet_name": sheet_name, "df": bom_df})
 
     excel_workbook = build_uploaded_bom_workbook("excel", file_name, raw_bytes, sheet_frames)
     if excel_workbook.get("sheet_frames"):
+        if read_errors:
+            excel_workbook["read_warning"] = "；".join(read_errors[:3])
         return excel_workbook
     html_workbook = read_uploaded_bom_html_workbook(file_name, raw_bytes)
     if html_workbook.get("sheet_frames"):
+        if read_errors:
+            html_workbook["read_warning"] = "；".join(read_errors[:3])
         return html_workbook
+    if read_errors:
+        excel_workbook["read_error"] = "；".join(dict.fromkeys(read_errors))
+    else:
+        excel_workbook["read_error"] = "文件已读取，但所有分页为空或没有可识别表格。"
     return excel_workbook
 
 
@@ -29441,6 +29519,7 @@ def resolve_search_query_dataframe_and_spec(
     query_df = None
     candidate_rows = 0
     query_frame_cache_key = ""
+    model_token_lookup_attempted = False
 
     if mode == "暂不支持" and spec is not None:
         emit(
@@ -29459,6 +29538,38 @@ def resolve_search_query_dataframe_and_spec(
             "used_full_df": False,
             "candidate_rows": 0,
         }
+
+    if should_try_model_token_lookup_before_fast_query(line, mode, spec, prefetched_exact_rows):
+        model_token_lookup_attempted = True
+        model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
+        if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
+            token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
+            if token_mode != "无法识别" and token_spec is not None:
+                emit(
+                    2,
+                    "已从粘连输入中识别料号",
+                    f"已命中 {matched_model_token}，按该料号反推规格继续查同规格候选",
+                    "料号拆分",
+                    "success",
+                    candidate_rows=len(model_token_rows),
+                )
+                query_df = load_search_dataframe_for_query(
+                    token_mode,
+                    token_spec,
+                    line,
+                    exact_part_rows=model_token_rows,
+                )
+                candidate_rows = len(query_df) if isinstance(query_df, pd.DataFrame) else 0
+                if isinstance(query_df, pd.DataFrame) and not query_df.empty:
+                    return {
+                        "query_df": query_df,
+                        "mode": token_mode,
+                        "spec": token_spec,
+                        "resolution_path": "model_token_prefix_lookup",
+                        "used_full_df": False,
+                        "candidate_rows": candidate_rows,
+                    }
+                mode, spec = token_mode, token_spec
 
     if mode != "无法识别" and spec is not None:
         if isinstance(query_frame_cache, dict):
@@ -29522,7 +29633,7 @@ def resolve_search_query_dataframe_and_spec(
                 "candidate_rows": candidate_rows,
             }
 
-    if mode in {"无法识别", "规格不足", "解析失败"}:
+    if mode in {"无法识别", "规格不足", "解析失败"} and not model_token_lookup_attempted:
         model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
@@ -29867,7 +29978,7 @@ if search_clicked:
                 note="先批量锁定输入料号的数据库原始行，减少逐条查库开销",
                 extra_chips=[{"label": "预取数", "value": str(len(exact_prefetch_lines))}],
             )
-            exact_part_prefetch_map = load_component_rows_by_clean_models_map(exact_prefetch_lines)
+            exact_part_prefetch_map = load_component_rows_by_clean_models_map(exact_prefetch_lines, use_database=False)
 
         for line_index, line in enumerate(lines, start=1):
             resolved_state = {
@@ -30369,11 +30480,13 @@ if uploaded_file is not None:
             st.stop()
 
         if not bom_sheet_frames:
+            bom_read_error = clean_text(bom_workbook.get("read_error", ""))
+            bom_failure_note = bom_read_error or "上传文件内容为空，未能生成可匹配数据"
             render_bom_progress_card(
                 progress_placeholder,
                 {
                     "title": "BOM 读取失败",
-                    "subtitle": "上传文件内容为空，未能生成可匹配数据",
+                    "subtitle": bom_failure_note,
                     "current_text": getattr(uploaded_file, "name", "空文件"),
                     "processed_rows": 0,
                     "total_rows": 0,
@@ -30382,11 +30495,11 @@ if uploaded_file is not None:
                     "elapsed_seconds": 0.0,
                     "chips": [
                         {"label": "阶段", "value": "读取完成", "tone": "fail"},
-                        {"label": "状态", "value": "空文件", "tone": "fail"},
+                        {"label": "状态", "value": "读取失败" if bom_read_error else "空文件", "tone": "fail"},
                     ],
                 },
             )
-            st.warning("上传文件为空")
+            st.warning(bom_failure_note)
         else:
             workbook_signature = build_uploaded_file_signature(uploaded_file)
             if st.session_state.get("_bom_workbook_signature") != workbook_signature:

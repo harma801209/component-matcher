@@ -366,6 +366,26 @@
 - Fix: Made `render_member_entry_button()` return without rendering whenever the backend admin page is requested.
 - Verification: Function-level regression confirmed that in admin mode the member entry renderer does not call `current_member()` and does not emit `st.markdown()`.
 
+## 2026-06-24 - Compound model/spec queries could be very slow
+
+- Bug: Mixed input such as `FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声` could take about 60-75 seconds before returning results.
+- Root cause: The model-token extractor treated the entire semicolon-delimited string as a possible part number before trying the real embedded model token. That caused an expensive normalized full-library lookup on an impossible model string.
+- Fix: The extractor now avoids adding whole raw strings that contain separators, and the resolver performs an early model-token/prefix lookup before the heavier spec-search path. Model and prefix lookups now try the fast search sidecar before falling back to the slower database scan.
+- Verification: The same compound query now resolves through `model_token_prefix_lookup` in about 1.6 seconds; direct token lookup for `FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声` finds `FRC0402J105TS` in under one second. `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-24 - BOM reader errors could still look like empty uploads
+
+- Bug: A real `.xls` BOM could still be reported as an empty upload when the runtime lacked the required legacy Excel reader or when every parser failed.
+- Root cause: Some read failures were collapsed into empty workbook data, so the front end could only show a generic empty-file message instead of the actual parser/dependency failure.
+- Fix: `read_uploaded_bom_workbook()` now carries a `read_error`/`read_warning` field through the result and the UI displays the actionable failure reason. Empty byte uploads are separated from parser failures.
+- Verification: The local real BOM `C:\Users\zjh\Desktop\待完成\阻容待下6-22.xls` reads 199 rows after installing the declared `xlrd` dependency; missing `xlrd` now produces a clear install/convert-to-xlsx message rather than a misleading empty-file status.
+
+## 2026-06-24 - Streamlit entrypoint had corrupted startup text
+
+- Bug: `streamlit_app.py` contained mojibake in startup error strings and could produce confusing startup diagnostics.
+- Fix: Rewrote the entrypoint wrapper with valid UTF-8 Chinese startup messages while keeping the same `component_matcher.main()` launch behavior.
+- Verification: Local Streamlit smoke test on port 8511 returned HTTP 200, and `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 
 - Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.
