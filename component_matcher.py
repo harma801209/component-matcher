@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T17:14:10+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T17:25:00+08:00"
 
 
 def startup_trace(message):
@@ -32295,7 +32295,7 @@ if uploaded_file is not None:
                 st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
             else:
                 st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
-            preview_df = bom_df.head(20).copy()
+            preview_df = bom_df.copy()
             preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
             is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
             preview_html = render_static_preview_table(

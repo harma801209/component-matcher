@@ -2969,3 +2969,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted a backend module that records all member model/spec searches in one central place, so daily high-frequency searches can be reviewed without storing them under each member profile.
 - Change / action: Added `member_search_logs` to the member auth database, recording each logged-in member search line with member snapshot, normalized query key, query type, source, date, and timestamp. The text search flow writes these logs after login and input safety checks. Added a backend `搜索记录` module with date/keyword filters, daily high-frequency summary, metrics, and collapsible detail records.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A small regex check confirmed single-value specs such as `10K`, `33R`, and `100NF` classify as `规格参数`, while compact part numbers remain `型号`.
+
+### 2026-06-25 17:25 [fix] Show all BOM original preview rows
+
+- Received / problem: User reported the BOM original content preview only scrolled to around 20 rows and wanted the preview to include all rows/fields from the uploaded BOM.
+- Root cause: The BOM preview rendering path explicitly used `bom_df.head(20)`, so the HTML preview table was capped to the first 20 rows before rendering.
+- Change / action: Removed the 20-row cap and render the full `bom_df` in the original BOM preview while keeping the existing scrollable preview container.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed the preview now uses `preview_df = bom_df.copy()`.
