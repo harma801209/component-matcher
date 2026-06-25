@@ -400,6 +400,13 @@
 - Fix: Added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL query parameter when the app is reopened, clears it on logout or invalid token, and changed server session expiry to a sliding one-hour timeout extended on every valid token use.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
 
+## 2026-06-25 - BOM upload did not continue after required member login
+
+- Bug: If a visitor uploaded a BOM/image before logging in, the app showed the member login panel. After successful login, the uploaded file still appeared in the uploader UI but matching did not automatically continue, forcing a second upload.
+- Root cause: The BOM flow stopped immediately on the login requirement before caching the uploaded file bytes. A login rerun/query update could leave the frontend uploader display intact while the Python-side `UploadedFile` object was no longer available for processing.
+- Fix: Cache the uploaded BOM file bytes/name/type/size in Streamlit session before enforcing member login, wrap that cache with an UploadedFile-compatible object, and reuse it after login when the original Python upload object is gone.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 
 - Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.

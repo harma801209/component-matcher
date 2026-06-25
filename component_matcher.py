@@ -115,6 +115,8 @@ MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
 MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
 MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
+BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
+BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
 APP_TIMEZONE_NAME = "Asia/Shanghai"
@@ -29254,6 +29256,25 @@ def make_unique_column_names(columns):
     return out
 
 
+class SessionCachedUploadedFile:
+    def __init__(self, file_cache):
+        self.name = clean_text((file_cache or {}).get("name", ""))
+        self.type = clean_text((file_cache or {}).get("type", ""))
+        self.size = int((file_cache or {}).get("size", 0) or 0)
+        self._raw_bytes = bytes((file_cache or {}).get("bytes", b"") or b"")
+        if self.size <= 0:
+            self.size = len(self._raw_bytes)
+
+    def getvalue(self):
+        return self._raw_bytes
+
+    def read(self, *args, **kwargs):
+        return self._raw_bytes
+
+    def seek(self, *args, **kwargs):
+        return 0
+
+
 def get_uploaded_file_bytes(uploaded_file):
     if uploaded_file is None:
         return b""
@@ -29272,6 +29293,45 @@ def get_uploaded_file_bytes(uploaded_file):
         return uploaded_file.read()
     except Exception:
         return b""
+
+
+def cache_uploaded_bom_file(uploaded_file):
+    if uploaded_file is None:
+        return None
+    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    if not raw_bytes:
+        return None
+    file_cache = {
+        "name": clean_text(getattr(uploaded_file, "name", "")) or "uploaded_bom",
+        "type": clean_text(getattr(uploaded_file, "type", "")),
+        "size": int(getattr(uploaded_file, "size", 0) or len(raw_bytes)),
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "bytes": raw_bytes,
+    }
+    st.session_state[BOM_PENDING_UPLOAD_CACHE_KEY] = file_cache
+    return SessionCachedUploadedFile(file_cache)
+
+
+def get_cached_bom_uploaded_file():
+    file_cache = st.session_state.get(BOM_PENDING_UPLOAD_CACHE_KEY)
+    if not isinstance(file_cache, dict):
+        return None
+    raw_bytes = file_cache.get("bytes", b"")
+    if not isinstance(raw_bytes, (bytes, bytearray)) or not raw_bytes:
+        return None
+    return SessionCachedUploadedFile(file_cache)
+
+
+def get_effective_bom_uploaded_file(uploaded_file):
+    cached_uploaded = cache_uploaded_bom_file(uploaded_file)
+    if cached_uploaded is not None:
+        return cached_uploaded
+    if (
+        st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)
+        or clean_text(st.session_state.get("_bom_workbook_signature", "")) != ""
+    ):
+        return get_cached_bom_uploaded_file()
+    return None
 
 
 def normalize_uploaded_bom_frame(df):
@@ -32361,12 +32421,16 @@ if search_clicked:
 
 st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
 startup_trace("after_bom_title")
-uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES)
+uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
 startup_trace("after_file_uploader")
+effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
 
-if uploaded_file is not None:
+if effective_uploaded_file is not None:
     if not require_member_login_for_action("BOM 批量上传匹配"):
+        st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = True
         st.stop()
+    st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
+    uploaded_file = effective_uploaded_file
     progress_placeholder = st.empty()
     try:
         render_bom_progress_card(

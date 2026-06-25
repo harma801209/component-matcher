@@ -2996,3 +2996,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: Server sessions existed, but the browser only carried the token through Streamlit session state or the URL query parameter. Reopening the app base URL lost both, so the page appeared logged out.
 - Change / action: Changed member sessions to a sliding one-hour timeout, refreshed the server expiry on every valid token use, and added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL on reopen, and clears it on logout or invalid token.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-25 23:01 [fix] Continue BOM matching after login prompt
+
+- Received / problem: User uploaded an image BOM while not logged in, logged in from the required member prompt, but the app did not automatically continue matching the already uploaded image.
+- Root cause: The BOM upload branch called the member-login requirement and stopped before persisting the uploaded file bytes. After login rerun, the frontend still showed the selected file, but the Python-side uploaded file object could be missing.
+- Change / action: Added a session-backed BOM upload cache and an UploadedFile-compatible wrapper. The BOM upload flow now caches file bytes before login gating and reuses the cached upload after successful member login, so the original upload can continue processing without a second upload.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
