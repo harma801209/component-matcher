@@ -2951,3 +2951,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted login usernames to be case-insensitive for every member, for example `Terry` and `terry` should be treated as the same account.
 - Change / action: Kept member lookup case-insensitive and added a lower(username) index plus conflict checks for registration and admin username edits, so accounts cannot be duplicated only by changing letter case. Admin-member sync now also uses stable case-insensitive lookup.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A temporary SQLite check confirmed `Terry`, `terry`, and `TERRY` resolve to the same stored account.
+
+### 2026-06-25 16:40 [ui] Restrict member profile change logs to backend
+
+- Received / problem: User wanted member profile modification records visible only to administrators, integrated into the backend member profile management detail area with a collapsible display.
+- Change / action: Removed the `修改记录` tab from the member center. In backend `会员资料管理`, each member detail now has a default-collapsed `显示资料修改记录` checkbox that reveals that member's recent profile-change log inside the same member panel.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed `list_member_profile_change_logs` is now only rendered from the admin member-management path.

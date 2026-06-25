@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T16:33:24+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T16:40:31+08:00"
 
 
 def startup_trace(message):
@@ -1970,7 +1970,7 @@ def render_member_center_page():
         else:
             st.error(clean_text(flash.get("message", "")))
     st.success(f"已登录：{clean_text(member.get('display_name', '')) or clean_text(member.get('username', ''))}")
-    profile_tab, edit_tab, password_tab, log_tab = st.tabs(["会员资料", "修改资料", "修改密码", "修改记录"])
+    profile_tab, edit_tab, password_tab = st.tabs(["会员资料", "修改资料", "修改密码"])
 
     with profile_tab:
         profile_rows = [
@@ -2023,18 +2023,6 @@ def render_member_center_page():
                 )
                 st.session_state["_member_profile_flash"] = {"ok": ok, "message": message}
                 st.rerun()
-
-    with log_tab:
-        logs = list_member_profile_change_logs(member.get("id"), limit=100)
-        if not logs:
-            st.info("目前没有资料修改记录。")
-        else:
-            st.dataframe(
-                member_profile_change_log_dataframe(logs, include_member=False),
-                use_container_width=True,
-                hide_index=True,
-            )
-
 
 def render_member_admin_management_page():
     render_admin_section_header(
@@ -2154,13 +2142,21 @@ def render_member_admin_management_page():
                         else:
                             st.error(message)
             member_logs = list_member_profile_change_logs(member_id, limit=30)
-            if member_logs:
-                st.markdown("资料修改记录")
-                st.dataframe(
-                    member_profile_change_log_dataframe(member_logs, include_member=False),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            log_count = len(member_logs)
+            show_logs = st.checkbox(
+                f"显示资料修改记录（最近 {log_count} 条）",
+                key=f"admin_member_profile_logs_visible_{member_id}",
+                value=False,
+            )
+            if show_logs:
+                if member_logs:
+                    st.dataframe(
+                        member_profile_change_log_dataframe(member_logs, include_member=False),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("此会员目前没有资料修改记录。")
 
 
 def render_member_approval_admin_page():
