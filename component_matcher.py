@@ -147,7 +147,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T08:03:35+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T09:26:36+08:00"
 
 
 def startup_trace(message):
@@ -4067,13 +4067,59 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     line-height: 0;
 }
 .element-container:has(.bom-preview-toggle-anchor) {
-    margin-top: -12px !important;
+    margin-top: 0 !important;
     margin-bottom: 8px !important;
 }
 .bom-preview-toggle-footer {
     margin-top: 0 !important;
     padding-top: 0 !important;
     padding-bottom: 0 !important;
+}
+.bom-preview-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 8px 0 12px 0;
+    padding: 16px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(147, 197, 253, 0.72);
+    background: #eaf4ff;
+    color: #075eaf;
+    font-size: 16px;
+    font-weight: 650;
+    line-height: 1.55;
+    box-sizing: border-box;
+}
+.bom-preview-notice-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.bom-preview-toggle-inline {
+    flex: 0 0 auto;
+}
+.bom-preview-toggle-inline .bom-download-btn {
+    min-width: 220px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border-color: rgba(37, 99, 235, 0.35);
+    color: #1d4ed8;
+    background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+    box-shadow: none;
+}
+.bom-preview-toggle-inline .bom-download-btn:hover {
+    border-color: rgba(37, 99, 235, 0.55);
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12);
+}
+@media (max-width: 760px) {
+    .bom-preview-notice {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .bom-preview-toggle-inline .bom-download-btn {
+        width: 100%;
+        min-width: 0;
+    }
 }
 .match-card-head {
     display: flex;
@@ -26640,8 +26686,16 @@ def estimate_bom_result_iframe_height(row_count):
     return max(min_height, min(max_height, height))
 
 
-def estimate_bom_preview_iframe_height(row_count):
+def estimate_bom_preview_iframe_height(row_count, compact=False):
     row_count = max(0, int(row_count or 0))
+    if compact:
+        visible_rows = min(max(row_count, 1), 4)
+        base = 78
+        per_row = 42
+        min_height = 170
+        max_height = 246
+        height = base + visible_rows * per_row
+        return max(min_height, min(max_height, height))
     visible_rows = min(max(row_count, 1), 5)
     base = 86
     per_row = 42
@@ -29654,6 +29708,19 @@ def build_bom_manual_mapping_toggle_html(workbook_signature, label="找不到规
 </div>
 '''
 
+
+def build_bom_preview_notice_html(message, workbook_signature):
+    href = f'?bom_manual_mapping_toggle={urllib.parse.quote(clean_text(workbook_signature), safe="")}#bom-preview-toggle-anchor'
+    return f'''
+<div id="bom-preview-toggle-anchor" class="bom-preview-toggle-anchor"></div>
+<div class="bom-preview-notice">
+  <div class="bom-preview-notice-text">{html.escape(clean_text(message))}</div>
+  <div class="bom-preview-toggle-inline">
+    <a class="bom-download-btn" href="{html.escape(href, quote=True)}">找不到规格手动定位匹配位置</a>
+  </div>
+</div>
+'''
+
 def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fallback=False, progress_callback=None):
     if upload_df is None or upload_df.empty:
         return pd.DataFrame()
@@ -31474,22 +31541,6 @@ if uploaded_file is not None:
                     },
                 )
 
-            st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
-            if bom_read_warning:
-                st.info(bom_read_warning)
-            preview_df = bom_df.head(20).copy()
-            preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
-            preview_html = render_static_preview_table(
-                preview_df,
-                wrapper_class="bom-result-table-wrap",
-            )
-            if preview_html:
-                components.html(
-                    preview_html,
-                    height=estimate_bom_preview_iframe_height(len(preview_df)),
-                    scrolling=False,
-                )
-
             guessed_mapping = guess_bom_column_mapping(bom_df)
             bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)
             sheet_mapping_store = st.session_state["_bom_sheet_mappings"]
@@ -31504,7 +31555,25 @@ if uploaded_file is not None:
             consume_bom_manual_mapping_toggle(workbook_signature)
             manual_mapping_open = bool(st.session_state.get("_bom_manual_mapping_open", False))
             stored_manual_mapping = sheet_mapping_store.get(selected_sheet_name, guessed_mapping)
-            st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
+
+            st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
+            if bom_read_warning:
+                st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
+            else:
+                st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
+            preview_df = bom_df.head(20).copy()
+            preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
+            is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
+            preview_html = render_static_preview_table(
+                preview_df,
+                wrapper_class="bom-result-table-wrap",
+            )
+            if preview_html:
+                components.html(
+                    preview_html,
+                    height=estimate_bom_preview_iframe_height(len(preview_df), compact=is_ocr_preview),
+                    scrolling=False,
+                )
 
             def resolve_bom_mapping_value(role, fallback_mapping):
                 value = clean_text(stored_manual_mapping.get(role, ""))

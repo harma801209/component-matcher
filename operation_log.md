@@ -2894,3 +2894,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User asked to upload images, automatically recognize them, preview them like uploaded BOM files, and export matched Excel results.
 - Change / action: Added PNG/JPG/JPEG/WEBP/BMP/TIFF support to the BOM uploader. Image files now run through a Tesseract OCR reader, produce a `图片OCR识别` workbook sheet with `OCR原文` plus best-effort split columns, default the BOM parser to use `OCR原文` as the spec column, and then reuse the existing preview, matching, and Excel export pipeline. Added `Pillow`/`pytesseract` to `requirements.txt` and Tesseract language packages to `packages.txt` for Streamlit Cloud deployment.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Synthetic OCR-coordinate data produced a preview DataFrame and defaulted mapping to `OCR原文`; a local image upload without the OCR engine returned a clear dependency error instead of crashing.
+
+### 2026-06-25 09:26 [ui] Move image OCR manual mapping control into preview notice
+
+- Received / problem: User wanted the `找不到规格手动定位匹配位置` control moved from below the OCR preview table into the right side of the OCR notice bar, and wanted `BOM匹配结果 · 图片OCR识别` to sit higher on the page.
+- Change / action: Moved BOM column-mapping state setup before preview rendering, rendered OCR read warnings through a custom notice row with the manual mapping link on the right, kept the same link near the preview title for non-OCR uploads, and added compact iframe height for `图片OCR识别` previews.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8530 returned 200.
