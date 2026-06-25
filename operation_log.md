@@ -2888,3 +2888,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User requested a new `更新时间` column immediately after `成本`, with item-level update time changing only when that model's cost changes in a newly uploaded cost list.
 - Change / action: Added `cost_updated_at` to the backend cost item store with automatic migration/backfill. New uploads compare each incoming row against the previous active list by brand and normalized model (or spec fallback); unchanged costs carry forward their old update time, while new or changed costs receive the current upload time. Matching results, admin cost-list previews, and BOM own-brand export slots now include `更新时间` after `成本`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A temp-DB two-upload test confirmed only the row with changed cost refreshed to the second upload time, while unchanged costs including `1.40` vs `1.4` retained the original update time.
+
+### 2026-06-25 08:04 [feature] Add image OCR input for BOM matching
+
+- Received / problem: User asked to upload images, automatically recognize them, preview them like uploaded BOM files, and export matched Excel results.
+- Change / action: Added PNG/JPG/JPEG/WEBP/BMP/TIFF support to the BOM uploader. Image files now run through a Tesseract OCR reader, produce a `图片OCR识别` workbook sheet with `OCR原文` plus best-effort split columns, default the BOM parser to use `OCR原文` as the spec column, and then reuse the existing preview, matching, and Excel export pipeline. Added `Pillow`/`pytesseract` to `requirements.txt` and Tesseract language packages to `packages.txt` for Streamlit Cloud deployment.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Synthetic OCR-coordinate data produced a preview DataFrame and defaulted mapping to `OCR原文`; a local image upload without the OCR engine returned a clear dependency error instead of crashing.

@@ -147,7 +147,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T03:38:01+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T08:03:35+08:00"
 
 
 def startup_trace(message):
@@ -4240,6 +4240,8 @@ div.stButton > button {
 """, unsafe_allow_html=True)
 
 BOM_NONE_OPTION = "（不使用）"
+BOM_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+BOM_UPLOAD_FILE_TYPES = ["xlsx", "xls", "csv", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
 BOM_ROLE_LABELS = {
     "model": "型号列",
     "spec": "规格列",
@@ -4253,6 +4255,7 @@ BOM_COLUMN_KEYWORDS = {
         ("产品型号", 90), ("订货号", 85), ("规格型号", 80),
     ],
     "spec": [
+        ("ocr原文", 140), ("ocr识别", 130), ("图片识别", 120),
         ("规格参数", 120), ("技术参数", 115), ("规格", 110), ("参数", 100),
         ("specification", 95), ("spec", 90), ("value", 70), ("参数描述", 70),
     ],
@@ -28419,6 +28422,216 @@ def read_uploaded_bom_html_workbook(file_name, raw_bytes):
     return build_uploaded_bom_workbook("html", file_name, raw_bytes, sheet_frames)
 
 
+def is_uploaded_bom_image_file(file_name):
+    return clean_text(file_name).lower().endswith(BOM_IMAGE_EXTENSIONS)
+
+
+def summarize_bom_ocr_error(exc):
+    message = clean_text(str(exc))
+    if message.startswith(("当前运行环境", "图片 OCR", "图片无法打开", "图片尺寸无效")):
+        return message
+    lower = message.lower()
+    if "no module named" in lower and ("pytesseract" in lower or "pil" in lower):
+        return "当前运行环境缺少图片 OCR 依赖，无法识别图片；请安装 requirements.txt 依赖后重启。"
+    if "tesseract" in lower and ("not installed" in lower or "not found" in lower or "no such file" in lower):
+        return "当前运行环境缺少 Tesseract OCR 引擎，无法识别图片；Streamlit Cloud 需要安装 packages.txt 中的 tesseract-ocr。"
+    if "failed loading language" in lower or "error opening data file" in lower:
+        return "当前 OCR 环境缺少中文或英文语言包，无法识别图片；请确认已安装 Tesseract 语言包。"
+    if message:
+        return f"图片 OCR 识别失败：{message}"
+    return "图片 OCR 识别失败，请确认图片清晰且未损坏。"
+
+
+def preprocess_bom_image_for_ocr(raw_bytes):
+    try:
+        from PIL import Image, ImageOps
+    except Exception as exc:
+        raise RuntimeError(summarize_bom_ocr_error(exc))
+    try:
+        image = Image.open(BytesIO(raw_bytes))
+        image = ImageOps.exif_transpose(image)
+        image = image.convert("RGB")
+    except Exception as exc:
+        raise RuntimeError(f"图片无法打开或已损坏：{exc}")
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        raise RuntimeError("图片尺寸无效，无法识别。")
+    gray = ImageOps.grayscale(image)
+    gray = ImageOps.autocontrast(gray)
+    longest = max(width, height)
+    scale = 1.0
+    if longest < 1800:
+        scale = min(3.0, 1800 / max(1, longest))
+    elif longest > 4200:
+        scale = 4200 / longest
+    if abs(scale - 1.0) > 0.05:
+        new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        gray = gray.resize(new_size, resample)
+    return gray
+
+
+def choose_tesseract_ocr_language(pytesseract_module):
+    try:
+        languages = set(pytesseract_module.get_languages(config="") or [])
+    except Exception:
+        languages = set()
+    preferred = [lang for lang in ("eng", "chi_sim", "chi_tra") if lang in languages]
+    return "+".join(preferred) if preferred else "eng"
+
+
+def ocr_confidence_is_usable(value):
+    try:
+        return float(value) >= 0
+    except Exception:
+        return True
+
+
+def split_ocr_line_words(words):
+    words = sorted(words or [], key=lambda item: float(item.get("left", 0) or 0))
+    if not words:
+        return []
+    widths = [max(1.0, float(item.get("width", 0) or 0)) for item in words]
+    heights = [max(1.0, float(item.get("height", 0) or 0)) for item in words]
+    median_width = sorted(widths)[len(widths) // 2]
+    median_height = sorted(heights)[len(heights) // 2]
+    gap_threshold = max(28.0, median_width * 1.8, median_height * 0.9)
+    columns = []
+    current = []
+    for idx, item in enumerate(words):
+        current.append(clean_text(item.get("text", "")))
+        if idx >= len(words) - 1:
+            continue
+        right = float(item.get("left", 0) or 0) + float(item.get("width", 0) or 0)
+        next_left = float(words[idx + 1].get("left", 0) or 0)
+        if next_left - right > gap_threshold:
+            col_text = join_bom_parts(*current)
+            if col_text:
+                columns.append(col_text)
+            current = []
+    col_text = join_bom_parts(*current)
+    if col_text:
+        columns.append(col_text)
+    return columns
+
+
+def build_bom_ocr_dataframe_from_data(ocr_data):
+    texts = list((ocr_data or {}).get("text", []) or [])
+    if not texts:
+        return pd.DataFrame()
+    line_groups = {}
+    count = len(texts)
+    for idx in range(count):
+        text = clean_text(texts[idx])
+        if text == "" or not ocr_confidence_is_usable((ocr_data or {}).get("conf", [""] * count)[idx]):
+            continue
+        key = (
+            (ocr_data or {}).get("page_num", [1] * count)[idx],
+            (ocr_data or {}).get("block_num", [0] * count)[idx],
+            (ocr_data or {}).get("par_num", [0] * count)[idx],
+            (ocr_data or {}).get("line_num", [idx] * count)[idx],
+        )
+        line_groups.setdefault(key, []).append(
+            {
+                "text": text,
+                "left": (ocr_data or {}).get("left", [0] * count)[idx],
+                "top": (ocr_data or {}).get("top", [0] * count)[idx],
+                "width": (ocr_data or {}).get("width", [0] * count)[idx],
+                "height": (ocr_data or {}).get("height", [0] * count)[idx],
+            }
+        )
+    line_records = []
+    for words in line_groups.values():
+        words = sorted(words, key=lambda item: float(item.get("left", 0) or 0))
+        line_text = join_bom_parts(*[item.get("text", "") for item in words])
+        line_text = re.sub(r"\s+", " ", line_text).strip()
+        if len(line_text) < 2 or re.fullmatch(r"[\W_]+", line_text or ""):
+            continue
+        top_values = [float(item.get("top", 0) or 0) for item in words]
+        left_values = [float(item.get("left", 0) or 0) for item in words]
+        line_records.append(
+            {
+                "top": min(top_values) if top_values else 0,
+                "left": min(left_values) if left_values else 0,
+                "text": line_text,
+                "columns": split_ocr_line_words(words),
+            }
+        )
+    line_records.sort(key=lambda item: (item["top"], item["left"]))
+    if not line_records:
+        return pd.DataFrame()
+    max_cols = max([len(item.get("columns", [])) for item in line_records] + [0])
+    rows = []
+    for idx, item in enumerate(line_records, start=1):
+        row = {"OCR原文": item.get("text", ""), "OCR行号": idx}
+        if max_cols >= 2:
+            for col_idx in range(1, max_cols + 1):
+                values = item.get("columns", []) or []
+                row[f"OCR列{col_idx}"] = values[col_idx - 1] if col_idx <= len(values) else ""
+        rows.append(row)
+    ordered_columns = ["OCR原文"] + ([f"OCR列{i}" for i in range(1, max_cols + 1)] if max_cols >= 2 else []) + ["OCR行号"]
+    return pd.DataFrame(rows, columns=ordered_columns)
+
+
+def build_bom_ocr_dataframe_from_text(text):
+    lines = [
+        re.sub(r"\s+", " ", clean_text(line)).strip()
+        for line in clean_text(text).splitlines()
+        if len(clean_text(line)) >= 2
+    ]
+    if not lines:
+        return pd.DataFrame()
+    return pd.DataFrame({"OCR原文": lines, "OCR行号": list(range(1, len(lines) + 1))})
+
+
+def ocr_bom_image_to_dataframe(raw_bytes):
+    try:
+        import pytesseract
+    except Exception as exc:
+        raise RuntimeError(summarize_bom_ocr_error(exc))
+    image = preprocess_bom_image_for_ocr(raw_bytes)
+    language = choose_tesseract_ocr_language(pytesseract)
+    config = "--psm 6 --oem 3 -c preserve_interword_spaces=1"
+    try:
+        data = pytesseract.image_to_data(image, lang=language, config=config, output_type=pytesseract.Output.DICT)
+    except Exception as exc:
+        if language != "eng":
+            try:
+                data = pytesseract.image_to_data(image, lang="eng", config=config, output_type=pytesseract.Output.DICT)
+            except Exception as fallback_exc:
+                raise RuntimeError(summarize_bom_ocr_error(fallback_exc))
+        else:
+            raise RuntimeError(summarize_bom_ocr_error(exc))
+    df = build_bom_ocr_dataframe_from_data(data)
+    if df.empty:
+        try:
+            text = pytesseract.image_to_string(image, lang=language, config="--psm 6")
+        except Exception:
+            text = ""
+        df = build_bom_ocr_dataframe_from_text(text)
+    return df
+
+
+def read_uploaded_bom_image_workbook(file_name, raw_bytes):
+    try:
+        ocr_df = ocr_bom_image_to_dataframe(raw_bytes)
+    except Exception as exc:
+        workbook = build_uploaded_bom_workbook("image_ocr", file_name, raw_bytes, [])
+        workbook["read_error"] = summarize_bom_ocr_error(exc)
+        return workbook
+    workbook = build_uploaded_bom_workbook(
+        "image_ocr",
+        file_name,
+        raw_bytes,
+        [{"sheet_name": "图片OCR识别", "df": ocr_df}],
+    )
+    if workbook.get("sheet_frames"):
+        workbook["read_warning"] = "图片已完成 OCR 识别，请先核对预览内容；图片识别可能有误，必要时可手动选择 OCR 原文或分列。"
+    else:
+        workbook["read_error"] = "图片 OCR 未识别到可用文字，请上传更清晰、正向、不压缩的截图。"
+    return workbook
+
+
 def summarize_bom_read_error(exc, file_name=""):
     message = clean_text(exc)
     lower_message = message.lower()
@@ -28450,6 +28663,9 @@ def read_uploaded_bom_workbook(uploaded_file):
         workbook["read_error"] = "上传文件内容为空。"
         return workbook
     lower_name = file_name.lower()
+
+    if is_uploaded_bom_image_file(lower_name):
+        return read_uploaded_bom_image_workbook(file_name, raw_bytes)
 
     if lower_name.endswith(".csv"):
         try:
@@ -28604,6 +28820,9 @@ def guess_bom_column(upload_df, role, used_columns=None):
 
 def guess_bom_column_mapping(upload_df):
     mapping = {"model": None, "spec": None, "name": None, "quantity": None}
+    if isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
+        mapping["spec"] = "OCR原文"
+        return mapping
     used = set()
     for role in ["model", "spec", "name", "quantity"]:
         guessed = guess_bom_column(upload_df, role, used)
@@ -31058,7 +31277,7 @@ if search_clicked:
 
 st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
 startup_trace("after_bom_title")
-uploaded_file = st.file_uploader("上传 BOM Excel/CSV", type=["xlsx", "xls", "csv"])
+uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES)
 startup_trace("after_file_uploader")
 
 if uploaded_file is not None:
@@ -31070,7 +31289,7 @@ if uploaded_file is not None:
             progress_placeholder,
             {
                 "title": "BOM 文件读取中",
-                "subtitle": "正在解析上传的 Excel / CSV 文件",
+                "subtitle": "正在解析上传的 Excel / CSV / 图片文件",
                 "current_text": getattr(uploaded_file, "name", "正在读取上传文件"),
                 "processed_rows": 0,
                 "total_rows": 0,
@@ -31185,6 +31404,7 @@ if uploaded_file is not None:
             )
             bom_df = selected_sheet.get("df", pd.DataFrame()).copy()
             total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
+            bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
 
             cached_bom_result_df = pd.DataFrame()
             cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
@@ -31255,6 +31475,8 @@ if uploaded_file is not None:
                 )
 
             st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
+            if bom_read_warning:
+                st.info(bom_read_warning)
             preview_df = bom_df.head(20).copy()
             preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
             preview_html = render_static_preview_table(
