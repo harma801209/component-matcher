@@ -2906,3 +2906,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User did not want `销售结论`, `备选型号`, `风险提示`, `推荐理由`, or `解析说明` shown in the BOM matching result table.
 - Change / action: Removed those fields from the `build_bom_display_df` page-display column order while leaving the underlying result data and Excel export pipeline unchanged.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8531 returned 200.
+
+### 2026-06-25 09:52 [fix] Prevent duplicate member login forms
+
+- Received / problem: User saw a member login button and an inline member login panel on the same BOM upload page, followed by `StreamlitAPIException: There are multiple identical forms with key='member_login_form'`.
+- Root cause: A stored pending member-auth prompt could render `render_member_auth_panel()` before the BOM upload gate rendered the same panel again in the same Streamlit run, creating duplicate forms with the same key.
+- Change / action: Added a per-run guard so the member auth panel only renders once per page run. When the inline panel is shown for a gated action such as search or BOM upload, the fixed right-side unauthenticated `会员登录` button is hidden to avoid duplicate login entry points.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8532 returned 200.

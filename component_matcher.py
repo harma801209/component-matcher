@@ -147,7 +147,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T09:39:45+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T09:51:40+08:00"
 
 
 def startup_trace(message):
@@ -1523,8 +1523,21 @@ def render_member_entry_button():
 
 
 def render_member_auth_panel(action_text=""):
+    if st.session_state.get("_member_auth_panel_rendered_in_run"):
+        return
+    st.session_state["_member_auth_panel_rendered_in_run"] = True
     context_text = clean_text(action_text)
     if context_text:
+        st.markdown(
+            """
+            <style>
+            .member-login-fixed:not(.active):not(.secondary) {
+                display: none !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         st.warning(f"请先登录会员后再使用{context_text}。")
     st.markdown(
         """
@@ -30777,6 +30790,7 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
         st.stop()
 
 
+st.session_state["_member_auth_panel_rendered_in_run"] = False
 render_no_match_admin_entry_button()
 render_member_entry_button()
 
