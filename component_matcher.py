@@ -5032,13 +5032,14 @@ BOM_ROLE_LABELS = {
 }
 BOM_COLUMN_KEYWORDS = {
     "model": [
+        ("规格型号", 140), ("制造商型号", 135), ("原厂型号", 130),
         ("manufacturerpartnumber", 120), ("partnumber", 110), ("partno", 110),
         ("mpn", 105), ("pn", 100), ("料号", 100), ("型号", 95), ("物料编码", 90),
-        ("产品型号", 90), ("订货号", 85), ("规格型号", 80),
+        ("产品型号", 90), ("订货号", 85),
     ],
     "spec": [
         ("ocr原文", 140), ("ocr识别", 130), ("图片识别", 120),
-        ("规格参数", 120), ("技术参数", 115), ("规格", 110), ("参数", 100),
+        ("产品规格", 135), ("规格参数", 120), ("技术参数", 115), ("规格", 110), ("参数", 100),
         ("specification", 95), ("spec", 90), ("value", 70), ("参数描述", 70),
     ],
     "name": [
@@ -5052,6 +5053,9 @@ BOM_COLUMN_KEYWORDS = {
 }
 
 BOM_COLUMN_NEGATIVE_KEYWORDS = {
+    "model": [
+        ("客户料号", 160), ("客户物料", 150), ("客户编码", 130),
+    ],
     "quantity": [
         ("单价", 220), ("單價", 220), ("price", 220), ("金额", 220),
         ("rmb", 180), ("含税", 180), ("tax", 180), ("有效期", 160),
@@ -29259,8 +29263,12 @@ def choose_tesseract_ocr_language(pytesseract_module):
         languages = set(pytesseract_module.get_languages(config="") or [])
     except Exception:
         languages = set()
-    preferred = [lang for lang in ("eng", "chi_sim", "chi_tra") if lang in languages]
-    return "+".join(preferred) if preferred else "eng"
+    if not languages:
+        return "chi_sim+eng"
+    for group in (("chi_sim", "eng"), ("chi_tra", "eng"), ("chi_sim",), ("chi_tra",), ("eng",)):
+        if all(lang in languages for lang in group):
+            return "+".join(group)
+    return "eng"
 
 
 def ocr_confidence_is_usable(value):
@@ -29296,6 +29304,143 @@ def split_ocr_line_words(words):
     if col_text:
         columns.append(col_text)
     return columns
+
+
+BOM_OCR_TABLE_HEADER_KEYWORDS = (
+    "序号",
+    "客户料号",
+    "产品规格",
+    "规格型号",
+    "生产厂家",
+    "RMB含税",
+    "单位",
+    "MPQ",
+    "MOQ",
+    "交期",
+    "备注",
+)
+
+
+def normalize_ocr_table_text(text):
+    return re.sub(r"\s+", "", clean_text(text)).replace("（", "(").replace("）", ")")
+
+
+def canonicalize_bom_ocr_header(text, position=0):
+    raw = clean_text(text)
+    compact = normalize_ocr_table_text(raw)
+    upper = compact.upper()
+    if not compact:
+        return f"OCR列{position}"
+    if ("序" in compact and ("号" in compact or "號" in compact)) or upper in {"NO", "NO."}:
+        return "序号"
+    if "客户" in compact and any(token in compact for token in ("料号", "料號", "物料", "编号", "編號")):
+        return "客户料号"
+    if any(token in compact for token in ("产品规格", "產品規格")) or ("产品" in compact and "规格" in compact):
+        return "产品规格"
+    if "规格型号" in compact or ("规格" in compact and "型号" in compact):
+        return "规格型号"
+    if "生产" in compact and any(token in compact for token in ("厂", "廠", "厂家", "廠家")):
+        return "生产厂家"
+    if "RMB" in upper and ("含" in compact or "税" in compact or "稅" in compact):
+        return "RMB含税"
+    if upper in {"RMB", "PRICE"} or "单价" in compact or "單價" in compact:
+        return "RMB含税"
+    if "单位" in compact or "單位" in compact:
+        return "单位"
+    if "MPQ" in upper:
+        return "MPQ"
+    if "MOQ" in upper:
+        return "MOQ"
+    if "交期" in compact or "LT" == upper or "L&T" in upper:
+        return "交期"
+    if "备注" in compact or "備註" in compact:
+        return "备注"
+    return raw or f"OCR列{position}"
+
+
+def unique_bom_ocr_headers(headers):
+    seen = {}
+    unique = []
+    for idx, header in enumerate(headers, start=1):
+        base = clean_text(header) or f"OCR列{idx}"
+        count = seen.get(base, 0) + 1
+        seen[base] = count
+        unique.append(base if count == 1 else f"{base}{count}")
+    return unique
+
+
+def score_bom_ocr_table_header(columns, text):
+    canonical = [canonicalize_bom_ocr_header(col, idx) for idx, col in enumerate(columns or [], start=1)]
+    score = sum(1 for header in canonical if header in BOM_OCR_TABLE_HEADER_KEYWORDS)
+    compact_text = normalize_ocr_table_text(text)
+    for keyword in BOM_OCR_TABLE_HEADER_KEYWORDS:
+        if keyword in compact_text and keyword not in canonical:
+            score += 1
+    return score
+
+
+def ocr_row_looks_like_table_data(columns, text):
+    values = [clean_text(col) for col in columns or [] if clean_text(col) != ""]
+    if len(values) < 2:
+        return False
+    first = values[0]
+    if re.fullmatch(r"\d{1,4}", first or ""):
+        return True
+    combined = join_bom_parts(*values, text)
+    if looks_like_spec_query(combined):
+        return True
+    return any(
+        re.search(r"[A-Z]{2,}[A-Z0-9.\-_/]*\d[A-Z0-9.\-_/]*", clean_text(value).upper())
+        for value in values
+    )
+
+
+def build_bom_table_dataframe_from_ocr_lines(line_records):
+    if not line_records:
+        return pd.DataFrame()
+    header_index = None
+    header_score = 0
+    for idx, item in enumerate(line_records):
+        columns = item.get("columns", []) or []
+        score = score_bom_ocr_table_header(columns, item.get("text", ""))
+        if score > header_score:
+            header_score = score
+            header_index = idx
+    if header_index is None or header_score < 3:
+        return pd.DataFrame()
+
+    header_item = line_records[header_index]
+    headers = [
+        canonicalize_bom_ocr_header(col, idx)
+        for idx, col in enumerate(header_item.get("columns", []) or [], start=1)
+    ]
+    if len(headers) < 3:
+        return pd.DataFrame()
+    headers = unique_bom_ocr_headers(headers)
+
+    rows = []
+    footer_tokens = ("付款方式", "账期", "帳期", "交货地点", "交貨地點", "送货方式", "送貨方式", "报价有效期", "報價有效期", "客户回签", "客戶回簽")
+    for item in line_records[header_index + 1:]:
+        row_text = clean_text(item.get("text", ""))
+        if any(token in row_text for token in footer_tokens):
+            if rows:
+                break
+            continue
+        values = item.get("columns", []) or []
+        if not ocr_row_looks_like_table_data(values, row_text):
+            continue
+        if len(values) < len(headers):
+            values = values + [""] * (len(headers) - len(values))
+        if len(values) > len(headers):
+            values = values[: len(headers) - 1] + [join_bom_parts(*values[len(headers) - 1:])]
+        row = {headers[idx]: clean_text(values[idx]) if idx < len(values) else "" for idx in range(len(headers))}
+        row["OCR原文"] = row_text
+        row["OCR行号"] = len(rows) + 1
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame()
+    ordered_columns = headers + ["OCR原文", "OCR行号"]
+    return pd.DataFrame(rows, columns=ordered_columns)
 
 
 def build_bom_ocr_dataframe_from_data(ocr_data):
@@ -29343,6 +29488,9 @@ def build_bom_ocr_dataframe_from_data(ocr_data):
     line_records.sort(key=lambda item: (item["top"], item["left"]))
     if not line_records:
         return pd.DataFrame()
+    table_df = build_bom_table_dataframe_from_ocr_lines(line_records)
+    if not table_df.empty:
+        return table_df
     max_cols = max([len(item.get("columns", [])) for item in line_records] + [0])
     rows = []
     for idx, item in enumerate(line_records, start=1):
@@ -29604,14 +29752,22 @@ def guess_bom_column(upload_df, role, used_columns=None):
 def guess_bom_column_mapping(upload_df):
     mapping = {"model": None, "spec": None, "name": None, "quantity": None}
     if isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
-        mapping["spec"] = "OCR原文"
-        return mapping
+        ocr_helper_columns = {"OCR原文", "OCR行号"}
+        candidate_columns = [col for col in upload_df.columns if clean_text(col) not in ocr_helper_columns]
+        if not candidate_columns:
+            mapping["spec"] = "OCR原文"
+            return mapping
+        upload_df_for_guess = upload_df[candidate_columns]
+    else:
+        upload_df_for_guess = upload_df
     used = set()
     for role in ["model", "spec", "name", "quantity"]:
-        guessed = guess_bom_column(upload_df, role, used)
+        guessed = guess_bom_column(upload_df_for_guess, role, used)
         if guessed:
             mapping[role] = guessed
             used.add(guessed)
+    if mapping["spec"] is None and isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
+        mapping["spec"] = "OCR原文"
     return mapping
 
 def get_bom_selected_value(record, column_name):
