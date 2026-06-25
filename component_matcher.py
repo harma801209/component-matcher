@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T16:40:31+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T16:45:19+08:00"
 
 
 def startup_trace(message):
@@ -31234,9 +31234,12 @@ if logo_b64:
     startup_trace("after_logo_markdown")
 
 st.markdown('<div class="main-title">富临通元器件匹配系统</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
-startup_trace("after_intro_markdown")
+if not is_no_match_admin_page_requested():
+    st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
+    startup_trace("after_intro_markdown")
+else:
+    startup_trace("after_admin_header_markdown")
 
 last_report_message = st.session_state.pop("_no_match_report_last_message", None)
 if isinstance(last_report_message, dict) and clean_text(last_report_message.get("message", "")) != "":
