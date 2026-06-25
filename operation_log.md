@@ -2900,3 +2900,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted the `找不到规格手动定位匹配位置` control moved from below the OCR preview table into the right side of the OCR notice bar, and wanted `BOM匹配结果 · 图片OCR识别` to sit higher on the page.
 - Change / action: Moved BOM column-mapping state setup before preview rendering, rendered OCR read warnings through a custom notice row with the manual mapping link on the right, kept the same link near the preview title for non-OCR uploads, and added compact iframe height for `图片OCR识别` previews.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8530 returned 200.
+
+### 2026-06-25 09:40 [ui] Simplify BOM result display columns
+
+- Received / problem: User did not want `销售结论`, `备选型号`, `风险提示`, `推荐理由`, or `解析说明` shown in the BOM matching result table.
+- Change / action: Removed those fields from the `build_bom_display_df` page-display column order while leaving the underlying result data and Excel export pipeline unchanged.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8531 returned 200.

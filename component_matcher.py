@@ -147,7 +147,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T09:26:36+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T09:39:45+08:00"
 
 
 def startup_trace(message):
@@ -19856,10 +19856,7 @@ def build_bom_display_df(result_df):
         "规格参数明细",
         "BOM数量",
         "可直接回复客户",
-        "销售结论",
         "客户回复型号",
-        "备选型号",
-        "风险提示",
         "匹配参数明细",
         "首选推荐等级",
         "推荐品牌",
@@ -19872,8 +19869,6 @@ def build_bom_display_df(result_df):
         "推荐型号3",
         "其他品牌型号",
         "状态",
-        "推荐理由",
-        "解析说明",
     ]
     existing_columns = [col for col in preferred_columns if col in display_df.columns]
     if not existing_columns:
