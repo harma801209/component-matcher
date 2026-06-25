@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T17:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T17:35:33+08:00"
 
 
 def startup_trace(message):
@@ -32471,22 +32471,34 @@ if uploaded_file is not None:
                     status_counts = count_bom_recommendation_statuses(bom_result_df)
                     component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
-                    st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
                     display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
                     export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                     export_filename = f"{export_name_root}_匹配后.xlsx"
-                    download_footer_html = build_bom_download_footer_html(
-                        st.session_state.get("_bom_export_bytes", b""),
-                        export_filename,
-                        container_class="bom-download-footer-outside",
-                    )
+                    export_bytes = st.session_state.get("_bom_export_bytes", b"")
+                    result_header_cols = st.columns([0.72, 0.28], gap="small")
+                    with result_header_cols[0]:
+                        st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
+                    with result_header_cols[1]:
+                        download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
+                        download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
+                        if export_bytes:
+                            st.download_button(
+                                "下载 BOM 匹配后 Excel",
+                                data=export_bytes,
+                                file_name=export_filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=download_key,
+                                use_container_width=True,
+                            )
+                        else:
+                            st.button("下载文件尚未生成", key=f"{download_key}_disabled", disabled=True, use_container_width=True)
                     clickable_bom_html = render_clickable_result_table(
                         display_bom_result_df,
                         hide_columns=[],
                         show_official_status=False,
                         wrapper_class="bom-result-table-wrap",
                         footer_html="",
-                        outer_footer_html=download_footer_html,
+                        outer_footer_html="",
                     )
                     if clickable_bom_html:
                         components.html(
@@ -32496,8 +32508,6 @@ if uploaded_file is not None:
                             ),
                             scrolling=False,
                         )
-                    else:
-                        st.markdown(download_footer_html, unsafe_allow_html=True)
                 else:
                     st.info("正在等待当前自动匹配结果生成。")
 

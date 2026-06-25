@@ -2976,3 +2976,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The BOM preview rendering path explicitly used `bom_df.head(20)`, so the HTML preview table was capped to the first 20 rows before rendering.
 - Change / action: Removed the 20-row cap and render the full `bom_df` in the original BOM preview while keeping the existing scrollable preview container.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed the preview now uses `preview_df = bom_df.copy()`.
+
+### 2026-06-25 17:35 [ui] Move BOM export download button to result header
+
+- Received / problem: User wanted the `下载 BOM 匹配后 Excel` button moved near the BOM result table area, aligned close to the lower result frame without overlapping it.
+- Change / action: Moved the export control out of the result-table iframe footer and into a right-aligned native Streamlit download button on the `BOM匹配结果` title row. The result table iframe now only renders the table itself, so the download button stays visually close to the table without overlapping.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed `outer_footer_html` is no longer used for the BOM export button.
