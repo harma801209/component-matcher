@@ -2925,3 +2925,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User saw `客户回复型号` in image OCR BOM matching results and did not need that field.
 - Change / action: Removed `可直接回复客户` and `客户回复型号` from `build_bom_display_df`, so both the on-page BOM result table and its display-based Excel export omit those sales reply fields.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Confirmed the BOM display column order no longer includes those two fields. Local Streamlit HTTP smoke test on port 8534 returned 200.
+
+### 2026-06-25 10:34 [feature] Add member profile editing and change logs
+
+- Received / problem: User needed member-side profile/password editing and per-member modification records, excluding password changes from the recorded change contents.
+- Change / action: Added `member_profile_change_logs` to the member auth database, plus shared helpers to collect/query/display non-password profile changes. The member center now has tabs for `会员资料`, `修改资料`, `修改密码`, and `修改记录`. Member self-edits record changed profile fields; password updates only update the password hash and timestamp. Admin member edits also record non-password field changes and display recent logs in each member detail.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and the Codex bundled Python. Static checks confirmed password fields are filtered from log writes. Local Streamlit smoke test could not be completed in this workspace because the default Python 3.14 Streamlit command hangs even on `python -m streamlit --version`, while the bundled Python has no Streamlit package.

@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T10:15:10+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T10:33:53+08:00"
 
 
 def startup_trace(message):
@@ -1053,6 +1053,25 @@ def ensure_member_auth_schema():
 
             CREATE INDEX IF NOT EXISTS idx_member_sessions_expires
             ON member_sessions(expires_at_ts);
+
+            CREATE TABLE IF NOT EXISTS member_profile_change_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                field_name TEXT NOT NULL,
+                field_label TEXT NOT NULL DEFAULT '',
+                old_value TEXT NOT NULL DEFAULT '',
+                new_value TEXT NOT NULL DEFAULT '',
+                changed_by TEXT NOT NULL DEFAULT '',
+                change_source TEXT NOT NULL DEFAULT '',
+                changed_at TEXT NOT NULL,
+                FOREIGN KEY(member_id) REFERENCES members(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_profile_change_logs_member_id
+            ON member_profile_change_logs(member_id);
+
+            CREATE INDEX IF NOT EXISTS idx_member_profile_change_logs_changed_at
+            ON member_profile_change_logs(changed_at);
             """
         )
         migrate_member_timestamp_timezone_if_needed(conn)
@@ -1186,6 +1205,133 @@ def normalize_member_role(value):
 
 def format_member_role(value):
     return "管理员" if normalize_member_role(value) == "admin" else "会员"
+
+
+MEMBER_PROFILE_FIELD_LABELS = {
+    "username": "账号",
+    "display_name": "姓名/称呼",
+    "company": "公司",
+    "email": "邮箱",
+    "phone": "电话",
+    "role": "角色",
+    "status": "状态",
+}
+
+
+def normalize_member_profile_value(field_name, value):
+    value = clean_text(value)
+    if field_name == "role":
+        return format_member_role(value)
+    if field_name == "status":
+        return format_member_status(value)
+    return value
+
+
+def collect_member_profile_changes(old_member, new_values, field_names):
+    changes = []
+    old_member = old_member or {}
+    new_values = new_values or {}
+    for field_name in field_names:
+        old_value = normalize_member_profile_value(field_name, old_member.get(field_name, ""))
+        new_value = normalize_member_profile_value(field_name, new_values.get(field_name, ""))
+        if old_value != new_value:
+            changes.append(
+                {
+                    "field_name": field_name,
+                    "field_label": MEMBER_PROFILE_FIELD_LABELS.get(field_name, field_name),
+                    "old_value": old_value,
+                    "new_value": new_value,
+                }
+            )
+    return changes
+
+
+def insert_member_profile_change_logs(conn, member_id, changes, changed_by="", change_source=""):
+    if not changes:
+        return
+    now = current_timestamp_text()
+    rows = []
+    for change in changes:
+        field_name = clean_text(change.get("field_name", ""))
+        if field_name in {"password", "password_hash", "new_password"}:
+            continue
+        rows.append(
+            (
+                int(member_id),
+                field_name,
+                clean_text(change.get("field_label", "")) or MEMBER_PROFILE_FIELD_LABELS.get(field_name, field_name),
+                clean_text(change.get("old_value", "")),
+                clean_text(change.get("new_value", "")),
+                clean_text(changed_by),
+                clean_text(change_source),
+                now,
+            )
+        )
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO member_profile_change_logs (
+                member_id, field_name, field_label, old_value, new_value,
+                changed_by, change_source, changed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
+def list_member_profile_change_logs(member_id=None, limit=200):
+    ensure_member_auth_schema()
+    params = []
+    where_clause = ""
+    if member_id is not None:
+        try:
+            member_id = int(member_id)
+        except Exception:
+            return []
+        where_clause = "WHERE l.member_id=?"
+        params.append(member_id)
+    try:
+        limit = max(1, min(int(limit or 200), 1000))
+    except Exception:
+        limit = 200
+    params.append(limit)
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT l.*, m.username, m.display_name
+            FROM member_profile_change_logs l
+            LEFT JOIN members m ON m.id = l.member_id
+            {where_clause}
+            ORDER BY l.id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
+def member_profile_change_log_dataframe(logs, include_member=True):
+    rows = []
+    for log in logs or []:
+        row = {}
+        if include_member:
+            member_name = clean_text(log.get("display_name", "")) or clean_text(log.get("username", ""))
+            row["会员"] = member_name
+            row["账号"] = clean_text(log.get("username", ""))
+        row.update(
+            {
+                "修改时间": clean_text(log.get("changed_at", "")),
+                "修改字段": clean_text(log.get("field_label", "")) or clean_text(log.get("field_name", "")),
+                "修改前": clean_text(log.get("old_value", "")),
+                "修改后": clean_text(log.get("new_value", "")),
+                "修改来源": clean_text(log.get("change_source", "")),
+                "操作人": clean_text(log.get("changed_by", "")),
+            }
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def ensure_configured_admin_member_account():
@@ -1335,7 +1481,97 @@ def member_admin_summary_dataframe(members):
     return pd.DataFrame(rows)
 
 
-def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password=""):
+def update_current_member_profile(member_id, display_name="", company="", email="", phone=""):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。"
+    new_values = {
+        "display_name": clean_text(display_name),
+        "company": clean_text(company),
+        "email": clean_text(email),
+        "phone": clean_text(phone),
+    }
+    if new_values["display_name"] == "":
+        return False, "姓名/称呼不能为空。"
+    now = current_timestamp_text()
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+            if row is None:
+                return False, "会员不存在或已被删除。"
+            old_member = member_row_to_dict(row)
+            changes = collect_member_profile_changes(
+                old_member,
+                new_values,
+                ["display_name", "company", "email", "phone"],
+            )
+            if not changes:
+                return True, "资料没有变化。"
+            conn.execute(
+                """
+                UPDATE members
+                SET display_name=?, company=?, email=?, phone=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    new_values["display_name"],
+                    new_values["company"],
+                    new_values["email"],
+                    new_values["phone"],
+                    now,
+                    member_id,
+                ),
+            )
+            insert_member_profile_change_logs(
+                conn,
+                member_id,
+                changes,
+                changed_by=clean_text(old_member.get("username", "")),
+                change_source="会员自助修改",
+            )
+            conn.commit()
+        return True, "会员资料已更新。"
+    except Exception as exc:
+        return False, f"更新失败：{exc}"
+
+
+def change_current_member_password(member_id, current_password="", new_password="", confirm_password=""):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。"
+    current_password = str(current_password or "")
+    new_password = str(new_password or "")
+    confirm_password = str(confirm_password or "")
+    if new_password != confirm_password:
+        return False, "两次输入的新密码不一致。"
+    if len(new_password) < 6:
+        return False, "新密码至少需要 6 位。"
+    now = current_timestamp_text()
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+            if row is None:
+                return False, "会员不存在或已被删除。"
+            member = member_row_to_dict(row)
+            if not verify_member_password(current_password, member.get("password_hash", "")):
+                return False, "当前密码不正确。"
+            conn.execute(
+                "UPDATE members SET password_hash=?, updated_at=? WHERE id=?",
+                (hash_member_password(new_password), now, member_id),
+            )
+            conn.commit()
+        return True, "密码已更新。"
+    except Exception as exc:
+        return False, f"密码更新失败：{exc}"
+
+
+def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password="", actor_username=""):
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -1352,9 +1588,25 @@ def update_member_account_admin(member_id, username, display_name="", company=""
     now = current_timestamp_text()
     try:
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
-            exists = conn.execute("SELECT id FROM members WHERE id=?", (member_id,)).fetchone()
-            if exists is None:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+            if row is None:
                 return False, "会员不存在或已被删除。"
+            old_member = member_row_to_dict(row)
+            new_values = {
+                "username": username,
+                "display_name": clean_text(display_name) or username,
+                "company": clean_text(company),
+                "email": clean_text(email),
+                "phone": clean_text(phone),
+                "role": role_value,
+                "status": status_value,
+            }
+            changes = collect_member_profile_changes(
+                old_member,
+                new_values,
+                ["username", "display_name", "company", "email", "phone", "role", "status"],
+            )
             if password_text:
                 conn.execute(
                     """
@@ -1365,10 +1617,10 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                     """,
                     (
                         username,
-                        clean_text(display_name) or username,
-                        clean_text(company),
-                        clean_text(email),
-                        clean_text(phone),
+                        new_values["display_name"],
+                        new_values["company"],
+                        new_values["email"],
+                        new_values["phone"],
                         role_value,
                         status_value,
                         hash_member_password(password_text),
@@ -1386,10 +1638,10 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                     """,
                     (
                         username,
-                        clean_text(display_name) or username,
-                        clean_text(company),
-                        clean_text(email),
-                        clean_text(phone),
+                        new_values["display_name"],
+                        new_values["company"],
+                        new_values["email"],
+                        new_values["phone"],
                         role_value,
                         status_value,
                         now,
@@ -1398,6 +1650,13 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                 )
                 if status_value != "active":
                     conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+            insert_member_profile_change_logs(
+                conn,
+                member_id,
+                changes,
+                changed_by=clean_text(actor_username) or get_no_match_admin_credentials()[0],
+                change_source="管理员修改",
+            )
             conn.commit()
         return True, "会员资料已更新。"
     except sqlite3.IntegrityError:
@@ -1417,6 +1676,7 @@ def delete_member_account_admin(member_id):
         if exists is None:
             return False, "会员不存在或已被删除。"
         conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+        conn.execute("DELETE FROM member_profile_change_logs WHERE member_id=?", (member_id,))
         cursor = conn.execute("DELETE FROM members WHERE id=?", (member_id,))
         conn.commit()
     return int(cursor.rowcount or 0) > 0, "会员已删除。"
@@ -1639,21 +1899,77 @@ def render_member_center_page():
     if not member:
         render_member_auth_panel()
         return
+    flash = st.session_state.pop("_member_profile_flash", None)
+    if isinstance(flash, dict) and clean_text(flash.get("message", "")):
+        if flash.get("ok"):
+            st.success(clean_text(flash.get("message", "")))
+        else:
+            st.error(clean_text(flash.get("message", "")))
     st.success(f"已登录：{clean_text(member.get('display_name', '')) or clean_text(member.get('username', ''))}")
-    profile_rows = [
-        {"字段": "账号", "值": member.get("username", "")},
-        {"字段": "姓名/称呼", "值": member.get("display_name", "")},
-        {"字段": "公司", "值": member.get("company", "")},
-        {"字段": "邮箱", "值": member.get("email", "")},
-        {"字段": "电话", "值": member.get("phone", "")},
-        {"字段": "状态", "值": member.get("status", "")},
-        {"字段": "注册时间", "值": member.get("created_at", "")},
-        {"字段": "最后登录", "值": member.get("last_login_at", "")},
-    ]
-    st.dataframe(pd.DataFrame(profile_rows), use_container_width=True, hide_index=True)
-    if st.button("退出会员登录", use_container_width=True):
-        logout_member()
-        st.rerun()
+    profile_tab, edit_tab, password_tab, log_tab = st.tabs(["会员资料", "修改资料", "修改密码", "修改记录"])
+
+    with profile_tab:
+        profile_rows = [
+            {"字段": "账号", "值": member.get("username", "")},
+            {"字段": "姓名/称呼", "值": member.get("display_name", "")},
+            {"字段": "公司", "值": member.get("company", "")},
+            {"字段": "邮箱", "值": member.get("email", "")},
+            {"字段": "电话", "值": member.get("phone", "")},
+            {"字段": "状态", "值": format_member_status(member.get("status", ""))},
+            {"字段": "注册时间", "值": member.get("created_at", "")},
+            {"字段": "最后登录", "值": member.get("last_login_at", "")},
+        ]
+        st.dataframe(pd.DataFrame(profile_rows), use_container_width=True, hide_index=True)
+        if st.button("退出会员登录", use_container_width=True):
+            logout_member()
+            st.rerun()
+
+    with edit_tab:
+        with st.form(f"member_profile_edit_{member.get('id', '')}", clear_on_submit=False):
+            edit_display_name = st.text_input("姓名/称呼", value=clean_text(member.get("display_name", "")))
+            edit_company = st.text_input("公司", value=clean_text(member.get("company", "")))
+            edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")))
+            edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")))
+            submitted = st.form_submit_button("保存资料", use_container_width=True)
+            if submitted:
+                ok, message = update_current_member_profile(
+                    member.get("id"),
+                    display_name=edit_display_name,
+                    company=edit_company,
+                    email=edit_email,
+                    phone=edit_phone,
+                )
+                if ok:
+                    st.session_state["_member_display_name"] = clean_text(edit_display_name) or clean_text(member.get("username", ""))
+                st.session_state["_member_profile_flash"] = {"ok": ok, "message": message}
+                st.rerun()
+
+    with password_tab:
+        with st.form(f"member_password_change_{member.get('id', '')}", clear_on_submit=True):
+            current_password = st.text_input("当前密码", type="password")
+            new_password = st.text_input("新密码", type="password")
+            confirm_password = st.text_input("确认新密码", type="password")
+            submitted = st.form_submit_button("更新密码", use_container_width=True)
+            if submitted:
+                ok, message = change_current_member_password(
+                    member.get("id"),
+                    current_password=current_password,
+                    new_password=new_password,
+                    confirm_password=confirm_password,
+                )
+                st.session_state["_member_profile_flash"] = {"ok": ok, "message": message}
+                st.rerun()
+
+    with log_tab:
+        logs = list_member_profile_change_logs(member.get("id"), limit=100)
+        if not logs:
+            st.info("目前没有资料修改记录。")
+        else:
+            st.dataframe(
+                member_profile_change_log_dataframe(logs, include_member=False),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 def render_member_admin_management_page():
@@ -1756,6 +2072,7 @@ def render_member_admin_management_page():
                         role="admin" if edit_role_label == "管理员" else "member",
                         status={"启用": "active", "待审核": "pending", "停用": "disabled"}.get(edit_status_label, "active"),
                         new_password=reset_password,
+                        actor_username=clean_text((current_member() or {}).get("username", "")) or get_no_match_admin_credentials()[0],
                     )
                     if ok:
                         st.success(message)
@@ -1772,6 +2089,14 @@ def render_member_admin_management_page():
                             st.rerun()
                         else:
                             st.error(message)
+            member_logs = list_member_profile_change_logs(member_id, limit=30)
+            if member_logs:
+                st.markdown("资料修改记录")
+                st.dataframe(
+                    member_profile_change_log_dataframe(member_logs, include_member=False),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
 
 def render_member_approval_admin_page():
