@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T10:33:53+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T16:08:12+08:00"
 
 
 def startup_trace(message):
@@ -927,8 +927,16 @@ def render_no_match_admin_login():
                 st.error("账号或密码不正确。")
 
 
+def current_member_is_admin():
+    member = current_member()
+    return bool(member) and normalize_member_role(member.get("role", "")) == "admin"
+
+
 def require_no_match_admin_login():
     if st.session_state.get("_no_match_admin_authenticated") is True:
+        return True
+    if current_member_is_admin():
+        st.session_state["_no_match_admin_authenticated"] = True
         return True
     render_no_match_admin_login()
     return False
@@ -940,7 +948,7 @@ def is_no_match_admin_page_requested():
 
 def render_no_match_admin_entry_button():
     admin_active = is_no_match_admin_page_requested()
-    authenticated = st.session_state.get("_no_match_admin_authenticated") is True
+    authenticated = st.session_state.get("_no_match_admin_authenticated") is True or current_member_is_admin()
     if admin_active:
         label = "返回搜索"
         member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
