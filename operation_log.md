@@ -2963,3 +2963,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User did not want the backend page to show the public search-introduction text under the system title.
 - Change / action: Kept the logo and main system title on backend pages, but only renders the two public introduction lines when the current page is not the backend admin view.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed the intro text is wrapped by `not is_no_match_admin_page_requested()`.
+
+### 2026-06-25 17:14 [feature] Add backend member search analytics
+
+- Received / problem: User wanted a backend module that records all member model/spec searches in one central place, so daily high-frequency searches can be reviewed without storing them under each member profile.
+- Change / action: Added `member_search_logs` to the member auth database, recording each logged-in member search line with member snapshot, normalized query key, query type, source, date, and timestamp. The text search flow writes these logs after login and input safety checks. Added a backend `搜索记录` module with date/keyword filters, daily high-frequency summary, metrics, and collapsible detail records.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A small regex check confirmed single-value specs such as `10K`, `33R`, and `100NF` classify as `规格参数`, while compact part numbers remain `型号`.

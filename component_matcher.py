@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T16:45:19+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T17:14:10+08:00"
 
 
 def startup_trace(message):
@@ -1101,6 +1101,29 @@ def ensure_member_auth_schema():
 
             CREATE INDEX IF NOT EXISTS idx_member_profile_change_logs_changed_at
             ON member_profile_change_logs(changed_at);
+
+            CREATE TABLE IF NOT EXISTS member_search_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                username_snapshot TEXT NOT NULL DEFAULT '',
+                display_name_snapshot TEXT NOT NULL DEFAULT '',
+                query_text TEXT NOT NULL,
+                query_key TEXT NOT NULL,
+                query_type TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                search_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(member_id) REFERENCES members(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_logs_date_key
+            ON member_search_logs(search_date, query_key);
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_logs_member_id
+            ON member_search_logs(member_id);
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_logs_created_at
+            ON member_search_logs(created_at);
             """
         )
         migrate_member_timestamp_timezone_if_needed(conn)
@@ -1390,6 +1413,196 @@ def member_profile_change_log_dataframe(logs, include_member=True):
         )
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def normalize_member_search_query_text(query_text):
+    text = re.sub(r"\s+", " ", clean_text(query_text)).strip()
+    return text
+
+
+def classify_member_search_query(query_text):
+    text = normalize_member_search_query_text(query_text)
+    if text == "":
+        return ""
+    compact_text = text.replace(" ", "")
+    if re.search(r"[\s;,，/%ΩΩ欧]", text):
+        return "规格参数"
+    if re.fullmatch(
+        r"(?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?R|\d+(?:\.\d+)?[KM](?:Ω|Ω|欧)?|\d+(?:\.\d+)?(?:PF|NF|UF|MF)|\d+(?:\.\d+)?V|\d+(?:\.\d+)?W)",
+        compact_text,
+        re.IGNORECASE,
+    ):
+        return "规格参数"
+    try:
+        if looks_like_compact_part_query(text):
+            return "型号"
+    except Exception:
+        pass
+    if re.search(r"[A-Za-z]", text) and re.search(r"\d", text):
+        return "型号"
+    return "规格参数"
+
+
+def record_member_search_logs(member, query_lines, source="搜索匹配"):
+    if not isinstance(member, dict):
+        return 0
+    try:
+        member_id = int(member.get("id") or 0)
+    except Exception:
+        member_id = 0
+    if member_id <= 0:
+        return 0
+    now = current_timestamp_text()
+    search_date = now[:10]
+    username = clean_text(member.get("username", ""))
+    display_name = clean_text(member.get("display_name", ""))
+    rows = []
+    for line in query_lines or []:
+        query_text = normalize_member_search_query_text(line)
+        if query_text == "":
+            continue
+        query_key = query_text.upper()
+        rows.append(
+            (
+                member_id,
+                username,
+                display_name,
+                query_text,
+                query_key,
+                classify_member_search_query(query_text),
+                clean_text(source),
+                search_date,
+                now,
+            )
+        )
+    if not rows:
+        return 0
+    try:
+        ensure_member_auth_schema()
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.executemany(
+                """
+                INSERT INTO member_search_logs (
+                    member_id, username_snapshot, display_name_snapshot,
+                    query_text, query_key, query_type, source, search_date, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+    except Exception:
+        return 0
+
+
+def build_member_search_log_where(start_date="", end_date="", keyword=""):
+    where = []
+    params = []
+    start_date = clean_text(start_date)
+    end_date = clean_text(end_date)
+    keyword = clean_text(keyword)
+    if start_date:
+        where.append("search_date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("search_date <= ?")
+        params.append(end_date)
+    if keyword:
+        like_value = f"%{keyword}%"
+        where.append(
+            "(query_text LIKE ? OR username_snapshot LIKE ? OR display_name_snapshot LIKE ? OR query_type LIKE ?)"
+        )
+        params.extend([like_value, like_value, like_value, like_value])
+    where_clause = "WHERE " + " AND ".join(where) if where else ""
+    return where_clause, params
+
+
+def list_member_search_log_summary(start_date="", end_date="", keyword="", limit=300):
+    ensure_member_auth_schema()
+    where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
+    try:
+        limit = max(1, min(1000, int(limit)))
+    except Exception:
+        limit = 300
+    params.append(limit)
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT
+                search_date,
+                query_key,
+                MIN(query_text) AS query_text,
+                MAX(query_type) AS query_type,
+                COUNT(*) AS search_count,
+                COUNT(DISTINCT member_id) AS member_count,
+                MAX(created_at) AS last_searched_at
+            FROM member_search_logs
+            {where_clause}
+            GROUP BY search_date, query_key
+            ORDER BY search_date DESC, search_count DESC, last_searched_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
+def list_member_search_log_details(start_date="", end_date="", keyword="", limit=300):
+    ensure_member_auth_schema()
+    where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
+    try:
+        limit = max(1, min(1000, int(limit)))
+    except Exception:
+        limit = 300
+    params.append(limit)
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM member_search_logs
+            {where_clause}
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
+def member_search_summary_dataframe(rows):
+    data = []
+    for row in rows or []:
+        data.append(
+            {
+                "日期": clean_text(row.get("search_date", "")),
+                "搜索内容": clean_text(row.get("query_text", "")),
+                "类型": clean_text(row.get("query_type", "")),
+                "搜索次数": int(row.get("search_count") or 0),
+                "搜索会员数": int(row.get("member_count") or 0),
+                "最近搜索": clean_text(row.get("last_searched_at", "")),
+            }
+        )
+    return pd.DataFrame(data)
+
+
+def member_search_detail_dataframe(rows):
+    data = []
+    for row in rows or []:
+        member_name = clean_text(row.get("display_name_snapshot", "")) or clean_text(row.get("username_snapshot", ""))
+        data.append(
+            {
+                "时间": clean_text(row.get("created_at", "")),
+                "会员": member_name,
+                "账号": clean_text(row.get("username_snapshot", "")),
+                "搜索内容": clean_text(row.get("query_text", "")),
+                "类型": clean_text(row.get("query_type", "")),
+                "来源": clean_text(row.get("source", "")),
+            }
+        )
+    return pd.DataFrame(data)
 
 
 def ensure_configured_admin_member_account():
@@ -2157,6 +2370,85 @@ def render_member_admin_management_page():
                     )
                 else:
                     st.info("此会员目前没有资料修改记录。")
+
+
+def render_member_search_logs_admin_page():
+    render_admin_section_header(
+        "搜索记录",
+        "汇总会员搜索型号和规格参数的记录，用来查看每天哪些需求最频繁。",
+        "需求统计",
+    )
+    today = datetime.now(APP_TIMEZONE).date()
+    default_start = today - timedelta(days=6)
+    filter_cols = st.columns([0.22, 0.22, 0.36, 0.20], gap="small")
+    with filter_cols[0]:
+        start_date_value = st.date_input("开始日期", value=default_start, key="admin_search_logs_start_date")
+    with filter_cols[1]:
+        end_date_value = st.date_input("结束日期", value=today, key="admin_search_logs_end_date")
+    with filter_cols[2]:
+        keyword = st.text_input(
+            "筛选关键词",
+            key="admin_search_logs_keyword",
+            placeholder="输入搜索内容、账号、会员名或类型",
+        )
+    with filter_cols[3]:
+        limit = st.number_input(
+            "显示上限",
+            min_value=50,
+            max_value=1000,
+            value=300,
+            step=50,
+            key="admin_search_logs_limit",
+        )
+    start_text = start_date_value.strftime("%Y-%m-%d") if hasattr(start_date_value, "strftime") else clean_text(start_date_value)
+    end_text = end_date_value.strftime("%Y-%m-%d") if hasattr(end_date_value, "strftime") else clean_text(end_date_value)
+    if start_text and end_text and start_text > end_text:
+        st.warning("开始日期不能晚于结束日期。")
+        return
+
+    summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=limit)
+    detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=limit)
+    total_search_count = sum(int(row.get("search_count") or 0) for row in summary_rows)
+    unique_query_count = len(summary_rows)
+    active_member_count = len({int(row.get("member_id") or 0) for row in detail_rows if int(row.get("member_id") or 0) > 0})
+    top_row = max(summary_rows, key=lambda row: int(row.get("search_count") or 0), default={})
+    top_query = clean_text(top_row.get("query_text", ""))
+    if len(top_query) > 28:
+        top_query = top_query[:28] + "..."
+    render_admin_metric_cards(
+        [
+            {"label": "区间搜索次数", "value": total_search_count, "note": f"{start_text} 至 {end_text}", "tone": "blue"},
+            {"label": "不同搜索内容", "value": unique_query_count, "note": "按日期和标准化内容统计", "tone": "neutral"},
+            {"label": "涉及会员", "value": active_member_count, "note": "当前明细范围内去重", "tone": "green"},
+            {
+                "label": "最高频搜索",
+                "value": int(top_row.get("search_count") or 0) if top_row else 0,
+                "note": top_query or "暂无记录",
+                "tone": "amber",
+            },
+        ]
+    )
+
+    if not summary_rows:
+        render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
+        return
+
+    st.markdown("#### 每日高频搜索")
+    st.dataframe(
+        member_search_summary_dataframe(summary_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.expander("查看搜索明细", expanded=False):
+        if detail_rows:
+            st.dataframe(
+                member_search_detail_dataframe(detail_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("当前筛选范围没有明细记录。")
 
 
 def render_member_approval_admin_page():
@@ -3018,7 +3310,7 @@ def render_no_match_report_admin_page():
         return
 
     report_counts = get_no_match_report_counts()
-    module_options = ["无匹配回报", "成本清单", "会员审核", "会员资料管理"]
+    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理"]
     active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
     nav_cols = st.columns([0.76, 0.24], gap="small")
     with nav_cols[0]:
@@ -3036,6 +3328,9 @@ def render_no_match_report_admin_page():
         return
     if backend_module == "会员资料管理":
         render_member_admin_management_page()
+        return
+    if backend_module == "搜索记录":
+        render_member_search_logs_admin_page()
         return
     if backend_module == "成本清单":
         render_cost_price_admin_page()
@@ -31284,6 +31579,7 @@ if search_clicked:
         if any(re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", line) for line in lines):
             st.error("查询内容包含不可见控制字符，请清理后再搜索。")
             st.stop()
+        record_member_search_logs(current_member(), lines, source="搜索匹配")
         full_search_df_cache = {"loaded": False, "df": pd.DataFrame()}
         database_empty_warned = False
         search_started_at = time.time()
