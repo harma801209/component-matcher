@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T10:04:13+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T10:15:10+08:00"
 
 
 def startup_trace(message):
@@ -19911,8 +19911,6 @@ def build_bom_display_df(result_df):
         "器件类型",
         "规格参数明细",
         "BOM数量",
-        "可直接回复客户",
-        "客户回复型号",
         "匹配参数明细",
         "首选推荐等级",
         "推荐品牌",

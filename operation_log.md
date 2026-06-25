@@ -2919,3 +2919,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User requested the administrator account be changed from the old typo account to `Terry46`, keeping password `123456`, for both backend admin login and frontend member-system access.
 - Change / action: Updated the default configured admin username to `Terry46` and kept the password `123456`. Added a legacy migration path so existing member-auth databases rename the old default `amdin` admin member to `Terry46` when no new admin member exists, or disable the legacy account when the new admin member already exists.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Code search confirmed `amdin` only remains in the legacy migration list. Local Streamlit HTTP smoke test on port 8533 returned 200.
+
+### 2026-06-25 10:15 [ui] Remove customer reply fields from BOM display
+
+- Received / problem: User saw `客户回复型号` in image OCR BOM matching results and did not need that field.
+- Change / action: Removed `可直接回复客户` and `客户回复型号` from `build_bom_display_df`, so both the on-page BOM result table and its display-based Excel export omit those sales reply fields.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Confirmed the BOM display column order no longer includes those two fields. Local Streamlit HTTP smoke test on port 8534 returned 200.
