@@ -2945,3 +2945,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The previous default admin username was `Terry46` and backend admin login compared the username case-sensitively. Streamlit Cloud secrets could also still override the default with the older `amdin` username.
 - Change / action: Changed the canonical admin username to lowercase `terry46`, made backend admin username validation case-insensitive, and always accepts the canonical `terry46 / 123456` pair even if old secrets still exist. Existing member records named `amdin` or `Terry46` are migrated/synced to `terry46`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python.
+
+### 2026-06-25 16:33 [fix] Make all member usernames case-insensitive
+
+- Received / problem: User wanted login usernames to be case-insensitive for every member, for example `Terry` and `terry` should be treated as the same account.
+- Change / action: Kept member lookup case-insensitive and added a lower(username) index plus conflict checks for registration and admin username edits, so accounts cannot be duplicated only by changing letter case. Admin-member sync now also uses stable case-insensitive lookup.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A temporary SQLite check confirmed `Terry`, `terry`, and `TERRY` resolve to the same stored account.

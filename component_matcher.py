@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T16:17:24+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T16:33:24+08:00"
 
 
 def startup_trace(message):
@@ -1080,6 +1080,9 @@ def ensure_member_auth_schema():
             CREATE INDEX IF NOT EXISTS idx_member_sessions_expires
             ON member_sessions(expires_at_ts);
 
+            CREATE INDEX IF NOT EXISTS idx_members_username_lower
+            ON members(lower(username));
+
             CREATE TABLE IF NOT EXISTS member_profile_change_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 member_id INTEGER NOT NULL,
@@ -1157,10 +1160,36 @@ def get_member_by_username(username):
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT * FROM members WHERE lower(username)=lower(?)",
+            "SELECT * FROM members WHERE lower(username)=lower(?) ORDER BY id ASC LIMIT 1",
             (clean_text(username),),
         ).fetchone()
     return member_row_to_dict(row)
+
+
+def find_member_username_conflict(conn, username, exclude_member_id=None):
+    username = clean_text(username)
+    if username == "":
+        return None
+    params = [username]
+    exclude_clause = ""
+    if exclude_member_id is not None:
+        try:
+            exclude_member_id = int(exclude_member_id)
+            exclude_clause = " AND id<>?"
+            params.append(exclude_member_id)
+        except Exception:
+            pass
+    row = conn.execute(
+        f"""
+        SELECT id, username
+        FROM members
+        WHERE lower(username)=lower(?){exclude_clause}
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        tuple(params),
+    ).fetchone()
+    return member_row_to_dict(row) if row is not None else None
 
 
 def get_member_by_id(member_id):
@@ -1181,6 +1210,9 @@ def create_member_account(username, password, display_name="", company="", email
     now = current_timestamp_text()
     try:
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            if find_member_username_conflict(conn, username):
+                return False, "这个账号已经存在，请直接登录。"
             conn.execute(
                 """
                 INSERT INTO members (
@@ -1371,7 +1403,7 @@ def ensure_configured_admin_member_account():
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT * FROM members WHERE lower(username)=lower(?)",
+            "SELECT * FROM members WHERE lower(username)=lower(?) ORDER BY id ASC LIMIT 1",
             (username,),
         ).fetchone()
         if row is None:
@@ -1380,7 +1412,7 @@ def ensure_configured_admin_member_account():
                 if legacy_username == "" or legacy_username.lower() == username.lower():
                     continue
                 legacy_row = conn.execute(
-                    "SELECT * FROM members WHERE lower(username)=lower(?)",
+                    "SELECT * FROM members WHERE lower(username)=lower(?) ORDER BY id ASC LIMIT 1",
                     (legacy_username,),
                 ).fetchone()
                 if legacy_row is None:
@@ -1621,6 +1653,8 @@ def update_member_account_admin(member_id, username, display_name="", company=""
             row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
             if row is None:
                 return False, "会员不存在或已被删除。"
+            if find_member_username_conflict(conn, username, exclude_member_id=member_id):
+                return False, "这个账号已经被其他会员使用。"
             old_member = member_row_to_dict(row)
             new_values = {
                 "username": username,
