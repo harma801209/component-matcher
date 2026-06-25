@@ -107,8 +107,8 @@ RESISTOR_SERIES_PRICING_UPDATED_AT = os.getenv("RESISTOR_SERIES_PRICING_UPDATED_
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
 NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
-NO_MATCH_ADMIN_DEFAULT_USERNAME = "Terry46"
-NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin",)
+NO_MATCH_ADMIN_DEFAULT_USERNAME = "terry46"
+NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
@@ -148,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T16:08:12+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T16:17:24+08:00"
 
 
 def startup_trace(message):
@@ -886,17 +886,35 @@ def get_config_text(name, default=""):
 
 def get_no_match_admin_credentials():
     return (
+        NO_MATCH_ADMIN_DEFAULT_USERNAME,
+        NO_MATCH_ADMIN_DEFAULT_PASSWORD,
+    )
+
+
+def get_configured_no_match_admin_credentials():
+    return (
         get_config_text(NO_MATCH_ADMIN_USERNAME_ENV, NO_MATCH_ADMIN_DEFAULT_USERNAME),
         get_config_text(NO_MATCH_ADMIN_PASSWORD_ENV, NO_MATCH_ADMIN_DEFAULT_PASSWORD),
     )
 
 
 def no_match_admin_login_valid(username, password):
-    expected_username, expected_password = get_no_match_admin_credentials()
-    return hmac.compare_digest(clean_text(username), expected_username) and hmac.compare_digest(
-        clean_text(password),
-        expected_password,
-    )
+    username_text = clean_text(username).lower()
+    password_text = clean_text(password)
+    configured_username, configured_password = get_configured_no_match_admin_credentials()
+    candidates = [(NO_MATCH_ADMIN_DEFAULT_USERNAME, NO_MATCH_ADMIN_DEFAULT_PASSWORD)]
+    configured_username = clean_text(configured_username)
+    configured_password = clean_text(configured_password)
+    legacy_usernames = {clean_text(x).lower() for x in NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES}
+    if configured_username and configured_username.lower() not in legacy_usernames:
+        candidates.append((configured_username, configured_password))
+    for expected_username, expected_password in candidates:
+        if hmac.compare_digest(username_text, clean_text(expected_username).lower()) and hmac.compare_digest(
+            password_text,
+            clean_text(expected_password),
+        ):
+            return True
+    return False
 
 
 def logout_no_match_admin():
@@ -1404,6 +1422,9 @@ def ensure_configured_admin_member_account():
             if not verify_member_password(password_text, member.get("password_hash", "")):
                 updates.append("password_hash=?")
                 values.append(hash_member_password(password_text))
+            if clean_text(member.get("username", "")) != username:
+                updates.append("username=?")
+                values.append(username)
             if clean_text(member.get("display_name", "")) == "":
                 updates.append("display_name=?")
                 values.append(username)
@@ -1783,7 +1804,8 @@ def set_current_member_from_admin_login(username, password):
     if not no_match_admin_login_valid(username, password):
         return None
     ensure_configured_admin_member_account()
-    member = get_member_by_username(username)
+    lookup_username = NO_MATCH_ADMIN_DEFAULT_USERNAME if clean_text(username).lower() == NO_MATCH_ADMIN_DEFAULT_USERNAME.lower() else clean_text(username)
+    member = get_member_by_username(lookup_username)
     if not member or normalize_member_status(member.get("status", "")) != "active":
         return None
     token = create_member_session(int(member["id"]))

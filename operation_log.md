@@ -2938,3 +2938,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: Backend access only checked `_no_match_admin_authenticated`; it did not treat an already logged-in member with role `admin` as backend-authenticated.
 - Change / action: Added `current_member_is_admin()` and reused it in backend access checks and backend button state. If the current member role is `admin`, entering the backend now automatically sets `_no_match_admin_authenticated`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python.
+
+### 2026-06-25 16:17 [fix] Make terry46 admin login canonical
+
+- Received / problem: User could not log in with `terry46 / 123456`.
+- Root cause: The previous default admin username was `Terry46` and backend admin login compared the username case-sensitively. Streamlit Cloud secrets could also still override the default with the older `amdin` username.
+- Change / action: Changed the canonical admin username to lowercase `terry46`, made backend admin username validation case-insensitive, and always accepts the canonical `terry46 / 123456` pair even if old secrets still exist. Existing member records named `amdin` or `Terry46` are migrated/synced to `terry46`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python.
