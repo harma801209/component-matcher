@@ -2989,3 +2989,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The image OCR language selection preferred English before Chinese, and the BOM auto-mapping forced every OCR image dataframe to use the full `OCR原文` line as the spec column even when split table columns were available.
 - Change / action: Changed Tesseract language preference to Chinese-first (`chi_sim+eng` / `chi_tra+eng`), added a quote/BOM table header detector that turns OCR rows with headers such as `序号 / 客户料号 / 产品规格 / 规格型号 / RMB含税 / MOQ / 交期` into structured columns, and changed OCR BOM column guessing to ignore helper columns (`OCR原文`, `OCR行号`) when real OCR table columns exist. Also raised `规格型号` and `产品规格` mapping priority while preventing `客户料号` from being mistaken for the original manufacturer model.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A simulated quote-table OCR record produced structured columns `产品规格`, `规格型号`, `生产厂家`, `RMB含税`, `MOQ`, and `交期`. Local full OCR execution could not be run because this Windows environment has no Tesseract engine on PATH; Cloud dependencies already include the Chinese Tesseract language packages.
+
+### 2026-06-25 18:16 [fix] Persist member login for one inactive hour
+
+- Received / problem: User wanted member login to remain valid until the account is unused for more than one hour, including closing and reopening the page within that hour.
+- Root cause: Server sessions existed, but the browser only carried the token through Streamlit session state or the URL query parameter. Reopening the app base URL lost both, so the page appeared logged out.
+- Change / action: Changed member sessions to a sliding one-hour timeout, refreshed the server expiry on every valid token use, and added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL on reopen, and clears it on logout or invalid token.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.

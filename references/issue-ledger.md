@@ -393,6 +393,13 @@
 - Fix: After successful backend admin credential validation, the app now synchronizes the configured admin member account, creates a normal member session, writes `member_token` into query params, and preserves that token on the backend `返回搜索` link.
 - Verification: Function-level temp DB test confirmed backend admin login creates a valid admin member session and renders a return-search URL with `member_token`. Local Streamlit browser flow confirmed `admin=1` login returns to search with `会员中心` visible and `会员登录` hidden.
 
+## 2026-06-25 - Member login was lost after closing and reopening the page
+
+- Bug: A user could log in successfully, close the page, reopen the app within the desired active window, and still see the logged-out state.
+- Root cause: Member sessions were only carried by Streamlit session state or the `member_token` query parameter. Closing the page removed Streamlit session state, and reopening the base URL did not include the query token, even though the server-side session row still existed.
+- Fix: Added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL query parameter when the app is reopened, clears it on logout or invalid token, and changed server session expiry to a sliding one-hour timeout extended on every valid token use.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 
 - Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.

@@ -110,8 +110,11 @@ NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
 NO_MATCH_ADMIN_DEFAULT_USERNAME = "terry46"
 NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
-MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
+MEMBER_AUTH_SESSION_TTL_SECONDS = 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
+MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
+MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
+MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
 APP_TIMEZONE_NAME = "Asia/Shanghai"
@@ -1997,6 +2000,7 @@ def get_member_by_session_token(token):
     token = clean_text(token)
     if token == "":
         return None
+    now_ts = int(time.time())
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
@@ -2006,12 +2010,17 @@ def get_member_by_session_token(token):
             JOIN members m ON m.id = s.member_id
             WHERE s.token=? AND s.expires_at_ts > ?
             """,
-            (token, int(time.time())),
+            (token, now_ts),
         ).fetchone()
         if row is None:
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
             conn.commit()
             return None
+        conn.execute(
+            "UPDATE member_sessions SET expires_at_ts=? WHERE token=?",
+            (now_ts + MEMBER_AUTH_SESSION_TTL_SECONDS, token),
+        )
+        conn.commit()
     member = member_row_to_dict(row)
     if member and normalize_member_status(member.get("status", "")) == "active":
         member["_session_token"] = token
@@ -2022,6 +2031,7 @@ def get_member_by_session_token(token):
 def current_member():
     state_token = clean_text(st.session_state.get("_member_auth_token", ""))
     query_token = clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+    saw_invalid_query_token = False
     for token in [state_token, query_token]:
         if token == "":
             continue
@@ -2030,10 +2040,125 @@ def current_member():
             st.session_state["_member_auth_token"] = token
             st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
             return member
+        if token == query_token:
+            saw_invalid_query_token = True
     if state_token != "":
         st.session_state.pop("_member_auth_token", None)
         st.session_state.pop("_member_display_name", None)
+    if saw_invalid_query_token and query_token != "":
+        st.session_state["_member_auth_clear_browser_token"] = True
+        update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
     return None
+
+
+def render_member_auth_browser_persistence_bridge():
+    token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+    clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
+    ttl_seconds = int(MEMBER_AUTH_SESSION_TTL_SECONDS)
+    script = f"""
+    <script>
+    (function() {{
+        const storageKey = {json.dumps(MEMBER_AUTH_BROWSER_STORAGE_KEY)};
+        const expiresKey = {json.dumps(MEMBER_AUTH_BROWSER_EXPIRES_KEY)};
+        const cookieName = {json.dumps(MEMBER_AUTH_COOKIE_NAME)};
+        const queryParam = {json.dumps(MEMBER_AUTH_QUERY_PARAM)};
+        const token = {json.dumps(token)};
+        const clearToken = {json.dumps(clear_token)};
+        const ttlSeconds = {ttl_seconds};
+        const ttlMs = ttlSeconds * 1000;
+        const now = Date.now();
+        const targetWindow = window.parent || window;
+
+        function getDocument() {{
+            try {{ return targetWindow.document || document; }} catch (err) {{ return document; }}
+        }}
+
+        function getStorage() {{
+            try {{ return targetWindow.localStorage || window.localStorage; }} catch (err) {{ return null; }}
+        }}
+
+        function writeCookie(value, maxAgeSeconds) {{
+            try {{
+                getDocument().cookie = cookieName + "=" + encodeURIComponent(value) + "; Max-Age=" + maxAgeSeconds + "; Path=/; SameSite=Lax";
+            }} catch (err) {{}}
+        }}
+
+        function deleteCookie() {{
+            writeCookie("", 0);
+        }}
+
+        function readCookie() {{
+            try {{
+                const pairs = (getDocument().cookie || "").split("; ");
+                for (const pair of pairs) {{
+                    const idx = pair.indexOf("=");
+                    if (idx <= 0) continue;
+                    if (pair.slice(0, idx) === cookieName) {{
+                        return decodeURIComponent(pair.slice(idx + 1) || "");
+                    }}
+                }}
+            }} catch (err) {{}}
+            return "";
+        }}
+
+        function clearSavedToken() {{
+            const storage = getStorage();
+            try {{
+                if (storage) {{
+                    storage.removeItem(storageKey);
+                    storage.removeItem(expiresKey);
+                }}
+            }} catch (err) {{}}
+            deleteCookie();
+        }}
+
+        if (clearToken) {{
+            clearSavedToken();
+            return;
+        }}
+
+        if (token) {{
+            const expiresAt = String(now + ttlMs);
+            const storage = getStorage();
+            try {{
+                if (storage) {{
+                    storage.setItem(storageKey, token);
+                    storage.setItem(expiresKey, expiresAt);
+                }}
+            }} catch (err) {{}}
+            writeCookie(token, ttlSeconds);
+            return;
+        }}
+
+        let savedToken = "";
+        let expiresAt = 0;
+        const storage = getStorage();
+        try {{
+            if (storage) {{
+                savedToken = storage.getItem(storageKey) || "";
+                expiresAt = parseInt(storage.getItem(expiresKey) || "0", 10) || 0;
+            }}
+        }} catch (err) {{}}
+        if (!savedToken) {{
+            savedToken = readCookie();
+            expiresAt = savedToken ? now + ttlMs : 0;
+        }}
+        if (!savedToken || (expiresAt && expiresAt <= now)) {{
+            clearSavedToken();
+            return;
+        }}
+
+        try {{
+            const url = new URL(targetWindow.location.href);
+            if (!url.searchParams.get(queryParam)) {{
+                url.searchParams.set(queryParam, savedToken);
+                targetWindow.location.replace(url.toString());
+            }}
+        }} catch (err) {{}}
+    }})();
+    </script>
+    """
+    components.html(script, height=0, scrolling=False)
 
 
 def set_current_member(member):
@@ -2073,6 +2198,7 @@ def logout_member():
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
+    st.session_state["_member_auth_clear_browser_token"] = True
     update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
 
 
@@ -31668,6 +31794,7 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
 
 
 st.session_state["_member_auth_panel_rendered_in_run"] = False
+render_member_auth_browser_persistence_bridge()
 render_no_match_admin_entry_button()
 render_member_entry_button()
 
