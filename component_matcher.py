@@ -107,7 +107,8 @@ RESISTOR_SERIES_PRICING_UPDATED_AT = os.getenv("RESISTOR_SERIES_PRICING_UPDATED_
 APP_ACCESS_CODE_ENV = "APP_ACCESS_CODE"
 NO_MATCH_ADMIN_USERNAME_ENV = "NO_MATCH_ADMIN_USERNAME"
 NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
-NO_MATCH_ADMIN_DEFAULT_USERNAME = "amdin"
+NO_MATCH_ADMIN_DEFAULT_USERNAME = "Terry46"
+NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin",)
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
@@ -147,7 +148,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T09:51:40+08:00"
+PUBLIC_CODE_STAMP = "2026-06-25T10:04:13+08:00"
 
 
 def startup_trace(message):
@@ -1202,6 +1203,36 @@ def ensure_configured_admin_member_account():
             (username,),
         ).fetchone()
         if row is None:
+            for legacy_username in NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES:
+                legacy_username = clean_text(legacy_username)
+                if legacy_username == "" or legacy_username.lower() == username.lower():
+                    continue
+                legacy_row = conn.execute(
+                    "SELECT * FROM members WHERE lower(username)=lower(?)",
+                    (legacy_username,),
+                ).fetchone()
+                if legacy_row is None:
+                    continue
+                conn.execute(
+                    """
+                    UPDATE members
+                    SET username=?, display_name=?, password_hash=?, role='admin', status='active', updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        username,
+                        username,
+                        hash_member_password(password_text),
+                        now,
+                        int(legacy_row["id"]),
+                    ),
+                )
+                row = conn.execute(
+                    "SELECT * FROM members WHERE id=?",
+                    (int(legacy_row["id"]),),
+                ).fetchone()
+                break
+        if row is None:
             conn.execute(
                 """
                 INSERT INTO members (
@@ -1235,6 +1266,18 @@ def ensure_configured_admin_member_account():
                 conn.execute(
                     "UPDATE members SET " + ", ".join(updates) + " WHERE id=?",
                     tuple(values),
+                )
+            for legacy_username in NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES:
+                legacy_username = clean_text(legacy_username)
+                if legacy_username == "" or legacy_username.lower() == username.lower():
+                    continue
+                conn.execute(
+                    """
+                    UPDATE members
+                    SET status='disabled', updated_at=?
+                    WHERE lower(username)=lower(?) AND id<>?
+                    """,
+                    (now, legacy_username, int(member["id"])),
                 )
         conn.commit()
 

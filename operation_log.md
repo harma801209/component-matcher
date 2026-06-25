@@ -2913,3 +2913,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: A stored pending member-auth prompt could render `render_member_auth_panel()` before the BOM upload gate rendered the same panel again in the same Streamlit run, creating duplicate forms with the same key.
 - Change / action: Added a per-run guard so the member auth panel only renders once per page run. When the inline panel is shown for a gated action such as search or BOM upload, the fixed right-side unauthenticated `会员登录` button is hidden to avoid duplicate login entry points.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8532 returned 200.
+
+### 2026-06-25 10:04 [config] Change configured admin account to Terry46
+
+- Received / problem: User requested the administrator account be changed from the old typo account to `Terry46`, keeping password `123456`, for both backend admin login and frontend member-system access.
+- Change / action: Updated the default configured admin username to `Terry46` and kept the password `123456`. Added a legacy migration path so existing member-auth databases rename the old default `amdin` admin member to `Terry46` when no new admin member exists, or disable the legacy account when the new admin member already exists.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Code search confirmed `amdin` only remains in the legacy migration list. Local Streamlit HTTP smoke test on port 8533 returned 200.
