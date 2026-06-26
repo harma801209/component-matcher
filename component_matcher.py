@@ -1610,6 +1610,245 @@ def member_search_detail_dataframe(rows):
     return pd.DataFrame(data)
 
 
+def format_member_search_trend_value(spec):
+    if not isinstance(spec, dict):
+        return ""
+    value = clean_text(spec.get("容值", ""))
+    unit = normalize_library_value_unit(spec.get("容值单位", ""))
+    if value != "" and unit != "":
+        return f"{value}{unit}"
+    if value != "":
+        return value
+    pf = spec.get("容值_pf", None)
+    try:
+        if pf is not None and clean_text(pf) != "":
+            cap_value, cap_unit = pf_to_value_unit(float(pf))
+            if clean_text(cap_value) != "":
+                return f"{cap_value}{cap_unit}"
+    except Exception:
+        pass
+    resistance = spec.get("_resistance_ohm", None)
+    try:
+        if resistance is not None and clean_text(resistance) != "":
+            return format_resistance_display(float(resistance))
+    except Exception:
+        pass
+    return ""
+
+
+def format_member_search_trend_spec_label(spec):
+    if not isinstance(spec, dict):
+        return ""
+    size = clean_size(spec.get("尺寸（inch）", "")) or clean_text(spec.get("_body_size", "")) or clean_text(spec.get("尺寸（mm）", ""))
+    material = clean_material(spec.get("材质（介质）", ""))
+    value = format_member_search_trend_value(spec)
+    tolerance = clean_tol_for_display(spec.get("容值误差", "")) or clean_tol_for_display(spec.get("阻值误差", ""))
+    voltage = voltage_display(spec.get("耐压（V）", ""))
+    parts = [size or "-", material or "-", value or "-", tolerance or "-", voltage or "-"]
+    if sum(1 for item in parts if item != "-") < 2:
+        return ""
+    return "/".join(parts)
+
+
+def infer_member_search_trend_spec(query_text, model_cache=None):
+    query_text = normalize_member_search_query_text(query_text)
+    if query_text == "":
+        return "", ""
+    model_cache = model_cache if isinstance(model_cache, dict) else {}
+    candidate_specs = []
+
+    model_key = clean_model(query_text)
+    compact_model_like = (
+        model_key != ""
+        and re.search(r"[A-Z]", model_key) is not None
+        and re.search(r"\d", model_key) is not None
+        and re.search(r"[\s,/\\|;:%]", query_text) is None
+    )
+    exact_df = pd.DataFrame()
+    if compact_model_like:
+        if model_key not in model_cache:
+            try:
+                model_cache[model_key] = load_component_rows_by_exact_model_from_database(query_text)
+            except Exception:
+                model_cache[model_key] = pd.DataFrame()
+        exact_df = model_cache.get(model_key, pd.DataFrame())
+        try:
+            spec = reverse_spec(exact_df, query_text)
+            if isinstance(spec, dict):
+                candidate_specs.append(spec)
+        except Exception:
+            pass
+
+    for parser in (
+        lambda: parse_model_rule(query_text),
+        lambda: detect_query_mode_and_spec(exact_df, query_text)[1],
+        lambda: parse_spec_query(query_text),
+        lambda: parse_other_passive_query(query_text),
+    ):
+        try:
+            spec = parser()
+        except Exception:
+            spec = None
+        if isinstance(spec, dict):
+            candidate_specs.append(spec)
+
+    best_label = ""
+    best_score = -1
+    best_type = ""
+    for spec in candidate_specs:
+        label = format_member_search_trend_spec_label(spec)
+        if label == "":
+            continue
+        score = sum(1 for item in label.split("/") if item != "-")
+        if score > best_score:
+            best_label = label
+            best_score = score
+            best_type = infer_spec_component_type(spec)
+    return best_label, best_type
+
+
+def build_member_search_trend_dataframe(summary_rows):
+    model_cache = {}
+    buckets = {}
+    for row in summary_rows or []:
+        query_text = clean_text(row.get("query_text", ""))
+        label, component_type = infer_member_search_trend_spec(query_text, model_cache=model_cache)
+        if label == "":
+            continue
+        search_date = clean_text(row.get("search_date", ""))
+        if search_date == "":
+            continue
+        key = (search_date, label)
+        item = buckets.setdefault(
+            key,
+            {
+                "日期": search_date,
+                "规格参数": label,
+                "器件类型": component_type,
+                "搜索次数": 0,
+                "来源示例": query_text,
+            },
+        )
+        item["搜索次数"] += int(row.get("search_count") or 0)
+        if clean_text(item.get("器件类型", "")) == "" and component_type != "":
+            item["器件类型"] = component_type
+    if not buckets:
+        return pd.DataFrame(columns=["日期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
+    df = pd.DataFrame(list(buckets.values()))
+    df = df.sort_values(["日期", "搜索次数", "规格参数"], ascending=[False, False, True]).reset_index(drop=True)
+    df["排名"] = df.groupby("日期").cumcount() + 1
+    df = df[df["排名"] <= 10].copy()
+    return df[["日期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"]]
+
+
+def render_member_search_trend_chart(trend_df):
+    if not isinstance(trend_df, pd.DataFrame) or trend_df.empty:
+        st.info("当前筛选范围内还没有能归一成规格参数的搜索记录。")
+        return
+    dates = sorted([clean_text(x) for x in trend_df["日期"].dropna().unique() if clean_text(x) != ""], reverse=True)
+    if not dates:
+        st.info("当前筛选范围内还没有能归一成规格参数的搜索记录。")
+        return
+    selected_date = st.selectbox(
+        "趋势日期",
+        options=dates,
+        index=0,
+        key="admin_search_trend_date",
+        help="按所选日期展示归一规格后的搜索 Top10。",
+    )
+    day_df = trend_df[trend_df["日期"].astype(str).apply(clean_text).eq(selected_date)].copy()
+    day_df = day_df.sort_values(["搜索次数", "规格参数"], ascending=[False, True]).head(10)
+    if day_df.empty:
+        st.info("所选日期没有可展示的规格趋势。")
+        return
+    max_count = max(1, int(day_df["搜索次数"].max()))
+    bars = []
+    for _, row in day_df.iterrows():
+        count = int(row.get("搜索次数") or 0)
+        pct = max(6, min(100, int(round(count * 100 / max_count))))
+        label = html.escape(clean_text(row.get("规格参数", "")))
+        ctype = html.escape(clean_text(row.get("器件类型", "")) or "规格")
+        rank = int(row.get("排名") or 0)
+        bars.append(
+            f"""
+            <div class="search-trend-row">
+              <div class="search-trend-rank">{rank}</div>
+              <div class="search-trend-main">
+                <div class="search-trend-label">{label}</div>
+                <div class="search-trend-track"><div class="search-trend-fill" style="width:{pct}%"></div></div>
+              </div>
+              <div class="search-trend-type">{ctype}</div>
+              <div class="search-trend-count">{count}</div>
+            </div>
+            """
+        )
+    st.markdown(
+        """
+        <style>
+        .search-trend-chart {
+            border: 1px solid #dbe5f2;
+            border-radius: 8px;
+            padding: 14px 16px;
+            background: #ffffff;
+        }
+        .search-trend-row {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr) 92px 58px;
+            gap: 12px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eef2f7;
+        }
+        .search-trend-row:last-child { border-bottom: 0; }
+        .search-trend-rank {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            background: #eef5ff;
+            color: #1455c8;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .search-trend-label {
+            font-weight: 800;
+            color: #162033;
+            margin-bottom: 7px;
+            overflow-wrap: anywhere;
+        }
+        .search-trend-track {
+            height: 10px;
+            border-radius: 999px;
+            background: #edf1f7;
+            overflow: hidden;
+        }
+        .search-trend-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+        }
+        .search-trend-type {
+            color: #64748b;
+            font-size: 14px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .search-trend-count {
+            color: #0f172a;
+            font-weight: 900;
+            font-size: 20px;
+            text-align: right;
+        }
+        </style>
+        <div class="search-trend-chart">
+        """
+        + "".join(bars)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def ensure_configured_admin_member_account():
     ensure_member_auth_schema()
     username, password = get_no_match_admin_credentials()
@@ -2535,6 +2774,7 @@ def render_member_search_logs_admin_page():
         return
 
     summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=limit)
+    trend_summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=1000)
     detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=limit)
     total_search_count = sum(int(row.get("search_count") or 0) for row in summary_rows)
     unique_query_count = len(summary_rows)
@@ -2560,6 +2800,17 @@ def render_member_search_logs_admin_page():
     if not summary_rows:
         render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
         return
+
+    trend_df = build_member_search_trend_dataframe(trend_summary_rows)
+    st.markdown("#### 每日十大规格趋势")
+    render_member_search_trend_chart(trend_df)
+    if isinstance(trend_df, pd.DataFrame) and not trend_df.empty:
+        with st.expander("查看每日规格趋势明细", expanded=False):
+            st.dataframe(
+                trend_df,
+                use_container_width=True,
+                hide_index=True,
+            )
 
     st.markdown("#### 每日高频搜索")
     st.dataframe(

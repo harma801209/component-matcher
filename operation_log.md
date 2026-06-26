@@ -3010,3 +3010,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The image OCR path accepted any non-empty OCR output as a usable BOM table. When Tesseract failed to read the Chinese table, the app still passed the English-like fragments into BOM matching instead of stopping with a useful error.
 - Change / action: Added stronger image preprocessing variants for small table screenshots, tried multiple Tesseract page segmentation modes, added an OCR quality score based on recognized BOM headers, model numbers, spec tokens, price tokens, Chinese text, and digits, and reject low-quality OCR output before matching. The error now calls out missing Chinese OCR language packages when only English OCR is available.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Simulated scoring rejects the garbled sample (`0.0 / unusable`), accepts the quote-table structure (`245.76 / usable`), and accepts a short valid resistor spec line (`14.4 / usable`).
+
+### 2026-06-26 01:09 [feature] Add daily top search spec trend chart
+
+- Received / problem: User wanted a daily Top 10 search trend bar chart in the backend search-record module, with searched models converted into normalized specification parameters.
+- Change / action: Added search-trend normalization that converts each search query into a spec label in `尺寸/介质/容值/误差/耐压` format. The backend search-record module now shows a daily Top 10 horizontal bar chart with a date selector and an expandable all-day Top 10 detail table. Existing history is supported because the normalization runs at render time without changing the search log schema.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level simulation confirmed two different searches can aggregate into the same normalized spec and rank by total search count.
