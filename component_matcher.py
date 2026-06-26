@@ -29433,15 +29433,30 @@ def preprocess_bom_image_for_ocr(raw_bytes):
     gray = ImageOps.autocontrast(gray)
     longest = max(width, height)
     scale = 1.0
-    if longest < 1800:
-        scale = min(3.0, 1800 / max(1, longest))
-    elif longest > 4200:
-        scale = 4200 / longest
+    if longest < 2400:
+        scale = min(4.0, 2400 / max(1, longest))
+    elif longest > 5200:
+        scale = 5200 / longest
     if abs(scale - 1.0) > 0.05:
         new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
         resample = getattr(Image, "Resampling", Image).LANCZOS
         gray = gray.resize(new_size, resample)
     return gray
+
+
+def build_bom_ocr_image_variants(raw_bytes):
+    image = preprocess_bom_image_for_ocr(raw_bytes)
+    variants = [("原图增强", image)]
+    try:
+        from PIL import ImageFilter
+
+        sharpened = image.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=3))
+        variants.append(("锐化增强", sharpened))
+        thresholded = sharpened.point(lambda pixel: 255 if int(pixel) >= 176 else 0, mode="1").convert("L")
+        variants.append(("黑白表格", thresholded))
+    except Exception:
+        pass
+    return variants
 
 
 def choose_tesseract_ocr_language(pytesseract_module):
@@ -29455,6 +29470,11 @@ def choose_tesseract_ocr_language(pytesseract_module):
         if all(lang in languages for lang in group):
             return "+".join(group)
     return "eng"
+
+
+def bom_ocr_language_has_chinese(language):
+    normalized = clean_text(language).lower()
+    return "chi_sim" in normalized or "chi_tra" in normalized
 
 
 def ocr_confidence_is_usable(value):
@@ -29701,32 +29721,130 @@ def build_bom_ocr_dataframe_from_text(text):
     return pd.DataFrame({"OCR原文": lines, "OCR行号": list(range(1, len(lines) + 1))})
 
 
+BOM_OCR_MIN_USABLE_SCORE = 12.0
+BOM_OCR_STRONG_SCORE = 55.0
+
+
+def collect_bom_ocr_quality_text(df):
+    if df is None or df.empty:
+        return ""
+    ignored_columns = {"OCR行号", "BOM行号"}
+    parts = []
+    for column in df.columns:
+        if clean_text(column) in ignored_columns:
+            continue
+        parts.append(clean_text(column))
+    sample_df = df.head(40)
+    for _, row in sample_df.iterrows():
+        for column, value in row.items():
+            if clean_text(column) in ignored_columns:
+                continue
+            parts.append(clean_text(value))
+    return join_bom_parts(*parts)[:16000]
+
+
+def score_bom_ocr_dataframe(df):
+    if df is None or df.empty:
+        return 0.0
+    text = collect_bom_ocr_quality_text(df)
+    if text == "":
+        return 0.0
+    compact = normalize_ocr_table_text(text)
+    upper = text.upper()
+    canonical_headers = [canonicalize_bom_ocr_header(column, idx) for idx, column in enumerate(df.columns, start=1)]
+    header_hits = sum(1 for header in canonical_headers if header in BOM_OCR_TABLE_HEADER_KEYWORDS)
+    keyword_hits = sum(1 for keyword in BOM_OCR_TABLE_HEADER_KEYWORDS if keyword in compact)
+    model_hits = len(re.findall(r"\b[A-Z]{2,}[A-Z0-9.\-_/]*\d[A-Z0-9.\-_/]*\b", upper))
+    spec_hits = len(
+        re.findall(
+            r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:KΩ|MΩ|Ω|OHM|R|K|M|PF|NF|UF|V|W|%)(?![A-Z])",
+            upper,
+        )
+    )
+    price_hits = len(re.findall(r"(?<!\d)\d+\.\d{3,}(?!\d)", text))
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    digit_count = len(re.findall(r"\d", text))
+    score = 0.0
+    score += min(header_hits, 12) * 12.0
+    score += min(keyword_hits, 12) * 6.0
+    score += min(model_hits, 30) * 5.0
+    score += min(spec_hits, 50) * 4.0
+    score += min(price_hits, 25) * 3.0
+    score += min(cjk_count, 120) * 0.22
+    score += min(digit_count, 160) * 0.12
+    if header_hits == 0 and model_hits == 0 and spec_hits == 0 and price_hits == 0:
+        score -= 30.0
+    if text.count("|") > 12 and (model_hits + spec_hits + price_hits) < 2:
+        score -= 12.0
+    return max(0.0, score)
+
+
+def bom_ocr_dataframe_is_usable(df):
+    return score_bom_ocr_dataframe(df) >= BOM_OCR_MIN_USABLE_SCORE
+
+
+def summarize_low_quality_bom_ocr(language, score=0.0):
+    if not bom_ocr_language_has_chinese(language):
+        return (
+            "图片 OCR 识别质量过低，当前运行环境未检测到中文 OCR 语言包，"
+            "中文表格容易被识别成乱码；请确认 Streamlit Cloud 已安装 tesseract-ocr-chi-sim 后重新部署，"
+            "或改上传原始 Excel/CSV、PDF 转出的 Excel、高清正向截图。"
+        )
+    return (
+        "图片 OCR 识别质量过低，未识别到有效 BOM 表头、料号或规格参数；"
+        "请上传更清晰的原始图片，或优先上传 Excel/CSV、PDF 转出的 Excel。"
+    )
+
+
 def ocr_bom_image_to_dataframe(raw_bytes):
     try:
         import pytesseract
     except Exception as exc:
         raise RuntimeError(summarize_bom_ocr_error(exc))
-    image = preprocess_bom_image_for_ocr(raw_bytes)
+    image_variants = build_bom_ocr_image_variants(raw_bytes)
     language = choose_tesseract_ocr_language(pytesseract)
-    config = "--psm 6 --oem 3 -c preserve_interword_spaces=1"
-    try:
-        data = pytesseract.image_to_data(image, lang=language, config=config, output_type=pytesseract.Output.DICT)
-    except Exception as exc:
-        if language != "eng":
+    configs = (
+        "--psm 6 --oem 3 -c preserve_interword_spaces=1",
+        "--psm 11 --oem 3 -c preserve_interword_spaces=1",
+        "--psm 4 --oem 3 -c preserve_interword_spaces=1",
+    )
+    best_df = pd.DataFrame()
+    best_score = 0.0
+    last_error = None
+    for _, image in image_variants:
+        for config in configs:
             try:
-                data = pytesseract.image_to_data(image, lang="eng", config=config, output_type=pytesseract.Output.DICT)
-            except Exception as fallback_exc:
-                raise RuntimeError(summarize_bom_ocr_error(fallback_exc))
-        else:
-            raise RuntimeError(summarize_bom_ocr_error(exc))
-    df = build_bom_ocr_dataframe_from_data(data)
-    if df.empty:
+                data = pytesseract.image_to_data(image, lang=language, config=config, output_type=pytesseract.Output.DICT)
+            except Exception as exc:
+                last_error = exc
+                continue
+            df = build_bom_ocr_dataframe_from_data(data)
+            score = score_bom_ocr_dataframe(df)
+            if score > best_score:
+                best_df = df
+                best_score = score
+            if score >= BOM_OCR_STRONG_SCORE:
+                return df
+    if bom_ocr_dataframe_is_usable(best_df):
+        return best_df
+
+    for _, image in image_variants[:2]:
         try:
-            text = pytesseract.image_to_string(image, lang=language, config="--psm 6")
-        except Exception:
-            text = ""
+            text = pytesseract.image_to_string(image, lang=language, config="--psm 6 --oem 3")
+        except Exception as exc:
+            last_error = exc
+            continue
         df = build_bom_ocr_dataframe_from_text(text)
-    return df
+        score = score_bom_ocr_dataframe(df)
+        if score > best_score:
+            best_df = df
+            best_score = score
+        if bom_ocr_dataframe_is_usable(df):
+            return df
+
+    if best_df.empty and last_error is not None:
+        raise RuntimeError(summarize_bom_ocr_error(last_error))
+    raise RuntimeError(summarize_low_quality_bom_ocr(language, best_score))
 
 
 def read_uploaded_bom_image_workbook(file_name, raw_bytes):

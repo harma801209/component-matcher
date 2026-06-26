@@ -3003,3 +3003,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The BOM upload branch called the member-login requirement and stopped before persisting the uploaded file bytes. After login rerun, the frontend still showed the selected file, but the Python-side uploaded file object could be missing.
 - Change / action: Added a session-backed BOM upload cache and an UploadedFile-compatible wrapper. The BOM upload flow now caches file bytes before login gating and reuses the cached upload after successful member login, so the original upload can continue processing without a second upload.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-26 00:41 [fix] Reject garbled image OCR BOM output
+
+- Received / problem: User uploaded a small quote-sheet screenshot and the image BOM OCR preview/match result showed garbled fragments such as `ee a ee` instead of the visible Chinese quote table.
+- Root cause: The image OCR path accepted any non-empty OCR output as a usable BOM table. When Tesseract failed to read the Chinese table, the app still passed the English-like fragments into BOM matching instead of stopping with a useful error.
+- Change / action: Added stronger image preprocessing variants for small table screenshots, tried multiple Tesseract page segmentation modes, added an OCR quality score based on recognized BOM headers, model numbers, spec tokens, price tokens, Chinese text, and digits, and reject low-quality OCR output before matching. The error now calls out missing Chinese OCR language packages when only English OCR is available.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Simulated scoring rejects the garbled sample (`0.0 / unusable`), accepts the quote-table structure (`245.76 / usable`), and accepts a short valid resistor spec line (`14.4 / usable`).

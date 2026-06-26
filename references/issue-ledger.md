@@ -407,6 +407,13 @@
 - Fix: Cache the uploaded BOM file bytes/name/type/size in Streamlit session before enforcing member login, wrap that cache with an UploadedFile-compatible object, and reuse it after login when the original Python upload object is gone.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
 
+## 2026-06-26 - Image BOM OCR accepted garbled text as matchable rows
+
+- Bug: Uploading a small Chinese quote-sheet screenshot could produce OCR preview and match rows full of fragments such as `ee a ee`, `masons`, and `or ||`.
+- Root cause: The image OCR flow treated any non-empty Tesseract result as usable. A failed Chinese-table OCR pass could therefore flow into BOM parsing/matching as if it were real content.
+- Fix: Increase small-image OCR scaling, try sharpened/thresholded variants and multiple page segmentation modes, score OCR output for recognizable BOM headers, models, specs, prices, Chinese characters, and digits, and reject low-quality OCR output with an explicit message before matching. If Chinese OCR packages are not detected, the error now says so.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Simulated OCR quality tests reject the garbled sample and accept both a quote-table dataframe and a compact valid resistor spec line.
+
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 
 - Bug: After resolving a no-match report in the backend with a correct brand/model, searching the same or equivalent specification could still return no match.
