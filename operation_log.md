@@ -3032,3 +3032,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Follow-up action: Public retest still downloaded a fallback free-text OCR workbook, so a slower cell-by-cell grid fallback was added: each detected cell is cropped, enlarged, sharpened, OCRed with single-line mode, and reconstructed into the same grid columns when row OCR is not meaningful.
 - Deployment action: Updated `streamlit_app.py` `PUBLIC_RELEASE_STAMP` to force Streamlit Cloud to recheck the entrypoint because public retests continued to show the pre-grid OCR behavior.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local grid detection on the user's PNG returns 11 column intervals and 12 data intervals after the header, matching the visible table. Real OCR still has to be verified on Streamlit Cloud because this local Windows runtime has no Tesseract executable.
+
+### 2026-06-26 11:07 [fix] Render backend daily search trend chart as HTML
+
+- Received / problem: User reported the backend search-record page showed raw `<div class="search-trend-row">...` text inside the "每日十大规格趋势" chart area.
+- Root cause: The trend chart markup was passed to `st.markdown()` with leading indentation. Markdown treated the indented HTML as a code block before Streamlit could render it as unsafe HTML.
+- Change / action: Dedented and stripped the chart wrapper and each bar row before rendering, then passed the final compact HTML to `st.markdown(..., unsafe_allow_html=True)`. Updated the Streamlit release stamp to nudge the public deployment.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.

@@ -1770,7 +1770,8 @@ def render_member_search_trend_chart(trend_df):
         ctype = html.escape(clean_text(row.get("器件类型", "")) or "规格")
         rank = int(row.get("排名") or 0)
         bars.append(
-            f"""
+            textwrap.dedent(
+                f"""
             <div class="search-trend-row">
               <div class="search-trend-rank">{rank}</div>
               <div class="search-trend-main">
@@ -1781,8 +1782,9 @@ def render_member_search_trend_chart(trend_df):
               <div class="search-trend-count">{count}</div>
             </div>
             """
+            ).strip()
         )
-    st.markdown(
+    trend_chart_html = textwrap.dedent(
         """
         <style>
         .search-trend-chart {
@@ -1843,10 +1845,9 @@ def render_member_search_trend_chart(trend_df):
         </style>
         <div class="search-trend-chart">
         """
-        + "".join(bars)
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    ).strip()
+    trend_chart_html = trend_chart_html + "\n" + "\n".join(bars) + "\n</div>"
+    st.markdown(trend_chart_html, unsafe_allow_html=True)
 
 
 def ensure_configured_admin_member_account():

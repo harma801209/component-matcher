@@ -434,3 +434,10 @@
 - Root cause: Backend resolution only updated `cache/no_match_reports.sqlite` as a mapping. It did not write a component row into `components.db` or the fast search sidecar. For direct backend-resolution hits, the candidate row could also be filtered out by the normal second-stage matching/exclusion path.
 - Fix: Backend resolution now builds a supplemental component row, upserts it into `components.db`, appends it to the appropriate fast search sidecar table, refreshes sidecar metadata, clears query/data caches, and marks direct resolution specs so `run_query_match()` preserves the backend candidate.
 - Verification: Isolated temp-DB flow submitted a no-match report, resolved it as `FOJAN(富捷) / FRC0603J103 TS`, confirmed the row was inserted into `components.db`, confirmed the resistor sidecar row contained `0603 / 10000Ω / 5% / 0.1W`, confirmed direct report lookup returned one `后台补料` row, and confirmed equivalent spec search `0603 10K ±5% 1/10W` returned one `完全匹配` row.
+
+## 2026-06-26 - Backend daily search trend chart rendered raw HTML
+
+- Bug: The backend search-record module displayed raw `<div class="search-trend-row">...` markup under "每日十大规格趋势" instead of the intended bar chart.
+- Root cause: The HTML string was indented inside a triple-quoted Python string. Streamlit Markdown interpreted that indentation as a code block, so the tags were escaped and shown as text.
+- Fix: Dedent/strip the trend chart wrapper and each generated row before sending the final markup to `st.markdown(..., unsafe_allow_html=True)`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
