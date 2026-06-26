@@ -3016,3 +3016,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Received / problem: User wanted a daily Top 10 search trend bar chart in the backend search-record module, with searched models converted into normalized specification parameters.
 - Change / action: Added search-trend normalization that converts each search query into a spec label in `尺寸/介质/容值/误差/耐压` format. The backend search-record module now shows a daily Top 10 horizontal bar chart with a date selector and an expandable all-day Top 10 detail table. Existing history is supported because the normalization runs at render time without changing the search log schema.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level simulation confirmed two different searches can aggregate into the same normalized spec and rank by total search count.
+
+### 2026-06-26 01:27 [fix] Prevent image BOM OCR from hanging on upload
+
+- Received / problem: User uploaded the same quote-sheet PNG and the public page stayed at `BOM 文件读取中` / 3%.
+- Root cause: The previous OCR improvement could run multiple large image variants through multiple Tesseract page segmentation modes without a hard timeout, making small dense table screenshots slow enough to look stuck on Streamlit Cloud.
+- Change / action: Reduced image scaling/variant count, removed the slow sparse-text OCR pass, added per-pass Tesseract timeouts, and added a total OCR budget that returns a clear timeout message instead of leaving the page in the reading state.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. The user's PNG preprocesses from `977x350` to `2000x716` with two OCR variants. Local real OCR still cannot be run because this Windows environment has no Tesseract executable.

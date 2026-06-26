@@ -29684,10 +29684,10 @@ def preprocess_bom_image_for_ocr(raw_bytes):
     gray = ImageOps.autocontrast(gray)
     longest = max(width, height)
     scale = 1.0
-    if longest < 2400:
-        scale = min(4.0, 2400 / max(1, longest))
-    elif longest > 5200:
-        scale = 5200 / longest
+    if longest < 2000:
+        scale = min(3.0, 2000 / max(1, longest))
+    elif longest > 4200:
+        scale = 4200 / longest
     if abs(scale - 1.0) > 0.05:
         new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
         resample = getattr(Image, "Resampling", Image).LANCZOS
@@ -29703,8 +29703,6 @@ def build_bom_ocr_image_variants(raw_bytes):
 
         sharpened = image.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=3))
         variants.append(("锐化增强", sharpened))
-        thresholded = sharpened.point(lambda pixel: 255 if int(pixel) >= 176 else 0, mode="1").convert("L")
-        variants.append(("黑白表格", thresholded))
     except Exception:
         pass
     return variants
@@ -29974,6 +29972,8 @@ def build_bom_ocr_dataframe_from_text(text):
 
 BOM_OCR_MIN_USABLE_SCORE = 12.0
 BOM_OCR_STRONG_SCORE = 55.0
+BOM_OCR_PER_PASS_TIMEOUT_SECONDS = 7
+BOM_OCR_TOTAL_BUDGET_SECONDS = 22.0
 
 
 def collect_bom_ocr_quality_text(df):
@@ -30047,6 +30047,36 @@ def summarize_low_quality_bom_ocr(language, score=0.0):
     )
 
 
+def tesseract_image_to_data_with_timeout(pytesseract_module, image, language, config):
+    try:
+        return pytesseract_module.image_to_data(
+            image,
+            lang=language,
+            config=config,
+            output_type=pytesseract_module.Output.DICT,
+            timeout=BOM_OCR_PER_PASS_TIMEOUT_SECONDS,
+        )
+    except TypeError:
+        return pytesseract_module.image_to_data(
+            image,
+            lang=language,
+            config=config,
+            output_type=pytesseract_module.Output.DICT,
+        )
+
+
+def tesseract_image_to_string_with_timeout(pytesseract_module, image, language, config):
+    try:
+        return pytesseract_module.image_to_string(
+            image,
+            lang=language,
+            config=config,
+            timeout=BOM_OCR_PER_PASS_TIMEOUT_SECONDS,
+        )
+    except TypeError:
+        return pytesseract_module.image_to_string(image, lang=language, config=config)
+
+
 def ocr_bom_image_to_dataframe(raw_bytes):
     try:
         import pytesseract
@@ -30056,16 +30086,18 @@ def ocr_bom_image_to_dataframe(raw_bytes):
     language = choose_tesseract_ocr_language(pytesseract)
     configs = (
         "--psm 6 --oem 3 -c preserve_interword_spaces=1",
-        "--psm 11 --oem 3 -c preserve_interword_spaces=1",
         "--psm 4 --oem 3 -c preserve_interword_spaces=1",
     )
     best_df = pd.DataFrame()
     best_score = 0.0
     last_error = None
+    started_at = time.monotonic()
     for _, image in image_variants:
         for config in configs:
+            if time.monotonic() - started_at > BOM_OCR_TOTAL_BUDGET_SECONDS:
+                raise RuntimeError("图片 OCR 识别超时；请上传更清晰的截图，或优先上传 Excel/CSV、PDF 转出的 Excel。")
             try:
-                data = pytesseract.image_to_data(image, lang=language, config=config, output_type=pytesseract.Output.DICT)
+                data = tesseract_image_to_data_with_timeout(pytesseract, image, language, config)
             except Exception as exc:
                 last_error = exc
                 continue
@@ -30080,8 +30112,10 @@ def ocr_bom_image_to_dataframe(raw_bytes):
         return best_df
 
     for _, image in image_variants[:2]:
+        if time.monotonic() - started_at > BOM_OCR_TOTAL_BUDGET_SECONDS:
+            break
         try:
-            text = pytesseract.image_to_string(image, lang=language, config="--psm 6 --oem 3")
+            text = tesseract_image_to_string_with_timeout(pytesseract, image, language, "--psm 6 --oem 3")
         except Exception as exc:
             last_error = exc
             continue
