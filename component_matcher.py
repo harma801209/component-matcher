@@ -29776,6 +29776,247 @@ BOM_OCR_TABLE_HEADER_KEYWORDS = (
 )
 
 
+def group_bom_grid_line_indices(indices, max_gap=2):
+    grouped = []
+    values = [int(value) for value in list(indices if indices is not None else [])]
+    if not values:
+        return grouped
+    start = previous = values[0]
+    for value in values[1:]:
+        if value <= previous + max_gap:
+            previous = value
+            continue
+        grouped.append((start, previous, (start + previous) // 2))
+        start = previous = value
+    grouped.append((start, previous, (start + previous) // 2))
+    return grouped
+
+
+def detect_bom_image_grid_lines(image):
+    try:
+        import numpy as np
+    except Exception:
+        return [], []
+    try:
+        arr = np.array(image.convert("L"))
+    except Exception:
+        return [], []
+    if arr.ndim != 2:
+        return [], []
+    height, width = arr.shape
+    if width < 120 or height < 80:
+        return [], []
+
+    best_rows = []
+    best_cols = []
+    for threshold in (100, 80, 120, 140):
+        dark = arr < threshold
+        horizontal_counts = dark.sum(axis=1)
+        vertical_counts = dark.sum(axis=0)
+        for ratio in (0.32, 0.24, 0.18, 0.12):
+            row_min = max(60, width * ratio)
+            col_min = max(35, height * ratio)
+            row_groups = group_bom_grid_line_indices(np.where(horizontal_counts >= row_min)[0])
+            col_groups = group_bom_grid_line_indices(np.where(vertical_counts >= col_min)[0])
+            max_row_thickness = max(4, int(height * 0.018))
+            max_col_thickness = max(4, int(width * 0.012))
+            row_lines = [center for start, end, center in row_groups if end - start + 1 <= max_row_thickness]
+            col_lines = [center for start, end, center in col_groups if end - start + 1 <= max_col_thickness]
+            if len(row_lines) >= 2 and len(col_lines) >= 3:
+                if len(row_lines) * len(col_lines) > len(best_rows) * len(best_cols):
+                    best_rows, best_cols = row_lines, col_lines
+    return sorted(set(best_rows)), sorted(set(best_cols))
+
+
+def complete_bom_grid_horizontal_lines(row_lines, image_height):
+    rows = sorted({int(value) for value in row_lines or []})
+    if len(rows) < 2:
+        return rows
+    gaps = [rows[idx + 1] - rows[idx] for idx in range(len(rows) - 1) if rows[idx + 1] > rows[idx]]
+    median_gap = sorted(gaps)[len(gaps) // 2] if gaps else 0
+    if median_gap > 0 and rows[0] > max(6, median_gap * 0.45) and rows[0] < median_gap * 1.6:
+        rows = [0] + rows
+    if rows and rows[-1] > image_height - 2:
+        rows[-1] = image_height - 1
+    return rows
+
+
+def render_bom_grid_row_for_ocr(image, row_top, row_bottom, col_lines):
+    try:
+        from PIL import Image, ImageDraw, ImageOps
+    except Exception:
+        return None, [], 1.0
+    if not col_lines or len(col_lines) < 2:
+        return None, [], 1.0
+    width, height = image.size
+    table_left = max(0, int(col_lines[0]))
+    table_right = min(width - 1, int(col_lines[-1]))
+    top = max(0, int(row_top) + 1)
+    bottom = min(height, int(row_bottom) - 1)
+    if table_right - table_left < 20 or bottom - top < 8:
+        return None, [], 1.0
+    crop_left = min(width - 1, table_left + 1)
+    crop_right = max(crop_left + 1, table_right - 1)
+    crop = image.crop((crop_left, top, crop_right, bottom))
+    crop = ImageOps.autocontrast(crop.convert("L"))
+    draw = ImageDraw.Draw(crop)
+    for line in col_lines[1:-1]:
+        x = int(line) - crop_left
+        if -4 <= x <= crop.width + 4:
+            draw.rectangle((x - 2, 0, x + 2, crop.height), fill=255)
+    scale = max(2.0, min(4.0, 110.0 / max(1, crop.height)))
+    if abs(scale - 1.0) > 0.05:
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        crop = crop.resize((max(1, int(crop.width * scale)), max(1, int(crop.height * scale))), resample)
+    boundaries = [(int(line) - crop_left) * scale for line in col_lines]
+    boundaries[0] = 0
+    boundaries[-1] = crop.width
+    return crop, boundaries, scale
+
+
+def assign_bom_ocr_word_to_grid_column(center_x, boundaries):
+    if not boundaries or len(boundaries) < 2:
+        return None
+    for idx in range(len(boundaries) - 1):
+        left = boundaries[idx] - 4
+        right = boundaries[idx + 1] + 4
+        if left <= center_x <= right:
+            return idx
+    return None
+
+
+def tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, language):
+    if row_image is None or not boundaries:
+        return []
+    config = "--psm 6 --oem 3 -c preserve_interword_spaces=1"
+    try:
+        data = pytesseract_module.image_to_data(
+            row_image,
+            lang=language,
+            config=config,
+            output_type=pytesseract_module.Output.DICT,
+            timeout=BOM_OCR_GRID_ROW_TIMEOUT_SECONDS,
+        )
+    except TypeError:
+        data = pytesseract_module.image_to_data(
+            row_image,
+            lang=language,
+            config=config,
+            output_type=pytesseract_module.Output.DICT,
+        )
+    texts = list((data or {}).get("text", []) or [])
+    cell_words = [[] for _ in range(max(0, len(boundaries) - 1))]
+    count = len(texts)
+    for idx in range(count):
+        text = clean_text(texts[idx])
+        if not text or re.fullmatch(r"[\W_]+", text):
+            continue
+        conf_values = (data or {}).get("conf", [""] * count)
+        if idx < len(conf_values) and not ocr_confidence_is_usable(conf_values[idx]):
+            continue
+        left_values = (data or {}).get("left", [0] * count)
+        width_values = (data or {}).get("width", [0] * count)
+        left = float(left_values[idx] if idx < len(left_values) else 0)
+        word_width = float(width_values[idx] if idx < len(width_values) else 0)
+        col_idx = assign_bom_ocr_word_to_grid_column(left + word_width / 2.0, boundaries)
+        if col_idx is None or col_idx >= len(cell_words):
+            continue
+        cell_words[col_idx].append((left, text))
+    cells = []
+    for words in cell_words:
+        words = sorted(words, key=lambda item: item[0])
+        cells.append(re.sub(r"\s+", " ", " ".join(text for _, text in words)).strip())
+    return cells
+
+
+def bom_grid_data_row_is_meaningful(cells):
+    values = [clean_text(value) for value in cells or []]
+    if not any(values):
+        return False
+    first = values[0] if values else ""
+    if re.fullmatch(r"\d{1,4}", first or ""):
+        return True
+    text = join_bom_parts(*values)
+    upper = text.upper()
+    if looks_like_spec_query(text):
+        return True
+    if re.search(r"\b[A-Z]{2,}[A-Z0-9.\-_/]*\d[A-Z0-9.\-_/]*\b", upper):
+        return True
+    if re.search(r"(?<!\d)\d+\.\d{3,}(?!\d)", text):
+        return True
+    return any(token in text for token in ("富捷", "厚声", "华新科", "信昌", "村田", "生产厂家"))
+
+
+def bom_grid_dataframe_is_usable(df):
+    if df is None or df.empty:
+        return False
+    rows = max(0, len(df.index))
+    meaningful_rows = 0
+    for _, row in df.iterrows():
+        cells = [row.get(column, "") for column in df.columns if clean_text(column) not in {"OCR原文", "OCR行号"}]
+        if bom_grid_data_row_is_meaningful(cells):
+            meaningful_rows += 1
+    if rows >= 4 and meaningful_rows >= max(2, int(rows * 0.35)):
+        return True
+    return rows >= 2 and score_bom_ocr_dataframe(df) >= BOM_OCR_STRONG_SCORE
+
+
+def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, started_at=None):
+    row_lines, col_lines = detect_bom_image_grid_lines(image)
+    row_lines = complete_bom_grid_horizontal_lines(row_lines, image.size[1])
+    if len(row_lines) < 3 or len(col_lines) < 3:
+        return pd.DataFrame()
+    if len(row_lines) > 90:
+        row_lines = row_lines[:90]
+
+    row_cells = []
+    for idx in range(len(row_lines) - 1):
+        if started_at is not None and time.monotonic() - started_at > BOM_OCR_GRID_TOTAL_BUDGET_SECONDS:
+            break
+        row_top, row_bottom = row_lines[idx], row_lines[idx + 1]
+        if row_bottom - row_top < 8:
+            continue
+        row_image, boundaries, _ = render_bom_grid_row_for_ocr(image, row_top, row_bottom, col_lines)
+        try:
+            cells = tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, language)
+        except Exception:
+            cells = []
+        if cells:
+            row_cells.append(cells)
+    if len(row_cells) < 2:
+        return pd.DataFrame()
+
+    raw_headers = row_cells[0]
+    headers = [canonicalize_bom_ocr_header(value, idx) for idx, value in enumerate(raw_headers, start=1)]
+    header_hits = sum(1 for header in headers if header in BOM_OCR_TABLE_HEADER_KEYWORDS)
+    if len(headers) == len(BOM_OCR_TABLE_HEADER_KEYWORDS) and header_hits < 4:
+        headers = list(BOM_OCR_TABLE_HEADER_KEYWORDS)
+    headers = unique_bom_ocr_headers(headers)
+
+    rows = []
+    footer_tokens = ("付款方式", "账期", "帳期", "交货地点", "交貨地點", "送货方式", "送貨方式", "报价有效期", "報價有效期", "客户回签", "客戶回簽")
+    for cells in row_cells[1:]:
+        row_text = join_bom_parts(*cells)
+        if any(token in row_text for token in footer_tokens):
+            if rows:
+                break
+            continue
+        if not bom_grid_data_row_is_meaningful(cells):
+            continue
+        values = list(cells)
+        if len(values) < len(headers):
+            values = values + [""] * (len(headers) - len(values))
+        if len(values) > len(headers):
+            values = values[: len(headers) - 1] + [join_bom_parts(*values[len(headers) - 1:])]
+        row = {headers[col_idx]: clean_text(values[col_idx]) if col_idx < len(values) else "" for col_idx in range(len(headers))}
+        row["OCR原文"] = row_text
+        row["OCR行号"] = len(rows) + 1
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows, columns=headers + ["OCR原文", "OCR行号"])
+
+
 def normalize_ocr_table_text(text):
     return re.sub(r"\s+", "", clean_text(text)).replace("（", "(").replace("）", ")")
 
@@ -29974,6 +30215,8 @@ BOM_OCR_MIN_USABLE_SCORE = 12.0
 BOM_OCR_STRONG_SCORE = 55.0
 BOM_OCR_PER_PASS_TIMEOUT_SECONDS = 7
 BOM_OCR_TOTAL_BUDGET_SECONDS = 22.0
+BOM_OCR_GRID_ROW_TIMEOUT_SECONDS = 2
+BOM_OCR_GRID_TOTAL_BUDGET_SECONDS = 30.0
 
 
 def collect_bom_ocr_quality_text(df):
@@ -30092,6 +30335,16 @@ def ocr_bom_image_to_dataframe(raw_bytes):
     best_score = 0.0
     last_error = None
     started_at = time.monotonic()
+    try:
+        grid_df = build_bom_grid_dataframe_from_image(pytesseract, image_variants[0][1], language, started_at=started_at)
+        grid_score = score_bom_ocr_dataframe(grid_df)
+        if grid_score > best_score:
+            best_df = grid_df
+            best_score = grid_score
+        if bom_grid_dataframe_is_usable(grid_df):
+            return grid_df
+    except Exception as exc:
+        last_error = exc
     for _, image in image_variants:
         for config in configs:
             if time.monotonic() - started_at > BOM_OCR_TOTAL_BUDGET_SECONDS:
