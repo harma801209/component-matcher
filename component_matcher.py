@@ -128,7 +128,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 77
+QUERY_RESULT_CACHE_VERSION = 78
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -153,7 +153,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-25T17:35:33+08:00"
+PUBLIC_CODE_STAMP = "2026-06-26T13:54:20+08:00"
 
 
 def startup_trace(message):
@@ -9359,6 +9359,21 @@ YAGEO_MLCC_SERIES_CLASS = {
     "AS": "车规/软端子",
     "CS": "软端子",
 }
+YAGEO_MLCC_VOLTAGE_CODE_MAP = {
+    "4": "4",
+    "5": "6.3",
+    "6": "10",
+    "7": "16",
+    "8": "25",
+    "9": "50",
+    "0": "100",
+    "A": "200",
+    "Y": "250",
+    "B": "500",
+    "Z": "630",
+    "C": "1000",
+    "D": "2000",
+}
 WALSIN_MLCC_SERIES_MEANING = {
     "常规": "常规 / General-purpose MLCC",
     "01R5": "超小型 / Ultra-small MLCC",
@@ -14303,6 +14318,24 @@ def parse_voltage_from_text(text):
     if voltage_match:
         return clean_voltage(voltage_match.group(1))
     return ""
+
+
+def merge_query_text_hints_into_spec(spec, query_text):
+    if spec is None:
+        return spec
+    explicit_voltage = parse_voltage_from_text(query_text)
+    if explicit_voltage == "":
+        return spec
+    current_voltage = clean_voltage(spec.get("耐压（V）", ""))
+    if current_voltage != "":
+        return spec
+    merged = dict(spec)
+    merged["耐压（V）"] = explicit_voltage
+    try:
+        merged["_param_count"] = max(int(merged.get("_param_count", 0) or 0), count_query_params(merged))
+    except Exception:
+        pass
+    return merged
 
 def normalize_component_keyword_compact(text):
     upper = clean_text(text).upper()
@@ -21340,10 +21373,6 @@ def parse_yageo_common(model):
         "X5R": "X5R", "X7R": "X7R", "C0G": "COG(NPO)", "NP0": "COG(NPO)", "NPO": "COG(NPO)", "Y5V": "Y5V"
     }
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
-    voltage_map = {
-        "4": "4", "5": "6.3", "6": "10", "7": "16", "8": "25", "9": "50",
-        "A": "100", "B": "200", "C": "250", "D": "500", "E": "630"
-    }
     series_profile = yageo_mlcc_series_profile(prefix)
 
     try:
@@ -21367,7 +21396,7 @@ def parse_yageo_common(model):
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
             "容值_pf": cap_pf,
             "容值误差": clean_tol_for_match(tol_map.get(tol_code, "")),
-            "耐压（V）": clean_voltage(voltage_map.get(volt_code, "")),
+            "耐压（V）": clean_voltage(YAGEO_MLCC_VOLTAGE_CODE_MAP.get(volt_code, "")),
             "_model_rule_authority": "yageo_cc_cq",
         }
     except:
@@ -21624,12 +21653,11 @@ def parse_yageo_partial(model):
     }
     material_map = {"X5R": "X5R", "X7R": "X7R", "C0G": "COG(NPO)", "NP0": "COG(NPO)", "Y5V": "Y5V"}
     tol_map = {"B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
-    voltage_map = {"4": "4", "5": "6.3", "6": "10", "7": "16", "8": "25", "9": "50", "A": "100", "B": "200", "C": "250", "D": "500", "E": "630"}
 
     size = size_map.get(model[2:6], "") if len(model) >= 6 else ""
     tol = tol_map.get(model[6], "") if len(model) >= 7 else ""
     mat = material_map.get(model[8:11], "") if len(model) >= 11 else ""
-    volt = voltage_map.get(model[11], "") if len(model) >= 12 else ""
+    volt = YAGEO_MLCC_VOLTAGE_CODE_MAP.get(model[11], "") if len(model) >= 12 else ""
     pf = eia_code_to_pf(model[14:17]) if len(model) >= 17 else None
 
     param_count = sum([1 if size else 0, 1 if mat else 0, 1 if volt else 0, 1 if pf is not None else 0, 1 if tol else 0])
@@ -24484,6 +24512,7 @@ def make_query_cache_key(query_text, mode, spec=None):
 def cached_run_query_match(df, mode, spec, query_text=""):
     if spec is None:
         return pd.DataFrame()
+    spec = merge_query_text_hints_into_spec(spec, query_text)
     cache = get_session_query_cache()
     cache_key = make_query_cache_key(query_text, mode, spec)
     cached = cache.get(cache_key)
@@ -24510,7 +24539,7 @@ def build_regression_case_result(df, case_row):
         get_full_search_df=lambda: df,
     )
     mode = resolved.get("mode", "无法识别")
-    spec = resolved.get("spec", None)
+    spec = merge_query_text_hints_into_spec(resolved.get("spec", None), query)
     mode_code = REGRESSION_MODE_MAP.get(mode, clean_text(mode).lower())
     query_df = resolved.get("query_df", None)
     if not isinstance(query_df, pd.DataFrame) or query_df.empty:
@@ -30889,6 +30918,7 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
             query_df = full_df if allow_heavy_fallback else None
             if query_df is not None and (mode == "无法识别" or spec is None):
                 mode, spec = detect_query_mode_and_spec(query_df, query_text)
+        spec = merge_query_text_hints_into_spec(spec, query_text)
         result = {
             "mode": mode,
             "spec": spec,
@@ -32845,6 +32875,9 @@ if search_requested:
                                 "candidate_rows": candidate_rows,
                             }
                         )
+            spec = merge_query_text_hints_into_spec(spec, line)
+            if isinstance(resolved, dict):
+                resolved["spec"] = spec
             source_label = clean_text(resolved_state.get("source_label", ""))
             source_tone = clean_text(resolved_state.get("source_tone", ""))
             base_chips = []

@@ -448,3 +448,10 @@
 - Root cause: `st.button(..., on_click=...)` triggers a full Streamlit rerun. The callback persisted the report notification but did not preserve or replay the search request, and the result UI was only rendered in the one-run `search_clicked` branch.
 - Fix: Give the search input a stable session key, save the last search text, set a restore flag in the report callback, and treat that restore flag as a one-shot search request on the rerun. Restored renders skip duplicate member search-log insertion.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-26 - Yageo MLCC 630V part displayed blank voltage
+
+- Bug: Searching `0.01uF;630V;±10%;0805;X7R;YAGEO;CC0805KKX7RZBB103;无卤` showed the Yageo original-material row with an empty `额定电压（V）` field even though the query text includes `630V`.
+- Root cause: The Yageo CC-series voltage-code map was stale and omitted `Z = 630V`; exact/mixed model searches also trusted blank library voltage fields instead of filling them from explicit voltage text in the query.
+- Fix: Centralized the Yageo voltage-code map and updated parsing so `Z -> 630`, `B -> 500`, `C -> 1000`, and `D -> 2000`; added an explicit-query voltage fallback before search cache keys, BOM matching, regression checks, and front-end search rendering.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Static validation confirmed `CC0805KKX7RZBB103` voltage code `Z -> 630` and `parse_voltage_from_text()` extracts `630` from the reported query.

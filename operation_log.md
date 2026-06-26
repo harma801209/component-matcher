@@ -2997,6 +2997,13 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Changed member sessions to a sliding one-hour timeout, refreshed the server expiry on every valid token use, and added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL on reopen, and clears it on logout or invalid token.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
 
+### 2026-06-26 13:54 [fix] Decode Yageo MLCC 630V voltage code
+
+- Received / problem: A Yageo MLCC query `0.01uF;630V;±10%;0805;X7R;YAGEO;CC0805KKX7RZBB103;无卤` showed a blank rated-voltage field even though both the customer text and the Yageo part number indicate 630V.
+- Root cause: The Yageo CC-series voltage-code decoder used an outdated local map and did not include `Z = 630V`. Mixed model/spec searches also did not fill an empty library voltage field from the explicit `630V` in the user input.
+- Change / action: Added the current Yageo voltage-code map (`Z=630`, `B=500`, `C=1000`, `D=2000`), reused it in full and partial Yageo model parsing, and merged explicit voltage text back into parsed specs for search, BOM, regression, and cached match paths.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Static check confirmed `CC0805KKX7RZBB103` voltage code `Z -> 630` and the query text parser extracts `630`.
+
 ### 2026-06-25 23:01 [fix] Continue BOM matching after login prompt
 
 - Received / problem: User uploaded an image BOM while not logged in, logged in from the required member prompt, but the app did not automatically continue matching the already uploaded image.
