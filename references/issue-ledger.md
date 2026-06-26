@@ -425,8 +425,8 @@
 
 - Bug: The public page could finish OCR on the user's FOJAN quote-sheet PNG but output 9 failed rows, garbled OCR preview text, and an incorrect MLCC distribution instead of the visible 12-row resistor quote table.
 - Root cause: The image OCR pipeline only used free-text OCR grouping. For small dense grid screenshots, Tesseract's word order and line grouping can be wrong even though the visual table grid is clear.
-- Fix: Add a grid-table OCR path before the free-text fallback. It detects horizontal/vertical grid lines, reconstructs header/data row intervals, enlarges each row, masks grid strokes, OCRs the row image, and assigns OCR words back to detected columns.
-- Verification: `python -m py_compile component_matcher.py` passed. Local image analysis on the reported PNG detects 11 table columns and 12 data rows after the header. Cloud OCR verification is required after deployment because local Tesseract is unavailable.
+- Fix: Add a grid-table OCR path before the free-text fallback. It detects horizontal/vertical grid lines, reconstructs header/data row intervals, enlarges each row, masks grid strokes, OCRs the row image, and assigns OCR words back to detected columns. A second cell-by-cell fallback now crops and OCRs each detected cell when row-level OCR is still not meaningful.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local image analysis on the reported PNG detects 11 table columns and 12 data rows after the header. Cloud OCR verification is required after deployment because local Tesseract is unavailable.
 
 ## 2026-06-24 - Backend resolved no-match reports did not become searchable library rows
 

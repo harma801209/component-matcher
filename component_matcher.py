@@ -29929,6 +29929,70 @@ def tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, l
     return cells
 
 
+def render_bom_grid_cell_for_ocr(image, left, top, right, bottom):
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+    except Exception:
+        return None
+    width, height = image.size
+    crop_left = max(0, int(left) + 2)
+    crop_top = max(0, int(top) + 2)
+    crop_right = min(width, int(right) - 2)
+    crop_bottom = min(height, int(bottom) - 2)
+    if crop_right - crop_left < 8 or crop_bottom - crop_top < 8:
+        return None
+    crop = image.crop((crop_left, crop_top, crop_right, crop_bottom)).convert("L")
+    crop = ImageOps.autocontrast(crop)
+    try:
+        crop = crop.filter(ImageFilter.UnsharpMask(radius=1.0, percent=180, threshold=3))
+    except Exception:
+        pass
+    scale = max(2.5, min(5.0, 120.0 / max(1, crop.height)))
+    resample = getattr(Image, "Resampling", Image).LANCZOS
+    crop = crop.resize((max(1, int(crop.width * scale)), max(1, int(crop.height * scale))), resample)
+    return crop
+
+
+def tesseract_bom_grid_cell_to_text(pytesseract_module, cell_image, language):
+    if cell_image is None:
+        return ""
+    config = "--psm 7 --oem 3 -c preserve_interword_spaces=1"
+    try:
+        text = pytesseract_module.image_to_string(
+            cell_image,
+            lang=language,
+            config=config,
+            timeout=BOM_OCR_GRID_CELL_TIMEOUT_SECONDS,
+        )
+    except TypeError:
+        text = pytesseract_module.image_to_string(cell_image, lang=language, config=config)
+    text = clean_text(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def build_bom_grid_cell_rows_from_cells(pytesseract_module, image, row_lines, col_lines, language, started_at=None):
+    rows = []
+    for row_idx in range(len(row_lines) - 1):
+        if started_at is not None and time.monotonic() - started_at > BOM_OCR_GRID_CELL_TOTAL_BUDGET_SECONDS:
+            break
+        top, bottom = row_lines[row_idx], row_lines[row_idx + 1]
+        if bottom - top < 8:
+            continue
+        cells = []
+        for col_idx in range(len(col_lines) - 1):
+            left, right = col_lines[col_idx], col_lines[col_idx + 1]
+            cell_image = render_bom_grid_cell_for_ocr(image, left, top, right, bottom)
+            try:
+                text = tesseract_bom_grid_cell_to_text(pytesseract_module, cell_image, language)
+            except Exception:
+                text = ""
+            cells.append(text)
+        if any(clean_text(value) for value in cells):
+            rows.append(cells)
+    return rows
+
+
 def bom_grid_data_row_is_meaningful(cells):
     values = [clean_text(value) for value in cells or []]
     if not any(values):
@@ -29961,28 +30025,7 @@ def bom_grid_dataframe_is_usable(df):
     return rows >= 2 and score_bom_ocr_dataframe(df) >= BOM_OCR_STRONG_SCORE
 
 
-def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, started_at=None):
-    row_lines, col_lines = detect_bom_image_grid_lines(image)
-    row_lines = complete_bom_grid_horizontal_lines(row_lines, image.size[1])
-    if len(row_lines) < 3 or len(col_lines) < 3:
-        return pd.DataFrame()
-    if len(row_lines) > 90:
-        row_lines = row_lines[:90]
-
-    row_cells = []
-    for idx in range(len(row_lines) - 1):
-        if started_at is not None and time.monotonic() - started_at > BOM_OCR_GRID_TOTAL_BUDGET_SECONDS:
-            break
-        row_top, row_bottom = row_lines[idx], row_lines[idx + 1]
-        if row_bottom - row_top < 8:
-            continue
-        row_image, boundaries, _ = render_bom_grid_row_for_ocr(image, row_top, row_bottom, col_lines)
-        try:
-            cells = tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, language)
-        except Exception:
-            cells = []
-        if cells:
-            row_cells.append(cells)
+def build_bom_dataframe_from_grid_cell_rows(row_cells):
     if len(row_cells) < 2:
         return pd.DataFrame()
 
@@ -30015,6 +30058,48 @@ def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, sta
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows, columns=headers + ["OCR原文", "OCR行号"])
+
+
+def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, started_at=None):
+    row_lines, col_lines = detect_bom_image_grid_lines(image)
+    row_lines = complete_bom_grid_horizontal_lines(row_lines, image.size[1])
+    if len(row_lines) < 3 or len(col_lines) < 3:
+        return pd.DataFrame()
+    if len(row_lines) > 90:
+        row_lines = row_lines[:90]
+
+    row_cells = []
+    for idx in range(len(row_lines) - 1):
+        if started_at is not None and time.monotonic() - started_at > BOM_OCR_GRID_TOTAL_BUDGET_SECONDS:
+            break
+        row_top, row_bottom = row_lines[idx], row_lines[idx + 1]
+        if row_bottom - row_top < 8:
+            continue
+        row_image, boundaries, _ = render_bom_grid_row_for_ocr(image, row_top, row_bottom, col_lines)
+        try:
+            cells = tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, language)
+        except Exception:
+            cells = []
+        if cells:
+            row_cells.append(cells)
+    row_df = build_bom_dataframe_from_grid_cell_rows(row_cells)
+    if bom_grid_dataframe_is_usable(row_df):
+        return row_df
+
+    cell_rows = build_bom_grid_cell_rows_from_cells(
+        pytesseract_module,
+        image,
+        row_lines,
+        col_lines,
+        language,
+        started_at=started_at,
+    )
+    cell_df = build_bom_dataframe_from_grid_cell_rows(cell_rows)
+    if bom_grid_dataframe_is_usable(cell_df):
+        return cell_df
+    if not cell_df.empty:
+        return cell_df
+    return row_df
 
 
 def normalize_ocr_table_text(text):
@@ -30217,6 +30302,8 @@ BOM_OCR_PER_PASS_TIMEOUT_SECONDS = 7
 BOM_OCR_TOTAL_BUDGET_SECONDS = 22.0
 BOM_OCR_GRID_ROW_TIMEOUT_SECONDS = 2
 BOM_OCR_GRID_TOTAL_BUDGET_SECONDS = 30.0
+BOM_OCR_GRID_CELL_TIMEOUT_SECONDS = 1
+BOM_OCR_GRID_CELL_TOTAL_BUDGET_SECONDS = 45.0
 
 
 def collect_bom_ocr_quality_text(df):
