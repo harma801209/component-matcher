@@ -375,11 +375,15 @@ def submit_no_match_report(
 def submit_no_match_report_payload(payload):
     payload = dict(payload or {})
     ok, message, report_id = submit_no_match_report(**payload)
+    current_search_input = clean_text(st.session_state.get("search_query_input", ""))
+    if current_search_input:
+        st.session_state["_last_search_query_input"] = current_search_input
     st.session_state["_no_match_report_last_message"] = {
         "ok": bool(ok),
         "message": clean_text(message),
         "report_id": report_id,
     }
+    st.session_state["_restore_search_after_no_match_report"] = True
 
 
 def list_no_match_reports(status_filter="待处理"):
@@ -32636,15 +32640,27 @@ if is_member_page_requested():
     render_member_center_page()
     st.stop()
 
-query_input = st.text_area("查询输入", placeholder="请输入料号，可多行输入", label_visibility="collapsed")
+search_text_area_kwargs = {
+    "label": "查询输入",
+    "placeholder": "请输入料号，可多行输入",
+    "label_visibility": "collapsed",
+    "key": "search_query_input",
+}
+if "search_query_input" not in st.session_state:
+    search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
+query_input = st.text_area(**search_text_area_kwargs)
 search_clicked = st.button("搜索")
+restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
+if restore_search_after_report and not query_input.strip():
+    query_input = clean_text(st.session_state.get("_last_search_query_input", ""))
+search_requested = bool(search_clicked or (restore_search_after_report and query_input.strip()))
 startup_trace("after_search_form")
 
 pending_member_action = clean_text(st.session_state.get("_member_auth_prompt_action", ""))
-if pending_member_action and not current_member() and not search_clicked:
+if pending_member_action and not current_member() and not search_requested:
     render_member_auth_panel(pending_member_action)
 
-if search_clicked:
+if search_requested:
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
     if not query_input.strip():
@@ -32666,7 +32682,9 @@ if search_clicked:
         if any(re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", line) for line in lines):
             st.error("查询内容包含不可见控制字符，请清理后再搜索。")
             st.stop()
-        record_member_search_logs(current_member(), lines, source="搜索匹配")
+        st.session_state["_last_search_query_input"] = query_input
+        if not restore_search_after_report:
+            record_member_search_logs(current_member(), lines, source="搜索匹配")
         full_search_df_cache = {"loaded": False, "df": pd.DataFrame()}
         database_empty_warned = False
         search_started_at = time.time()

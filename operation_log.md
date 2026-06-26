@@ -3039,3 +3039,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: The trend chart markup was passed to `st.markdown()` with leading indentation. Markdown treated the indented HTML as a code block before Streamlit could render it as unsafe HTML.
 - Change / action: Dedented and stripped the chart wrapper and each bar row before rendering, then passed the final compact HTML to `st.markdown(..., unsafe_allow_html=True)`. Updated the Streamlit release stamp to nudge the public deployment.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-26 11:56 [fix] Keep search results after no-match report submit
+
+- Received / problem: User clicked "回报物料无匹配型号" after a search result, and the success notice appeared but the original search result section disappeared, forcing another manual search.
+- Root cause: Streamlit button callbacks rerun the script. The report callback only stored the success message, while the search result rendering lived inside the transient search-button branch.
+- Change / action: Added a stable search text-area key, saved the last search input, and set a restore flag from the no-match report callback. On the callback rerun, the app automatically re-renders the previous search result from the saved input while skipping duplicate member search-log writes.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.

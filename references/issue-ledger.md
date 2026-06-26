@@ -441,3 +441,10 @@
 - Root cause: The HTML string was indented inside a triple-quoted Python string. Streamlit Markdown interpreted that indentation as a code block, so the tags were escaped and shown as text.
 - Fix: Dedent/strip the trend chart wrapper and each generated row before sending the final markup to `st.markdown(..., unsafe_allow_html=True)`.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+## 2026-06-26 - No-match report button cleared the current search results
+
+- Bug: Clicking "回报物料无匹配型号" submitted the report but left the page with only the success notice and the search input, so users had to search again to see the prior result.
+- Root cause: `st.button(..., on_click=...)` triggers a full Streamlit rerun. The callback persisted the report notification but did not preserve or replay the search request, and the result UI was only rendered in the one-run `search_clicked` branch.
+- Fix: Give the search input a stable session key, save the last search text, set a restore flag in the report callback, and treat that restore flag as a one-shot search request on the rerun. Restored renders skip duplicate member search-log insertion.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
