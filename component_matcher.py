@@ -153,7 +153,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-26T13:54:20+08:00"
+PUBLIC_CODE_STAMP = "2026-06-27T14:37:19+08:00"
 
 
 def startup_trace(message):
@@ -1133,6 +1133,9 @@ def ensure_member_auth_schema():
 
             CREATE INDEX IF NOT EXISTS idx_member_search_logs_created_at
             ON member_search_logs(created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_logs_date_id
+            ON member_search_logs(search_date, id DESC);
             """
         )
         migrate_member_timestamp_timezone_if_needed(conn)
@@ -1530,11 +1533,14 @@ def build_member_search_log_where(start_date="", end_date="", keyword=""):
 def list_member_search_log_summary(start_date="", end_date="", keyword="", limit=300):
     ensure_member_auth_schema()
     where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
-    try:
-        limit = max(1, min(1000, int(limit)))
-    except Exception:
-        limit = 300
-    params.append(limit)
+    limit_clause = ""
+    if limit is not None:
+        try:
+            limit = max(1, min(1000, int(limit)))
+        except Exception:
+            limit = 300
+        limit_clause = "LIMIT ?"
+        params.append(limit)
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -1551,7 +1557,7 @@ def list_member_search_log_summary(start_date="", end_date="", keyword="", limit
             {where_clause}
             GROUP BY search_date, query_key
             ORDER BY search_date DESC, search_count DESC, last_searched_at DESC
-            LIMIT ?
+            {limit_clause}
             """,
             tuple(params),
         ).fetchall()
@@ -1753,16 +1759,16 @@ def infer_member_search_trend_spec(query_text, model_cache=None):
             except Exception:
                 model_cache[model_key] = pd.DataFrame()
         exact_df = model_cache.get(model_key, pd.DataFrame())
-        try:
-            spec = reverse_spec(exact_df, query_text)
-            if isinstance(spec, dict):
-                candidate_specs.append(spec)
-        except Exception:
-            pass
+        if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
+            try:
+                spec = reverse_spec(exact_df, query_text)
+                if isinstance(spec, dict):
+                    candidate_specs.append(spec)
+            except Exception:
+                pass
 
     for parser in (
         lambda: parse_model_rule(query_text),
-        lambda: detect_query_mode_and_spec(exact_df, query_text)[1],
         lambda: parse_spec_query(query_text),
         lambda: parse_other_passive_query(query_text),
     ):
@@ -1793,15 +1799,68 @@ def infer_member_search_trend_spec(query_text, model_cache=None):
     return best_label, best_type
 
 
-def build_member_search_trend_dataframe(summary_rows):
-    model_cache = {}
+def member_search_trend_rows_signature(summary_rows):
+    return tuple(
+        (
+            clean_text(row.get("search_date", "")),
+            clean_text(row.get("query_text", "")),
+            int(row.get("search_count") or 0),
+        )
+        for row in (summary_rows or [])
+    )
+
+
+def member_search_trend_database_signature():
+    try:
+        stat = os.stat(DB_PATH)
+        return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
+    except OSError:
+        return "missing"
+
+
+def member_search_trend_period_label(search_date, period):
+    search_date = clean_text(search_date)
+    try:
+        day = datetime.strptime(search_date, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return ""
+    if period == "weekly":
+        week_start = day - timedelta(days=day.weekday())
+        week_end = week_start + timedelta(days=6)
+        return f"{week_start.isoformat()} 至 {week_end.isoformat()}"
+    if period == "monthly":
+        return day.strftime("%Y-%m")
+    return day.isoformat()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _build_member_search_trend_base_dataframe_cached(rows_signature, database_signature):
+    del database_signature
+    trace_started = time.perf_counter()
+    compact_model_queries = []
+    for _, query_text, _ in rows_signature:
+        model_key = clean_model(query_text)
+        if (
+            model_key != ""
+            and re.search(r"[A-Z]", model_key) is not None
+            and re.search(r"\d", model_key) is not None
+            and re.search(r"[\s,/\\|;:%]", query_text) is None
+        ):
+            compact_model_queries.append(query_text)
+    unique_model_queries = list(dict.fromkeys(compact_model_queries))
+    model_cache = (
+        load_component_rows_by_exact_models_from_database(unique_model_queries)
+        if unique_model_queries
+        else {}
+    )
+    startup_trace(
+        f"search_trends:model_lookup rows={len(unique_model_queries)} elapsed={time.perf_counter() - trace_started:.4f}"
+    )
     buckets = {}
-    for row in summary_rows or []:
-        query_text = clean_text(row.get("query_text", ""))
+    for search_date, query_text, search_count in rows_signature:
         label, component_type = infer_member_search_trend_spec(query_text, model_cache=model_cache)
         if label == "":
             continue
-        search_date = clean_text(row.get("search_date", ""))
         if search_date == "":
             continue
         key = (search_date, label)
@@ -1815,41 +1874,76 @@ def build_member_search_trend_dataframe(summary_rows):
                 "来源示例": query_text,
             },
         )
-        item["搜索次数"] += int(row.get("search_count") or 0)
+        item["搜索次数"] += int(search_count or 0)
         if clean_text(item.get("器件类型", "")) == "" and component_type != "":
             item["器件类型"] = component_type
     if not buckets:
-        return pd.DataFrame(columns=["日期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
-    df = pd.DataFrame(list(buckets.values()))
-    df = df.sort_values(["日期", "搜索次数", "规格参数"], ascending=[False, False, True]).reset_index(drop=True)
-    df["排名"] = df.groupby("日期").cumcount() + 1
+        return pd.DataFrame(columns=["日期", "规格参数", "器件类型", "搜索次数", "来源示例"])
+    startup_trace(
+        f"search_trends:normalize rows={len(rows_signature)} buckets={len(buckets)} elapsed={time.perf_counter() - trace_started:.4f}"
+    )
+    return pd.DataFrame(list(buckets.values()))
+
+
+def build_member_search_trend_dataframe(summary_rows, period="daily"):
+    period = clean_text(period).lower()
+    if period not in {"daily", "weekly", "monthly"}:
+        period = "daily"
+    base_df = _build_member_search_trend_base_dataframe_cached(
+        member_search_trend_rows_signature(summary_rows),
+        member_search_trend_database_signature(),
+    )
+    if not isinstance(base_df, pd.DataFrame) or base_df.empty:
+        return pd.DataFrame(columns=["周期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
+    work = base_df.copy()
+    work["周期"] = work["日期"].apply(lambda value: member_search_trend_period_label(value, period))
+    work = work[work["周期"].astype(str).ne("")].copy()
+    if work.empty:
+        return pd.DataFrame(columns=["周期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
+    df = (
+        work.groupby(["周期", "规格参数"], as_index=False)
+        .agg(
+            器件类型=("器件类型", "first"),
+            搜索次数=("搜索次数", "sum"),
+            来源示例=("来源示例", "first"),
+        )
+    )
+    df = df.sort_values(["周期", "搜索次数", "规格参数"], ascending=[False, False, True]).reset_index(drop=True)
+    df["排名"] = df.groupby("周期").cumcount() + 1
     df = df[df["排名"] <= 10].copy()
-    return df[["日期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"]]
+    return df[["周期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"]]
 
 
-def render_member_search_trend_chart(trend_df):
+def render_member_search_trend_chart(trend_df, period="daily"):
     if not isinstance(trend_df, pd.DataFrame) or trend_df.empty:
         st.info("当前筛选范围内还没有能归一成规格参数的搜索记录。")
         return
-    dates = sorted([clean_text(x) for x in trend_df["日期"].dropna().unique() if clean_text(x) != ""], reverse=True)
-    if not dates:
+    period = clean_text(period).lower()
+    period_config = {
+        "daily": ("趋势日期", "admin_search_trend_daily", "日期"),
+        "weekly": ("趋势周", "admin_search_trend_weekly", "周"),
+        "monthly": ("趋势月份", "admin_search_trend_monthly", "月份"),
+    }
+    selector_label, selector_key, empty_label = period_config.get(period, period_config["daily"])
+    periods = sorted([clean_text(x) for x in trend_df["周期"].dropna().unique() if clean_text(x) != ""], reverse=True)
+    if not periods:
         st.info("当前筛选范围内还没有能归一成规格参数的搜索记录。")
         return
-    selected_date = st.selectbox(
-        "趋势日期",
-        options=dates,
+    selected_period = st.selectbox(
+        selector_label,
+        options=periods,
         index=0,
-        key="admin_search_trend_date",
-        help="按所选日期展示归一规格后的搜索 Top10。",
+        key=selector_key,
+        help=f"按所选{empty_label}展示归一规格后的搜索 Top10。",
     )
-    day_df = trend_df[trend_df["日期"].astype(str).apply(clean_text).eq(selected_date)].copy()
-    day_df = day_df.sort_values(["搜索次数", "规格参数"], ascending=[False, True]).head(10)
-    if day_df.empty:
-        st.info("所选日期没有可展示的规格趋势。")
+    period_df = trend_df[trend_df["周期"].astype(str).apply(clean_text).eq(selected_period)].copy()
+    period_df = period_df.sort_values(["搜索次数", "规格参数"], ascending=[False, True]).head(10)
+    if period_df.empty:
+        st.info(f"所选{empty_label}没有可展示的规格趋势。")
         return
-    max_count = max(1, int(day_df["搜索次数"].max()))
+    max_count = max(1, int(period_df["搜索次数"].max()))
     bars = []
-    for _, row in day_df.iterrows():
+    for _, row in period_df.iterrows():
         count = int(row.get("搜索次数") or 0)
         pct = max(6, min(100, int(round(count * 100 / max_count))))
         label = html.escape(clean_text(row.get("规格参数", "")))
@@ -2827,9 +2921,10 @@ def render_member_admin_management_page():
 
 
 def render_member_search_logs_admin_page():
+    trace_started = time.perf_counter()
     render_admin_section_header(
         "搜索记录",
-        "汇总会员搜索型号和规格参数的记录，用来查看每天哪些需求最频繁。",
+        "汇总会员搜索型号和规格参数的记录，用来查看每日、每周及每月哪些需求最频繁。",
         "需求统计",
     )
     today = datetime.now(APP_TIMEZONE).date()
@@ -2861,8 +2956,11 @@ def render_member_search_logs_admin_page():
         return
 
     summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=limit)
-    trend_summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=1000)
+    trend_summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=None)
     detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=limit)
+    startup_trace(
+        f"search_logs:queries summary={len(summary_rows)} trend={len(trend_summary_rows)} details={len(detail_rows)} elapsed={time.perf_counter() - trace_started:.4f}"
+    )
     total_search_count = sum(int(row.get("search_count") or 0) for row in summary_rows)
     unique_query_count = len(summary_rows)
     active_member_count = len({int(row.get("member_id") or 0) for row in detail_rows if int(row.get("member_id") or 0) > 0})
@@ -2888,11 +2986,36 @@ def render_member_search_logs_admin_page():
         render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
         return
 
-    trend_df = build_member_search_trend_dataframe(trend_summary_rows)
-    st.markdown("#### 每日十大规格趋势")
-    render_member_search_trend_chart(trend_df)
+    trend_period_options = ["每日", "每周", "每月"]
+    trend_period_label = clean_text(st.session_state.get("admin_search_trend_period", "每日"))
+    if trend_period_label not in trend_period_options:
+        trend_period_label = "每日"
+    trend_period = {"每日": "daily", "每周": "weekly", "每月": "monthly"}.get(trend_period_label, "daily")
+    trend_title = {
+        "daily": "每日十大搜索规格趋势",
+        "weekly": "每周十大搜索规格趋势",
+        "monthly": "每月十大搜索规格趋势",
+    }[trend_period]
+    st.markdown(f"#### {trend_title}")
+    trend_period_label = render_admin_segmented_control(
+        "搜索规格趋势周期",
+        trend_period_options,
+        key="admin_search_trend_period",
+        default="每日",
+    )
+    trend_period = {"每日": "daily", "每周": "weekly", "每月": "monthly"}.get(trend_period_label, "daily")
+    trend_df = build_member_search_trend_dataframe(trend_summary_rows, period=trend_period)
+    startup_trace(
+        f"search_logs:trend period={trend_period} rows={len(trend_df)} elapsed={time.perf_counter() - trace_started:.4f}"
+    )
+    render_member_search_trend_chart(trend_df, period=trend_period)
     if isinstance(trend_df, pd.DataFrame) and not trend_df.empty:
-        with st.expander("查看每日规格趋势明细", expanded=False):
+        detail_label = {
+            "daily": "查看每日搜索规格趋势明细",
+            "weekly": "查看每周搜索规格趋势明细",
+            "monthly": "查看每月搜索规格趋势明细",
+        }[trend_period]
+        with st.expander(detail_label, expanded=False):
             st.dataframe(
                 trend_df,
                 use_container_width=True,
@@ -20136,6 +20259,35 @@ def extract_special_use_from_text(text):
     return "/".join(dict.fromkeys(tokens))
 
 
+def component_has_automotive_qualification(record):
+    if record is None:
+        return False
+    values = []
+    for field in (
+        "器件类型",
+        "品牌",
+        "型号",
+        "系列",
+        "系列说明",
+        "特殊用途",
+        "规格摘要",
+        "备注1",
+        "备注2",
+        "备注3",
+        "_mlcc_series_class",
+    ):
+        try:
+            values.append(clean_text(record.get(field, "")))
+        except Exception:
+            continue
+    text = " ".join(value for value in values if value).upper()
+    if text == "":
+        return False
+    if re.search(r"WITHOUT\s+AEC[- ]?Q200|无\s*AEC[- ]?Q200|次车规", text, flags=re.I):
+        return False
+    return re.search(r"\bAUTOMOTIVE\b|\bAEC[- ]?Q200\b|汽车级|(?<!次)车规", text, flags=re.I) is not None
+
+
 def working_temperature_covers(candidate, target):
     target_norm = normalize_working_temperature_text(target)
     if target_norm == "":
@@ -25730,6 +25882,48 @@ def load_component_rows_by_exact_model_from_database(model):
             conn.close()
 
 
+def load_component_rows_by_exact_models_from_database(models):
+    model_texts = list(
+        dict.fromkeys(
+            clean_text(model)
+            for model in (models or [])
+            if clean_text(model) != ""
+        )
+    )
+    result_map = {clean_model(model): pd.DataFrame() for model in model_texts if clean_model(model) != ""}
+    if not model_texts or not os.path.exists(DB_PATH):
+        return result_map
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        frames = []
+        exact_values = list(dict.fromkeys(model_texts + [model.upper() for model in model_texts]))
+        for model_chunk in chunk_items(exact_values, 200):
+            placeholders = ",".join(["?"] * len(model_chunk))
+            frames.append(
+                pd.read_sql_query(
+                    f"SELECT * FROM components WHERE [型号] IN ({placeholders})",
+                    conn,
+                    params=model_chunk,
+                )
+            )
+        exact_df = concat_component_frames(frames)
+        if not isinstance(exact_df, pd.DataFrame) or exact_df.empty:
+            return result_map
+        exact_df = prepare_search_dataframe(exact_df)
+        if exact_df.empty or "_model_clean" not in exact_df.columns:
+            return result_map
+        model_series = exact_df["_model_clean"].astype(str)
+        for model_key in result_map:
+            result_map[model_key] = exact_df[model_series.eq(model_key)].copy()
+        return result_map
+    except Exception:
+        return result_map
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def load_semiconductor_rows_by_model_prefix(model, limit=50):
     model_clean = clean_model(model)
     if len(model_clean) < 5 or not os.path.exists(DB_PATH):
@@ -29445,6 +29639,14 @@ def apply_match_levels_and_sort(df, spec):
     else:
         work["_exact_model_rank"] = 1
     work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
+    target_is_automotive = component_has_automotive_qualification(spec)
+    if target_is_automotive:
+        work["_automotive_rank"] = work.apply(
+            lambda row: 0 if component_has_automotive_qualification(row) else 1,
+            axis=1,
+        )
+    else:
+        work["_automotive_rank"] = 0
     if target_type == "热敏电阻":
         spec_b_value = normalize_b_value_text(spec.get("B值", ""))
         spec_b_condition = clean_text(spec.get("B值条件", ""))
@@ -29463,8 +29665,8 @@ def apply_match_levels_and_sort(df, spec):
         work["_thermistor_b_rank"] = 0
         work["_thermistor_series_rank"] = 0
     if target_type in CAPACITOR_COMPONENT_TYPES:
-        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_brand_rank"]
-        ascending = [True, True, True, True]
+        sort_cols = ["_exact_model_rank", "_automotive_rank", "_seed_rank", "_level_rank", "_brand_rank"]
+        ascending = [True, True, True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -29474,8 +29676,8 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["品牌", "型号"])
         ascending.extend([True, True])
     else:
-        sort_cols = ["_exact_model_rank", "_seed_rank", "_level_rank", "_thermistor_b_rank", "_thermistor_series_rank"]
-        ascending = [True, True, True, True, True]
+        sort_cols = ["_exact_model_rank", "_automotive_rank", "_seed_rank", "_level_rank", "_thermistor_b_rank", "_thermistor_series_rank"]
+        ascending = [True, True, True, True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
@@ -29488,6 +29690,7 @@ def apply_match_levels_and_sort(df, spec):
     return work.drop(
         columns=[
             "_exact_model_rank",
+            "_automotive_rank",
             "_seed_rank",
             "_level_rank",
             "_brand_rank",
