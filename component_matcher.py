@@ -1614,9 +1614,21 @@ def member_search_detail_dataframe(rows):
     return pd.DataFrame(data)
 
 
-def format_member_search_trend_value(spec):
+def format_member_search_trend_value(spec, component_type=""):
     if not isinstance(spec, dict):
         return ""
+    component_type = normalize_component_type(component_type) or infer_spec_component_type(spec)
+    if component_type in ALL_RESISTOR_TYPES:
+        resistance = spec.get("_resistance_ohm", None)
+        try:
+            if resistance is not None and clean_text(resistance) != "":
+                return format_resistance_display(float(resistance))
+        except Exception:
+            pass
+        resistance_value = clean_text(spec.get("阻值@25C", ""))
+        resistance_unit = clean_text(spec.get("阻值单位", "")).upper()
+        if resistance_value != "":
+            return f"{resistance_value}{resistance_unit}"
     value = clean_text(spec.get("容值", ""))
     unit = normalize_library_value_unit(spec.get("容值单位", ""))
     if value != "" and unit != "":
@@ -1631,24 +1643,89 @@ def format_member_search_trend_value(spec):
                 return f"{cap_value}{cap_unit}"
     except Exception:
         pass
-    resistance = spec.get("_resistance_ohm", None)
-    try:
-        if resistance is not None and clean_text(resistance) != "":
-            return format_resistance_display(float(resistance))
-    except Exception:
-        pass
     return ""
 
 
-def format_member_search_trend_spec_label(spec):
+def format_member_search_trend_quantity(spec, value_key, unit_key, default_unit=""):
     if not isinstance(spec, dict):
         return ""
+    value = normalize_numeric_range_text(clean_text(spec.get(value_key, "")))
+    unit = clean_text(spec.get(unit_key, "")).upper() or clean_text(default_unit).upper()
+    if value == "":
+        return ""
+    return f"{value}{unit}"
+
+
+def format_member_search_trend_spec_label(spec, component_type=""):
+    if not isinstance(spec, dict):
+        return ""
+    component_type = normalize_component_type(component_type) or infer_spec_component_type(spec)
     size = clean_size(spec.get("尺寸（inch）", "")) or clean_text(spec.get("_body_size", "")) or clean_text(spec.get("尺寸（mm）", ""))
     material = clean_material(spec.get("材质（介质）", ""))
-    value = format_member_search_trend_value(spec)
-    tolerance = clean_tol_for_display(spec.get("容值误差", "")) or clean_tol_for_display(spec.get("阻值误差", ""))
+    value = format_member_search_trend_value(spec, component_type=component_type)
+    capacitance_tolerance = clean_tol_for_display(spec.get("容值误差", ""))
+    resistance_tolerance = clean_tol_for_display(spec.get("阻值误差", "")) or capacitance_tolerance
     voltage = voltage_display(spec.get("耐压（V）", ""))
-    parts = [size or "-", material or "-", value or "-", tolerance or "-", voltage or "-"]
+    power = clean_text(spec.get("_power", "")) or clean_text(spec.get("功率", ""))
+    rated_current = format_current_display(spec.get("额定电流", ""))
+    dcr = clean_text(spec.get("DCR", ""))
+
+    if component_type == "MLCC":
+        parts = [size, material, value, capacitance_tolerance, voltage]
+    elif component_type in CAPACITOR_COMPONENT_TYPES:
+        # Non-MLCC capacitors do not have an MLCC dielectric slot.
+        parts = [size, value, capacitance_tolerance, voltage]
+    elif component_type in RESISTOR_COMPONENT_TYPES:
+        parts = [size, value, resistance_tolerance, power]
+    elif component_type in {"热敏电阻", "RTD温度传感器", "电阻应变片"}:
+        b_value = clean_text(spec.get("B值", ""))
+        if b_value != "" and not b_value.upper().startswith("B"):
+            b_value = f"B={b_value}"
+        parts = [size, value, resistance_tolerance, b_value]
+    elif component_type in VARISTOR_COMPONENT_TYPES:
+        varistor_voltage = voltage_display(spec.get("压敏电压", "") or spec.get("_varistor_voltage", "") or spec.get("耐压（V）", ""))
+        parts = [size or clean_text(spec.get("规格", "")), varistor_voltage, capacitance_tolerance, rated_current or power]
+    elif component_type == "磁珠":
+        impedance = format_member_search_trend_quantity(spec, "阻抗@100MHz", "阻抗单位")
+        parts = [size, impedance, rated_current, dcr]
+    elif component_type == "共模电感":
+        common_impedance = format_member_search_trend_quantity(spec, "共模阻抗", "阻抗单位")
+        inductance = format_member_search_trend_quantity(spec, "电感值", "电感单位")
+        parts = [size, common_impedance, inductance, rated_current, dcr]
+    elif component_type in POWER_INDUCTOR_COMPONENT_TYPES:
+        inductance = format_member_search_trend_quantity(spec, "电感值", "电感单位")
+        if inductance == "":
+            inductance = format_member_search_trend_quantity(spec, "容值", "容值单位")
+        inductance_tolerance = clean_tol_for_display(spec.get("电感误差", "")) or capacitance_tolerance
+        parts = [size, inductance, inductance_tolerance, rated_current, dcr]
+    elif component_type in TIMING_COMPONENT_TYPES:
+        frequency = format_member_search_trend_quantity(spec, "输出频率", "频率单位")
+        if frequency == "":
+            frequency = format_member_search_trend_quantity(spec, "频率", "频率单位")
+        if frequency == "":
+            frequency = format_member_search_trend_quantity(spec, "容值", "容值单位")
+        frequency_tolerance = clean_text(spec.get("频差（ppm）", "")) or capacitance_tolerance
+        if frequency_tolerance != "" and "PPM" not in frequency_tolerance.upper() and "%" not in frequency_tolerance:
+            frequency_tolerance = f"{frequency_tolerance}ppm"
+        if component_type == "晶振":
+            load_capacitance = clean_text(spec.get("负载电容（pF）", ""))
+            if load_capacitance != "" and "PF" not in load_capacitance.upper():
+                load_capacitance = f"{load_capacitance}pF"
+            parts = [size or clean_text(spec.get("封装代码", "")), frequency, frequency_tolerance, load_capacitance]
+        else:
+            parts = [size or clean_text(spec.get("封装代码", "")), frequency, frequency_tolerance, voltage, clean_text(spec.get("输出类型", ""))]
+    elif component_type in SEMICONDUCTOR_COMPONENT_TYPES:
+        parts = [
+            clean_text(spec.get("封装代码", "")) or size,
+            clean_text(spec.get("极性", "")) or clean_text(spec.get("特殊用途", "")),
+            voltage,
+            rated_current,
+            power,
+        ]
+    else:
+        parts = [size, value, capacitance_tolerance or resistance_tolerance, voltage or power]
+
+    parts = [clean_text(item) or "-" for item in parts]
     if sum(1 for item in parts if item != "-") < 2:
         return ""
     return "/".join(parts)
@@ -1700,14 +1777,19 @@ def infer_member_search_trend_spec(query_text, model_cache=None):
     best_score = -1
     best_type = ""
     for spec in candidate_specs:
-        label = format_member_search_trend_spec_label(spec)
+        component_type = infer_spec_component_type(spec)
+        label = format_member_search_trend_spec_label(spec, component_type=component_type)
         if label == "":
             continue
-        score = sum(1 for item in label.split("/") if item != "-")
+        label_parts = label.split("/")
+        filled_count = sum(1 for item in label_parts if item != "-")
+        # Prefer information-rich candidates while penalizing irrelevant empty
+        # slots, so a resistor parser is not displaced by an MLCC-shaped result.
+        score = (filled_count * 10) - (len(label_parts) - filled_count)
         if score > best_score:
             best_label = label
             best_score = score
-            best_type = infer_spec_component_type(spec)
+            best_type = component_type
     return best_label, best_type
 
 
