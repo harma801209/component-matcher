@@ -3004,6 +3004,13 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Added the current Yageo voltage-code map (`Z=630`, `B=500`, `C=1000`, `D=2000`), reused it in full and partial Yageo model parsing, and merged explicit voltage text back into parsed specs for search, BOM, regression, and cached match paths.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Static check confirmed `CC0805KKX7RZBB103` voltage code `Z -> 630` and the query text parser extracts `630`.
 
+### 2026-06-26 14:08 [audit] Check for similar MLCC voltage display gaps
+
+- Received / problem: User asked whether other brands or models may have the same voltage-code/display issue as the Yageo 630V case.
+- Check / evidence: Reviewed local MLCC voltage-code parsers and queried `components.db` by brand for blank `耐压（V）` fields. Confirmed `CC0805KKX7RZBB103` is now stored as `630`.
+- Findings: No second confirmed high-volume voltage-code map error like the Yageo `Z=630V` issue was found in common Samsung, Walsin, PDC, TDK C-series, or Murata GRM parsing. Remaining blank-voltage rows are mostly special/safety/non-standard series: Murata `DE*/DK*/GA*`, a few TDK `CNA/CNC/CGA`, Yageo `AC/C/CC` edge rows, Taiyo special rows, and one CCTC `TCC...4R0...` row.
+- Follow-up: The new explicit-input voltage fallback covers these blank rows when customer input includes voltage text, but exact-model-only searches for special series may still need targeted official-series backfill later.
+
 ### 2026-06-25 23:01 [fix] Continue BOM matching after login prompt
 
 - Received / problem: User uploaded an image BOM while not logged in, logged in from the required member prompt, but the app did not automatically continue matching the already uploaded image.
@@ -3053,3 +3060,33 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause: Streamlit button callbacks rerun the script. The report callback only stored the success message, while the search result rendering lived inside the transient search-button branch.
 - Change / action: Added a stable search text-area key, saved the last search input, and set a restore flag from the no-match report callback. On the callback rerun, the app automatically re-renders the previous search result from the saved input while skipping duplicate member search-log writes.
 - Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-27 12:10 [library] Import PDC and JOYIN resistor PDF series
+
+- Received / problem: User provided 39 PDC/JOYIN resistor datasheets and requested accurate library coverage for standard, precision, anti-sulfur, high-voltage, current-sense, alloy, resistor-network, NTC, power-NTC, and MOV series.
+- Change / action: Added official-PDF generators for the common PDC resistor families, the special `FAF-MH`, `FBF-10R`, `FCF-E`, `FCF-G`, `FCF-Array`, `FPF-Triple`, `FPS-Triple`, and `FMF` families, plus JOYIN `JAS`, `JAT`, `JCR03`, `JCR05`, `JFR`, `JNR`, `JSR`, `JVT`, and `JVZ`. Existing official JOYIN `JMV`, `JVR`, and `JSN` rows were audited and retained instead of duplicated.
+- Data result: Generated 79,395 common PDC rows, 99,393 special PDC rows, and 2,644 JOYIN sensor/protection rows. Updated the thick-film, thin-film, alloy, NTC, and VDR workbooks, the main SQLite library, prepared Parquet cache, and search sidecar.
+- Performance fix: Replaced per-row workbook deletion with contiguous-range deletion and replaced per-model sidecar deletion with one indexed temporary-table bulk delete. This prevents the 99k-row refresh from stalling.
+- Verification: Representative models `FBF06FT-3R00N`, `FAF02FVA1001QMH`, `FPF05FTF1004NM`, `FPS03FTE10R0NMD`, `FMF06FTHR010-BH`, `JAS103F344FB`, `JFR103F344FB25025CPG`, `JNR05S030L`, `JVT10N180M`, and `JVZ10N180M` each exist in the main DB, prepared cache, search sidecar, and the corresponding workbook. Specification searches for `1206 3R 1% 电流检测` and `0603 10R 1% 1/3W 抗浪涌` return the new PDC models.
+
+### 2026-06-27 12:37 [fix] Use component-specific daily trend specifications
+
+- Received / problem: Non-MLCC searches in the backend daily Top 10 chart were still rendered with the MLCC `size/dielectric/value/tolerance/voltage` order, producing resistor labels such as `1206/-/1mΩ/±1%/-`.
+- Root cause: `format_member_search_trend_spec_label()` used one fixed five-field MLCC template for every inferred component category.
+- Change / action: Added category-specific trend templates. Resistors now use `尺寸/阻值/误差/功率`; thermistors use `尺寸/R25/误差/B值`; inductors, beads, common-mode chokes, timing parts, varistors, non-MLCC capacitors, and semiconductors now use their own key parameters. Candidate scoring now penalizes irrelevant empty slots.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression checks passed for MLCC (`0805/X7R/10NF/±10%/630V`), resistor (`1206/1mΩ/±1%/1/4W`), NTC, power inductor, and crystal formats. Local Streamlit backend login and search-record module navigation succeeded without page exceptions.
+
+### 2026-06-27 14:37 [feature/fix] Add weekly/monthly search trends, optimize loading, and prioritize automotive matches
+
+- Received / problem: The backend needed daily, weekly, and monthly Top 10 search-spec trends; switching into the module was slow; automotive source models did not rank automotive alternatives ahead of normal/industrial series.
+- Root causes: Trend normalization could trigger a full prepared-cache load for unresolved model-like history and was capped at 1,000 grouped rows. Clean-model fallback SQL used an expression scan over the 1.5 GB component database. Match sorting placed brand/normal ranking before general automotive qualification.
+- Change / action: Added daily/weekly/monthly segmented trend views and full-range aggregation, cached normalized trend rows, batched indexed exact-model lookups, a date/id search-log index, performance trace points, and automotive-first ranking for automotive inputs. `次车规` and `无 AEC-Q200` are explicitly excluded from qualified automotive detection.
+- Performance result: The previous normalized fallback scan measured about 12.79 seconds per unresolved model. Indexed exact lookup measured about 2.67 ms. Backend tracing measured 0.20 seconds for log queries, 1.02 seconds for cold normalization, 1.62 seconds for the full cold daily trend, and 0.58 seconds for a cached weekly rerun.
+- Verification: Daily, weekly, and monthly period aggregation tests passed; browser DOM verified all three headings/selectors and category-specific resistor formatting; automotive database evidence placed `CQ03WAJ0510T5E` and `RMS06JT510` ahead of normal `WR`, `FRC`, `0603`, and `RM` alternatives for automotive source context. No relevant app console errors were observed.
+
+### 2026-06-28 10:56 [fix/release] Finish trend, JOYIN NTC, exact-model category, and public-index work
+
+- Received / problem: User asked to audit all unfinished work and reported that Yageo AC and Murata GRM/GCM capacitor models were being shown as resistors.
+- Root causes: Public trend normalization did not batch exact models from the deployed search sidecar; reverse lookup reused a cross-model cache key; JOYIN NTC sidecar rows lacked B-value fields; Yageo AC duplicate rows lacked MLCC grammar priority. `BBGK00201209202Y00` was absent and is an EMI ferrite bead rather than a capacitor.
+- Change / action: Added public-sidecar batch exact lookup, per-model reverse cache signatures, JOYIN JSN series/B parsing and sidecar fields, Yageo MLCC category priority, and the official BBGK decoder plus exact library/search-index record. Rebuilt the public bundle and split archive.
+- Verification: All 23 customer-image models resolve to the expected category in 0.77 seconds; rendered result tables show MLCC/MLCC/bead/thermistor with no resistor leakage. NCP15XH103F03RC produces only JSN-G B3380 25/50C rows as complete JOYIN matches. Daily/weekly/monthly Top 10 aggregation passed with ranks capped at 10 and cached weekly/monthly builds around 0.04 seconds. Bundle ZIP and concatenated parts share SHA256 `95f4eafe0cd3d5cd7a1c8a1d9b44de8e6486a97416904c125cb520ff2b6e32df`; ZIP integrity passed.

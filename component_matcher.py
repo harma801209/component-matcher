@@ -127,8 +127,8 @@ SEARCH_META_TABLE = "search_meta"
 COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
-SEARCH_INDEX_SCHEMA_VERSION = 7
-QUERY_RESULT_CACHE_VERSION = 78
+SEARCH_INDEX_SCHEMA_VERSION = 8
+QUERY_RESULT_CACHE_VERSION = 79
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -153,7 +153,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-27T14:37:19+08:00"
+PUBLIC_CODE_STAMP = "2026-06-28T10:49:26+08:00"
 
 
 def startup_trace(message):
@@ -1761,7 +1761,11 @@ def infer_member_search_trend_spec(query_text, model_cache=None):
         exact_df = model_cache.get(model_key, pd.DataFrame())
         if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
             try:
-                spec = reverse_spec(exact_df, query_text)
+                spec = reverse_spec(
+                    exact_df,
+                    query_text,
+                    cache_signature=f"member-search-trend:{member_search_trend_database_signature()}:{model_key}",
+                )
                 if isinstance(spec, dict):
                     candidate_specs.append(spec)
             except Exception:
@@ -1811,11 +1815,14 @@ def member_search_trend_rows_signature(summary_rows):
 
 
 def member_search_trend_database_signature():
-    try:
-        stat = os.stat(DB_PATH)
-        return f"{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
-    except OSError:
-        return "missing"
+    signatures = []
+    for path in (DB_PATH, SEARCH_DB_PATH, PREPARED_CACHE_PATH, STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH):
+        try:
+            stat = os.stat(path)
+            signatures.append(f"{os.path.basename(path)}:{int(stat.st_mtime_ns)}:{int(stat.st_size)}")
+        except OSError:
+            continue
+    return "|".join(signatures) or "missing"
 
 
 def member_search_trend_period_label(search_date, period):
@@ -1849,7 +1856,7 @@ def _build_member_search_trend_base_dataframe_cached(rows_signature, database_si
             compact_model_queries.append(query_text)
     unique_model_queries = list(dict.fromkeys(compact_model_queries))
     model_cache = (
-        load_component_rows_by_exact_models_from_database(unique_model_queries)
+        load_component_rows_by_exact_models_from_database(unique_model_queries, prepare_rows=False)
         if unique_model_queries
         else {}
     )
@@ -8784,6 +8791,11 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         ("规格摘要", clean_text),
         ("容值", clean_text),
         ("容值单位", normalize_library_value_unit),
+        ("阻值@25C", clean_text),
+        ("阻值单位", normalize_library_value_unit),
+        ("阻值误差", clean_tol_for_match),
+        ("B值", normalize_b_value_text),
+        ("B值条件", clean_text),
         ("功率", format_power_display),
         ("脚距", clean_text),
         ("安规", clean_text),
@@ -15438,6 +15450,20 @@ def reverse_lookup_row_priority(row):
         elif row_type == "贴片电阻":
             score -= 300
 
+    yageo_mlcc_model = parse_yageo_common(model_text)
+    if yageo_mlcc_model is not None:
+        if row_type == "MLCC":
+            score += 600
+        elif row_type in RESISTOR_COMPONENT_TYPES:
+            score -= 600
+
+    pulse_bbgk_model = parse_pulse_bbgk_ferrite_bead(model_text)
+    if pulse_bbgk_model is not None:
+        if row_type == "磁珠":
+            score += 600
+        elif row_type in (RESISTOR_COMPONENT_TYPES | {"MLCC"}):
+            score -= 600
+
     if series != "":
         score += 10
     if summary != "":
@@ -18773,30 +18799,71 @@ THERMISTOR_SERIES_RULES = [
     (re.compile(r"^(\d+D)", flags=re.I), "NTC inrush current limiter series", "浪涌抑制"),
 ]
 JOYIN_NTC_MODEL_PATTERN = re.compile(r"^JSN[ZABC]\d{3}[A-Z]\d{3}[A-Z][ABC]B?X([ACGH])$", flags=re.I)
+JOYIN_NTC_MODEL_DETAIL_PATTERN = re.compile(
+    r"^JSN(?P<size>[ZABC])(?P<resistance>\d{3})(?P<resistance_tol>[A-Z])"
+    r"(?P<b_code>\d{3})(?P<b_tol>[A-Z])(?P<b_condition>[ABC])B?X(?P<suffix>[ACGH])$",
+    flags=re.I,
+)
+JOYIN_NTC_SIZE_PROFILES = {
+    "Z": ("0201", "0603", "0.60", "0.30", "0.30"),
+    "A": ("0402", "1005", "1.00", "0.50", "0.50"),
+    "B": ("0603", "1608", "1.60", "0.80", "0.80"),
+    "C": ("0805", "2012", "2.00", "1.25", "0.85"),
+}
+JOYIN_NTC_RESISTANCE_TOLERANCE_CODES = {
+    "D": "0.5",
+    "E": "0.7",
+    "F": "1",
+    "G": "2",
+    "H": "3",
+    "J": "5",
+    "K": "10",
+}
+JOYIN_NTC_B_CONDITIONS = {
+    "A": "25/50℃",
+    "B": "25/85℃",
+    "C": "25/100℃",
+}
+# Several official templates use rounded three-digit B codes. Decode only the
+# values that are unambiguous across the supplied JSN datasheets. Exact public
+# search rows retain the authoritative B value in the search sidecar.
+JOYIN_NTC_UNAMBIGUOUS_B_VALUES = {
+    "337": "3370", "338": "3380", "344": "3435", "345": "3450",
+    "357": "3570", "361": "3610", "365": "3650", "390": "3900",
+    "394": "3940", "395": "3950", "396": "3960", "397": "3970",
+    "398": "3980", "400": "4000", "405": "4050", "406": "4060",
+    "410": "4100", "419": "4190", "420": "4200", "423": "4230",
+    "425": "4250", "430": "4300", "431": "4310", "436": "4360",
+    "440": "4400", "448": "4480", "450": "4500",
+}
 JOYIN_NTC_SERIES_PROFILES = {
     "A": {
         "series": "JSN-A",
         "description": "久尹 JSN-A 车规高温贴片 NTC 热敏电阻系列（AEC-Q200，-40~175℃）",
         "special_use": "车规 | AEC-Q200 | 175℃ | 测温 | 贴片 | NTC",
         "class": "automotive_high_temp",
+        "temperature": "-40~175℃",
     },
     "C": {
         "series": "JSN-C",
         "description": "久尹 JSN-C 车规贴片 NTC 热敏电阻系列（AEC-Q200，-40~150℃）",
         "special_use": "车规 | AEC-Q200 | 150℃ | 测温 | 贴片 | NTC",
         "class": "automotive",
+        "temperature": "-40~150℃",
     },
     "G": {
         "series": "JSN-G",
         "description": "久尹 JSN-G 常规贴片 NTC 热敏电阻系列（-40~125℃，UL/TUV，通用测温）",
         "special_use": "标准 | UL/TUV | 125℃ | 测温 | 贴片 | NTC",
         "class": "standard",
+        "temperature": "-40~125℃",
     },
     "H": {
         "series": "JSN-H",
         "description": "久尹 JSN-H 常规高温贴片 NTC 热敏电阻系列（-40~150℃，通用测温）",
         "special_use": "标准 | 150℃ | 测温 | 贴片 | NTC",
         "class": "standard_high_temp",
+        "temperature": "-40~150℃",
     },
 }
 
@@ -18815,7 +18882,75 @@ def joyin_ntc_series_profile_from_model(model):
         "系列": profile["series"],
         "系列说明": profile["description"],
         "特殊用途": profile["special_use"],
+        "工作温度": profile["temperature"],
         "_joyin_ntc_class": profile["class"],
+    }
+
+
+def parse_joyin_ntc_common(model, brand=""):
+    compact = clean_model(model)
+    match = JOYIN_NTC_MODEL_DETAIL_PATTERN.fullmatch(compact)
+    if match is None:
+        return None
+    profile = joyin_ntc_series_profile_from_model(compact)
+    size_inch, body_size, length_mm, width_mm, height_mm = JOYIN_NTC_SIZE_PROFILES.get(
+        match.group("size").upper(),
+        ("", "", "", "", ""),
+    )
+    resistance_ohm = parse_resistor_value_code(match.group("resistance"))
+    if resistance_ohm is None:
+        return None
+    resistance_value, resistance_unit = ohm_to_library_value_unit(resistance_ohm)
+    tolerance = JOYIN_NTC_RESISTANCE_TOLERANCE_CODES.get(
+        match.group("resistance_tol").upper(),
+        "",
+    )
+    b_value = JOYIN_NTC_UNAMBIGUOUS_B_VALUES.get(match.group("b_code"), "")
+    b_condition = JOYIN_NTC_B_CONDITIONS.get(match.group("b_condition").upper(), "")
+    return {
+        "品牌": clean_brand(brand) or "JOYIN(久尹)",
+        "型号": compact,
+        "器件类型": "热敏电阻",
+        "系列": clean_text(profile.get("系列", "")) or "JSN",
+        "系列说明": clean_text(profile.get("系列说明", "")) or "久尹 JSN 贴片 NTC 热敏电阻系列",
+        "特殊用途": clean_text(profile.get("特殊用途", "")) or "测温 | 贴片 | NTC",
+        "工作温度": clean_text(profile.get("工作温度", "")),
+        "安装方式": "贴片",
+        "封装代码": size_inch,
+        "尺寸（inch）": size_inch,
+        "尺寸（mm）": "×".join(part for part in (length_mm, width_mm, height_mm) if part != ""),
+        "长度（mm）": length_mm,
+        "宽度（mm）": width_mm,
+        "高度（mm）": height_mm,
+        "阻值@25C": resistance_value,
+        "阻值单位": resistance_unit,
+        "阻值误差": tolerance,
+        "容值": resistance_value,
+        "容值单位": resistance_unit,
+        "容值误差": tolerance,
+        "B值": b_value,
+        "B值条件": b_condition,
+        "规格摘要": " ".join(
+            part
+            for part in [
+                combine_value_and_unit(resistance_value, resistance_unit, separator=""),
+                clean_tol_for_display(tolerance),
+                f"B{b_condition}={b_value}K" if b_value and b_condition else "",
+                body_size,
+                f"({size_inch})" if size_inch else "",
+            ]
+            if clean_text(part) != ""
+        ),
+        "_resistance_ohm": resistance_ohm,
+        "_model_rule_authority": "joyin_jsn_ntc_model",
+        "_param_count": sum(
+            [
+                1 if size_inch else 0,
+                1 if resistance_ohm is not None else 0,
+                1 if tolerance else 0,
+                1 if b_value else 0,
+            ]
+        ),
     }
 
 
@@ -21622,6 +21757,7 @@ def parse_yageo_common(model):
         return {
             "品牌": "国巨YAGEO",
             "型号": model,
+            "器件类型": "MLCC",
             "系列": clean_text(series_profile.get("系列", "")),
             "系列说明": clean_text(series_profile.get("系列说明", "")),
             "特殊用途": clean_text(series_profile.get("特殊用途", "")),
@@ -21631,10 +21767,70 @@ def parse_yageo_common(model):
             "容值_pf": cap_pf,
             "容值误差": clean_tol_for_match(tol_map.get(tol_code, "")),
             "耐压（V）": clean_voltage(YAGEO_MLCC_VOLTAGE_CODE_MAP.get(volt_code, "")),
-            "_model_rule_authority": "yageo_cc_cq",
+            "_model_rule_authority": "yageo_mlcc",
         }
     except:
         return None
+
+
+def parse_pulse_bbgk_ferrite_bead(model):
+    """Decode the official BBGK 2012/0805 ferrite-bead ordering code."""
+    model = clean_model(model)
+    match = re.fullmatch(
+        r"BBGK00(?P<metric>2012)(?P<variant>09)(?P<impedance>\d{3})(?P<tolerance>[YT])00",
+        model,
+    )
+    if match is None:
+        return None
+
+    impedance_code = match.group("impedance")
+    impedance_ohm = int(impedance_code[:2]) * (10 ** int(impedance_code[2]))
+    electrical_table = {
+        "600": (60, "900mA", "0.10Ω"),
+        "121": (120, "800mA", "0.15Ω"),
+        "221": (220, "750mA", "0.18Ω"),
+        "301": (300, "700mA", "0.18Ω"),
+        "601": (600, "500mA", "0.25Ω"),
+        "102": (1000, "400mA", "0.30Ω"),
+        "152": (1500, "400mA", "0.40Ω"),
+        "202": (2000, "400mA", "0.55Ω"),
+    }
+    table_row = electrical_table.get(impedance_code)
+    if table_row is None or int(table_row[0]) != impedance_ohm:
+        return None
+
+    tolerance = {"Y": "±25%", "T": "±30%"}.get(match.group("tolerance"), "")
+    return {
+        "品牌": "Pulse Electronics（国巨集团）",
+        "型号": model,
+        "器件类型": "磁珠",
+        "系列": "BBGK",
+        "系列说明": "BBGK 通用多层片式 EMI 磁珠系列",
+        "尺寸（inch）": "0805",
+        "尺寸（mm）": "2.00×1.25×1.10mm",
+        "长度（mm）": "2.00",
+        "宽度（mm）": "1.25",
+        "高度（mm）": "1.10",
+        "容值": str(impedance_ohm),
+        "容值单位": "Ω",
+        "容值误差": tolerance,
+        "阻抗@100MHz": str(impedance_ohm),
+        "阻抗单位": "Ω",
+        "额定电流": table_row[1],
+        "DCR": table_row[2],
+        "工作温度": "-55~125℃",
+        "安装方式": "贴片",
+        "生产状态": "Active",
+        "规格摘要": (
+            f"0805 | {impedance_ohm}Ω@100MHz | {tolerance} | "
+            f"额定电流 {table_row[1]} | DCR≤{table_row[2]}"
+        ),
+        "官网链接": "https://yageogroup.com/content/datasheet/asset/file/DATASHEET_BBGK00201209_SERIES",
+        "数据来源": "YAGEO Group BBGK00201209 官方规格书",
+        "数据状态": "官方PDF核对",
+        "校验备注": "BBGK00201209 Series Specification, Electrical Characteristics",
+        "_model_rule_authority": "yageo_group_bbgk_official",
+    }
 
 
 def parse_cctc_common(model):
@@ -21950,7 +22146,7 @@ def reverse_spec_partial(model):
             return parsed
     if m.startswith(("GRM", "GCM", "GCJ", "GJM", "GQM")):
         return parse_murata_partial(m)
-    if m.startswith("CC"):
+    if yageo_mlcc_series_code_from_model(m):
         return parse_yageo_partial(m)
     if m.startswith("C"):
         parsed = parse_tdk_partial(m)
@@ -22024,6 +22220,9 @@ def parse_model_rule(model, brand="", component_type=""):
     m = clean_model(model)
     if m == "":
         return None
+    parsed_bbgk = parse_pulse_bbgk_ferrite_bead(m)
+    if parsed_bbgk is not None:
+        return parsed_bbgk
     brand_text = clean_brand(brand)
     brand_upper = clean_text(brand_text).upper()
     if m.startswith("CLR1"):
@@ -22044,6 +22243,9 @@ def parse_model_rule(model, brand="", component_type=""):
         parsed = parse_murata_ntc_common(m)
         if parsed is not None:
             return parsed
+    parsed = parse_joyin_ntc_common(m, brand=brand_text)
+    if parsed is not None:
+        return parsed
     if "TDK" in brand_upper or "东电化" in brand_text:
         if m.startswith("CGA"):
             parsed = parse_tdk_cga_series(m)
@@ -22159,7 +22361,7 @@ def parse_model_rule(model, brand="", component_type=""):
         return parse_cctc_common(m)
     if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK")):
         return parse_taiyo_common(m)
-    if m.startswith(("CC", "CQ")):
+    if yageo_mlcc_series_code_from_model(m):
         return parse_yageo_common(m)
     if m.startswith(("CGA", "CSA", "CTA", "CBA")) and len(m) >= 7 and m[3:7].isdigit():
         parsed = parse_generic_size_first_mlcc(m, brand=brand_text)
@@ -23290,7 +23492,10 @@ def get_search_sidecar_table_specs():
             ],
         },
         COMPONENTS_SEARCH_RESISTOR_TABLE: {
-            "columns": ["品牌", "型号", "_component_type", "_size", "_res_ohm", "_tol", "_power_watt"],
+            "columns": [
+                "品牌", "型号", "_component_type", "_size", "_res_ohm", "_tol", "_power_watt",
+                "B值", "B值条件",
+            ],
             "numeric": ["_res_ohm", "_power_watt"],
             "indexes": [
                 ("brand_model", ["品牌", "型号"]),
@@ -23594,7 +23799,11 @@ def search_index_can_serve_queries(conn, required_columns=None, table_name=COMPO
             return False
         meta = read_search_index_meta(conn)
         return search_index_meta_is_usable(meta)
-    if allow_without_database and not os.path.exists(DB_PATH):
+    if allow_without_database and (
+        not os.path.exists(DB_PATH)
+        or is_public_mode()
+        or is_streamlit_cloud_runtime()
+    ):
         if not search_table_exists(conn, table_name=table_name):
             return False
         if required_columns and not search_table_has_columns(conn, required_columns, table_name=table_name):
@@ -25587,6 +25796,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
     record = {
         "品牌": brand,
         "型号": model,
+        "_model_clean": clean_model(core_row.get("_model_clean", model)),
         "器件类型": component_type,
         "系列": "",
         "系列说明": "",
@@ -25604,6 +25814,8 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "寿命（h）": format_life_hours_display(format_sidecar_numeric_display(detail_row.get("_life_hours_num", ""))),
         "安装方式": normalize_mounting_style(detail_row.get("_mount_style", "")),
         "特殊用途": normalize_special_use(detail_row.get("_special_use_norm", "")),
+        "B值": normalize_b_value_text(detail_row.get("B值", "")),
+        "B值条件": clean_text(detail_row.get("B值条件", "")),
         "_mlcc_series_class": clean_text(detail_row.get("_mlcc_series_class", core_row.get("_mlcc_series_class", ""))),
         "脚距": clean_text(detail_row.get("_pitch", "")),
         "安规": clean_text(detail_row.get("_safety_class", "")),
@@ -25628,6 +25840,10 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         value, unit = ohm_to_library_value_unit(float(res_ohm))
         record["容值"] = value
         record["容值单位"] = unit
+        if component_type == "热敏电阻":
+            record["阻值@25C"] = value
+            record["阻值单位"] = unit
+            record["阻值误差"] = clean_tol_for_display(detail_row.get("_tol", ""))
     elif pd.notna(value_num):
         value_text = format_sidecar_numeric_display(value_num)
         unit_text = clean_text(detail_row.get("_unit_upper", "")).upper()
@@ -25660,7 +25876,12 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         return pd.DataFrame()
     combined = pd.DataFrame()
     models = sorted({model for _, model in pairs if model != ""})
-    if os.path.exists(DB_PATH) and models:
+    if (
+        os.path.exists(DB_PATH)
+        and models
+        and not is_public_mode()
+        and not is_streamlit_cloud_runtime()
+    ):
         conn = sqlite3.connect(DB_PATH)
         try:
             frames = []
@@ -25882,7 +26103,7 @@ def load_component_rows_by_exact_model_from_database(model):
             conn.close()
 
 
-def load_component_rows_by_exact_models_from_database(models):
+def load_component_rows_by_exact_models_from_database(models, prepare_rows=True):
     model_texts = list(
         dict.fromkeys(
             clean_text(model)
@@ -25891,8 +26112,17 @@ def load_component_rows_by_exact_models_from_database(models):
         )
     )
     result_map = {clean_model(model): pd.DataFrame() for model in model_texts if clean_model(model) != ""}
-    if not model_texts or not os.path.exists(DB_PATH):
+    if not model_texts:
         return result_map
+    if is_public_mode() or is_streamlit_cloud_runtime() or not os.path.exists(DB_PATH):
+        sidecar_result = load_component_rows_by_exact_models_from_search_sidecar(
+            model_texts,
+            prepare_rows=prepare_rows,
+        )
+        if sidecar_result:
+            return sidecar_result
+        if not os.path.exists(DB_PATH):
+            return result_map
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -25910,7 +26140,99 @@ def load_component_rows_by_exact_models_from_database(models):
         exact_df = concat_component_frames(frames)
         if not isinstance(exact_df, pd.DataFrame) or exact_df.empty:
             return result_map
-        exact_df = prepare_search_dataframe(exact_df)
+        if prepare_rows:
+            exact_df = prepare_search_dataframe(exact_df)
+        elif "_model_clean" not in exact_df.columns:
+            exact_df = exact_df.copy()
+            exact_df["_model_clean"] = exact_df["型号"].astype(str).apply(clean_model)
+        if exact_df.empty or "_model_clean" not in exact_df.columns:
+            return result_map
+        model_series = exact_df["_model_clean"].astype(str)
+        for model_key in result_map:
+            result_map[model_key] = exact_df[model_series.eq(model_key)].copy()
+        return result_map
+    except Exception:
+        return result_map
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows=True):
+    model_texts = list(
+        dict.fromkeys(
+            clean_text(model)
+            for model in (models or [])
+            if clean_text(model) != ""
+        )
+    )
+    result_map = {clean_model(model): pd.DataFrame() for model in model_texts if clean_model(model) != ""}
+    if not model_texts:
+        return result_map
+    if not os.path.exists(SEARCH_DB_PATH):
+        ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
+    if not os.path.exists(SEARCH_DB_PATH):
+        return result_map
+
+    conn = None
+    try:
+        conn = sqlite3.connect(SEARCH_DB_PATH, timeout=10)
+        exact_values = list(dict.fromkeys(model_texts + [model.upper() for model in model_texts]))
+        core_frames = []
+        for model_chunk in chunk_items(exact_values, SEARCH_DB_FETCH_CHUNK):
+            placeholders = ",".join(["?"] * len(model_chunk))
+            core_frames.append(
+                pd.read_sql_query(
+                    f'SELECT * FROM {COMPONENTS_SEARCH_CORE_TABLE} WHERE "型号" IN ({placeholders})',
+                    conn,
+                    params=model_chunk,
+                )
+            )
+        core_df = concat_component_frames(core_frames)
+        if core_df.empty:
+            return result_map
+
+        core_df = core_df.drop_duplicates(subset=["品牌", "型号", "_component_type"], keep="first")
+        actual_models = list(dict.fromkeys(core_df["型号"].astype(str).apply(clean_text).tolist()))
+        detail_maps = {}
+        component_types = set(core_df["_component_type"].astype(str).apply(normalize_component_type))
+        detail_tables = {
+            search_index_table_for_component_type(component_type)
+            for component_type in component_types
+            if search_index_table_for_component_type(component_type) != COMPONENTS_SEARCH_CORE_TABLE
+        }
+        for table_name in detail_tables:
+            detail_df = query_search_sidecar_table_by_models(conn, table_name, actual_models)
+            table_map = {}
+            if not detail_df.empty:
+                for row in detail_df.to_dict("records"):
+                    key = (
+                        clean_text(row.get("品牌", "")),
+                        clean_text(row.get("型号", "")),
+                        normalize_component_type(row.get("_component_type", "")),
+                    )
+                    table_map[key] = row
+            detail_maps[table_name] = table_map
+
+        records = []
+        for core_row in core_df.to_dict("records"):
+            component_type = normalize_component_type(core_row.get("_component_type", ""))
+            table_name = search_index_table_for_component_type(component_type)
+            detail_key = (
+                clean_text(core_row.get("品牌", "")),
+                clean_text(core_row.get("型号", "")),
+                component_type,
+            )
+            detail_row = detail_maps.get(table_name, {}).get(detail_key, {})
+            record = build_lightweight_component_row_from_search_sidecar(core_row, detail_row)
+            if record:
+                records.append(record)
+        if not records:
+            return result_map
+
+        exact_df = pd.DataFrame(records)
+        if prepare_rows:
+            exact_df = prepare_search_dataframe(exact_df)
         if exact_df.empty or "_model_clean" not in exact_df.columns:
             return result_map
         model_series = exact_df["_model_clean"].astype(str)
@@ -27292,7 +27614,8 @@ def get_model_reverse_lookup(df, cache_signature=None):
     cached = MODEL_REVERSE_LOOKUP_CACHE.get(cache_signature)
     if cached is not None:
         return cached
-    work = prepare_search_dataframe(df)
+    has_reverse_lookup_shape = {"_model_clean", "型号"}.issubset(df.columns)
+    work = df.copy() if (prepared_dataframe_has_required_columns(df) or has_reverse_lookup_shape) else prepare_search_dataframe(df)
     available_cols = [col for col in MODEL_REVERSE_LOOKUP_COLUMNS if col in work.columns]
     lookup = work[available_cols].copy()
     lookup = lookup[lookup["_model_clean"].astype(str).ne("")]
@@ -27336,11 +27659,13 @@ def lookup_model_reverse_row(df, model, cache_signature=None):
     return row
 
 
-def reverse_spec(df, model):
+def reverse_spec(df, model, cache_signature=None):
     m = clean_model(model)
     if m == "":
         return None
-    row = lookup_model_reverse_row(df, m)
+    if cache_signature is None:
+        cache_signature = f"{get_data_cache_signature()}|reverse-model:{m}"
+    row = lookup_model_reverse_row(df, m, cache_signature=cache_signature)
     row_brand = clean_brand(row.get("品牌", "")) if row is not None else ""
     row_type = normalize_component_type(row.get("器件类型", "")) if row is not None else ""
     parsed_rule = parse_model_rule(m, brand=row_brand, component_type=row_type)
@@ -33070,7 +33395,7 @@ if search_requested:
                 note="先批量锁定输入料号的数据库原始行，减少逐条查库开销",
                 extra_chips=[{"label": "预取数", "value": str(len(exact_prefetch_lines))}],
             )
-            exact_part_prefetch_map = load_component_rows_by_clean_models_map(exact_prefetch_lines, use_database=False)
+            exact_part_prefetch_map = load_component_rows_by_exact_models_from_database(exact_prefetch_lines)
 
         for line_index, line in enumerate(lines, start=1):
             resolved_state = {
