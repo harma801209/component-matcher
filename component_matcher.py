@@ -153,7 +153,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-28T10:49:26+08:00"
+PUBLIC_CODE_STAMP = "2026-06-28T11:46:54+08:00"
 
 
 def startup_trace(message):
@@ -2997,13 +2997,6 @@ def render_member_search_logs_admin_page():
     trend_period_label = clean_text(st.session_state.get("admin_search_trend_period", "每日"))
     if trend_period_label not in trend_period_options:
         trend_period_label = "每日"
-    trend_period = {"每日": "daily", "每周": "weekly", "每月": "monthly"}.get(trend_period_label, "daily")
-    trend_title = {
-        "daily": "每日十大搜索规格趋势",
-        "weekly": "每周十大搜索规格趋势",
-        "monthly": "每月十大搜索规格趋势",
-    }[trend_period]
-    st.markdown(f"#### {trend_title}")
     trend_period_label = render_admin_segmented_control(
         "搜索规格趋势周期",
         trend_period_options,
@@ -3011,6 +3004,12 @@ def render_member_search_logs_admin_page():
         default="每日",
     )
     trend_period = {"每日": "daily", "每周": "weekly", "每月": "monthly"}.get(trend_period_label, "daily")
+    trend_title = {
+        "daily": "每日十大搜索规格趋势",
+        "weekly": "每周十大搜索规格趋势",
+        "monthly": "每月十大搜索规格趋势",
+    }[trend_period]
+    st.markdown(f"#### {trend_title}")
     trend_df = build_member_search_trend_dataframe(trend_summary_rows, period=trend_period)
     startup_trace(
         f"search_logs:trend period={trend_period} rows={len(trend_df)} elapsed={time.perf_counter() - trace_started:.4f}"

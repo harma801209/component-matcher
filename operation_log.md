@@ -3090,3 +3090,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root causes: Public trend normalization did not batch exact models from the deployed search sidecar; reverse lookup reused a cross-model cache key; JOYIN NTC sidecar rows lacked B-value fields; Yageo AC duplicate rows lacked MLCC grammar priority. `BBGK00201209202Y00` was absent and is an EMI ferrite bead rather than a capacitor.
 - Change / action: Added public-sidecar batch exact lookup, per-model reverse cache signatures, JOYIN JSN series/B parsing and sidecar fields, Yageo MLCC category priority, and the official BBGK decoder plus exact library/search-index record. Rebuilt the public bundle and split archive.
 - Verification: All 23 customer-image models resolve to the expected category in 0.77 seconds; rendered result tables show MLCC/MLCC/bead/thermistor with no resistor leakage. NCP15XH103F03RC produces only JSN-G B3380 25/50C rows as complete JOYIN matches. Daily/weekly/monthly Top 10 aggregation passed with ranks capped at 10 and cached weekly/monthly builds around 0.04 seconds. Bundle ZIP and concatenated parts share SHA256 `95f4eafe0cd3d5cd7a1c8a1d9b44de8e6486a97416904c125cb520ff2b6e32df`; ZIP integrity passed.
+
+### 2026-06-28 11:47 [fix/release] Keep trend heading synchronized with selected period
+
+- Received / problem: Formal backend loaded the daily trend correctly, but the heading was calculated before the daily/weekly/monthly segmented control returned its current selection.
+- Root cause: `trend_title` used the previous session-state value while the chart used the newly selected period.
+- Change / action: Moved period-title calculation after the segmented control so daily, weekly, and monthly headings always match the displayed aggregation.
+- Verification: Python compilation and diff checks passed; formal page exact-model search verified Yageo AC and Murata GRM as MLCC, BBGK as ferrite bead, and NCP/JOYIN as JSN-G B3380 NTC with no application error.
