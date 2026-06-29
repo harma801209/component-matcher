@@ -3135,3 +3135,4 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Built a screenshot-equivalent FOJAN two-level quote workbook and completed the real admin upload flow locally. The app imported five rows, enabled the list, and still showed five rows after a fresh session.
 - Rebooted the formal Streamlit app. The reboot exposed a separate Streamlit 1.58 `Missing Submit Button` error in the logged-out member panel.
 - Replaced only the member login and registration forms with keyed buttons. All 14 regressions passed, and a clean browser search for `FRC0603J100 TS` rendered the login control without the Streamlit error.
+- Published commit `3e55d468`, deployed Cloudflare preview `https://23f35222.fruition-component.pages.dev`, confirmed formal cache marker `20260630-member-form-cost-import-2`, rebooted Streamlit Cloud, and repeated the search on the formal URL successfully with no `Missing Submit Button` error.

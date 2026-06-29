@@ -474,4 +474,4 @@
 - Bug: Searching on the formal site while logged out displayed Streamlit's red `Missing Submit Button` error instead of a usable member login panel.
 - Root cause: The login and registration controls were nested in `st.form` blocks that rendered incorrectly on the formal Streamlit 1.58 runtime after the application reboot.
 - Fix: Replaced the two member forms with ordinary keyed inputs and keyed buttons while retaining the existing authentication, registration, validation, and rerun behavior.
-- Verification: Python compilation, Worker syntax validation, diff checks, and all 14 member/system regressions passed. A clean local browser flow searched `FRC0603J100 TS`, displayed the member login button, and contained no `Missing Submit Button` error.
+- Verification: Python compilation, Worker syntax validation, diff checks, and all 14 member/system regressions passed. Clean local and formal-site browser flows searched `FRC0603J100 TS`, displayed the member login button, and contained no `Missing Submit Button` error.
