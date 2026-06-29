@@ -28,6 +28,12 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIsNotNone(bridge_block)
         self.assertNotIn('}}, "*");', bridge_block.group(0))
 
+    def test_component_validates_the_session_before_persisting_it(self):
+        function_start = self.matcher.index("def render_member_auth_browser_persistence_bridge():")
+        function_end = self.matcher.index("\ndef set_current_member", function_start)
+        bridge_function = self.matcher[function_start:function_end]
+        self.assertLess(bridge_function.index("current_member()"), bridge_function.index("const token ="))
+
     def test_shell_uses_a_random_channel_and_rejects_other_messages(self):
         self.assertIn('const authBridgeChannel = crypto.randomUUID', self.worker)
         self.assertIn('frameUrl.searchParams.set(bridgeChannelParam, authBridgeChannel);', self.worker)

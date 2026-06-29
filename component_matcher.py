@@ -159,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-29T21:15:20+08:00"
+PUBLIC_CODE_STAMP = "2026-06-29T21:58:00+08:00"
 
 
 def startup_trace(message):
@@ -2656,6 +2656,7 @@ def current_member():
 
 
 def render_member_auth_browser_persistence_bridge():
+    current_member()
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     bridge_channel = clean_text(get_query_param_value(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM))
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
