@@ -1,0 +1,43 @@
+import pathlib
+import re
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MATCHER_PATH = ROOT / "component_matcher.py"
+WORKER_PATH = ROOT / "cloudflare-pages-proxy" / "dist" / "_worker.js"
+
+
+class MemberAuthBridgeSourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.matcher = MATCHER_PATH.read_text(encoding="utf-8")
+        cls.worker = WORKER_PATH.read_text(encoding="utf-8")
+
+    def test_component_bridge_targets_only_the_formal_shell(self):
+        self.assertIn(
+            'MEMBER_AUTH_OUTER_SHELL_ORIGIN = "https://fruition-component.pages.dev"',
+            self.matcher,
+        )
+        self.assertIn('}}, outerShellOrigin);', self.matcher)
+        bridge_block = re.search(
+            r"function notifyOuterShell\(.*?\n\s*}}\n",
+            self.matcher,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(bridge_block)
+        self.assertNotIn('}}, "*");', bridge_block.group(0))
+
+    def test_shell_uses_a_random_channel_and_rejects_other_messages(self):
+        self.assertIn('const authBridgeChannel = crypto.randomUUID', self.worker)
+        self.assertIn('frameUrl.searchParams.set(bridgeChannelParam, authBridgeChannel);', self.worker)
+        self.assertIn('if (payload.channel !== authBridgeChannel) return;', self.worker)
+        self.assertIn('channel: bridgeChannel,', self.matcher)
+
+    def test_shell_removes_member_token_from_the_visible_url(self):
+        self.assertIn('outerUrl.searchParams.delete("member_token");', self.worker)
+        self.assertIn('history.replaceState(null, "", outerUrl.pathname + outerUrl.search + outerUrl.hash);', self.worker)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

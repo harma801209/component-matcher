@@ -96,6 +96,7 @@ MEMBER_AUTH_DB_PATH = os.path.abspath(
 )
 MEMBER_AUTH_REMOTE_STATE_PATH = os.path.join(BASE_DIR, "cache", "member_auth_remote_state.json")
 MEMBER_AUTH_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/member-store/snapshot"
+MEMBER_AUTH_OUTER_SHELL_ORIGIN = "https://fruition-component.pages.dev"
 MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
@@ -116,6 +117,7 @@ NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
+MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
 MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
 MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
@@ -157,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-29T15:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-29T21:15:20+08:00"
 
 
 def startup_trace(message):
@@ -2655,6 +2657,7 @@ def current_member():
 
 def render_member_auth_browser_persistence_bridge():
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+    bridge_channel = clean_text(get_query_param_value(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM))
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
     ttl_seconds = int(MEMBER_AUTH_SESSION_TTL_SECONDS)
     script = f"""
@@ -2664,12 +2667,27 @@ def render_member_auth_browser_persistence_bridge():
         const expiresKey = {json.dumps(MEMBER_AUTH_BROWSER_EXPIRES_KEY)};
         const cookieName = {json.dumps(MEMBER_AUTH_COOKIE_NAME)};
         const queryParam = {json.dumps(MEMBER_AUTH_QUERY_PARAM)};
+        const bridgeChannel = {json.dumps(bridge_channel)};
+        const outerShellOrigin = {json.dumps(MEMBER_AUTH_OUTER_SHELL_ORIGIN)};
         const token = {json.dumps(token)};
         const clearToken = {json.dumps(clear_token)};
         const ttlSeconds = {ttl_seconds};
         const ttlMs = ttlSeconds * 1000;
         const now = Date.now();
         const targetWindow = window.parent || window;
+
+        function notifyOuterShell(action, value, expiresAt) {{
+            if (!bridgeChannel) return;
+            try {{
+                window.top.postMessage({{
+                    source: "fruition-member-auth",
+                    channel: bridgeChannel,
+                    action: action,
+                    token: value || "",
+                    expiresAt: Number(expiresAt || 0),
+                }}, outerShellOrigin);
+            }} catch (err) {{}}
+        }}
 
         function getDocument() {{
             try {{ return targetWindow.document || document; }} catch (err) {{ return document; }}
@@ -2712,6 +2730,7 @@ def render_member_auth_browser_persistence_bridge():
                 }}
             }} catch (err) {{}}
             deleteCookie();
+            notifyOuterShell("clear", "", 0);
         }}
 
         if (clearToken) {{
@@ -2729,6 +2748,7 @@ def render_member_auth_browser_persistence_bridge():
                 }}
             }} catch (err) {{}}
             writeCookie(token, ttlSeconds);
+            notifyOuterShell("save", token, expiresAt);
             return;
         }}
 
