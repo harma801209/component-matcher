@@ -3127,3 +3127,4 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - 富捷型号：带包装空格的完整料号（例如 `FRC0603J100 TS`）现在会归一化后精确直查，不再误走型号片段/跨品牌候选路径；覆盖用户提供的 16 个 5% `J` 型号。
 - 成本报价：新增富捷双层报价表解析，识别 `Series / Type / Dimension / Resistance Range / New Unit Price / 5% / 1% / Package`，按系列、尺寸功率、阻值区间和公差保存规则，并支持斜线分段区间与分段价格。
 - 验证：`python -m unittest tests.test_system_regression tests.test_member_auth_bridge -v` 共 13 项通过；Python 编译、Worker `node --check` 与 `git diff --check` 通过。
+- 发布：提交 `90411425` 已推送到 `origin/main`；Cloudflare Pages Worker 部署成功，预览为 `https://0108f965.fruition-component.pages.dev`，正式页已返回新标记 `20260630-member-sync-cost-import-1`。线上 D1 现有 2 张表，当前快照与历史版本 44 均通过 SHA-256 校验，未授权访问保持 `401`；Streamlit API 状态为 `5 / Running`。
