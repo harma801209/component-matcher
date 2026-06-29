@@ -105,6 +105,9 @@ else {
 Push-Location $projectDir
 try {
     & $wranglerCmd pages deploy $distDir --project-name $ProjectName --branch $Branch --commit-dirty=true
+    if ($LASTEXITCODE -ne 0) {
+        throw "Wrangler Pages deployment failed with exit code $LASTEXITCODE."
+    }
 }
 finally {
     Pop-Location

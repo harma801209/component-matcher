@@ -461,3 +461,10 @@
 - Root cause: Streamlit renders the persistence script inside a sandboxed nested component iframe, so it cannot directly write the Cloudflare shell's cookie or localStorage. The first bridge also rendered before `current_member()` validated the query token, so an invalid token was saved and the deferred clear flag was never reliably rendered on a second run.
 - Fix: The Streamlit component validates the member session before deciding whether to save or clear it and posts only to `https://fruition-component.pages.dev`. The Cloudflare shell creates a cryptographically random per-load channel, passes it into the Streamlit iframe, accepts only messages with that channel, stores the token for one hour, injects it on reopen, and removes one-time `member_token` values from the visible shell URL.
 - Verification: Three bridge source regressions, all seven system regressions, Python compilation, Worker syntax validation, and `git diff --check` passed. Formal deployment and browser verification are recorded separately in `operation_log.md`.
+
+## 2026-06-29 - Cloudflare deployment failures returned a success exit code
+
+- Bug: `deploy_cloudflare_pages_proxy.ps1` could print Wrangler `fetch failed` while the PowerShell process still exited successfully, allowing automation to report a deployment that did not happen.
+- Root cause: The script invoked `wrangler.cmd` but did not inspect `$LASTEXITCODE`; the surrounding `finally` only restored the working directory.
+- Fix: Check `$LASTEXITCODE` immediately after Wrangler returns and throw on any nonzero value.
+- Verification: PowerShell AST parsing passed, and a real transient Wrangler failure was distinguished from the later successful deployment whose formal HTML exposed the new cache buster.
