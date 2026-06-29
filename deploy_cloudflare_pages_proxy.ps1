@@ -1,7 +1,8 @@
 Param(
     [string]$ProjectName = "fruition-component",
     [string]$Branch = "main",
-    [string]$AccountId = ""
+    [string]$AccountId = "",
+    [switch]$UseApiToken
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,12 +89,18 @@ if (-not (Test-Path $distDir)) {
 
 $env:PATH = "$nodeDir;$env:PATH"
 $env:NODE_OPTIONS = "--dns-result-order=ipv4first"
-$cloudflareApiToken = Resolve-CloudflareApiToken -VaultPath $tokenVaultPath
 $cloudflareAccountId = Resolve-CloudflareAccountId -ExplicitAccountId $AccountId -ProjectDirectory $projectDir
-$env:CF_API_TOKEN = $cloudflareApiToken
-$env:CLOUDFLARE_API_TOKEN = $cloudflareApiToken
 $env:CF_ACCOUNT_ID = $cloudflareAccountId
 $env:CLOUDFLARE_ACCOUNT_ID = $cloudflareAccountId
+if ($UseApiToken) {
+    $cloudflareApiToken = Resolve-CloudflareApiToken -VaultPath $tokenVaultPath
+    $env:CF_API_TOKEN = $cloudflareApiToken
+    $env:CLOUDFLARE_API_TOKEN = $cloudflareApiToken
+}
+else {
+    Remove-Item Env:CF_API_TOKEN -ErrorAction SilentlyContinue
+    Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
+}
 
 Push-Location $projectDir
 try {

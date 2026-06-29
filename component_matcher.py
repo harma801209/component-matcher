@@ -22,6 +22,7 @@ import shutil
 from io import BytesIO, StringIO
 import urllib.parse
 import urllib.request
+import urllib.error
 import ssl
 import warnings
 import traceback
@@ -93,6 +94,9 @@ MEMBER_AUTH_DB_PATH = os.path.abspath(
     os.getenv("MEMBER_AUTH_DB_PATH", os.path.join(BASE_DIR, "cache", "member_auth.sqlite")) or
     os.path.join(BASE_DIR, "cache", "member_auth.sqlite")
 )
+MEMBER_AUTH_REMOTE_STATE_PATH = os.path.join(BASE_DIR, "cache", "member_auth_remote_state.json")
+MEMBER_AUTH_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/member-store/snapshot"
+MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
@@ -128,7 +132,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 79
+QUERY_RESULT_CACHE_VERSION = 80
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -153,7 +157,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-28T11:46:54+08:00"
+PUBLIC_CODE_STAMP = "2026-06-29T15:45:00+08:00"
 
 
 def startup_trace(message):
@@ -893,6 +897,155 @@ def get_config_text(name, default=""):
     return value if value != "" else clean_text(default)
 
 
+def get_member_auth_remote_config():
+    api_url = get_config_text("MEMBER_AUTH_REMOTE_API_URL", MEMBER_AUTH_REMOTE_API_URL_DEFAULT)
+    api_secret = get_config_text("MEMBER_AUTH_REMOTE_API_SECRET", "")
+    force_remote = clean_text(os.getenv("MEMBER_AUTH_REMOTE_FORCE", "")).lower() in {"1", "true", "yes", "on"}
+    enabled = bool(api_url and api_secret and (force_remote or is_streamlit_cloud_runtime()))
+    return api_url, api_secret, enabled
+
+
+def load_member_auth_remote_state():
+    try:
+        with open(MEMBER_AUTH_REMOTE_STATE_PATH, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+        return state if isinstance(state, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_member_auth_remote_state(version, sha256_value):
+    os.makedirs(os.path.dirname(MEMBER_AUTH_REMOTE_STATE_PATH), exist_ok=True)
+    temp_path = MEMBER_AUTH_REMOTE_STATE_PATH + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {"version": int(version or 0), "sha256": clean_text(sha256_value), "synced_at": current_timestamp_text()},
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+    os.replace(temp_path, MEMBER_AUTH_REMOTE_STATE_PATH)
+
+
+def member_auth_remote_request(method="GET", payload=None):
+    api_url, api_secret, enabled = get_member_auth_remote_config()
+    if not enabled:
+        return None
+    data = None
+    headers = {
+        "Authorization": f"Bearer {api_secret}",
+        "Accept": "application/json",
+        "User-Agent": "fruition-component-matcher/member-auth-sync",
+    }
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(api_url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=20, context=ssl.create_default_context()) as response:
+            body = response.read(3 * 1024 * 1024)
+        decoded = json.loads(body.decode("utf-8")) if body else {}
+        return decoded if isinstance(decoded, dict) else {}
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read(64 * 1024).decode("utf-8", errors="replace")
+            details = json.loads(body) if body else {}
+        except Exception:
+            details = {}
+        if exc.code == 409:
+            return {"conflict": True, "version": int(details.get("version") or 0)}
+        logging.warning("member auth remote request failed: HTTP %s", exc.code)
+        return None
+    except Exception as exc:
+        logging.warning("member auth remote request failed: %s", type(exc).__name__)
+        return None
+
+
+def pull_member_auth_remote_snapshot():
+    with MEMBER_AUTH_REMOTE_LOCK:
+        remote = member_auth_remote_request("GET")
+        if not remote:
+            return "disabled_or_unavailable"
+        remote_version = int(remote.get("version") or 0)
+        payload_b64 = clean_text(remote.get("payload_base64", ""))
+        remote_sha = clean_text(remote.get("sha256", ""))
+        if remote_version <= 0 or payload_b64 == "":
+            return "empty"
+        try:
+            payload = base64.b64decode(payload_b64.encode("ascii"), validate=True)
+        except Exception:
+            return "invalid_payload"
+        calculated_sha = hashlib.sha256(payload).hexdigest()
+        if not hmac.compare_digest(calculated_sha, remote_sha):
+            return "checksum_mismatch"
+        if not payload.startswith(b"SQLite format 3\x00"):
+            return "invalid_sqlite"
+        state = load_member_auth_remote_state()
+        local_sha = ""
+        if os.path.exists(MEMBER_AUTH_DB_PATH):
+            try:
+                with open(MEMBER_AUTH_DB_PATH, "rb") as handle:
+                    local_sha = hashlib.sha256(handle.read()).hexdigest()
+            except Exception:
+                local_sha = ""
+        if int(state.get("version") or 0) == remote_version and local_sha == calculated_sha:
+            return "current"
+        os.makedirs(os.path.dirname(MEMBER_AUTH_DB_PATH), exist_ok=True)
+        temp_path = MEMBER_AUTH_DB_PATH + ".remote.tmp"
+        with open(temp_path, "wb") as handle:
+            handle.write(payload)
+        try:
+            with sqlite3.connect(temp_path, timeout=30) as source_conn:
+                with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as target_conn:
+                    source_conn.backup(target_conn)
+                    target_conn.commit()
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        save_member_auth_remote_state(remote_version, calculated_sha)
+        return "restored"
+
+
+def flush_member_auth_remote_snapshot():
+    _, _, enabled = get_member_auth_remote_config()
+    if not enabled or not os.path.exists(MEMBER_AUTH_DB_PATH):
+        return False
+    with MEMBER_AUTH_REMOTE_LOCK:
+        try:
+            with open(MEMBER_AUTH_DB_PATH, "rb") as handle:
+                payload = handle.read()
+        except Exception:
+            return False
+        payload_sha = hashlib.sha256(payload).hexdigest()
+        state = load_member_auth_remote_state()
+        if clean_text(state.get("sha256", "")) == payload_sha and int(state.get("version") or 0) > 0:
+            return True
+        result = member_auth_remote_request(
+            "PUT",
+            {
+                "expected_version": int(state.get("version") or 0),
+                "sha256": payload_sha,
+                "payload_base64": base64.b64encode(payload).decode("ascii"),
+            },
+        )
+        if not result or result.get("conflict"):
+            return False
+        version = int(result.get("version") or 0)
+        if version <= 0:
+            return False
+        save_member_auth_remote_state(version, payload_sha)
+        return True
+
+
+def initialize_member_auth_remote_storage():
+    status = pull_member_auth_remote_snapshot()
+    if status == "empty" and os.path.exists(MEMBER_AUTH_DB_PATH):
+        flush_member_auth_remote_snapshot()
+    return status
+
+
 def get_no_match_admin_credentials():
     return (
         NO_MATCH_ADMIN_DEFAULT_USERNAME,
@@ -1268,6 +1421,7 @@ def create_member_account(username, password, display_name="", company="", email
                 ),
             )
             conn.commit()
+        flush_member_auth_remote_snapshot()
         return True, "注册申请已提交，请等待管理员审核通过后再登录。"
     except sqlite3.IntegrityError:
         return False, "这个账号已经存在，请直接登录。"
@@ -1503,6 +1657,7 @@ def record_member_search_logs(member, query_lines, source="搜索匹配"):
                 rows,
             )
             conn.commit()
+        flush_member_auth_remote_snapshot()
         return len(rows)
     except Exception:
         return 0
@@ -2132,6 +2287,7 @@ def ensure_configured_admin_member_account():
                     (now, legacy_username, int(member["id"])),
                 )
         conn.commit()
+    flush_member_auth_remote_snapshot()
 
 
 def list_members_for_admin():
@@ -2163,6 +2319,7 @@ def approve_member_account_admin(member_id):
             return False, "会员不存在或已被删除。"
         conn.execute("UPDATE members SET status='active', updated_at=? WHERE id=?", (now, member_id))
         conn.commit()
+    flush_member_auth_remote_snapshot()
     return True, "审核通过，会员现在可以登录。"
 
 
@@ -2239,6 +2396,7 @@ def update_current_member_profile(member_id, display_name="", company="", email=
                 change_source="会员自助修改",
             )
             conn.commit()
+        flush_member_auth_remote_snapshot()
         return True, "会员资料已更新。"
     except Exception as exc:
         return False, f"更新失败：{exc}"
@@ -2272,6 +2430,7 @@ def change_current_member_password(member_id, current_password="", new_password=
                 (hash_member_password(new_password), now, member_id),
             )
             conn.commit()
+        flush_member_auth_remote_snapshot()
         return True, "密码已更新。"
     except Exception as exc:
         return False, f"密码更新失败：{exc}"
@@ -2366,6 +2525,7 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                 change_source="管理员修改",
             )
             conn.commit()
+        flush_member_auth_remote_snapshot()
         return True, "会员资料已更新。"
     except sqlite3.IntegrityError:
         return False, "这个账号已经被其他会员使用。"
@@ -2387,6 +2547,7 @@ def delete_member_account_admin(member_id):
         conn.execute("DELETE FROM member_profile_change_logs WHERE member_id=?", (member_id,))
         cursor = conn.execute("DELETE FROM members WHERE id=?", (member_id,))
         conn.commit()
+    flush_member_auth_remote_snapshot()
     return int(cursor.rowcount or 0) > 0, "会员已删除。"
 
 
@@ -2402,6 +2563,7 @@ def create_member_session(member_id):
         )
         conn.execute("UPDATE members SET last_login_at=?, updated_at=? WHERE id=?", (now, now, int(member_id)))
         conn.commit()
+    flush_member_auth_remote_snapshot()
     return token
 
 
@@ -2434,7 +2596,7 @@ def get_member_by_session_token(token):
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             """
-            SELECT m.*
+            SELECT m.*, s.expires_at_ts AS _session_expires_at_ts
             FROM member_sessions s
             JOIN members m ON m.id = s.member_id
             WHERE s.token=? AND s.expires_at_ts > ?
@@ -2444,13 +2606,24 @@ def get_member_by_session_token(token):
         if row is None:
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
             conn.commit()
+            flush_needed = True
+        else:
+            current_expiry = int(row["_session_expires_at_ts"] or 0)
+            flush_needed = current_expiry <= now_ts + max(60, MEMBER_AUTH_SESSION_TTL_SECONDS // 2)
+            if flush_needed:
+                conn.execute(
+                    "UPDATE member_sessions SET expires_at_ts=? WHERE token=?",
+                    (now_ts + MEMBER_AUTH_SESSION_TTL_SECONDS, token),
+                )
+                conn.commit()
+    if row is None:
+        if flush_needed:
+            flush_member_auth_remote_snapshot()
             return None
-        conn.execute(
-            "UPDATE member_sessions SET expires_at_ts=? WHERE token=?",
-            (now_ts + MEMBER_AUTH_SESSION_TTL_SECONDS, token),
-        )
-        conn.commit()
+    if flush_needed:
+        flush_member_auth_remote_snapshot()
     member = member_row_to_dict(row)
+    member.pop("_session_expires_at_ts", None)
     if member and normalize_member_status(member.get("status", "")) == "active":
         member["_session_token"] = token
         return member
@@ -2624,6 +2797,7 @@ def logout_member():
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
             conn.commit()
+        flush_member_auth_remote_snapshot()
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
@@ -6047,7 +6221,7 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "特殊用途": "车规 | 电流检测",
 }
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
     "01": "01005",
@@ -8266,7 +8440,10 @@ def resistor_model_rule_candidate(model, brand="", component_type=""):
     if RESISTOR_MODEL_PREFIX_PATTERN.match(compact):
         return True
     upper_brand = clean_brand(brand).upper()
-    return upper_brand != "" and any(token in upper_brand for token in ["YAGEO", "MURATA", "WALSIN", "UNI-ROYAL", "EVER OHMS", "RALEC"])
+    return upper_brand != "" and any(
+        token in upper_brand
+        for token in ["YAGEO", "MURATA", "WALSIN", "UNI-ROYAL", "EVER OHMS", "RALEC", "FOJAN", "富捷"]
+    )
 
 
 def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
@@ -20549,6 +20726,20 @@ def match_by_partial_spec(df, spec):
     provided_pf = spec.get("容值_pf", None)
     target_type = infer_spec_component_type(spec)
 
+    # Resistor rated power is a design constraint, not an upgrade dimension.
+    # When the customer specifies power, only rows with the same known power
+    # may remain in the candidate set.
+    if target_type in RESISTOR_COMPONENT_TYPES:
+        spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        if spec_power_watt is not None:
+            if "_power_watt" not in base.columns:
+                return pd.DataFrame()
+            power_values = pd.to_numeric(base["_power_watt"], errors="coerce")
+            same_power = power_values.notna() & ((power_values - spec_power_watt).abs() < 1e-9)
+            base = base[same_power]
+            if base.empty:
+                return pd.DataFrame()
+
     # MLCC 的核心参数是尺寸和容值，缺任意一个都不进入部分匹配。
     if target_type == "MLCC" and (provided_size == "" or provided_pf is None):
         return pd.DataFrame()
@@ -25276,9 +25467,16 @@ def prepare_search_dataframe(df):
     search_text = build_search_text_series(work, search_text_columns) if needs_search_text else None
     context_power_idx = pd.Index([])
     if "_power" not in work.columns:
-        work["_power"] = search_text.apply(find_power_in_text).apply(clean_text)
+        work["_power"] = pd.Series([""] * len(work), index=work.index, dtype="object")
     else:
         work["_power"] = work["_power"].astype("string").fillna("").apply(clean_text)
+    if "功率" in work.columns:
+        blank_power_mask = work["_power"].astype("string").fillna("").str.strip().eq("")
+        if blank_power_mask.any():
+            explicit_power = work.loc[blank_power_mask, "功率"].apply(format_power_display).apply(clean_text)
+            explicit_power = explicit_power[explicit_power.ne("")]
+            if len(explicit_power) > 0:
+                work.loc[explicit_power.index, "_power"] = explicit_power
     if search_text is not None:
         blank_power_mask = work["_power"].astype("string").fillna("").str.strip().eq("")
         if blank_power_mask.any():
@@ -26088,9 +26286,12 @@ def load_component_rows_by_exact_model_from_database(model):
             )
         if (not isinstance(frame, pd.DataFrame) or frame.empty):
             frame = pd.read_sql_query(
-                "SELECT * FROM components WHERE UPPER(IFNULL([型号], '')) = ?",
+                """
+                SELECT * FROM components
+                WHERE REPLACE(REPLACE(REPLACE(UPPER(IFNULL([型号], '')), '-', ''), ' ', ''), '_', '') = ?
+                """,
                 conn,
-                params=[model_text.upper()],
+                params=[clean_model(model_text)],
             )
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             return pd.DataFrame()
@@ -26137,18 +26338,46 @@ def load_component_rows_by_exact_models_from_database(models, prepare_rows=True)
                 )
             )
         exact_df = concat_component_frames(frames)
-        if not isinstance(exact_df, pd.DataFrame) or exact_df.empty:
-            return result_map
-        if prepare_rows:
-            exact_df = prepare_search_dataframe(exact_df)
-        elif "_model_clean" not in exact_df.columns:
-            exact_df = exact_df.copy()
-            exact_df["_model_clean"] = exact_df["型号"].astype(str).apply(clean_model)
-        if exact_df.empty or "_model_clean" not in exact_df.columns:
-            return result_map
-        model_series = exact_df["_model_clean"].astype(str)
-        for model_key in result_map:
-            result_map[model_key] = exact_df[model_series.eq(model_key)].copy()
+        found_model_keys = set()
+        if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
+            if prepare_rows:
+                exact_df = prepare_search_dataframe(exact_df)
+            elif "_model_clean" not in exact_df.columns:
+                exact_df = exact_df.copy()
+                exact_df["_model_clean"] = exact_df["型号"].astype(str).apply(clean_model)
+            if not exact_df.empty and "_model_clean" in exact_df.columns:
+                model_series = exact_df["_model_clean"].astype(str)
+                for model_key in result_map:
+                    hit = exact_df[model_series.eq(model_key)].copy()
+                    if not hit.empty:
+                        result_map[model_key] = hit
+                        found_model_keys.add(model_key)
+
+        remaining_model_keys = [model_key for model_key in result_map if model_key not in found_model_keys]
+        if remaining_model_keys:
+            normalized_frames = []
+            for model_chunk in chunk_items(remaining_model_keys, 200):
+                placeholders = ",".join(["?"] * len(model_chunk))
+                normalized_frames.append(
+                    pd.read_sql_query(
+                        "SELECT * FROM components WHERE "
+                        "REPLACE(REPLACE(REPLACE(UPPER(IFNULL([型号], '')), '-', ''), ' ', ''), '_', '') "
+                        f"IN ({placeholders})",
+                        conn,
+                        params=model_chunk,
+                    )
+                )
+            normalized_df = concat_component_frames(normalized_frames)
+            if isinstance(normalized_df, pd.DataFrame) and not normalized_df.empty:
+                if prepare_rows:
+                    normalized_df = prepare_search_dataframe(normalized_df)
+                elif "_model_clean" not in normalized_df.columns:
+                    normalized_df = normalized_df.copy()
+                    normalized_df["_model_clean"] = normalized_df["型号"].astype(str).apply(clean_model)
+                if not normalized_df.empty and "_model_clean" in normalized_df.columns:
+                    normalized_series = normalized_df["_model_clean"].astype(str)
+                    for model_key in remaining_model_keys:
+                        result_map[model_key] = normalized_df[normalized_series.eq(model_key)].copy()
         return result_map
     except Exception:
         return result_map
@@ -26176,13 +26405,13 @@ def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows
     conn = None
     try:
         conn = sqlite3.connect(SEARCH_DB_PATH, timeout=10)
-        exact_values = list(dict.fromkeys(model_texts + [model.upper() for model in model_texts]))
+        exact_values = list(dict.fromkeys(clean_model(model) for model in model_texts if clean_model(model)))
         core_frames = []
         for model_chunk in chunk_items(exact_values, SEARCH_DB_FETCH_CHUNK):
             placeholders = ",".join(["?"] * len(model_chunk))
             core_frames.append(
                 pd.read_sql_query(
-                    f'SELECT * FROM {COMPONENTS_SEARCH_CORE_TABLE} WHERE "型号" IN ({placeholders})',
+                    f'SELECT * FROM {COMPONENTS_SEARCH_CORE_TABLE} WHERE "_model_clean" IN ({placeholders})',
                     conn,
                     params=model_chunk,
                 )
@@ -33241,6 +33470,7 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
 
 
 st.session_state["_member_auth_panel_rendered_in_run"] = False
+initialize_member_auth_remote_storage()
 render_member_auth_browser_persistence_bridge()
 render_no_match_admin_entry_button()
 render_member_entry_button()
