@@ -3120,3 +3120,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Verification: Bridge tests `4/4`, system regressions `7/7`, Python compilation, Worker syntax validation, PowerShell parser validation, and formal HTML marker checks passed. The formal in-app-browser test injected `BridgeTestToken_9876543210`; after Streamlit validation and reload, the iframe retained `bridge-4` and its random channel but no longer contained `member_token`, confirming the clear path works end to end.
 - Publish tooling: Fixed `deploy_cloudflare_pages_proxy.ps1` so a nonzero Wrangler `$LASTEXITCODE` now throws instead of producing a false-success deployment result.
 - Still open: The original `977x350` Chinese quote screenshot is no longer in the workspace, so the grid/cell OCR path still lacks an end-to-end replay against that exact image. Exact-model-only voltage gaps remain for several special MLCC/safety families, and Murata `DEA/DEB/DEC/DEF/KC/GJ/WBM` series semantics still require official-source backfill. Streamlit 1.58 logs also warn that `st.components.v1.html` is scheduled for removal; the app currently runs, but the custom HTML/component rendering path needs a compatibility migration or an intentional Streamlit version cap.
+## 2026-06-30 会员跨实例同步、富捷 5% 型号与报价矩阵修复
+
+- 会员资料：确认 D1 线上快照版本 44 实际保留 `terry46`、`H846740889`、`lhz123` 三个账号；问题根因是各 Streamlit 实例只在启动时拉取会员库，后台会员列表会读取旧副本。会员列表、登录、注册、会话校验、资料修改、审核与日志读取现在都会先刷新线上快照。本地库已备份后恢复为线上三账号版本。
+- 防丢保护：Cloudflare D1 快照 API 新增按版本保存的 `member_auth_snapshot_history`，并支持通过 `?version=` 读取历史版本；部署后会先把当前版本写入历史表，后续不再只保留最后一份。
+- 富捷型号：带包装空格的完整料号（例如 `FRC0603J100 TS`）现在会归一化后精确直查，不再误走型号片段/跨品牌候选路径；覆盖用户提供的 16 个 5% `J` 型号。
+- 成本报价：新增富捷双层报价表解析，识别 `Series / Type / Dimension / Resistance Range / New Unit Price / 5% / 1% / Package`，按系列、尺寸功率、阻值区间和公差保存规则，并支持斜线分段区间与分段价格。
+- 验证：`python -m unittest tests.test_system_regression tests.test_member_auth_bridge -v` 共 13 项通过；Python 编译、Worker `node --check` 与 `git diff --check` 通过。

@@ -159,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-29T21:58:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T04:34:00+08:00"
 
 
 def startup_trace(message):
@@ -1048,6 +1048,14 @@ def initialize_member_auth_remote_storage():
     return status
 
 
+def refresh_member_auth_remote_snapshot():
+    """Refresh the local replica before member reads or mutations."""
+    _, _, enabled = get_member_auth_remote_config()
+    if not enabled:
+        return "disabled"
+    return pull_member_auth_remote_snapshot()
+
+
 def get_no_match_admin_credentials():
     return (
         NO_MATCH_ADMIN_DEFAULT_USERNAME,
@@ -1346,6 +1354,7 @@ def member_username_is_valid(username):
 
 
 def get_member_by_username(username):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -1383,6 +1392,7 @@ def find_member_username_conflict(conn, username, exclude_member_id=None):
 
 
 def get_member_by_id(member_id):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -1391,6 +1401,7 @@ def get_member_by_id(member_id):
 
 
 def create_member_account(username, password, display_name="", company="", email="", phone=""):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     username = clean_text(username)
     if not member_username_is_valid(username):
@@ -1530,6 +1541,7 @@ def insert_member_profile_change_logs(conn, member_id, changes, changed_by="", c
 
 
 def list_member_profile_change_logs(member_id=None, limit=200):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     params = []
     where_clause = ""
@@ -1646,6 +1658,7 @@ def record_member_search_logs(member, query_lines, source="搜索匹配"):
     if not rows:
         return 0
     try:
+        refresh_member_auth_remote_snapshot()
         ensure_member_auth_schema()
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
             conn.executemany(
@@ -1688,6 +1701,7 @@ def build_member_search_log_where(start_date="", end_date="", keyword=""):
 
 
 def list_member_search_log_summary(start_date="", end_date="", keyword="", limit=300):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
     limit_clause = ""
@@ -1722,6 +1736,7 @@ def list_member_search_log_summary(start_date="", end_date="", keyword="", limit
 
 
 def list_member_search_log_details(start_date="", end_date="", keyword="", limit=300):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
     try:
@@ -2293,6 +2308,7 @@ def ensure_configured_admin_member_account():
 
 
 def list_members_for_admin():
+    refresh_member_auth_remote_snapshot()
     ensure_configured_admin_member_account()
     ensure_member_auth_schema()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -2309,6 +2325,7 @@ def list_members_for_admin():
 
 
 def approve_member_account_admin(member_id):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2347,6 +2364,7 @@ def member_admin_summary_dataframe(members):
 
 
 def update_current_member_profile(member_id, display_name="", company="", email="", phone=""):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2405,6 +2423,7 @@ def update_current_member_profile(member_id, display_name="", company="", email=
 
 
 def change_current_member_password(member_id, current_password="", new_password="", confirm_password=""):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2439,6 +2458,7 @@ def change_current_member_password(member_id, current_password="", new_password=
 
 
 def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password="", actor_username=""):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2536,6 +2556,7 @@ def update_member_account_admin(member_id, username, display_name="", company=""
 
 
 def delete_member_account_admin(member_id):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2570,6 +2591,7 @@ def create_member_session(member_id):
 
 
 def authenticate_member(username, password):
+    refresh_member_auth_remote_snapshot()
     ensure_configured_admin_member_account()
     member = get_member_by_username(username)
     if not member:
@@ -2589,6 +2611,7 @@ def authenticate_member(username, password):
 
 
 def get_member_by_session_token(token):
+    refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     token = clean_text(token)
     if token == "":
@@ -2814,6 +2837,7 @@ def set_current_member_from_admin_login(username, password):
 def logout_member():
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     if token:
+        refresh_member_auth_remote_snapshot()
         ensure_member_auth_schema()
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
@@ -3451,7 +3475,8 @@ def format_file_size(value):
 def normalize_cost_price_header(value):
     text = clean_text(value).lower()
     text = text.replace("＆", "&")
-    text = re.sub(r"[\s\u3000_\\/\-:：()（）\\[\\]【】]+", "", text)
+    for separator in (" ", "\t", "\r", "\n", "\u3000", "_", "\\", "/", "-", ":", "：", "(", ")", "（", "）", "[", "]", "【", "】"):
+        text = text.replace(separator, "")
     return text
 
 
@@ -3759,7 +3784,97 @@ def cost_price_items_preview_dataframe(items):
     )
 
 
+def build_fojan_cost_price_items_from_workbook(uploaded_file):
+    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    if not raw_bytes:
+        return []
+    try:
+        excel_file = pd.ExcelFile(BytesIO(raw_bytes))
+    except Exception:
+        return []
+    items = []
+    for sheet_name in excel_file.sheet_names:
+        try:
+            raw_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, dtype=object).fillna("")
+        except Exception:
+            continue
+        header_index = None
+        column_map = {}
+        for idx in range(min(len(raw_df), 20)):
+            row_values = [clean_text(value) for value in raw_df.iloc[idx].tolist()]
+            normalized = [normalize_cost_price_header(value) for value in row_values]
+            series_col = next((i for i, value in enumerate(normalized) if value == "series"), None)
+            type_col = next((i for i, value in enumerate(normalized) if "typedimension" in value), None)
+            range_col = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
+            package_col = next((i for i, value in enumerate(normalized) if value == "package"), None)
+            if None in {series_col, type_col, range_col, package_col} or idx + 1 >= len(raw_df):
+                continue
+            subheaders = [normalize_cost_price_header(value) for value in raw_df.iloc[idx + 1].tolist()]
+            price_5_col = next((i for i, value in enumerate(subheaders) if value in {"5%", "5％"}), None)
+            price_1_col = next((i for i, value in enumerate(subheaders) if value in {"1%", "1％"}), None)
+            if price_5_col is None and price_1_col is None:
+                continue
+            header_index = idx
+            column_map = {
+                "series": series_col,
+                "type_dimension": type_col,
+                "range": range_col,
+                "price_5": price_5_col,
+                "price_1": price_1_col,
+                "package": package_col,
+            }
+            break
+        if header_index is None:
+            continue
+        last_series = ""
+        for row_idx in range(header_index + 2, len(raw_df)):
+            values = raw_df.iloc[row_idx].tolist()
+            series = clean_text(values[column_map["series"]]).upper()
+            if series:
+                last_series = series
+            else:
+                series = last_series
+            if series not in {"FRC", "FRL"}:
+                continue
+            type_dimension = clean_text(values[column_map["type_dimension"]])
+            resistance_range = clean_text(values[column_map["range"]])
+            package = clean_text(values[column_map["package"]])
+            if type_dimension == "" or resistance_range == "":
+                continue
+            for tolerance, price_key in (("5", "price_5"), ("1", "price_1")):
+                price_col = column_map.get(price_key)
+                price = clean_text(values[price_col]) if price_col is not None else ""
+                if price == "":
+                    continue
+                rule_data = {
+                    "cost_rule_type": "fojan_resistor_series",
+                    "series": series,
+                    "type_dimension": type_dimension,
+                    "resistance_range": resistance_range,
+                    "tolerance": tolerance,
+                    "package": package,
+                }
+                items.append(
+                    {
+                        "sheet_name": clean_text(sheet_name),
+                        "row_index": row_idx + 1,
+                        "brand": "FOJAN(富捷)",
+                        "model": "",
+                        "model_clean": "",
+                        "spec_text": f"{series} {type_dimension} {resistance_range} {tolerance}%",
+                        "cost": price,
+                        "moq": package,
+                        "lead_time": "",
+                        "raw_json": json.dumps(rule_data, ensure_ascii=False, sort_keys=True),
+                    }
+                )
+    return items
+
+
 def build_cost_price_items_from_workbook(uploaded_file):
+    fojan_items = build_fojan_cost_price_items_from_workbook(uploaded_file)
+    if fojan_items:
+        return fojan_items, ""
     workbook = read_uploaded_bom_workbook(uploaded_file)
     if workbook.get("read_error") and not workbook.get("sheet_frames"):
         return [], workbook.get("read_error", "成本清单读取失败。")
@@ -3892,9 +4007,9 @@ def load_active_cost_price_lookup():
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time
+            SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time, raw_json
             FROM cost_price_items
-            WHERE list_id=? AND model_clean <> ''
+            WHERE list_id=?
             ORDER BY id ASC
             """,
             (int(active.get("id", 0)),),
@@ -3903,9 +4018,19 @@ def load_active_cost_price_lookup():
     for row in rows:
         item = dict(row)
         model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
-        if model_clean == "":
-            continue
-        lookup.setdefault(model_clean, []).append(item)
+        if model_clean != "":
+            lookup.setdefault(model_clean, []).append(item)
+        try:
+            rule_data = json.loads(clean_text(item.get("raw_json", "")) or "{}")
+        except Exception:
+            rule_data = {}
+        if rule_data.get("cost_rule_type") == "fojan_resistor_series":
+            rule_item = dict(item)
+            rule_item.update(rule_data)
+            rule_item["type_dimension_norm"] = normalize_resistor_pricing_type_dimension(
+                rule_data.get("type_dimension", "")
+            )
+            lookup.setdefault("__fojan_resistor_rules__", []).append(rule_item)
     _COST_PRICE_LOOKUP_CACHE["signature"] = signature
     _COST_PRICE_LOOKUP_CACHE["lookup"] = lookup
     return lookup
@@ -3918,20 +4043,43 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     if not lookup:
         return {}
     model_clean = clean_model(row.get("型号", ""))
-    if model_clean == "":
+    entries = lookup.get(model_clean, []) if model_clean else []
+    if entries:
+        row_brand = clean_brand(row.get("品牌", ""))
+        for entry in entries:
+            entry_brand = clean_brand(entry.get("brand", ""))
+            if entry_brand and brand_matches_loose(row_brand, entry_brand):
+                return entry
+        for entry in entries:
+            if clean_brand(entry.get("brand", "")) == "":
+                return entry
+        return entries[0]
+
+    series = normalize_resistor_pricing_series(row)
+    if series == "":
         return {}
-    entries = lookup.get(model_clean, [])
-    if not entries:
+    size = clean_size(row.get("尺寸（inch）", "")) or infer_resistor_size_from_model(row.get("型号", ""))
+    power = format_power_display(infer_resistor_power_text_from_record(row) or row.get("功率", "") or row.get("_power", ""))
+    resistance_ohm = get_row_resistance_for_pricing(row)
+    tolerance = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
+    if size == "" or power == "" or resistance_ohm is None or tolerance not in {"1", "5"}:
         return {}
-    row_brand = clean_brand(row.get("品牌", ""))
-    for entry in entries:
-        entry_brand = clean_brand(entry.get("brand", ""))
-        if entry_brand and brand_matches_loose(row_brand, entry_brand):
-            return entry
-    for entry in entries:
-        if clean_brand(entry.get("brand", "")) == "":
-            return entry
-    return entries[0]
+    type_dimension = f"{size} {power}"
+    for rule in lookup.get("__fojan_resistor_rules__", []):
+        if clean_text(rule.get("series", "")).upper() != series:
+            continue
+        if clean_text(rule.get("type_dimension_norm", "")) != type_dimension:
+            continue
+        if clean_text(rule.get("tolerance", "")) != tolerance:
+            continue
+        selected_cost = select_resistor_segment_price(
+            rule.get("resistance_range", ""), rule.get("cost", ""), resistance_ohm
+        )
+        if selected_cost != "":
+            matched = dict(rule)
+            matched["cost"] = selected_cost
+            return matched
+    return {}
 
 
 def enrich_component_cost_columns(df):
@@ -13925,7 +14073,13 @@ def looks_like_compact_part_query(line):
     raw = clean_model(line)
     if raw == "":
         return False
-    if re.search(r"[\s,/\\|;:]", clean_text(line).upper()):
+    source_text = clean_text(line).upper()
+    spaced_suffix_model = bool(
+        re.fullmatch(r"[A-Z][A-Z0-9._-]{5,}\s+[A-Z0-9._-]{1,6}", source_text)
+        and len(re.findall(r"[A-Z]", raw)) >= 3
+        and len(re.findall(r"\d", raw)) >= 3
+    )
+    if re.search(r"[,/\\|;:]", source_text) or (re.search(r"\s", source_text) and not spaced_suffix_model):
         return False
     if not (re.search(r"[A-Z]", raw) and re.search(r"\d", raw)):
         return False

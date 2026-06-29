@@ -44,6 +44,11 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('outerUrl.searchParams.delete("member_token");', self.worker)
         self.assertIn('history.replaceState(null, "", outerUrl.pathname + outerUrl.search + outerUrl.hash);', self.worker)
 
+    def test_member_snapshot_api_keeps_version_history(self):
+        self.assertIn("member_auth_snapshot_history", self.worker)
+        self.assertIn('searchParams.get("version")', self.worker)
+        self.assertIn("INSERT OR REPLACE INTO member_auth_snapshot_history", self.worker)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

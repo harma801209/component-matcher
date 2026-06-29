@@ -13,6 +13,7 @@ from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pandas as pd
+from openpyxl import Workbook
 
 
 class UploadedBytes:
@@ -35,6 +36,26 @@ def dataframe_to_xlsx_bytes(frame):
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         frame.to_excel(writer, index=False, sheet_name="报价")
+    return output.getvalue()
+
+
+def fojan_quote_xlsx_bytes():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "报价"
+    sheet.merge_cells("A1:F1")
+    sheet["A1"] = "电阻系列产品报价单"
+    sheet.append(["TO:", "", "TEL:", "", "Date:2026/6/12", ""])
+    sheet.merge_cells("D3:E3")
+    sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+    sheet.append(["", "", "Ω (ohms)", "5%", "1%", ""])
+    sheet.append(["FRC", "0603 1/10W", "0R,510R-10M", "2.60", "", "5000PCS"])
+    sheet.append(["FRC", "0603 1/10W", "10R-470R", "2.80", "", "5000PCS"])
+    sheet.append(["FRC", "0603 1/10W", "1R-9.9R", "3.60", "", "5000PCS"])
+    sheet.append(["FRC", "0603 1/10W", "10R-1M", "", "3.10", "5000PCS"])
+    sheet.append(["FRC", "0603 1/10W", "1R-9.9R/1M1-10M", "", "3.63 / 3.2", "5000PCS"])
+    output = BytesIO()
+    workbook.save(output)
     return output.getvalue()
 
 
@@ -146,6 +167,23 @@ class SystemRegressionTests(unittest.TestCase):
             row = fojan_rows[self.app["clean_model"](model)].iloc[0]
             expected_tolerance = "5" if "J" in model[7:9] or "P000" in model else "1"
             self.assertEqual(str(row["_tol"]), expected_tolerance, model)
+
+        spaced_fojan_5_percent_models = [
+            "FRC0603J100 TS", "FRC0402J330 TS", "FRC1206J201 TS", "FRC0402J511 TS",
+            "FRC0402J102 TS", "FRC0402J222 TS", "FRC0402J472 TS", "FRC0402J103 TS",
+            "FRC0805J103 TS", "FRC0402J152 TS", "FRC0402J513 TS", "FRC0603J750 TS",
+            "FRC0402J562 TS", "FRC0402J303 TS", "FRC0402J204 TS", "FRC0603J561 TS",
+        ]
+        for model in spaced_fojan_5_percent_models:
+            resolved = self.app["resolve_search_query_dataframe_and_spec"](model)
+            self.assertEqual(resolved["mode"], "料号", model)
+            self.assertNotEqual(resolved["resolution_path"], "model_token_prefix_lookup", model)
+            rows = resolved["query_df"]
+            self.assertTrue(
+                rows["_model_clean"].astype(str).eq(self.app["clean_model"](model)).any(),
+                model,
+            )
+            self.assertEqual(str(resolved["spec"].get("容值误差", "")), "5", model)
 
     def test_02_member_auth_approval_profile_and_search_logs(self):
         app = self.app
@@ -500,10 +538,27 @@ class SystemRegressionTests(unittest.TestCase):
             with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
                 conn.execute("DELETE FROM members WHERE lower(username)=lower('DurableUser')")
                 conn.commit()
-            self.assertIsNone(app["get_member_by_username"]("DurableUser"))
-            self.assertEqual(app["pull_member_auth_remote_snapshot"](), "restored")
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                self.assertIsNone(
+                    conn.execute(
+                        "SELECT id FROM members WHERE lower(username)=lower('DurableUser')"
+                    ).fetchone()
+                )
+            self.assertIsNotNone(app["get_member_by_username"]("DurableUser"))
             restored, message = app["authenticate_member"]("DURABLEUSER", "secret1")
             self.assertIsNotNone(restored, message)
+
+            stale_path = os.path.join(self.temp_dir, "member-stale.sqlite")
+            shutil.copy2(app["MEMBER_AUTH_DB_PATH"], stale_path)
+            ok, message = app["create_member_account"]("OtherInstanceUser", "secret2")
+            self.assertTrue(ok, message)
+            original_db_path = app["MEMBER_AUTH_DB_PATH"]
+            app["MEMBER_AUTH_DB_PATH"] = stale_path
+            try:
+                usernames = {row["username"] for row in app["list_members_for_admin"]()}
+                self.assertIn("OtherInstanceUser", usernames)
+            finally:
+                app["MEMBER_AUTH_DB_PATH"] = original_db_path
         finally:
             app["MEMBER_AUTH_REMOTE_STATE_PATH"] = original_state_path
             for key, value in saved_env.items():
@@ -513,6 +568,39 @@ class SystemRegressionTests(unittest.TestCase):
                     os.environ[key] = value
             server.shutdown()
             server.server_close()
+
+    def test_08_fojan_matrix_quote_imports_tolerance_price_rules(self):
+        app = self.app
+        app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-cost.sqlite")
+        app["clear_cost_price_lookup_cache"]()
+        upload = UploadedBytes("fojan-quote.xlsx", fojan_quote_xlsx_bytes())
+        items, error = app["build_cost_price_items_from_workbook"](upload)
+        self.assertEqual(error, "")
+        self.assertEqual(len(items), 5)
+        self.assertEqual({item["brand"] for item in items}, {"FOJAN(富捷)"})
+
+        ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+        self.assertTrue(ok, message)
+        lookup = app["load_active_cost_price_lookup"]()
+
+        def price(model, resistance_ohm, tolerance):
+            return app["lookup_active_cost_price_for_row"](
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": model,
+                    "器件类型": "贴片电阻",
+                    "尺寸（inch）": "0603",
+                    "功率": "1/10W",
+                    "_resistance_ohm": resistance_ohm,
+                    "容值误差": tolerance,
+                },
+                lookup=lookup,
+            ).get("cost", "")
+
+        self.assertEqual(price("FRC0603J100 TS", 10.0, "5"), "2.80")
+        self.assertEqual(price("FRC0603J103 TS", 10000.0, "5"), "2.60")
+        self.assertEqual(price("FRC0603F1002 TS", 10000.0, "1"), "3.10")
+        self.assertEqual(price("FRC0603F8R20 TS", 8.2, "1"), "3.63")
 
 
 if __name__ == "__main__":
