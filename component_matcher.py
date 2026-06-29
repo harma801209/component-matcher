@@ -159,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T04:34:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T05:14:00+08:00"
 
 
 def startup_trace(message):
@@ -2904,44 +2904,42 @@ def render_member_auth_panel(action_text=""):
     )
     login_tab, register_tab = st.tabs(["登录会员", "注册会员"])
     with login_tab:
-        with st.form("member_login_form", clear_on_submit=False):
-            username = st.text_input("账号", key="member_login_username")
-            password = st.text_input("密码", type="password", key="member_login_password")
-            submitted = st.form_submit_button("登录", use_container_width=True)
-            if submitted:
-                member, error = authenticate_member(username, password)
-                if member:
-                    set_current_member(member)
-                    st.success("登录成功。")
-                    st.rerun()
-                else:
-                    st.error(error or "登录失败。")
+        username = st.text_input("账号", key="member_login_username")
+        password = st.text_input("密码", type="password", key="member_login_password")
+        submitted = st.button("登录", key="member_login_submit", use_container_width=True)
+        if submitted:
+            member, error = authenticate_member(username, password)
+            if member:
+                set_current_member(member)
+                st.success("登录成功。")
+                st.rerun()
+            else:
+                st.error(error or "登录失败。")
     with register_tab:
-        with st.form("member_register_form", clear_on_submit=False):
-            username = st.text_input("账号", key="member_register_username", help="3-64 位英文、数字、点号、下划线、加号、减号或 @。")
-            display_name = st.text_input("姓名/称呼", key="member_register_display_name")
-            company = st.text_input("公司", key="member_register_company")
-            email = st.text_input("邮箱", key="member_register_email")
-            phone = st.text_input("电话", key="member_register_phone")
-            password = st.text_input("密码", type="password", key="member_register_password")
-            password2 = st.text_input("确认密码", type="password", key="member_register_password2")
-            submitted = st.form_submit_button("提交注册申请", use_container_width=True)
-            if submitted:
-                if password != password2:
-                    st.error("两次输入的密码不一致。")
+        username = st.text_input("账号", key="member_register_username", help="3-64 位英文、数字、点号、下划线、加号、减号或 @。")
+        display_name = st.text_input("姓名/称呼", key="member_register_display_name")
+        company = st.text_input("公司", key="member_register_company")
+        email = st.text_input("邮箱", key="member_register_email")
+        phone = st.text_input("电话", key="member_register_phone")
+        password = st.text_input("密码", type="password", key="member_register_password")
+        password2 = st.text_input("确认密码", type="password", key="member_register_password2")
+        submitted = st.button("提交注册申请", key="member_register_submit", use_container_width=True)
+        if submitted:
+            if password != password2:
+                st.error("两次输入的密码不一致。")
+            else:
+                ok, message = create_member_account(
+                    username=username,
+                    password=password,
+                    display_name=display_name,
+                    company=company,
+                    email=email,
+                    phone=phone,
+                )
+                if ok:
+                    st.success(message)
                 else:
-                    ok, message = create_member_account(
-                        username=username,
-                        password=password,
-                        display_name=display_name,
-                        company=company,
-                        email=email,
-                        phone=phone,
-                    )
-                    if ok:
-                        st.success(message)
-                    else:
-                        st.error(message)
+                    st.error(message)
 
 
 def render_member_center_page():

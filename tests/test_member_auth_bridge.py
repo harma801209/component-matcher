@@ -49,6 +49,16 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('searchParams.get("version")', self.worker)
         self.assertIn("INSERT OR REPLACE INTO member_auth_snapshot_history", self.worker)
 
+    def test_member_auth_controls_do_not_use_nested_forms(self):
+        function_start = self.matcher.index("def render_member_auth_panel(")
+        function_end = self.matcher.index("\ndef render_member_center_page", function_start)
+        auth_panel = self.matcher[function_start:function_end]
+        self.assertNotIn('st.form("member_login_form"', auth_panel)
+        self.assertNotIn('st.form("member_register_form"', auth_panel)
+        self.assertNotIn("st.form_submit_button", auth_panel)
+        self.assertIn('key="member_login_submit"', auth_panel)
+        self.assertIn('key="member_register_submit"', auth_panel)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

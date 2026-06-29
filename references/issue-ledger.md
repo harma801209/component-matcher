@@ -468,3 +468,10 @@
 - Root cause: The script invoked `wrangler.cmd` but did not inspect `$LASTEXITCODE`; the surrounding `finally` only restored the working directory.
 - Fix: Check `$LASTEXITCODE` immediately after Wrangler returns and throw on any nonzero value.
 - Verification: PowerShell AST parsing passed, and a real transient Wrangler failure was distinguished from the later successful deployment whose formal HTML exposed the new cache buster.
+
+## 2026-06-30 - Member login panel failed after the Streamlit 1.58 reboot
+
+- Bug: Searching on the formal site while logged out displayed Streamlit's red `Missing Submit Button` error instead of a usable member login panel.
+- Root cause: The login and registration controls were nested in `st.form` blocks that rendered incorrectly on the formal Streamlit 1.58 runtime after the application reboot.
+- Fix: Replaced the two member forms with ordinary keyed inputs and keyed buttons while retaining the existing authentication, registration, validation, and rerun behavior.
+- Verification: Python compilation, Worker syntax validation, diff checks, and all 14 member/system regressions passed. A clean local browser flow searched `FRC0603J100 TS`, displayed the member login button, and contained no `Missing Submit Button` error.
