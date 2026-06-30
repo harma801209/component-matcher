@@ -98,6 +98,9 @@ MEMBER_AUTH_REMOTE_STATE_PATH = os.path.join(BASE_DIR, "cache", "member_auth_rem
 MEMBER_AUTH_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/member-store/snapshot"
 MEMBER_AUTH_OUTER_SHELL_ORIGIN = "https://fruition-component.pages.dev"
 MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
+MEMBER_AUTH_REMOTE_REFRESH_LOCK = threading.Lock()
+MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 15.0
+_MEMBER_AUTH_REMOTE_REFRESH_CACHE = {"checked_at": 0.0, "db_path": ""}
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
@@ -159,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T11:55:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T16:36:00+08:00"
 
 
 def startup_trace(message):
@@ -1048,12 +1051,28 @@ def initialize_member_auth_remote_storage():
     return status
 
 
-def refresh_member_auth_remote_snapshot():
-    """Refresh the local replica before member reads or mutations."""
+def reset_member_auth_remote_refresh_cache():
+    with MEMBER_AUTH_REMOTE_REFRESH_LOCK:
+        _MEMBER_AUTH_REMOTE_REFRESH_CACHE["checked_at"] = 0.0
+        _MEMBER_AUTH_REMOTE_REFRESH_CACHE["db_path"] = ""
+
+
+def refresh_member_auth_remote_snapshot(force=False):
+    """Refresh the local replica, coalescing repeated reads in one UI interaction."""
     _, _, enabled = get_member_auth_remote_config()
     if not enabled:
         return "disabled"
-    return pull_member_auth_remote_snapshot()
+    db_path = os.path.abspath(MEMBER_AUTH_DB_PATH)
+    now = time.monotonic()
+    with MEMBER_AUTH_REMOTE_REFRESH_LOCK:
+        checked_at = float(_MEMBER_AUTH_REMOTE_REFRESH_CACHE.get("checked_at") or 0.0)
+        checked_path = clean_text(_MEMBER_AUTH_REMOTE_REFRESH_CACHE.get("db_path", ""))
+        if not force and checked_path == db_path and now - checked_at < MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS:
+            return "recent"
+        status = pull_member_auth_remote_snapshot()
+        _MEMBER_AUTH_REMOTE_REFRESH_CACHE["checked_at"] = time.monotonic()
+        _MEMBER_AUTH_REMOTE_REFRESH_CACHE["db_path"] = db_path
+        return status
 
 
 def get_no_match_admin_credentials():
@@ -1401,7 +1420,7 @@ def get_member_by_id(member_id):
 
 
 def create_member_account(username, password, display_name="", company="", email="", phone=""):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     username = clean_text(username)
     if not member_username_is_valid(username):
@@ -2325,7 +2344,7 @@ def list_members_for_admin():
 
 
 def approve_member_account_admin(member_id):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2364,7 +2383,7 @@ def member_admin_summary_dataframe(members):
 
 
 def update_current_member_profile(member_id, display_name="", company="", email="", phone=""):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2423,7 +2442,7 @@ def update_current_member_profile(member_id, display_name="", company="", email=
 
 
 def change_current_member_password(member_id, current_password="", new_password="", confirm_password=""):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2458,7 +2477,7 @@ def change_current_member_password(member_id, current_password="", new_password=
 
 
 def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password="", actor_username=""):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2556,7 +2575,7 @@ def update_member_account_admin(member_id, username, display_name="", company=""
 
 
 def delete_member_account_admin(member_id):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2591,7 +2610,7 @@ def create_member_session(member_id):
 
 
 def authenticate_member(username, password):
-    refresh_member_auth_remote_snapshot()
+    refresh_member_auth_remote_snapshot(force=True)
     ensure_configured_admin_member_account()
     member = get_member_by_username(username)
     if not member:
@@ -2837,7 +2856,7 @@ def set_current_member_from_admin_login(username, password):
 def logout_member():
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     if token:
-        refresh_member_auth_remote_snapshot()
+        refresh_member_auth_remote_snapshot(force=True)
         ensure_member_auth_schema()
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))

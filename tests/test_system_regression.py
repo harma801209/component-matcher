@@ -481,6 +481,7 @@ class SystemRegressionTests(unittest.TestCase):
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
         app = self.app
         snapshot = {"version": 0, "sha256": "", "payload_base64": "", "updated_at": ""}
+        request_counts = {"get": 0, "put": 0}
         api_secret = "regression-secret"
 
         class SnapshotHandler(BaseHTTPRequestHandler):
@@ -502,12 +503,14 @@ class SystemRegressionTests(unittest.TestCase):
                 if not self._authorized():
                     self._send(401, {"error": "unauthorized"})
                     return
+                request_counts["get"] += 1
                 self._send(200, snapshot)
 
             def do_PUT(self):
                 if not self._authorized():
                     self._send(401, {"error": "unauthorized"})
                     return
+                request_counts["put"] += 1
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if int(body.get("expected_version") or 0) != int(snapshot["version"]):
@@ -548,9 +551,19 @@ class SystemRegressionTests(unittest.TestCase):
                         "SELECT id FROM members WHERE lower(username)=lower('DurableUser')"
                     ).fetchone()
                 )
+            app["reset_member_auth_remote_refresh_cache"]()
             self.assertIsNotNone(app["get_member_by_username"]("DurableUser"))
+            app["ensure_configured_admin_member_account"]()
+            app["reset_member_auth_remote_refresh_cache"]()
+            requests_before_login = dict(request_counts)
             restored, message = app["authenticate_member"]("DURABLEUSER", "secret1")
             self.assertIsNotNone(restored, message)
+            self.assertEqual(request_counts["get"] - requests_before_login["get"], 1)
+            self.assertEqual(request_counts["put"] - requests_before_login["put"], 1)
+            requests_after_login = dict(request_counts)
+            for _ in range(3):
+                self.assertIsNotNone(app["get_member_by_session_token"](restored["_session_token"]))
+            self.assertEqual(request_counts, requests_after_login)
 
             stale_path = os.path.join(self.temp_dir, "member-stale.sqlite")
             shutil.copy2(app["MEMBER_AUTH_DB_PATH"], stale_path)

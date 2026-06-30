@@ -489,3 +489,10 @@
 - Root cause: PDC official resistor profiles embedded `PDC + series code` in the description, and older cached rows also contained variants such as `PDC FCF-E`.
 - Fix: PDC official descriptions now contain only the product-purpose description. The display formatter also removes legacy `PDC {series}` and `PDC {series}-{variant}` prefixes so existing cached rows are corrected immediately.
 - Verification: Dedicated tests covered `FCF`, `FCF-E`, and `FWF` while preserving a non-PDC description; all 15 member/system regressions passed.
+
+## 2026-06-30 - Member login paused on repeated remote snapshot reads
+
+- Bug: A normal formal-site member login took about 10.6 seconds from clicking `登录` until the authenticated page appeared.
+- Root cause: One login synchronously pulled the complete remote member snapshot in `authenticate_member()`, `get_member_by_username()`, and `get_member_by_id()`, then uploaded the session snapshot. Normal session validation also pulled the remote snapshot on every Streamlit rerun.
+- Fix: Coalesce member snapshot reads for 15 seconds per local replica. Login still forces one fresh pull, account/profile/password/admin mutations still force fresh pulls, and the new session still uploads to remote storage.
+- Verification: The remote-snapshot regression asserts one GET and one PUT per login and zero additional remote requests across three immediate session validations. All 15 member/system regressions passed.

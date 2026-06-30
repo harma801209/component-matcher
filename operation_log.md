@@ -3154,3 +3154,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The search result already has a separate `系列` column, so PDC descriptions no longer repeat `PDC FCF`, `PDC FWF`, or another PDC series prefix.
 - Updated the official PDC resistor profiles and added display-time cleanup for legacy cached values such as `PDC FCF-E ...`.
 - The dedicated display regression and all 15 member/system tests passed, along with Python compilation, Worker syntax validation, and diff checks.
+
+### 2026-06-30 16:36 [performance] Coalesce member remote sync during login
+
+- Measured the formal login baseline at 10.6 seconds after the login button click.
+- Root cause was three serialized D1 snapshot downloads plus one session upload in a single login, followed by another download on every Streamlit rerun.
+- Added a 15-second per-replica refresh window: login now performs one forced GET and one required PUT; immediate session checks reuse the verified local snapshot. Member mutations still force a fresh remote read.
+- The remote durability regression now checks request counts, and all 15 member/system tests pass.
