@@ -646,6 +646,112 @@ class SystemRegressionTests(unittest.TestCase):
             ],
         )
 
+    def test_10_other_passive_specs_do_not_fall_back_to_wrong_models(self):
+        app = self.app
+
+        def match(rows, spec):
+            frame = pd.DataFrame(rows)
+            with sqlite3.connect(app["DB_PATH"]) as conn:
+                source_columns = [row[1] for row in conn.execute('PRAGMA table_info("components")')]
+            for column in source_columns:
+                if column not in frame.columns:
+                    frame[column] = ""
+            prepared = app["prepare_search_dataframe"](frame)
+            original_fetch = app["fetch_search_candidate_pairs"]
+            app["fetch_search_candidate_pairs"] = lambda _spec: None
+            try:
+                return app["match_other_passive_spec"](prepared, spec)
+            finally:
+                app["fetch_search_candidate_pairs"] = original_fetch
+
+        inductor_rows = [
+            {
+                "品牌": "Murata",
+                "型号": "TEST-INDUCTOR-4R7",
+                "器件类型": "功率电感",
+                "容值": "4.7",
+                "容值单位": "UH",
+                "容值误差": "20",
+            }
+        ]
+        self.assertTrue(
+            match(
+                inductor_rows,
+                {"器件类型": "功率电感", "容值": "10", "容值单位": "UH", "容值误差": "20"},
+            ).empty
+        )
+        self.assertEqual(
+            match(
+                inductor_rows,
+                {"器件类型": "功率电感", "容值": "4.7", "容值单位": "UH", "容值误差": "20"},
+            )["型号"].tolist(),
+            ["TEST-INDUCTOR-4R7"],
+        )
+
+        varistor_rows = [
+            {
+                "品牌": "Littelfuse",
+                "型号": "TEST-VARISTOR-470",
+                "器件类型": "引线型压敏电阻",
+                "耐压（V）": "470",
+                "_varistor_voltage": "470",
+                "_disc_size": "14D",
+            }
+        ]
+        self.assertTrue(
+            match(
+                varistor_rows,
+                {"器件类型": "引线型压敏电阻", "耐压（V）": "560", "_varistor_voltage": "560", "_disc_size": "14D"},
+            ).empty
+        )
+        self.assertEqual(
+            match(
+                varistor_rows,
+                {"器件类型": "引线型压敏电阻", "耐压（V）": "470", "_varistor_voltage": "470", "_disc_size": "14D"},
+            )["型号"].tolist(),
+            ["TEST-VARISTOR-470"],
+        )
+
+        crystal_rows = [
+            {
+                "品牌": "TXC",
+                "型号": "TEST-CRYSTAL-16M",
+                "器件类型": "晶振",
+                "尺寸（inch）": "3225",
+                "容值": "16",
+                "容值单位": "MHZ",
+                "容值误差": "20PPM",
+                "负载电容（pF）": "12",
+            }
+        ]
+        self.assertTrue(
+            match(
+                crystal_rows,
+                {
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "3225",
+                    "容值": "16",
+                    "容值单位": "MHZ",
+                    "容值误差": "20PPM",
+                    "负载电容（pF）": "8",
+                },
+            ).empty
+        )
+        self.assertEqual(
+            match(
+                crystal_rows,
+                {
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "3225",
+                    "容值": "16",
+                    "容值单位": "MHZ",
+                    "容值误差": "20PPM",
+                    "负载电容（pF）": "12",
+                },
+            )["型号"].tolist(),
+            ["TEST-CRYSTAL-16M"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

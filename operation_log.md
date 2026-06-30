@@ -3161,3 +3161,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Root cause was three serialized D1 snapshot downloads plus one session upload in a single login, followed by another download on every Streamlit rerun.
 - Added a 15-second per-replica refresh window: login now performs one forced GET and one required PUT; immediate session checks reuse the verified local snapshot. Member mutations still force a fresh remote read.
 - The remote durability regression now checks request counts, and all 15 member/system tests pass.
+
+### 2026-06-30 21:28 [matching correctness] Make other-passive specifications hard constraints
+
+- Audited the non-resistor matching path after the user clarified that the concern was brand/model accuracy across capacitors, inductors, magnetic components, thermistors, varistors, and timing parts.
+- Found that several explicit filters were conditional on at least one candidate matching; zero matches left unrelated candidates in place and could label them as complete matches.
+- Changed film-capacitor, varistor, inductor, crystal, and oscillator material/value/tolerance/dimension/voltage/output/load-capacitance checks to return no result when the requested critical specification is absent or conflicting.
+- Added positive and negative regressions for a power inductor, leaded varistor, and crystal.

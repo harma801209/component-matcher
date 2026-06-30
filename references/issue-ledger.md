@@ -496,3 +496,10 @@
 - Root cause: One login synchronously pulled the complete remote member snapshot in `authenticate_member()`, `get_member_by_username()`, and `get_member_by_id()`, then uploaded the session snapshot. Normal session validation also pulled the remote snapshot on every Streamlit rerun.
 - Fix: Coalesce member snapshot reads for 15 seconds per local replica. Login still forces one fresh pull, account/profile/password/admin mutations still force fresh pulls, and the new session still uploads to remote storage.
 - Verification: The remote-snapshot regression asserts one GET and one PUT per login and zero additional remote requests across three immediate session validations. All 15 member/system regressions passed.
+
+## 2026-06-30 - Other-passive searches could fall back to mismatched models
+
+- Bug: Film-capacitor, varistor, inductor, crystal, and oscillator searches could retain unrelated candidates when no row matched an explicitly requested material, tolerance, body, pitch, voltage, value, frequency, output type, or load capacitance, then label those candidates as complete matches.
+- Root cause: `match_other_passive_spec()` applied several explicit filters only when `same_value.any()` was true. A zero-match condition therefore skipped the filter instead of returning no result.
+- Fix: Explicit other-passive specifications are now hard constraints. Tighter tolerances remain eligible where the component class permits high-to-low substitution, but absent or conflicting critical values no longer fall through to another brand/model.
+- Verification: A dedicated regression covers negative and positive inductor, leaded-varistor, and crystal cases. Mismatches return no model while exact specifications still return the expected model.

@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T16:36:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T21:28:00+08:00"
 
 
 def startup_trace(message):
@@ -27790,12 +27790,9 @@ def match_other_passive_spec(df, spec):
 
         if spec_material != "" and "_mat" in work.columns:
             same_material = work["_mat"].eq(spec_material)
-            if same_material.any():
-                work = work[same_material]
+            work = work[same_material]
         if spec_tol != "":
-            same_tol = tolerance_equal_series(work, spec_tol)
-            if same_tol.any():
-                work = work[same_tol]
+            work = work[tolerance_allows_series(work, spec_tol)]
         if spec_volt != "":
             try:
                 spec_volt_num = float(spec_volt)
@@ -27804,16 +27801,13 @@ def match_other_passive_spec(df, spec):
                 work = work[work["_volt"].eq(spec_volt)]
         if spec_body_size != "" and "_body_size" in work.columns:
             same_body = work["_body_size"].astype(str).apply(clean_text).eq(spec_body_size)
-            if same_body.any():
-                work = work[same_body]
+            work = work[same_body]
         if spec_pitch != "" and "_pitch" in work.columns:
             same_pitch = work["_pitch"].astype(str).apply(clean_text).eq(spec_pitch)
-            if same_pitch.any():
-                work = work[same_pitch]
+            work = work[same_pitch]
         if spec_safety != "" and "_safety_class" in work.columns:
             same_safety = work["_safety_class"].astype(str).apply(clean_text).eq(spec_safety)
-            if same_safety.any():
-                work = work[same_safety]
+            work = work[same_safety]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
@@ -27828,20 +27822,15 @@ def match_other_passive_spec(df, spec):
         spec_pitch = clean_text(spec.get("_pitch", ""))
         if spec_varistor_voltage != "" and "_varistor_voltage" in work.columns:
             same_varistor_voltage = work["_varistor_voltage"].astype(str).apply(clean_voltage).eq(spec_varistor_voltage)
-            if same_varistor_voltage.any():
-                work = work[same_varistor_voltage]
+            work = work[same_varistor_voltage]
         if spec_tol != "":
-            same_tol = tolerance_equal_series(work, spec_tol)
-            if same_tol.any():
-                work = work[same_tol]
+            work = work[tolerance_allows_series(work, spec_tol)]
         if spec_disc_size != "" and "_disc_size" in work.columns:
             same_disc_size = work["_disc_size"].astype(str).apply(clean_text).eq(spec_disc_size)
-            if same_disc_size.any():
-                work = work[same_disc_size]
+            work = work[same_disc_size]
         if spec_pitch != "" and "_pitch" in work.columns:
             same_pitch = work["_pitch"].astype(str).apply(clean_text).eq(spec_pitch)
-            if same_pitch.any():
-                work = work[same_pitch]
+            work = work[same_pitch]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
@@ -27871,8 +27860,7 @@ def match_other_passive_spec(df, spec):
         spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
         if spec_unit != "" and "容值单位" in work.columns:
             same_unit = work["容值单位"].astype(str).apply(lambda x: clean_text(x).upper()).eq(spec_unit)
-            if same_unit.any():
-                work = work[same_unit]
+            work = work[same_unit]
         if spec_value != "" and "容值" in work.columns:
             row_value = work["容值"].astype(str).apply(clean_text)
             exact_text = row_value.eq(spec_value)
@@ -27882,12 +27870,9 @@ def match_other_passive_spec(df, spec):
                 same_value = exact_text | numeric_mask.fillna(False)
             except Exception:
                 same_value = exact_text
-            if same_value.any():
-                work = work[same_value]
+            work = work[same_value]
         if spec_tol != "":
-            same_tol = tolerance_equal_series(work, spec_tol)
-            if same_tol.any():
-                work = work[same_tol]
+            work = work[tolerance_allows_series(work, spec_tol)]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
@@ -27909,12 +27894,10 @@ def match_other_passive_spec(df, spec):
                 same_size = work["_size"].astype(str).apply(clean_size).eq(spec_size)
             else:
                 same_size = work["尺寸（inch）"].astype(str).apply(clean_size).eq(spec_size)
-            if same_size.any():
-                work = work[same_size]
+            work = work[same_size]
         if spec_unit != "" and "容值单位" in work.columns:
             same_unit = work["容值单位"].astype(str).apply(lambda x: clean_text(x).upper()).eq(spec_unit)
-            if same_unit.any():
-                work = work[same_unit]
+            work = work[same_unit]
         if spec_value != "" and "容值" in work.columns:
             row_value = work["容值"].astype(str).apply(clean_text)
             exact_text = row_value.eq(spec_value)
@@ -27924,26 +27907,20 @@ def match_other_passive_spec(df, spec):
                 same_value = exact_text | numeric_mask.fillna(False)
             except Exception:
                 same_value = exact_text
-            if same_value.any():
-                work = work[same_value]
+            work = work[same_value]
         if spec_tol != "":
-            same_tol = tolerance_equal_series(work, spec_tol)
-            if same_tol.any():
-                work = work[same_tol]
+            work = work[tolerance_equal_series(work, spec_tol)]
         if spec_volt != "":
             same_volt = work["耐压（V）"].astype(str).apply(clean_voltage).eq(spec_volt)
             if "电源电压" in work.columns:
                 same_volt = same_volt | work["电源电压"].astype(str).apply(clean_voltage).eq(spec_volt)
-            if same_volt.any():
-                work = work[same_volt]
+            work = work[same_volt]
         if component_type == "振荡器" and spec_output != "" and "输出类型" in work.columns:
             same_output = work["输出类型"].astype(str).apply(normalize_timing_output_type).eq(spec_output)
-            if same_output.any():
-                work = work[same_output]
+            work = work[same_output]
         if component_type == "晶振" and spec_load_cap != "" and "负载电容（pF）" in work.columns:
             same_load_cap = work["负载电容（pF）"].astype(str).apply(clean_text).eq(spec_load_cap)
-            if same_load_cap.any():
-                work = work[same_load_cap]
+            work = work[same_load_cap]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
