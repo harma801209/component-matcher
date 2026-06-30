@@ -3136,3 +3136,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Rebooted the formal Streamlit app. The reboot exposed a separate Streamlit 1.58 `Missing Submit Button` error in the logged-out member panel.
 - Replaced only the member login and registration forms with keyed buttons. All 14 regressions passed, and a clean browser search for `FRC0603J100 TS` rendered the login control without the Streamlit error.
 - Published commit `3e55d468`, deployed Cloudflare preview `https://23f35222.fruition-component.pages.dev`, confirmed formal cache marker `20260630-member-form-cost-import-2`, rebooted Streamlit Cloud, and repeated the search on the formal URL successfully with no `Missing Submit Button` error.
+
+### 2026-06-30 11:02 [fix/verification] Support the real FOJAN percentage-header workbook
+
+- Inspected and rendered the user's original `富捷电阻报价单-富临通701-客户.xlsx`. The visible `5%` and `1%` cells are stored as numeric `0.05` and `0.01`, which explained why the text-only header parser returned zero rows.
+- Added numeric and textual percentage-header normalization and changed the regression workbook to the same Excel storage pattern.
+- The unmodified original file now imports and activates 40 rows. A full local admin browser upload displayed current rows `40`, history `1`, and the active workbook name with no relevant console errors.
+- Representative 0603 5% and 1% prices resolved to the values in the workbook, and all 14 member/system regressions, Python compilation, Worker syntax validation, and diff checks passed.

@@ -475,3 +475,10 @@
 - Root cause: The login and registration controls were nested in `st.form` blocks that rendered incorrectly on the formal Streamlit 1.58 runtime after the application reboot.
 - Fix: Replaced the two member forms with ordinary keyed inputs and keyed buttons while retaining the existing authentication, registration, validation, and rerun behavior.
 - Verification: Python compilation, Worker syntax validation, diff checks, and all 14 member/system regressions passed. Clean local and formal-site browser flows searched `FRC0603J100 TS`, displayed the member login button, and contained no `Missing Submit Button` error.
+
+## 2026-06-30 - Real FOJAN cost workbook imported zero rows
+
+- Bug: Uploading `富捷电阻报价单-富临通701-客户.xlsx` displayed the warning that no importable cost data was found, although the visible sheet contained the expected FOJAN quote matrix.
+- Root cause: The `5%` and `1%` header cells were stored by Excel as numeric values `0.05` and `0.01` with percentage number formatting. The parser only recognized literal text headers such as `5%` and `1%`.
+- Fix: Normalize tolerance headers from literal percent text, full-width percent text, and Excel's numeric percentage values before locating the two price columns. The regression fixture now uses numeric percentage cells with `0%` formatting, matching the recurring customer template.
+- Verification: The unmodified 11.4 KB source workbook parsed, imported, activated, and persisted 40 rows. Browser upload showed current rows `40` and one active history item with no relevant console errors. Representative costs resolved as `FRC0603J100=2.8`, `FRC0603J103=3.38`, `FRC0603F1002=3.84`, and `FRC0603F8R20=5.33`; all 14 regressions passed.

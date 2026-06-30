@@ -159,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T05:14:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T10:48:00+08:00"
 
 
 def startup_trace(message):
@@ -3491,6 +3491,26 @@ def cost_price_header_matches(header, keywords):
     return False
 
 
+def normalize_cost_price_tolerance_header(value):
+    text = clean_text(value).replace("％", "%").strip()
+    compact = text.replace(" ", "")
+    if compact in {"5%", "5.0%"}:
+        return "5"
+    if compact in {"1%", "1.0%"}:
+        return "1"
+    try:
+        numeric = float(compact.rstrip("%"))
+    except Exception:
+        return ""
+    if compact.endswith("%"):
+        numeric /= 100.0
+    if abs(numeric - 0.05) <= 1e-9:
+        return "5"
+    if abs(numeric - 0.01) <= 1e-9:
+        return "1"
+    return ""
+
+
 def find_cost_price_column(columns, include_keywords, exclude_keywords=()):
     for column in columns:
         if not cost_price_header_matches(column, include_keywords):
@@ -3807,9 +3827,9 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             package_col = next((i for i, value in enumerate(normalized) if value == "package"), None)
             if None in {series_col, type_col, range_col, package_col} or idx + 1 >= len(raw_df):
                 continue
-            subheaders = [normalize_cost_price_header(value) for value in raw_df.iloc[idx + 1].tolist()]
-            price_5_col = next((i for i, value in enumerate(subheaders) if value in {"5%", "5％"}), None)
-            price_1_col = next((i for i, value in enumerate(subheaders) if value in {"1%", "1％"}), None)
+            subheaders = [normalize_cost_price_tolerance_header(value) for value in raw_df.iloc[idx + 1].tolist()]
+            price_5_col = next((i for i, value in enumerate(subheaders) if value == "5"), None)
+            price_1_col = next((i for i, value in enumerate(subheaders) if value == "1"), None)
             if price_5_col is None and price_1_col is None:
                 continue
             header_index = idx

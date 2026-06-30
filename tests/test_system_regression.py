@@ -47,8 +47,12 @@ def fojan_quote_xlsx_bytes():
     sheet["A1"] = "电阻系列产品报价单"
     sheet.append(["TO:", "", "TEL:", "", "Date:2026/6/12", ""])
     sheet.merge_cells("D3:E3")
-    sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+    sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price/含税成本Kpcs", "", "Package"])
     sheet.append(["", "", "Ω (ohms)", "5%", "1%", ""])
+    sheet["D5"] = 0.05
+    sheet["E5"] = 0.01
+    sheet["D5"].number_format = "0%"
+    sheet["E5"].number_format = "0%"
     sheet.append(["FRC", "0603 1/10W", "0R,510R-10M", "2.60", "", "5000PCS"])
     sheet.append(["FRC", "0603 1/10W", "10R-470R", "2.80", "", "5000PCS"])
     sheet.append(["FRC", "0603 1/10W", "1R-9.9R", "3.60", "", "5000PCS"])
