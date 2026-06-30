@@ -3143,3 +3143,14 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added numeric and textual percentage-header normalization and changed the regression workbook to the same Excel storage pattern.
 - The unmodified original file now imports and activates 40 rows. A full local admin browser upload displayed current rows `40`, history `1`, and the active workbook name with no relevant console errors.
 - Representative 0603 5% and 1% prices resolved to the values in the workbook, and all 14 member/system regressions, Python compilation, Worker syntax validation, and diff checks passed.
+
+### 2026-06-30 11:36 [formal verification] Compare live search prices with the active FOJAN workbook
+
+- Logged into the formal member search and searched six FOJAN models in one request. All six returned viewable source records from the active cost list with no relevant browser console errors.
+- Verified live source-row costs against `富捷电阻报价单-富临通701-客户.xlsx`: `FRC0402J330 TS=2.02`, `FRC0603J100 TS=2.8`, `FRC0603J103 TS=3.38`, `FRC0603F1002 TS=3.84`, `FRC0603F8R20 TS=5.33`, and `FRC1206J201 TS=8.5`.
+
+### 2026-06-30 12:00 [display fix] Remove repeated PDC series prefixes
+
+- The search result already has a separate `系列` column, so PDC descriptions no longer repeat `PDC FCF`, `PDC FWF`, or another PDC series prefix.
+- Updated the official PDC resistor profiles and added display-time cleanup for legacy cached values such as `PDC FCF-E ...`.
+- The dedicated display regression and all 15 member/system tests passed, along with Python compilation, Worker syntax validation, and diff checks.

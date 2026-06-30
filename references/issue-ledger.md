@@ -482,3 +482,10 @@
 - Root cause: The `5%` and `1%` header cells were stored by Excel as numeric values `0.05` and `0.01` with percentage number formatting. The parser only recognized literal text headers such as `5%` and `1%`.
 - Fix: Normalize tolerance headers from literal percent text, full-width percent text, and Excel's numeric percentage values before locating the two price columns. The regression fixture now uses numeric percentage cells with `0%` formatting, matching the recurring customer template.
 - Verification: The unmodified 11.4 KB source workbook parsed, imported, activated, and persisted 40 rows. Browser upload showed current rows `40` and one active history item with no relevant console errors. Representative costs resolved as `FRC0603J100=2.8`, `FRC0603J103=3.38`, `FRC0603F1002=3.84`, and `FRC0603F8R20=5.33`; all 14 regressions passed.
+
+## 2026-06-30 - PDC series descriptions repeated the visible series code
+
+- Bug: Search results displayed values such as `系列=FCF` next to `系列说明=PDC FCF ...`, redundantly repeating the vendor and series code.
+- Root cause: PDC official resistor profiles embedded `PDC + series code` in the description, and older cached rows also contained variants such as `PDC FCF-E`.
+- Fix: PDC official descriptions now contain only the product-purpose description. The display formatter also removes legacy `PDC {series}` and `PDC {series}-{variant}` prefixes so existing cached rows are corrected immediately.
+- Verification: Dedicated tests covered `FCF`, `FCF-E`, and `FWF` while preserving a non-PDC description; all 15 member/system regressions passed.

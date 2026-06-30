@@ -159,7 +159,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T10:48:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T11:55:00+08:00"
 
 
 def startup_trace(message):
@@ -28370,10 +28370,29 @@ def style_exact_match_rows(df, spec=None):
         return df
 
 
+def normalize_pdc_series_description_display_fields(df):
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if "系列" not in df.columns or "系列说明" not in df.columns:
+        return df
+    out = df.copy()
+    for idx, row in out.iterrows():
+        series = clean_text(row.get("系列", "")).upper()
+        description = clean_text(row.get("系列说明", ""))
+        if series == "" or description == "":
+            continue
+        pattern = rf"^PDC\s+{re.escape(series)}(?:-[A-Z0-9]+)*\s*"
+        cleaned = re.sub(pattern, "", description, flags=re.IGNORECASE).strip(" -—:：/")
+        if cleaned != description:
+            out.at[idx, "系列说明"] = cleaned
+    return out
+
+
 def format_display_df(show_df):
     show_df = show_df.copy()
     show_df = normalize_fojan_resistor_series_display_fields(show_df)
     show_df = normalize_joyin_ntc_series_display_fields(show_df)
+    show_df = normalize_pdc_series_description_display_fields(show_df)
     for col in [
         "品牌","型号","品牌1","型号1","品牌2","型号2","品牌3","型号3",
         "推荐品牌","推荐型号","推荐品牌1","推荐型号1","推荐品牌2","推荐型号2","推荐品牌3","推荐型号3",

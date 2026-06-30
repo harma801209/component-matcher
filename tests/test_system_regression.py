@@ -606,6 +606,33 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRC0603F1002 TS", 10000.0, "1"), "3.10")
         self.assertEqual(price("FRC0603F8R20 TS", 8.2, "1"), "3.63")
 
+    def test_09_pdc_series_descriptions_do_not_repeat_vendor_and_series(self):
+        app = self.app
+        profile = app["lookup_official_resistor_series_profile_by_model"](
+            "FCF02FV-8062",
+            "PSA(信昌电陶)",
+        )
+        self.assertEqual(profile.get("系列说明"), "通用厚膜贴片电阻/低阻电流检测贴片电阻")
+
+        source = pd.DataFrame(
+            [
+                {"品牌": "PSA(信昌电陶)", "系列": "FCF", "系列说明": "PDC FCF 通用厚膜贴片电阻/低阻电流检测贴片电阻"},
+                {"品牌": "PSA(信昌电陶)", "系列": "FCF", "系列说明": "PDC FCF-E 通用厚膜电流检测贴片电阻"},
+                {"品牌": "PSA(信昌电陶)", "系列": "FWF", "系列说明": "PDC FWF 车规厚膜贴片电阻/抗硫化车规厚膜贴片电阻"},
+                {"品牌": "华新科Walsin", "系列": "WR", "系列说明": "通用厚膜贴片电阻"},
+            ]
+        )
+        formatted = app["format_display_df"](source)
+        self.assertEqual(
+            formatted["系列说明"].tolist(),
+            [
+                "通用厚膜贴片电阻/低阻电流检测贴片电阻",
+                "通用厚膜电流检测贴片电阻",
+                "车规厚膜贴片电阻/抗硫化车规厚膜贴片电阻",
+                "通用厚膜贴片电阻",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
