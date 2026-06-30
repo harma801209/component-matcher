@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T21:28:00+08:00"
+PUBLIC_CODE_STAMP = "2026-06-30T22:18:00+08:00"
 
 
 def startup_trace(message):
