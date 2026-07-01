@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-01T17:12:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-01T17:45:00+08:00"
 
 
 def startup_trace(message):
@@ -6286,8 +6286,8 @@ def clean_size(x):
 
 EMBEDDED_SIZE_TOKENS = (
     "015008", "008004", "01005",
-    "0075", "0100", "0102", "0201", "0204", "0207", "0303", "0401", "0402", "0406", "0502", "0505", "0508",
-    "0603", "0612", "0705", "0805", "0815", "1010", "1020", "1206", "1210", "1218", "1225", "1505", "1506",
+    "0075", "0100", "0102", "0201", "0204", "0207", "0302", "0303", "0401", "0402", "0406", "0502", "0504", "0505", "0508",
+    "0603", "0612", "0705", "0804", "0805", "0815", "1010", "1020", "1206", "1210", "1218", "1225", "1505", "1506",
     "1608", "1808", "1812", "1825", "2010", "2012", "2220", "2512", "2513", "2514", "2515", "2615", "2816",
     "2817", "2920", "3225", "3512", "3920", "4020", "4124", "4312", "4520", "4527", "4532", "5750", "5930",
     "6227", "6327", "8035",
@@ -14804,6 +14804,27 @@ def find_impedance_at_100mhz_in_text(text):
     return ""
 
 
+def find_impedance_in_text(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    labeled = find_impedance_at_100mhz_in_text(text)
+    if labeled != "":
+        return labeled
+    match = re.search(
+        r"(?<![A-Z0-9.])(\d+(?:\.\d+)?)\s*(MΩ|KΩ|Ω|MOHM|KOHM|OHM)(?![A-Z0-9])",
+        upper,
+        flags=re.I,
+    )
+    if not match:
+        return ""
+    return combine_value_and_unit(
+        match.group(1),
+        normalize_library_value_unit(match.group(2)),
+        separator="",
+    )
+
+
 def find_b_value_in_text(text):
     upper = clean_text(text).upper().replace("β", "B")
     if upper == "":
@@ -15941,6 +15962,7 @@ def parse_inductor_spec_query(line):
     upper = raw.upper().replace("μ", "U").replace("µ", "U").replace("Μ", "U")
     component_type = detect_inductor_subtype_hint(raw)
     inductance = find_inductance_in_text(upper)
+    impedance = find_impedance_in_text(upper) if component_type in {"共模电感", "磁珠"} else ""
     if component_type == "" and inductance == "":
         return None
     if component_type == "" and any(
@@ -15970,16 +15992,24 @@ def parse_inductor_spec_query(line):
     dcr = find_dcr_in_text(raw) or find_unlabeled_dcr_in_inductor_text(raw)
     body_size = extract_body_size_from_text(raw)
 
-    value = ""
-    unit = ""
+    inductance_value = ""
+    inductance_unit = ""
     inductance_match = re.fullmatch(r"(\d+(?:\.\d+)?)(NH|UH|MH)", inductance, flags=re.I)
     if inductance_match:
-        value = clean_text(inductance_match.group(1))
-        unit = clean_text(inductance_match.group(2)).upper()
+        inductance_value = clean_text(inductance_match.group(1))
+        inductance_unit = clean_text(inductance_match.group(2)).upper()
+    impedance_value, impedance_unit = parse_impedance_value_unit(impedance)
+    if component_type in {"共模电感", "磁珠"} and impedance_value != "":
+        value = impedance_value
+        unit = impedance_unit
+    else:
+        value = inductance_value
+        unit = inductance_unit
 
     param_count = sum([
         1 if size else 0,
-        1 if value and unit else 0,
+        1 if inductance_value and inductance_unit else 0,
+        1 if impedance_value and impedance_unit else 0,
         1 if tol else 0,
         1 if current else 0,
         1 if dcr else 0,
@@ -16012,6 +16042,11 @@ def parse_inductor_spec_query(line):
         "_current": current,
         "额定电流": current,
         "DCR": dcr,
+        "共模阻抗": impedance_value if component_type == "共模电感" else "",
+        "阻抗@100MHz": impedance_value if component_type == "磁珠" else "",
+        "阻抗单位": impedance_unit,
+        "电感值": inductance_value,
+        "电感单位": inductance_unit,
         "_body_size": body_size,
         "_core_param_count": param_count,
         "_param_count": param_count,

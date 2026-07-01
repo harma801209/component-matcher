@@ -748,6 +748,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "品牌": "Panasonic",
                 "型号": "EXC14CE121U",
                 "器件类型": "共模电感",
+                "尺寸（inch）": "0302",
                 "容值": "1.574",
                 "容值单位": "NH",
                 "电感值": "1.574",
@@ -759,6 +760,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "品牌": "Panasonic",
                 "型号": "EXC14CE900U",
                 "器件类型": "共模电感",
+                "尺寸（inch）": "0302",
                 "共模阻抗": "90",
                 "阻抗单位": "Ω",
             },
@@ -768,6 +770,17 @@ class SystemRegressionTests(unittest.TestCase):
                 common_mode_rows,
                 {"器件类型": "共模电感", "容值": "120", "容值单位": "OHM"},
             )["型号"].tolist(),
+            ["EXC14CE121U"],
+        )
+        parsed_common_mode = app["parse_inductor_spec_query"]("共模电感 0302 120OHM 100mA")
+        self.assertEqual(parsed_common_mode["器件类型"], "共模电感")
+        self.assertEqual(parsed_common_mode["尺寸（inch）"], "0302")
+        self.assertEqual(parsed_common_mode["容值"], "120")
+        self.assertEqual(parsed_common_mode["容值单位"], "Ω")
+        self.assertEqual(parsed_common_mode["共模阻抗"], "120")
+        self.assertEqual(parsed_common_mode["阻抗单位"], "Ω")
+        self.assertEqual(
+            match(common_mode_rows, parsed_common_mode)["型号"].tolist(),
             ["EXC14CE121U"],
         )
 
