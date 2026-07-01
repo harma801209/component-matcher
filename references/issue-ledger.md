@@ -503,3 +503,11 @@
 - Root cause: `match_other_passive_spec()` applied several explicit filters only when `same_value.any()` was true. A zero-match condition therefore skipped the filter instead of returning no result.
 - Fix: Explicit other-passive specifications are now hard constraints. Tighter tolerances remain eligible where the component class permits high-to-low substitution, but absent or conflicting critical values no longer fall through to another brand/model.
 - Verification: A dedicated regression covers negative and positive inductor, leaded-varistor, and crystal cases. Mismatches return no model while exact specifications still return the expected model.
+
+## 2026-07-01 - Generic passive fields hid missing parameters and caused wrong common-mode matches
+
+- Bug: Some varistor rows stored clamping voltage in the generic voltage field, while common-mode choke rows could store inductance in the generic value field even when the user searched by impedance. This could produce semantically wrong brand/model candidates.
+- Root cause: The runtime cache allowed one generic value/unit pair to stand in for component-specific fields, and the library had no separate nominal-varistor-voltage column. Missing-field coverage therefore looked better than the data actually supported.
+- Fix: Added separate nominal/clamping-voltage semantics, safe MOV model decoding, official Panasonic common-mode and Vishay NTCS backfills, exact common-mode impedance/inductance matching, blank-model rejection, and a repeatable critical-parameter coverage report.
+- Verification: `EXC14CE121U` is indexed as `120 Ω`; nominal `MOV-14D471K=470 V` matches while its `775 V` clamp value does not. Main/search SQLite integrity checks pass and all 16 member/system regressions pass.
+- Remaining data work: Official sources are still required for aluminum-electrolytic ESR/ripple/life gaps, undecodable varistor nominal voltages, incomplete common-mode families, and crystal family rows without one exact load capacitance. These rows remain blank or range-based by design and are not silently guessed.

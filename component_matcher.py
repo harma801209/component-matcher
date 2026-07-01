@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-06-30T22:18:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-01T17:12:00+08:00"
 
 
 def startup_trace(message):
@@ -14846,6 +14846,9 @@ def find_shielding_type_in_text(text):
 
 
 def find_varistor_voltage_in_text(text):
+    coded = infer_varistor_nominal_voltage_from_model(text)
+    if coded != "":
+        return coded
     explicit = parse_voltage_from_text(text)
     if explicit != "":
         return explicit
@@ -22979,6 +22982,7 @@ LIBRARY_COMMON_COLUMNS = [
     "直径（mm）", "脚距（mm）", "极性", "ESR", "纹波电流",
     "寿命（h）", "工作温度",
     "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+    "压敏电压", "钳位电压",
     "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
     "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
 ]
@@ -23164,6 +23168,11 @@ def normalize_imported_component_dataframe(df, source_path=""):
         blank_inductor_tol_mask = work["容值误差"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_inductor_tol_mask, "容值误差"] = work.loc[blank_inductor_tol_mask, "电感误差"]
     if "共模阻抗" in work.columns:
+        common_mode_mask = work["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
+        explicit_common_mode_mask = common_mode_mask & work["共模阻抗"].apply(lambda x: clean_text(x) != "")
+        work.loc[explicit_common_mode_mask, "容值"] = work.loc[explicit_common_mode_mask, "共模阻抗"]
+        if "阻抗单位" in work.columns:
+            work.loc[explicit_common_mode_mask, "容值单位"] = work.loc[explicit_common_mode_mask, "阻抗单位"]
         blank_common_mode_value_mask = work["容值"].apply(lambda x: clean_text(x) == "")
         work.loc[blank_common_mode_value_mask, "容值"] = work.loc[blank_common_mode_value_mask, "共模阻抗"]
     if "阻抗@100MHz" in work.columns:
@@ -23560,6 +23569,28 @@ def get_public_bundle_signature_for_cache():
         return get_streamlit_cloud_bundle_signature()
     except Exception:
         return ""
+
+
+def infer_varistor_nominal_voltage_from_model(text):
+    """Decode standard MOV nominal-voltage codes without using clamp voltage."""
+    upper = clean_text(text).upper().replace(" ", "")
+    if upper == "":
+        return ""
+    patterns = (
+        r"(?<!\d)(?:0?5|0?7|10|14|20|25|32)D(\d{3})[KLMPSJ]",
+        r"(?<!\d)(\d{3})K?D(?:0?5|0?7|10|14|20|25|32)(?!\d)",
+        r"^JVR\d{2}[NSU](\d{3})[KLMP]",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, upper, flags=re.I)
+        if not match:
+            continue
+        code = match.group(1)
+        try:
+            return clean_voltage(str(int(code[:2]) * (10 ** int(code[2]))))
+        except Exception:
+            continue
+    return ""
 
 
 def get_search_index_signature():
@@ -25642,6 +25673,11 @@ def prepare_search_dataframe(df):
             )
             for idx in work.loc[mlcc_mask].index
         ]
+    if {"器件类型", "共模阻抗", "阻抗单位", "容值", "容值单位"}.issubset(work.columns):
+        common_mode_mask = work["器件类型"].astype(str).apply(normalize_component_type).eq("共模电感")
+        explicit_common_mode_mask = common_mode_mask & work["共模阻抗"].astype(str).apply(clean_text).ne("")
+        work.loc[explicit_common_mode_mask, "容值"] = work.loc[explicit_common_mode_mask, "共模阻抗"]
+        work.loc[explicit_common_mode_mask, "容值单位"] = work.loc[explicit_common_mode_mask, "阻抗单位"]
     if "_unit_upper" not in work.columns:
         if "容值单位" in work.columns:
             work["_unit_upper"] = work["容值单位"].apply(lambda value: normalize_search_sidecar_value(value).upper() if normalize_search_sidecar_value(value) is not None else None)
@@ -25667,7 +25703,7 @@ def prepare_search_dataframe(df):
         blank_res_mask = work["_res_ohm"].astype("string").fillna("").str.strip().eq("")
         work.loc[blank_res_mask & parsed_res.notna(), "_res_ohm"] = parsed_res[blank_res_mask & parsed_res.notna()]
 
-    search_text_columns = ["器件类型", "品牌", "型号", "系列", "系列说明", "安装方式", "封装代码", "尺寸（inch）", "尺寸（mm）", "长度（mm）", "宽度（mm）", "高度（mm）", "材质（介质）", "规格摘要", "容值", "容值单位", "特殊用途", "备注1", "备注2", "备注3"]
+    search_text_columns = ["器件类型", "品牌", "型号", "系列", "系列说明", "安装方式", "封装代码", "尺寸（inch）", "尺寸（mm）", "长度（mm）", "宽度（mm）", "高度（mm）", "材质（介质）", "规格摘要", "容值", "容值单位", "压敏电压", "钳位电压", "特殊用途", "备注1", "备注2", "备注3"]
     resistor_text_columns = ["器件类型", "品牌", "型号", "系列", "系列说明", "安装方式", "封装代码", "尺寸（inch）", "尺寸（mm）", "长度（mm）", "宽度（mm）", "高度（mm）", "规格摘要", "材质（介质）", "容值", "容值单位", "特殊用途", "备注1", "备注2", "备注3"]
     needs_search_text = any(
         col not in work.columns
@@ -25739,7 +25775,13 @@ def prepare_search_dataframe(df):
     if "_safety_class" not in work.columns:
         work["_safety_class"] = search_text.apply(find_safety_class)
     if "_varistor_voltage" not in work.columns:
-        work["_varistor_voltage"] = search_text.apply(find_varistor_voltage_in_text)
+        if "压敏电压" in work.columns:
+            work["_varistor_voltage"] = work["压敏电压"].apply(clean_voltage)
+        else:
+            work["_varistor_voltage"] = pd.Series([""] * len(work), index=work.index, dtype="object")
+        blank_varistor_mask = work["_varistor_voltage"].astype("string").fillna("").str.strip().eq("")
+        if blank_varistor_mask.any() and search_text is not None:
+            work.loc[blank_varistor_mask, "_varistor_voltage"] = search_text.loc[blank_varistor_mask].apply(find_varistor_voltage_in_text)
     if "_disc_size" not in work.columns:
         work["_disc_size"] = search_text.apply(find_disc_size_code)
     if "_temp_low" not in work.columns or "_temp_high" not in work.columns:
@@ -27308,6 +27350,14 @@ def fetch_search_candidate_pairs(spec):
         tol = clean_tol_for_match(spec.get("容值误差", ""))
         if value_text == "" or unit == "":
             return None
+        if target_type == "共模电感":
+            normalized_unit = normalize_library_value_unit(unit)
+            if normalized_unit not in {"Ω", "KΩ"}:
+                # The compact sidecar stores one primary value per row. For
+                # common-mode chokes, inductance is a separate exact field and
+                # must be evaluated against the prepared library instead.
+                return None
+            unit = normalized_unit
         required_search_columns.update({"_size", "_value_num", "_unit_upper", "_tol"})
         placeholders = ",".join(["?"] * len(compatible_types or [target_type]))
         where_clauses.append(f"_component_type IN ({placeholders})")
@@ -27704,6 +27754,10 @@ def match_other_passive_spec(df, spec):
     base = scope_search_dataframe(df, spec)
     if base.empty:
         return pd.DataFrame()
+    if "型号" in base.columns:
+        base = base[base["型号"].astype(str).apply(clean_model).ne("")]
+        if base.empty:
+            return pd.DataFrame()
 
     component_type = infer_spec_component_type(spec)
     if component_type == "铝电解电容":
@@ -27852,6 +27906,45 @@ def match_other_passive_spec(df, spec):
         if work.empty:
             return pd.DataFrame()
         return apply_match_levels_and_sort(work, spec)
+
+    if component_type == "共模电感":
+        work = base.copy()
+        spec_value = clean_text(spec.get("容值", ""))
+        spec_unit = normalize_library_value_unit(spec.get("容值单位", ""))
+        spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
+        if spec_value == "" or spec_unit == "":
+            return pd.DataFrame()
+        try:
+            target_value = float(spec_value)
+        except Exception:
+            return pd.DataFrame()
+        if spec_unit in {"Ω", "KΩ"}:
+            parsed_impedance = work.apply(
+                lambda row: parse_impedance_value_unit(
+                    f"{clean_text(row.get('共模阻抗', ''))}{clean_text(row.get('阻抗单位', ''))}"
+                ),
+                axis=1,
+            )
+            values = parsed_impedance.apply(lambda item: item[0])
+            units = parsed_impedance.apply(lambda item: item[1])
+        elif clean_text(spec_unit).upper() in {"NH", "UH", "MH", "H"}:
+            if "电感值" not in work.columns or "电感单位" not in work.columns:
+                return pd.DataFrame()
+            values = work["电感值"].astype(str).apply(clean_text)
+            units = work["电感单位"].astype(str).str.upper().apply(clean_text)
+            spec_unit = clean_text(spec_unit).upper()
+        else:
+            return pd.DataFrame()
+        numeric_values = pd.to_numeric(values, errors="coerce")
+        exact_match = units.eq(spec_unit) & numeric_values.notna() & numeric_values.sub(target_value).abs().lt(1e-9)
+        work = work[exact_match]
+        if spec_tol != "" and not work.empty:
+            work = work[tolerance_allows_series(work, spec_tol)]
+        if work.empty:
+            return pd.DataFrame()
+        work = work.copy()
+        work["推荐等级"] = "完全匹配"
+        return work
 
     if component_type in INDUCTOR_COMPONENT_TYPES:
         work = base.copy()

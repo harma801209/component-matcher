@@ -712,6 +712,65 @@ class SystemRegressionTests(unittest.TestCase):
             ["TEST-VARISTOR-470"],
         )
 
+        mov_rows = [
+            {
+                "品牌": "Bourns",
+                "型号": "MOV-14D471K",
+                "器件类型": "引线型压敏电阻",
+                "耐压（V）": "775",
+                "压敏电压": "470",
+                "直径（mm）": "14",
+            },
+            {
+                "品牌": "Placeholder",
+                "型号": "",
+                "器件类型": "引线型压敏电阻",
+                "压敏电压": "470",
+                "直径（mm）": "14",
+            },
+        ]
+        self.assertEqual(
+            match(
+                mov_rows,
+                {"器件类型": "引线型压敏电阻", "耐压（V）": "470", "_varistor_voltage": "470", "_disc_size": "14D"},
+            )["型号"].tolist(),
+            ["MOV-14D471K"],
+        )
+        self.assertTrue(
+            match(
+                mov_rows,
+                {"器件类型": "引线型压敏电阻", "耐压（V）": "775", "_varistor_voltage": "775", "_disc_size": "14D"},
+            ).empty
+        )
+
+        common_mode_rows = [
+            {
+                "品牌": "Panasonic",
+                "型号": "EXC14CE121U",
+                "器件类型": "共模电感",
+                "容值": "1.574",
+                "容值单位": "NH",
+                "电感值": "1.574",
+                "电感单位": "NH",
+                "共模阻抗": "120",
+                "阻抗单位": "Ω",
+            },
+            {
+                "品牌": "Panasonic",
+                "型号": "EXC14CE900U",
+                "器件类型": "共模电感",
+                "共模阻抗": "90",
+                "阻抗单位": "Ω",
+            },
+        ]
+        self.assertEqual(
+            match(
+                common_mode_rows,
+                {"器件类型": "共模电感", "容值": "120", "容值单位": "OHM"},
+            )["型号"].tolist(),
+            ["EXC14CE121U"],
+        )
+
         crystal_rows = [
             {
                 "品牌": "TXC",
