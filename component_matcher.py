@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-01T17:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-02T10:00:00+08:00"
 
 
 def startup_trace(message):
@@ -10246,12 +10246,13 @@ MLCC_SERIES_CLASS_RULES = [
     ("中压", [r"MEDIUM\s+VOLTAGE", r"中压"]),
     ("抗弯", [r"ANTI[- ]?BEND", r"抗弯"]),
     ("安规", [r"SAFETY", r"安规", r"\bX1/Y2\b", r"\bX2\b"]),
+    ("谐振", [r"RESONANT", r"RESONANCE", r"谐振"]),
     ("高Q", [r"HIGH[- ]?Q", r"高Q"]),
     ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"滤波"]),
     ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
 ]
 # "高容" is a family/capacitance coverage label, not a required application or safety constraint.
-MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高压", "中压", "抗弯", "安规", "高Q", "EMI滤波"}
+MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高压", "中压", "抗弯", "安规", "谐振", "高Q", "EMI滤波"}
 
 
 def mlcc_series_class_tokens(value):
@@ -14227,6 +14228,7 @@ def parse_spec_query(line):
 
     size = find_embedded_size(raw)
     material = find_embedded_material(raw)
+    special_use = normalize_mlcc_series_class(raw)
     cap_pf = None
     tol = ""
     volt = ""
@@ -14323,7 +14325,8 @@ def parse_spec_query(line):
         1 if material else 0,
         1 if cap_pf is not None else 0,
         1 if tol else 0,
-        1 if volt else 0
+        1 if volt else 0,
+        1 if special_use else 0,
     ])
 
     if param_count == 0:
@@ -14337,6 +14340,8 @@ def parse_spec_query(line):
         "容值_pf": cap_pf,
         "容值误差": tol,
         "耐压（V）": clean_voltage(volt),
+        "特殊用途": special_use,
+        "_mlcc_series_class": special_use,
         "_param_count": param_count
     }
     if invalid_size_token != "":
@@ -16892,6 +16897,7 @@ def get_component_display_schema(spec_or_type):
         return [
             ("系列", "系列"),
             ("系列说明", "系列说明"),
+            ("特殊用途", "特殊用途"),
             ("尺寸（inch）", "尺寸"),
             ("材质（介质）", "材质（介质）"),
             ("容值", "容值"),

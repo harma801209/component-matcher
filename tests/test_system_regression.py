@@ -824,6 +824,62 @@ class SystemRegressionTests(unittest.TestCase):
             ["TEST-CRYSTAL-16M"],
         )
 
+    def test_11_mlcc_special_use_terms_are_hard_constraints(self):
+        app = self.app
+        query = "47nF 1210 630V 谐振电容"
+        spec = app["parse_spec_query"](query)
+        self.assertEqual(spec["特殊用途"], "谐振")
+        self.assertEqual(app["infer_mlcc_series_class_from_spec"](spec), "谐振")
+        spec_info = app["build_spec_info_df"](spec)
+        self.assertIn("特殊用途", spec_info.columns)
+        self.assertEqual(spec_info.iloc[0]["特殊用途"], "谐振")
+
+        rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "ResonantBrand",
+                    "型号": "RESONANT-1210-473-630V",
+                    "器件类型": "MLCC",
+                    "系列": "RZ",
+                    "系列说明": "谐振 / Resonant MLCC",
+                    "特殊用途": "谐振",
+                    "尺寸（inch）": "1210",
+                    "材质（介质）": "COG(NPO)",
+                    "容值": "47",
+                    "容值单位": "NF",
+                    "耐压（V）": "630",
+                    "_mlcc_series_class": "谐振",
+                },
+                {
+                    "品牌": "GeneralBrand",
+                    "型号": "GENERAL-X7R-1210-473-630V",
+                    "器件类型": "MLCC",
+                    "系列": "C",
+                    "系列说明": "常规 / General-purpose MLCC",
+                    "特殊用途": "",
+                    "尺寸（inch）": "1210",
+                    "材质（介质）": "X7R",
+                    "容值": "47",
+                    "容值单位": "NF",
+                    "耐压（V）": "630",
+                    "_mlcc_series_class": "常规",
+                },
+            ]
+        )
+        with sqlite3.connect(app["DB_PATH"]) as conn:
+            source_columns = [row[1] for row in conn.execute('PRAGMA table_info("components")')]
+        for column in source_columns:
+            if column not in rows.columns:
+                rows[column] = ""
+        prepared = app["prepare_search_dataframe"](rows)
+        original_fetch = app["fetch_search_candidate_pairs"]
+        app["fetch_search_candidate_pairs"] = lambda _spec: None
+        try:
+            matched = app["match_by_partial_spec"](prepared, spec)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertEqual(matched["型号"].tolist(), ["RESONANT-1210-473-630V"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

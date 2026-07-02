@@ -512,3 +512,10 @@
 - Follow-up fix: The real text parser originally recognized only `nH/uH/mH` values. It now recognizes common-mode and ferrite-bead `Ω/KΩ/OHM/KOHM` tokens and the `0302/0504/0804` magnetic-component packages, so user text reaches the strict impedance matcher.
 - Verification: `EXC14CE121U` is indexed as `120 Ω`; nominal `MOV-14D471K=470 V` matches while its `775 V` clamp value does not. Main/search SQLite integrity checks pass and all 16 member/system regressions pass.
 - Remaining data work: Official sources are still required for aluminum-electrolytic ESR/ripple/life gaps, undecodable varistor nominal voltages, incomplete common-mode families, and crystal family rows without one exact load capacitance. These rows remain blank or range-based by design and are not silently guessed.
+
+## 2026-07-02 - MLCC searches ignored trailing application requirements
+
+- Bug: `47nF 1210 630V 谐振电容` returned ordinary X7R models because only the numeric/package fields reached MLCC matching.
+- Root cause: The MLCC parser did not populate `特殊用途`, and resonant-capacitor semantics were not part of the strict series-class vocabulary.
+- Fix: Parse application classes from the full query, add `谐振/Resonant` as a strict MLCC class, filter candidates by that class, and show the recognized application in the specification table.
+- Verification: The reported query returns no ordinary X7R fallback; a same-spec explicit resonant candidate is accepted and a general-purpose X7R candidate is rejected. The full 17-test member/system suite passes.

@@ -3179,3 +3179,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Verification: all 16 member/system regressions pass, covering remote member restoration, FOJAN percentage-header cost import, PDC description cleanup, MOV semantics, common-mode impedance, inductor, varistor, crystal, and oscillator constraints.
 - Formal verification: commit `a9896a2d` is live. The member search `共模电感 0302 120OHM 100mA` returns exactly one viewable result, `Panasonic(松下) / EXC14CE121U / 0302 / 120 Ω`, with no relevant browser console error. The active FOJAN cost list remains the original workbook with 40 current rows, and the formal member database still lists `terry46`, `H846740889`, and `lhz123`.
 - Remaining source gaps are explicitly tracked rather than guessed: aluminum-electrolytic ESR/ripple/life fields, non-decodable varistor nominal voltages, sparse common-mode family fields, and crystal load capacitance for family/range rows.
+
+### 2026-07-02 10:00 [matching correctness] Enforce trailing MLCC application requirements
+
+- Received / problem: `47nF 1210 630V 谐振电容` ignored the trailing resonant-capacitor requirement and returned ordinary X7R models as partial matches.
+- Root cause: `parse_spec_query()` extracted only package, dielectric, capacitance, tolerance, and voltage. MLCC application terms were not copied into `特殊用途`, and `谐振/Resonant` was absent from the strict MLCC series-class rules.
+- Change / action: Parse all known MLCC application classes from the complete query, add `谐振/Resonant` as a strict class, and display `特殊用途` in the MLCC specification table. Application requirements such as automotive, soft termination, industrial, high/medium voltage, anti-bend, safety, resonant, high-Q, and EMI filtering now reject ordinary-family fallbacks.
+- Verification: The original query now parses as `特殊用途=谐振` and returns zero local candidates because the current library has no explicitly resonant `1210 / 47nF / >=630V` row. A synthetic resonant row matches while an otherwise identical ordinary X7R row is excluded. All 17 member/system regressions pass.
