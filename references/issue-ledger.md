@@ -526,3 +526,10 @@
 - Root cause: Application matching used a canonical class correctly, but the alias vocabulary was narrower than the terms users place in specification remarks.
 - Fix: Expanded automotive, soft-termination, high-Q/low-loss, and EMI-filter aliases. Multiple notes remain cumulative hard constraints, so `车规软端` requires a candidate classified as both automotive and soft termination.
 - Verification: Regression coverage now includes all strict MLCC application classes and aliases; ordinary candidates and candidates satisfying only one part of a combined requirement are rejected. All 17 member/system tests pass.
+
+## 2026-07-02 - Missing FOJAN range model lost brand and cost
+
+- Bug: Exact search `FRC0402F5233TS` decoded as `0402 / 523KΩ / 1% / 1/16W`, but the part-information row had blank cost and the result did not visibly identify the input model as FOJAN.
+- Root cause: The exact model was absent from the component library. The naming-rule fallback parsed its electrical parameters but left the brand blank and produced pseudo-series `FRC0402F`, so neither the active FOJAN range rule nor the official `FRC` profile could match.
+- Fix: Infer `FOJAN(富捷)` for valid missing-library `FRC/FRL` resistor part numbers before applying model rules. The fallback now resolves the official `FRC` series and is priced by the current active range list without requiring one database row per resistance value.
+- Verification: The original workbook maps this model to `FRC / 0402 1/16W / 10R-1M / 1%`, cost `1.7`, MOQ `10000PCS`. The full 17-test member/system suite passes.

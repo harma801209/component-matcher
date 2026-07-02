@@ -3194,3 +3194,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Kept multiple application notes cumulative: `车规软端` now requires both `车规` and `软端子`; a candidate satisfying only one requirement is rejected instead of being downgraded to a partial result.
 - Regression coverage now exercises car-grade, sub-automotive, resonant, industrial, soft termination, high/medium voltage, anti-bend, safety, high-Q, EMI filtering, and combined notes. All 17 member/system tests and Python compilation pass.
 - Formal verification: `47nF 1210 630V 软端电容` displays `特殊用途=软端子` and returns only soft-termination series, including Walsin `SH32B473K631CT` (`SH`) and Murata `GRJ32DR72J473KWJ1L` (`GRJ`), with no ordinary X7R-family fallback.
+
+### 2026-07-02 19:38 [cost/matching] Price missing-library FOJAN resistor models from range rules
+
+- Reproduced `FRC0402F5233TS`: the library contains neighboring `5230/5231/5232` rows but not `5233`; the fallback decoded `523KΩ / 1% / 0402 / 1/16W` while leaving brand blank and series as `FRC0402F`, which blocked FOJAN pricing.
+- Valid missing-library `FRC/FRL` resistor model numbers now infer `FOJAN(富捷)` before rule parsing, resolve to the official family (`FRC` or `FRL`), and use the active series range cost without adding every standard resistance as a database row.
+- The user's original workbook imported 136 rules in an isolated verification. `FRC0402F5233TS` matched `FRC / 0402 1/16W / 10R-1M / 1%` with cost `1.7` and MOQ `10000PCS`; all 17 member/system tests and Python compilation pass.

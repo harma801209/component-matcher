@@ -619,6 +619,23 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRC0603F1002 TS", 10000.0, "1"), "3.10")
         self.assertEqual(price("FRC0603F8R20 TS", 8.2, "1"), "3.63")
 
+        missing_range_model = app["build_rule_fallback_row_from_model"]("FRC0402F5233TS")
+        self.assertEqual(len(missing_range_model), 1)
+        fallback_row = missing_range_model.iloc[0]
+        self.assertEqual(fallback_row["品牌"], "FOJAN(富捷)")
+        self.assertEqual(fallback_row["系列"], "FRC")
+        self.assertEqual(fallback_row["尺寸（inch）"], "0402")
+        self.assertEqual(fallback_row["容值误差"], "1")
+        self.assertAlmostEqual(float(fallback_row["_res_ohm"]), 523000.0)
+        fallback_display = app["select_component_display_columns"](
+            missing_range_model,
+            fallback_row.to_dict(),
+            prefix_columns=["品牌", "型号", "器件类别", "系列"],
+        )
+        self.assertEqual(fallback_display.iloc[0]["品牌"], "FOJAN(富捷)")
+        self.assertEqual(fallback_display.iloc[0]["成本"], "1.7")
+        self.assertEqual(fallback_display.iloc[0]["MOQ"], "10000PCS")
+
     def test_09_pdc_series_descriptions_do_not_repeat_vendor_and_series(self):
         app = self.app
         profile = app["lookup_official_resistor_series_profile_by_model"](

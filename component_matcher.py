@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-02T10:28:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-02T19:38:00+08:00"
 
 
 def startup_trace(message):
@@ -26968,12 +26968,26 @@ def load_component_rows_by_clean_models_map(models, use_database=True):
     return result_map
 
 
+def infer_rule_fallback_brand_from_model(model, brand=""):
+    resolved_brand = clean_brand(brand)
+    if resolved_brand != "":
+        return resolved_brand
+    compact = clean_model(model).upper()
+    if re.fullmatch(
+        r"FR[CL](?:0201|0402|0603|0805|1206|1210|1812|2010|2512)[PFJ][0-9R]+TS",
+        compact,
+    ):
+        return "FOJAN(富捷)"
+    return ""
+
+
 def build_rule_fallback_row_from_model(model, brand=""):
-    parsed = parse_model_rule(model, brand=brand, component_type="")
+    resolved_brand = infer_rule_fallback_brand_from_model(model, brand=brand)
+    parsed = parse_model_rule(model, brand=resolved_brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
         return pd.DataFrame()
     fallback_defaults = {
-        "品牌": "",
+        "品牌": resolved_brand,
         "型号": clean_model(model),
         "器件类型": "",
         "系列": "",
@@ -26996,6 +27010,7 @@ def build_rule_fallback_row_from_model(model, brand=""):
         "备注1": "",
         "备注2": "",
         "备注3": "",
+        "数据来源": "型号编码解析（成本按当前富捷系列规则）" if resolved_brand == "FOJAN(富捷)" else "",
     }
     fallback_defaults.update(parsed)
     parsed = fallback_defaults
