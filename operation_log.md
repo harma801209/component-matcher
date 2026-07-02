@@ -3187,3 +3187,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Change / action: Parse all known MLCC application classes from the complete query, add `谐振/Resonant` as a strict class, and display `特殊用途` in the MLCC specification table. Application requirements such as automotive, soft termination, industrial, high/medium voltage, anti-bend, safety, resonant, high-Q, and EMI filtering now reject ordinary-family fallbacks.
 - Verification: The original query now parses as `特殊用途=谐振` and returns zero local candidates because the current library has no explicitly resonant `1210 / 47nF / >=630V` row. A synthetic resonant row matches while an otherwise identical ordinary X7R row is excluded. All 17 member/system regressions pass.
 - Formal verification: The deployed member search for `47nF 1210 630V 谐振电容` displays `特殊用途=谐振`, returns `0` viewable results and `1` unmatched input, and no longer lists any X7R fallback. The browser console reported no application error.
+
+### 2026-07-02 10:28 [matching correctness] Enforce all MLCC application notes and aliases
+
+- Expanded application-note recognition for common automotive, soft-termination, high-Q/low-loss, and EMI-filter wording, including `软端`, `柔性端子`, `软终端`, `弹性端子`, `FLEXITERM`, and English variants.
+- Kept multiple application notes cumulative: `车规软端` now requires both `车规` and `软端子`; a candidate satisfying only one requirement is rejected instead of being downgraded to a partial result.
+- Regression coverage now exercises car-grade, sub-automotive, resonant, industrial, soft termination, high/medium voltage, anti-bend, safety, high-Q, EMI filtering, and combined notes. All 17 member/system tests and Python compilation pass.

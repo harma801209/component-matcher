@@ -826,6 +826,33 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_11_mlcc_special_use_terms_are_hard_constraints(self):
         app = self.app
+        strict_queries = {
+            "47nF 1210 630V 车规电容": "车规",
+            "47nF 1210 630V 谐振电容": "谐振",
+            "47nF 1210 630V 工业级电容": "工业",
+            "47nF 1210 630V 软端电容": "软端子",
+            "47nF 1210 630V 柔性端子电容": "软端子",
+            "47nF 1210 630V FLEXITERM": "软端子",
+            "47nF 1210 630V 车规软端电容": "车规/软端子",
+            "47nF 1210 630V 次车规电容": "次车规",
+            "47nF 1210 630V 高压电容": "高压",
+            "47nF 1210 630V 中压电容": "中压",
+            "47nF 1210 630V 抗弯电容": "抗弯",
+            "47nF 1210 630V 安规电容": "安规",
+            "47nF 1210 630V 高 Q 低损耗电容": "高Q",
+            "47nF 1210 630V EMI 滤波电容": "EMI滤波",
+        }
+        for query_text, expected_class in strict_queries.items():
+            with self.subTest(query=query_text):
+                parsed = app["parse_spec_query"](query_text)
+                self.assertEqual(parsed["特殊用途"], expected_class)
+                self.assertTrue(app["mlcc_series_class_requires_filter"](expected_class))
+                self.assertFalse(app["mlcc_series_class_matches"]("常规", expected_class))
+
+        self.assertTrue(app["mlcc_series_class_matches"]("车规/软端子", "车规/软端子"))
+        self.assertFalse(app["mlcc_series_class_matches"]("车规", "车规/软端子"))
+        self.assertFalse(app["mlcc_series_class_matches"]("软端子", "车规/软端子"))
+
         query = "47nF 1210 630V 谐振电容"
         spec = app["parse_spec_query"](query)
         self.assertEqual(spec["特殊用途"], "谐振")

@@ -519,3 +519,10 @@
 - Root cause: The MLCC parser did not populate `特殊用途`, and resonant-capacitor semantics were not part of the strict series-class vocabulary.
 - Fix: Parse application classes from the full query, add `谐振/Resonant` as a strict MLCC class, filter candidates by that class, and show the recognized application in the specification table.
 - Verification: The reported query returns no ordinary X7R fallback; a same-spec explicit resonant candidate is accepted and a general-purpose X7R candidate is rejected. The full 17-test member/system suite passes.
+
+## 2026-07-02 - MLCC application aliases could bypass strict matching
+
+- Bug: The strict application filter recognized `软端子` but not common equivalent notes such as `软端`, `柔性端子`, `软终端`, or `FLEXITERM`.
+- Root cause: Application matching used a canonical class correctly, but the alias vocabulary was narrower than the terms users place in specification remarks.
+- Fix: Expanded automotive, soft-termination, high-Q/low-loss, and EMI-filter aliases. Multiple notes remain cumulative hard constraints, so `车规软端` requires a candidate classified as both automotive and soft termination.
+- Verification: Regression coverage now includes all strict MLCC application classes and aliases; ordinary candidates and candidates satisfying only one part of a combined requirement are rejected. All 17 member/system tests pass.

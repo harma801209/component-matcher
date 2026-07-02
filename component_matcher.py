@@ -162,7 +162,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-02T10:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-02T10:28:00+08:00"
 
 
 def startup_trace(message):
@@ -10238,8 +10238,19 @@ HRE_MLCC_SERIES_SPECIAL_USE = {
 
 MLCC_SERIES_CLASS_RULES = [
     ("次车规", [r"WITHOUT\s+AEC[- ]?Q200", r"无\s*AEC[- ]?Q200", r"次车规"]),
-    ("车规", [r"\bAUTOMOTIVE\b", r"\bAEC[- ]?Q200\b", r"汽车级", r"(?<!次)车规"]),
-    ("软端子", [r"SOFT\s*TERMINATION", r"软端子"]),
+    ("车规", [r"\bAUTOMOTIVE\b", r"\bAEC[- ]?Q200\b", r"汽车(?:级|用)", r"车载", r"(?<!次)车规"]),
+    (
+        "软端子",
+        [
+            r"SOFT\s*(?:TERMINATION|TERMINAL)",
+            r"FLEXIBLE\s*TERMINATION",
+            r"FLEXITERM",
+            r"软端(?:子)?",
+            r"柔性端子",
+            r"软终端",
+            r"弹性端子",
+        ],
+    ),
     ("工业", [r"INDUSTRIAL", r"工业"]),
     ("高容", [r"HIGH\s+CAPACITANCE", r"高容"]),
     ("高压", [r"HIGH\s+VOLTAGE", r"高压"]),
@@ -10247,8 +10258,8 @@ MLCC_SERIES_CLASS_RULES = [
     ("抗弯", [r"ANTI[- ]?BEND", r"抗弯"]),
     ("安规", [r"SAFETY", r"安规", r"\bX1/Y2\b", r"\bX2\b"]),
     ("谐振", [r"RESONANT", r"RESONANCE", r"谐振"]),
-    ("高Q", [r"HIGH[- ]?Q", r"高Q"]),
-    ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"滤波"]),
+    ("高Q", [r"HIGH[- ]?Q", r"LOW[- ]?LOSS", r"高\s*Q", r"低损耗"]),
+    ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"电磁干扰滤波", r"滤波"]),
     ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
 ]
 # "高容" is a family/capacitance coverage label, not a required application or safety constraint.
