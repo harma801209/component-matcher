@@ -4348,6 +4348,9 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     tolerance = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
     if size == "" or power == "" or resistance_ohm is None or tolerance not in {"1", "5"}:
         return {}
+    pricing_resistance_ohm = resistance_ohm
+    if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
+        pricing_resistance_ohm = 10.0
     type_dimension = f"{size} {power}"
     for rule in lookup.get("__fojan_resistor_rules__", []):
         if clean_text(rule.get("series", "")).upper() != series:
@@ -4357,7 +4360,7 @@ def lookup_active_cost_price_for_row(row, lookup=None):
         if clean_text(rule.get("tolerance", "")) != tolerance:
             continue
         selected_cost = select_resistor_segment_price(
-            rule.get("resistance_range", ""), rule.get("cost", ""), resistance_ohm
+            rule.get("resistance_range", ""), rule.get("cost", ""), pricing_resistance_ohm
         )
         if selected_cost != "":
             matched = dict(rule)

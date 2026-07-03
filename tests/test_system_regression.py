@@ -619,6 +619,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRC0603J103 TS", 10000.0, "5"), "2.60")
         self.assertEqual(price("FRC0603F1002 TS", 10000.0, "1"), "3.10")
         self.assertEqual(price("FRC0603F8R20 TS", 8.2, "1"), "3.63")
+        self.assertEqual(price("FRC0603F0000 TS", 0.0, "1"), "3.10")
 
         expected_zero_prices = {}
         for rule in app["load_resistor_series_pricing_rules"]():

@@ -3210,3 +3210,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added authenticated D1 runtime snapshots for `cost-price` and `no-match`, with separate keys/history, optimistic versions, checksum validation, bounded payloads, lazy refresh, automatic first-read seeding from an existing valid SQLite database, and instance-reset recovery tests.
 - Deployed the Cloudflare Pages Worker preview `https://64084631.fruition-component.pages.dev`; the formal runtime-store endpoint rejects unauthenticated access with `401`. Full verification passes: 19/19 tests, Python compilation, Worker syntax check, and runtime-database restore simulations.
 - Re-ran the source-verifiable key-parameter dry-run. Its only 99 newly proposed unique-value fills were varistor `尺寸（inch）` copies that would incorrectly turn 5mm radial `MVR05D/xxKD05` parts into `2020` packages. Added a guard that forbids this unsafe cross-row varistor inch-size propagation; the follow-up dry-run reports `unique_model_values=0`, so no uncertain parameter values were written.
+
+### 2026-07-03 20:28 [cost activation] Apply the 1% 0R rule to newly enabled FOJAN lists
+
+- Confirmed the backend active-cost lookup was a separate path from static series pricing and had not inherited the earlier 1% zero-ohm correction.
+- Updated `lookup_active_cost_price_for_row()` so FRC 1% 0R dynamically uses the newly activated workbook's same-size 1% `10R-1M` rule; 5% 0R remains independent.
+- Added an upload-and-activate regression proving a workbook with 5% 0R=`2.60` and 1% `10R-1M`=`3.10` prices `FRC0603F0000TS` at `3.10`. The complete 12-test system regression suite passes.

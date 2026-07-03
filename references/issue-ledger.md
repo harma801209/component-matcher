@@ -554,3 +554,10 @@
 - Root cause: The unique-model copier treated any single populated duplicate value as authoritative, even for varistor inch dimensions where historical component-type and package mappings are unreliable.
 - Fix: Exclude varistor `尺寸（inch）` from duplicate-row propagation. Varistor body/disc dimensions continue to use explicit model decoding and source-backed fields.
 - Verification: The follow-up dry-run reports `unique_model_values=0`; no unsafe parameter rows were written.
+
+## 2026-07-03 - Newly activated FOJAN cost lists did not inherit the 1% zero-ohm rule
+
+- Bug: Static FOJAN series pricing mapped 1% 0R to the same-size 1% `10R-1M` price, but the separate active cost-list lookup still tried to match literal 0R and could return no price after a new workbook was uploaded and activated.
+- Root cause: The earlier correction covered `lookup_resistor_series_pricing()` only; `lookup_active_cost_price_for_row()` retained the generic resistance-range lookup.
+- Fix: For FRC 1% zero-ohm rows, active-list lookup now selects the current workbook's same-size 1% rule using the `10R` boundary. The value is dynamic and follows each newly activated workbook rather than a hard-coded cost.
+- Verification: An uploaded workbook containing 5% 0R=`2.60` and 1% `10R-1M`=`3.10` prices `FRC0603F0000TS` at `3.10`. The full 12-test system regression suite passes.
