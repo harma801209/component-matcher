@@ -169,6 +169,9 @@ def backfill_unique_model_values(conn: sqlite3.Connection, changed: set[int], dr
             continue
         values = populated[populated["型号"].isin(safe_models)].drop_duplicates("型号").set_index("型号")[field].to_dict()
         missing = frame[frame[field].astype(str).str.strip().eq("") & frame["型号"].isin(safe_models)]
+        if field == COPY_FIELDS[0]:
+            component_type_column = frame.columns[2]
+            missing = missing[~missing[component_type_column].isin(VARISTOR_TYPES)]
         for row in missing.itertuples(index=False):
             update_row(conn, int(row.rowid), {field: values[row.型号]}, changed, dry_run)
             updates += 1

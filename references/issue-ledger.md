@@ -547,3 +547,10 @@
 - Root cause: Only `member_auth.sqlite` used the authenticated snapshot API. The two other runtime databases had no remote snapshot, history, checksum, or restore path.
 - Fix: Add an authenticated `/api/runtime-store/snapshot` endpoint with separate `cost-price` and `no-match` keys, optimistic versions, SHA-256 validation, bounded payloads, and per-store history. Runtime reads use a 60-second refresh window; mutations force a pull before writing and flush afterward. An existing valid local SQLite database automatically seeds an empty remote store on its first read.
 - Verification: A regression uploads each database, switches to a fresh local path, and restores the records from its remote snapshot. Worker source/security tests, Python/JavaScript compilation, unauthenticated endpoint `401`, and all 19 member/system tests pass.
+
+## 2026-07-03 - Unique-model backfill proposed invalid varistor inch packages
+
+- Bug: The key-parameter dry-run proposed 99 new `尺寸（inch）` fills, including radial 5mm `MVR05D/xxKD05` varistors copied as `2020` packages.
+- Root cause: The unique-model copier treated any single populated duplicate value as authoritative, even for varistor inch dimensions where historical component-type and package mappings are unreliable.
+- Fix: Exclude varistor `尺寸（inch）` from duplicate-row propagation. Varistor body/disc dimensions continue to use explicit model decoding and source-backed fields.
+- Verification: The follow-up dry-run reports `unique_model_values=0`; no unsafe parameter rows were written.
