@@ -18,6 +18,7 @@ DEFAULT_PUBLIC_URL = "https://fruition-component.pages.dev/"
 DEFAULT_BUNDLE_OUTPUT = ROOT / "streamlit_cloud_bundle.zip"
 PUBLISH_FILES = [
     "component_matcher.py",
+    "manufacturer_packaging_rules.py",
     "resistor_series_rules.py",
     "streamlit_app.py",
     "requirements.txt",
@@ -54,6 +55,7 @@ PUBLISH_FILES = [
     "audit_library_expansion.py",
     "reports/library_expansion_audit.csv",
     "reports/library_expansion_audit.md",
+    "reports/manufacturer_packaging_coverage.md",
     "tools/build_passive_series_gap_report.py",
     "tools/run_release_safety_gate.py",
     "publish_public.ps1",
@@ -87,6 +89,7 @@ PUBLIC_RUNTIME_GUARD_FILES = {
     "sync_local_and_public.ps1",
     "sync_local_and_public.py",
     "component_matcher.py",
+    "manufacturer_packaging_rules.py",
     "resistor_series_rules.py",
 }
 
@@ -527,6 +530,7 @@ def validate_python_files(python_cmd: list[str]) -> None:
         str(ROOT / rel)
         for rel in [
             "component_matcher.py",
+            "manufacturer_packaging_rules.py",
             "streamlit_app.py",
             "build_streamlit_cloud_bundle.py",
             "sync_local_and_public.py",

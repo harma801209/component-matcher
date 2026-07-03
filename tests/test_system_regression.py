@@ -1094,6 +1094,56 @@ class SystemRegressionTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_13_manufacturer_packaging_moq_is_source_backed(self):
+        lookup = self.app["lookup_manufacturer_packaging"]
+        cases = [
+            ({"品牌": "国巨YAGEO", "型号": "RC0603FR-0710KL", "系列": "RC", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RC2010FK-0710KL", "系列": "RC", "尺寸（inch）": "2010"}, "4000PCS"),
+            ({"品牌": "Panasonic", "型号": "ERJ6GEYJ103V", "系列": "ERJ", "尺寸（inch）": "0805"}, "5000PCS"),
+            ({"品牌": "Panasonic", "型号": "ERA2AEB102X", "系列": "ERA-2A", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "威世Vishay", "型号": "NTCS0402E3103JL1T", "系列": "NTCS0402E", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "威世Vishay", "型号": "NTCS0603E3103FMT", "系列": "NTCS0603E", "尺寸（inch）": "0603"}, "4000PCS"),
+            ({"品牌": "威世Vishay", "型号": "NTCS0805E3103FLT", "系列": "NTCS0805E", "尺寸（inch）": "0805"}, "4000PCS"),
+            ({"品牌": "东电化TDK", "型号": "C1608C0G2E182J080AA", "系列": "C", "尺寸（inch）": "0603"}, "4000PCS"),
+        ]
+        for row, expected in cases:
+            result = lookup(row)
+            self.assertEqual(result.get("MOQ"), expected, row["型号"])
+            self.assertIn("原厂标准包装数量", result.get("MOQ来源", ""), row["型号"])
+            self.assertTrue(result.get("包装数量来源", "").startswith("https://"), row["型号"])
+
+        self.assertEqual(
+            lookup({"品牌": "国巨YAGEO", "型号": "RC0603FK-0710KL", "系列": "RC", "尺寸（inch）": "0603"}),
+            {},
+        )
+        original_cost_path = self.app["COST_PRICE_DB_PATH"]
+        try:
+            isolated_cost_path = os.path.join(self.temp_dir, "manufacturer-packaging-cost.sqlite")
+            self.app["COST_PRICE_DB_PATH"] = isolated_cost_path
+            self.app["clear_cost_price_lookup_cache"]()
+            enriched = self.app["enrich_component_cost_columns"](
+                pd.DataFrame([cases[0][0]])
+            )
+            self.assertEqual(enriched.iloc[0]["MOQ"], "5000PCS")
+            self.assertIn("YAGEO", enriched.iloc[0]["MOQ来源"])
+
+            cost_upload = UploadedBytes(
+                "purchase-moq.xlsx",
+                dataframe_to_xlsx_bytes(
+                    pd.DataFrame(
+                        [{"品牌": "国巨YAGEO", "型号": "RC0603FR-0710KL", "MOQ": "123PCS"}]
+                    )
+                ),
+            )
+            ok, message, _ = self.app["import_cost_price_list_from_upload"](cost_upload, "regression")
+            self.assertTrue(ok, message)
+            overridden = self.app["enrich_component_cost_columns"](pd.DataFrame([cases[0][0]]))
+            self.assertEqual(overridden.iloc[0]["MOQ"], "123PCS")
+            self.assertEqual(overridden.iloc[0]["MOQ来源"], "当前启用成本清单")
+        finally:
+            self.app["COST_PRICE_DB_PATH"] = original_cost_path
+            self.app["clear_cost_price_lookup_cache"]()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

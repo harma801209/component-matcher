@@ -44,6 +44,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
+from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 
 
@@ -3712,7 +3713,7 @@ def member_matches_admin_keyword(member, keyword):
 
 
 COST_PRICE_TARGET_COLUMNS = ("品牌", "型号", "规格参数", "成本", "更新时间", "MOQ", "L&T")
-COST_PRICE_LOOKUP_COLUMNS = ("成本", "更新时间", "MOQ", "L&T")
+COST_PRICE_LOOKUP_COLUMNS = ("成本", "更新时间", "MOQ", "MOQ来源", "L&T")
 _COST_PRICE_LOOKUP_CACHE = {"signature": None, "lookup": None}
 
 
@@ -4382,16 +4383,18 @@ def enrich_component_cost_columns(df):
     if out.empty:
         return out
     lookup = load_active_cost_price_lookup()
-    if not lookup:
-        return out
     for idx, row in out.iterrows():
-        price = lookup_active_cost_price_for_row(row, lookup=lookup)
-        if not price:
-            continue
+        price = lookup_active_cost_price_for_row(row, lookup=lookup) if lookup else {}
+        manufacturer_packaging = lookup_manufacturer_packaging(row)
         updates = {
             "成本": clean_text(price.get("cost", "")),
             "更新时间": clean_text(price.get("cost_updated_at", "")),
-            "MOQ": clean_text(price.get("moq", "")),
+            "MOQ": clean_text(price.get("moq", "")) or clean_text(manufacturer_packaging.get("MOQ", "")),
+            "MOQ来源": (
+                "当前启用成本清单"
+                if clean_text(price.get("moq", "")) != ""
+                else clean_text(manufacturer_packaging.get("MOQ来源", ""))
+            ),
             "L&T": clean_text(price.get("lead_time", "")),
         }
         for column, value in updates.items():
@@ -17477,6 +17480,7 @@ def get_component_header_labels(spec_or_type):
     labels["成本"] = "成本"
     labels["更新时间"] = "更新时间"
     labels["MOQ"] = "MOQ"
+    labels["MOQ来源"] = "MOQ来源"
     labels["L&T"] = "L&T"
     labels["前5个其他品牌型号"] = "其他品牌型号"
     labels["推荐品牌1"] = "推荐品牌1"
@@ -18455,6 +18459,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "成本": "small",
         "更新时间": "medium",
         "MOQ": "small",
+        "MOQ来源": "medium",
         "L&T": "small",
         "推荐品牌": "small",
         "推荐型号": "medium",

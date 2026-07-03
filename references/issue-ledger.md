@@ -568,3 +568,11 @@
 - Fix: Added a mandatory release safety gate that runs syntax checks and the complete system suite with all three runtime databases redirected to a temporary directory. It fingerprints the member, cost-list, and no-match SQLite files plus WAL/SHM/journal files before and after validation and blocks release on any change.
 - Prevention: Added repository-level safety rules requiring additive migrations, protected runtime records, isolated tests, and post-change verification. The one-click publish path now invokes the gate before bundle building, committing, or pushing.
 - Verification: The gate passes 13 system tests, including an explicit assertion that all runtime database paths are inside the temporary test directory. Protected database fingerprints are unchanged and all three local SQLite integrity checks return `ok`.
+
+## 2026-07-03 - Search results lacked source-backed manufacturer packaging quantities
+
+- Gap: The result `MOQ` field only came from an active cost workbook or FOJAN price table. Other brands had no fallback even when the manufacturer explicitly published standard reel quantities.
+- Risk: Treating package size as a universal MOQ would be inaccurate because reel quantity can depend on series, case, thickness, carrier material, reel diameter, and ordering-code suffix.
+- Fix: Added a strict manufacturer-packaging rule layer. Cost-list MOQ remains authoritative; only a blank MOQ falls back to an explicitly labeled manufacturer standard package quantity with an official source.
+- First coverage: 81,796 rows across Panasonic ERJ/ERA, YAGEO RC, TDK C1608/080/A MLCC, and Vishay NTCS0402E/0603E/0805E.
+- Verification: Datasheet/model-page samples confirm electrical parameters and package quantities. The full 14-test safety gate passes and protected member/backend runtime databases remain unchanged.

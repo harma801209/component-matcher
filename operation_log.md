@@ -3223,3 +3223,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added `tools/run_release_safety_gate.py`: it fingerprints protected SQLite/main/WAL/SHM/journal files, runs syntax checks plus the complete member/backend/matching regression suite, and blocks release if any protected file changes.
 - Wired the safety gate into `sync_local_and_public.py` before bundle build, commit, or push, and added permanent repository rules in `AGENTS.md` covering additive migrations, backup/rollback, isolated tests, and prohibited runtime database replacement.
 - Verification: 13/13 regressions pass; explicit path-isolation coverage passes; protected file fingerprints are unchanged; read-only `PRAGMA integrity_check` returns `ok` for member, cost-list, and no-match databases.
+
+### 2026-07-03 23:10 [data/MOQ] Add source-backed manufacturer package quantities
+
+- Audited the 1.67M-row library by component type and high-volume brand/series rather than applying one generic MOQ by package size.
+- Added strict manufacturer packaging rules for Panasonic ERJ/ERA, YAGEO RC, Vishay NTCS0402E/0603E/0805E, and TDK C1608 models with explicit `080/A` thickness/packaging codes.
+- The active cost-list MOQ remains first priority. A blank purchase MOQ now falls back to the official standard package quantity and displays a separate `MOQ来源` column.
+- First-batch coverage is 81,796 rows. Representative resistor, thermistor, and MLCC electrical parameters were checked against official datasheets/model pages and matched.
+- Verification: 14/14 system regressions and the release safety gate pass; protected member, cost-list, and no-match databases are unchanged.
