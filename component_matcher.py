@@ -105,6 +105,14 @@ COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
 )
+RUNTIME_STORE_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/runtime-store/snapshot"
+RUNTIME_STORE_REMOTE_STATE_DIR = os.path.join(BASE_DIR, "cache")
+RUNTIME_STORE_REMOTE_REFRESH_TTL_SECONDS = 60.0
+RUNTIME_STORE_REMOTE_LOCKS = {
+    "cost-price": threading.Lock(),
+    "no-match": threading.Lock(),
+}
+_RUNTIME_STORE_REMOTE_REFRESH_CACHE = {}
 STREAMLIT_CLOUD_BUNDLE_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip")
 STREAMLIT_CLOUD_BUNDLE_PART_GLOB = os.path.join(BASE_DIR, "streamlit_cloud_bundle.zip.part*")
 STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH = os.path.join(BASE_DIR, "streamlit_cloud_bundle.manifest.json")
@@ -137,7 +145,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 80
+QUERY_RESULT_CACHE_VERSION = 81
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -162,7 +170,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-02T19:38:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-03T09:30:00+08:00"
 
 
 def startup_trace(message):
@@ -291,6 +299,7 @@ def submit_no_match_report(
     candidate_rows=0,
     matched_rows=0,
 ):
+    refresh_runtime_store_remote_snapshot("no-match", force=True)
     init_no_match_report_db()
     query_text = clean_text(query_text)
     normalized_query = normalize_no_match_report_query(query_text)
@@ -350,7 +359,10 @@ def submit_no_match_report(
                 ),
             )
             conn.commit()
-            return True, f"后台已有同一条待处理回报，已累计回报次数（#{report_id}）。", int(report_id)
+            synced = flush_runtime_store_remote_snapshot("no-match")
+            _, _, remote_enabled = get_runtime_store_remote_config()
+            suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+            return True, f"后台已有同一条待处理回报，已累计回报次数（#{report_id}）{suffix}。", int(report_id)
 
         cur = conn.execute(
             """
@@ -378,7 +390,11 @@ def submit_no_match_report(
             ),
         )
         conn.commit()
-        return True, f"已提交到后台待处理列表（#{cur.lastrowid}）。", int(cur.lastrowid)
+        report_id = int(cur.lastrowid)
+    synced = flush_runtime_store_remote_snapshot("no-match")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    return True, f"已提交到后台待处理列表（#{report_id}）{suffix}。", report_id
 
 
 def submit_no_match_report_payload(payload):
@@ -396,6 +412,7 @@ def submit_no_match_report_payload(payload):
 
 
 def list_no_match_reports(status_filter="待处理"):
+    refresh_runtime_store_remote_snapshot("no-match")
     init_no_match_report_db()
     status_filter = clean_text(status_filter)
     with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
@@ -411,6 +428,7 @@ def list_no_match_reports(status_filter="待处理"):
 
 
 def get_no_match_report_counts():
+    refresh_runtime_store_remote_snapshot("no-match")
     init_no_match_report_db()
     with sqlite3.connect(NO_MATCH_REPORT_DB_PATH, timeout=30) as conn:
         rows = conn.execute("SELECT status, COUNT(*) FROM no_match_reports GROUP BY status").fetchall()
@@ -428,6 +446,7 @@ def resolve_no_match_report(
     resolved_model="",
     resolved_component_type="",
 ):
+    refresh_runtime_store_remote_snapshot("no-match", force=True)
     init_no_match_report_db()
     now_text = current_timestamp_text()
     resolved_brand = clean_brand(resolved_brand)
@@ -475,10 +494,12 @@ def resolve_no_match_report(
             except Exception:
                 pass
         clear_data_load_caches()
+        flush_runtime_store_remote_snapshot("no-match")
     return cur.rowcount > 0
 
 
 def get_no_match_report_by_id(report_id):
+    refresh_runtime_store_remote_snapshot("no-match")
     init_no_match_report_db()
     try:
         report_id = int(report_id)
@@ -502,6 +523,7 @@ def no_match_report_spec_dict(report):
 
 
 def find_resolved_no_match_report(query_text):
+    refresh_runtime_store_remote_snapshot("no-match")
     init_no_match_report_db()
     normalized_query = normalize_no_match_report_query(query_text)
     model_clean = clean_model(query_text)
@@ -1072,7 +1094,217 @@ def refresh_member_auth_remote_snapshot(force=False):
         status = pull_member_auth_remote_snapshot()
         _MEMBER_AUTH_REMOTE_REFRESH_CACHE["checked_at"] = time.monotonic()
         _MEMBER_AUTH_REMOTE_REFRESH_CACHE["db_path"] = db_path
-        return status
+    return status
+
+
+RUNTIME_STORE_KEYS = {"cost-price", "no-match"}
+
+
+def runtime_store_db_path(store_key):
+    if store_key == "cost-price":
+        return os.path.abspath(COST_PRICE_DB_PATH)
+    if store_key == "no-match":
+        return os.path.abspath(NO_MATCH_REPORT_DB_PATH)
+    return ""
+
+
+def runtime_store_state_path(store_key):
+    safe_key = re.sub(r"[^a-z0-9_-]+", "-", clean_text(store_key).lower()).strip("-")
+    return os.path.join(RUNTIME_STORE_REMOTE_STATE_DIR, f"runtime_store_{safe_key}_state.json")
+
+
+def get_runtime_store_remote_config():
+    api_url = get_config_text("RUNTIME_STORE_REMOTE_API_URL", RUNTIME_STORE_REMOTE_API_URL_DEFAULT)
+    api_secret = get_config_text("RUNTIME_STORE_REMOTE_API_SECRET", "") or get_config_text("MEMBER_AUTH_REMOTE_API_SECRET", "")
+    force_remote = clean_text(os.getenv("RUNTIME_STORE_REMOTE_FORCE", "")).lower() in {"1", "true", "yes", "on"}
+    enabled = bool(api_url and api_secret and (force_remote or is_streamlit_cloud_runtime()))
+    return api_url, api_secret, enabled
+
+
+def load_runtime_store_remote_state(store_key):
+    try:
+        with open(runtime_store_state_path(store_key), "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+        return state if isinstance(state, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_runtime_store_remote_state(store_key, version, sha256_value):
+    state_path = runtime_store_state_path(store_key)
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    temp_path = state_path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "store": store_key,
+                "version": int(version or 0),
+                "sha256": clean_text(sha256_value),
+                "checked_at_epoch": time.time(),
+                "synced_at": current_timestamp_text(),
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+    os.replace(temp_path, state_path)
+
+
+def runtime_store_remote_request(store_key, method="GET", payload=None):
+    if store_key not in RUNTIME_STORE_KEYS:
+        return None
+    api_url, api_secret, enabled = get_runtime_store_remote_config()
+    if not enabled:
+        return None
+    parsed_url = urllib.parse.urlsplit(api_url)
+    query = dict(urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=True))
+    query["store"] = store_key
+    request_url = urllib.parse.urlunsplit(
+        (parsed_url.scheme, parsed_url.netloc, parsed_url.path, urllib.parse.urlencode(query), parsed_url.fragment)
+    )
+    data = None
+    headers = {
+        "Authorization": f"Bearer {api_secret}",
+        "Accept": "application/json",
+        "User-Agent": "fruition-component-matcher/runtime-store-sync",
+    }
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(request_url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=20, context=ssl.create_default_context()) as response:
+            body = response.read(8 * 1024 * 1024)
+        decoded = json.loads(body.decode("utf-8")) if body else {}
+        return decoded if isinstance(decoded, dict) else {}
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read(64 * 1024).decode("utf-8", errors="replace")
+            details = json.loads(body) if body else {}
+        except Exception:
+            details = {}
+        if exc.code == 409:
+            return {"conflict": True, "version": int(details.get("version") or 0)}
+        logging.warning("runtime store remote request failed for %s: HTTP %s", store_key, exc.code)
+        return None
+    except Exception as exc:
+        logging.warning("runtime store remote request failed for %s: %s", store_key, type(exc).__name__)
+        return None
+
+
+def pull_runtime_store_remote_snapshot(store_key):
+    db_path = runtime_store_db_path(store_key)
+    if store_key not in RUNTIME_STORE_KEYS or db_path == "":
+        return "invalid_store"
+    lock = RUNTIME_STORE_REMOTE_LOCKS[store_key]
+    with lock:
+        remote = runtime_store_remote_request(store_key, "GET")
+        if not remote:
+            return "disabled_or_unavailable"
+        remote_version = int(remote.get("version") or 0)
+        payload_b64 = clean_text(remote.get("payload_base64", ""))
+        remote_sha = clean_text(remote.get("sha256", ""))
+        if remote_version <= 0 or payload_b64 == "":
+            save_runtime_store_remote_state(store_key, 0, "")
+            return "empty"
+        try:
+            payload = base64.b64decode(payload_b64.encode("ascii"), validate=True)
+        except Exception:
+            return "invalid_payload"
+        calculated_sha = hashlib.sha256(payload).hexdigest()
+        if not hmac.compare_digest(calculated_sha, remote_sha):
+            return "checksum_mismatch"
+        if not payload.startswith(b"SQLite format 3\x00"):
+            return "invalid_sqlite"
+        local_sha = ""
+        if os.path.exists(db_path):
+            try:
+                with open(db_path, "rb") as handle:
+                    local_sha = hashlib.sha256(handle.read()).hexdigest()
+            except Exception:
+                local_sha = ""
+        state = load_runtime_store_remote_state(store_key)
+        if int(state.get("version") or 0) == remote_version and local_sha == calculated_sha:
+            save_runtime_store_remote_state(store_key, remote_version, calculated_sha)
+            return "current"
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        temp_path = db_path + ".remote.tmp"
+        with open(temp_path, "wb") as handle:
+            handle.write(payload)
+        try:
+            with sqlite3.connect(temp_path, timeout=30) as source_conn:
+                with sqlite3.connect(db_path, timeout=30) as target_conn:
+                    source_conn.backup(target_conn)
+                    target_conn.commit()
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        save_runtime_store_remote_state(store_key, remote_version, calculated_sha)
+        return "restored"
+
+
+def flush_runtime_store_remote_snapshot(store_key):
+    db_path = runtime_store_db_path(store_key)
+    _, _, enabled = get_runtime_store_remote_config()
+    if store_key not in RUNTIME_STORE_KEYS or not enabled or not os.path.exists(db_path):
+        return False
+    lock = RUNTIME_STORE_REMOTE_LOCKS[store_key]
+    with lock:
+        try:
+            with sqlite3.connect(db_path, timeout=30) as conn:
+                conn.execute("PRAGMA wal_checkpoint(FULL)")
+                conn.commit()
+            with open(db_path, "rb") as handle:
+                payload = handle.read()
+        except Exception:
+            return False
+        payload_sha = hashlib.sha256(payload).hexdigest()
+        state = load_runtime_store_remote_state(store_key)
+        if clean_text(state.get("sha256", "")) == payload_sha and int(state.get("version") or 0) > 0:
+            return True
+        result = runtime_store_remote_request(
+            store_key,
+            "PUT",
+            {
+                "expected_version": int(state.get("version") or 0),
+                "sha256": payload_sha,
+                "payload_base64": base64.b64encode(payload).decode("ascii"),
+            },
+        )
+        if not result or result.get("conflict"):
+            return False
+        version = int(result.get("version") or 0)
+        if version <= 0:
+            return False
+        save_runtime_store_remote_state(store_key, version, payload_sha)
+        return True
+
+
+def reset_runtime_store_remote_refresh_cache(store_key=""):
+    if store_key in RUNTIME_STORE_KEYS:
+        _RUNTIME_STORE_REMOTE_REFRESH_CACHE.pop(store_key, None)
+    else:
+        _RUNTIME_STORE_REMOTE_REFRESH_CACHE.clear()
+
+
+def refresh_runtime_store_remote_snapshot(store_key, force=False):
+    _, _, enabled = get_runtime_store_remote_config()
+    if not enabled or store_key not in RUNTIME_STORE_KEYS:
+        return "disabled"
+    db_path = runtime_store_db_path(store_key)
+    state = load_runtime_store_remote_state(store_key)
+    checked_at = max(
+        float(state.get("checked_at_epoch") or 0),
+        float(_RUNTIME_STORE_REMOTE_REFRESH_CACHE.get(store_key, 0) or 0),
+    )
+    now = time.time()
+    if not force and os.path.exists(db_path) and now - checked_at < RUNTIME_STORE_REMOTE_REFRESH_TTL_SECONDS:
+        return "cached"
+    status = pull_runtime_store_remote_snapshot(store_key)
+    _RUNTIME_STORE_REMOTE_REFRESH_CACHE[store_key] = now
+    return status
 
 
 def get_no_match_admin_credentials():
@@ -3728,6 +3960,7 @@ def cost_price_list_summary_dataframe(rows):
 
 
 def list_cost_price_lists():
+    refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -3742,6 +3975,7 @@ def list_cost_price_lists():
 
 
 def get_active_cost_price_list():
+    refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -3758,6 +3992,7 @@ def get_active_cost_price_list():
 
 
 def set_cost_price_list_active(list_id):
+    refresh_runtime_store_remote_snapshot("cost-price", force=True)
     init_cost_price_db()
     try:
         list_id = int(list_id)
@@ -3771,10 +4006,14 @@ def set_cost_price_list_active(list_id):
         conn.execute("UPDATE cost_price_lists SET active=1 WHERE id=?", (list_id,))
         conn.commit()
     clear_cost_price_lookup_cache()
-    return True, "已切换当前使用的成本清单。"
+    synced = flush_runtime_store_remote_snapshot("cost-price")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "，但远端备份失败，请稍后重试"
+    return True, f"已切换当前使用的成本清单{suffix}。"
 
 
 def list_cost_price_items(list_id=None, limit=300):
+    refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     active = get_active_cost_price_list() if list_id is None else None
     if list_id is None:
@@ -3959,6 +4198,7 @@ def build_cost_price_items_from_workbook(uploaded_file):
 def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
     if uploaded_file is None:
         return False, "请先选择要上传的成本清单。", None
+    refresh_runtime_store_remote_snapshot("cost-price", force=True)
     init_cost_price_db()
     file_name = clean_text(getattr(uploaded_file, "name", "")) or "成本清单"
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
@@ -4012,7 +4252,10 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
         )
         conn.commit()
     clear_cost_price_lookup_cache()
-    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行。", list_id
+    synced = flush_runtime_store_remote_snapshot("cost-price")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{suffix}。", list_id
 
 
 def get_cost_price_lookup_signature():
@@ -14637,14 +14880,24 @@ def lookup_resistor_series_pricing(row):
     if price_key == "":
         return {"成本": "", "更新时间": "", "MOQ": ""}
     type_dimension = f"{size} {power}"
+    if series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
+        for rule in load_resistor_series_pricing_rules():
+            if rule.get("series") != series or rule.get("type_dimension_norm") != type_dimension:
+                continue
+            price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_1", ""), 10.0)
+            if price != "":
+                return {
+                    "成本": price,
+                    "更新时间": RESISTOR_SERIES_PRICING_UPDATED_AT,
+                    "MOQ": rule.get("package", ""),
+                }
+        return {"成本": "", "更新时间": "", "MOQ": ""}
     for rule in load_resistor_series_pricing_rules():
         if rule.get("series") != series:
             continue
         if rule.get("type_dimension_norm") != type_dimension:
             continue
         price = select_resistor_segment_price(rule.get("range", ""), rule.get(price_key, ""), resistance_ohm)
-        if price == "" and series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
-            price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_5", ""), resistance_ohm)
         if price != "":
             return {"成本": price, "更新时间": RESISTOR_SERIES_PRICING_UPDATED_AT, "MOQ": rule.get("package", "")}
     return {"成本": "", "更新时间": "", "MOQ": ""}
@@ -26968,21 +27221,146 @@ def load_component_rows_by_clean_models_map(models, use_database=True):
     return result_map
 
 
+FOJAN_RESISTOR_MODEL_PATTERN = re.compile(
+    r"^(?P<series>FRC|FRL)(?P<size>0201|0402|0603|0805|1206|1210|1812|2010|2512)"
+    r"(?P<tolerance>[PFJ])(?P<value>[0-9R]+)TS$"
+)
+FOJAN_E24_BASE_VALUES = (
+    10, 11, 12, 13, 15, 16, 18, 20, 22, 24, 27, 30,
+    33, 36, 39, 43, 47, 51, 56, 62, 68, 75, 82, 91,
+)
+
+
+def fojan_resistance_is_standard(resistance_ohm, tolerance):
+    try:
+        value = float(resistance_ohm)
+    except Exception:
+        return False
+    if not math.isfinite(value) or value < 0:
+        return False
+    if abs(value) <= 1e-12:
+        return True
+    tolerance = clean_tol_for_match(tolerance)
+    exponent = math.floor(math.log10(value))
+    normalized = value / (10 ** exponent)
+    if tolerance == "1":
+        base = int(round(normalized * 100))
+        allowed = set(RESISTOR_EIA96_VALUES) | {item * 10 for item in FOJAN_E24_BASE_VALUES}
+        reconstructed = (base / 100.0) * (10 ** exponent)
+    elif tolerance == "5":
+        base = int(round(normalized * 10))
+        allowed = set(FOJAN_E24_BASE_VALUES)
+        reconstructed = (base / 10.0) * (10 ** exponent)
+    else:
+        return False
+    return base in allowed and math.isclose(value, reconstructed, rel_tol=1e-9, abs_tol=1e-12)
+
+
+def parse_valid_fojan_resistor_model(model):
+    compact = clean_model(model).upper()
+    match = FOJAN_RESISTOR_MODEL_PATTERN.fullmatch(compact)
+    if match is None:
+        return None
+    series = match.group("series")
+    tolerance_code = match.group("tolerance")
+    value_code = match.group("value")
+    if tolerance_code == "P":
+        if series != "FRC" or value_code != "000":
+            return None
+        resistance_ohm = 0.0
+        tolerance = "5"
+    else:
+        tolerance = "1" if tolerance_code == "F" else "5"
+        resistance_ohm = parse_resistor_value_code(value_code)
+        if resistance_ohm is None:
+            return None
+        if abs(float(resistance_ohm)) <= 1e-12:
+            expected_zero = tolerance_code == "F" and value_code == "0000"
+            if series != "FRC" or not expected_zero:
+                return None
+        elif not fojan_resistance_is_standard(resistance_ohm, tolerance):
+            return None
+
+    if series == "FRC" and 1e-12 < float(resistance_ohm) < 1.0:
+        return None
+    if series == "FRL" and not (0 < float(resistance_ohm) < 1.0):
+        return None
+    return {
+        "series": series,
+        "size": match.group("size"),
+        "tolerance": tolerance,
+        "tolerance_code": tolerance_code,
+        "value_code": value_code,
+        "resistance_ohm": float(resistance_ohm),
+        "model": compact,
+    }
+
+
+def format_fojan_resistor_value_code(resistance_ohm, tolerance):
+    value = float(resistance_ohm)
+    tolerance = clean_tol_for_match(tolerance)
+    if abs(value) <= 1e-12:
+        return ("F", "0000") if tolerance == "1" else ("P", "000") if tolerance == "5" else ("", "")
+    if not fojan_resistance_is_standard(value, tolerance):
+        return "", ""
+    digits = 3 if tolerance == "1" else 2
+    tolerance_code = "F" if tolerance == "1" else "J" if tolerance == "5" else ""
+    if tolerance_code == "":
+        return "", ""
+    if value < 1:
+        milli_code = int(round(value * 1000))
+        if not (1 <= milli_code <= 999):
+            return "", ""
+        return tolerance_code, f"R{milli_code:03d}"
+    exponent = math.floor(math.log10(value)) - (digits - 1)
+    if exponent < 0:
+        text = f"{value:.{-exponent}f}"
+        return tolerance_code, text.replace(".", "R")
+    significant = int(round(value / (10 ** exponent)))
+    return tolerance_code, f"{significant:0{digits}d}{exponent}"
+
+
+def build_fojan_resistor_model_from_spec(spec):
+    if not isinstance(spec, dict) or infer_spec_component_type(spec) not in RESISTOR_COMPONENT_TYPES:
+        return ""
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    power = format_power_display(spec.get("_power", ""))
+    if size == "" or tolerance not in {"1", "5"} or resistance_ohm is None or power == "":
+        return ""
+    expected_power = format_power_display(RESISTOR_POWER_BY_SIZE.get(size, ""))
+    if expected_power == "" or power != expected_power:
+        return ""
+    try:
+        value = float(resistance_ohm)
+    except Exception:
+        return ""
+    series = "FRC" if value >= 1.0 or abs(value) <= 1e-12 else "FRL"
+    tolerance_code, value_code = format_fojan_resistor_value_code(value, tolerance)
+    if tolerance_code == "" or value_code == "":
+        return ""
+    model = f"{series}{size}{tolerance_code}{value_code}TS"
+    return model if parse_valid_fojan_resistor_model(model) is not None else ""
+
+
 def infer_rule_fallback_brand_from_model(model, brand=""):
     resolved_brand = clean_brand(brand)
     if resolved_brand != "":
         return resolved_brand
     compact = clean_model(model).upper()
-    if re.fullmatch(
-        r"FR[CL](?:0201|0402|0603|0805|1206|1210|1812|2010|2512)[PFJ][0-9R]+TS",
-        compact,
-    ):
+    if parse_valid_fojan_resistor_model(compact) is not None:
         return "FOJAN(富捷)"
     return ""
 
 
 def build_rule_fallback_row_from_model(model, brand=""):
+    compact_model = clean_model(model).upper()
+    if compact_model.startswith(("FRC", "FRL")) and parse_valid_fojan_resistor_model(compact_model) is None:
+        return pd.DataFrame()
     resolved_brand = infer_rule_fallback_brand_from_model(model, brand=brand)
+    if resolved_brand == "FOJAN(富捷)" and parse_valid_fojan_resistor_model(model) is None:
+        return pd.DataFrame()
     parsed = parse_model_rule(model, brand=resolved_brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
         return pd.DataFrame()
@@ -27019,7 +27397,18 @@ def build_rule_fallback_row_from_model(model, brand=""):
         fallback = prepare_search_dataframe(fallback)
     except Exception:
         pass
+    if resolved_brand == "FOJAN(富捷)" and not fallback.empty:
+        price = lookup_resistor_series_pricing(fallback.iloc[0].to_dict())
+        if clean_text(price.get("成本", "")) == "":
+            return pd.DataFrame()
     return fallback
+
+
+def build_fojan_rule_candidate_from_spec(spec):
+    model = build_fojan_resistor_model_from_spec(spec)
+    if model == "":
+        return pd.DataFrame()
+    return build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
 
 
 def load_component_rows_by_clean_model(model):
@@ -27260,6 +27649,10 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
             frames.append(part_rows)
             used_fast_path = True
     component_type = infer_spec_component_type(spec)
+    if component_type in RESISTOR_COMPONENT_TYPES:
+        fojan_rule_candidate = build_fojan_rule_candidate_from_spec(spec)
+        if isinstance(fojan_rule_candidate, pd.DataFrame) and not fojan_rule_candidate.empty:
+            frames.append(fojan_rule_candidate)
     if can_use_fast_search_dataframe(spec):
         candidate_pairs = fetch_search_candidate_pairs(spec)
         if candidate_pairs is not None:

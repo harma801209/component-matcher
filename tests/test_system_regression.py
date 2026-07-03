@@ -11,6 +11,7 @@ import unittest
 import warnings
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 from openpyxl import Workbook
@@ -619,6 +620,35 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRC0603F1002 TS", 10000.0, "1"), "3.10")
         self.assertEqual(price("FRC0603F8R20 TS", 8.2, "1"), "3.63")
 
+        expected_zero_prices = {}
+        for rule in app["load_resistor_series_pricing_rules"]():
+            if rule.get("series") != "FRC":
+                continue
+            expected = app["select_resistor_segment_price"](
+                rule.get("range", ""),
+                rule.get("price_1", ""),
+                10.0,
+            )
+            if expected:
+                expected_zero_prices[rule["type_dimension_norm"]] = (expected, rule.get("package", ""))
+        self.assertTrue(expected_zero_prices)
+        for type_dimension, (expected_cost, expected_moq) in expected_zero_prices.items():
+            size, power = type_dimension.split(" ", 1)
+            zero_price = app["lookup_resistor_series_pricing"](
+                {
+                    "\u54c1\u724c": "FOJAN(\u5bcc\u6377)",
+                    "\u578b\u53f7": f"FRC{size}F0000TS",
+                    "\u5668\u4ef6\u7c7b\u578b": "\u539a\u819c\u7535\u963b",
+                    "\u7cfb\u5217": "FRC",
+                    "\u5c3a\u5bf8\uff08inch\uff09": size,
+                    "\u529f\u7387": power,
+                    "_res_ohm": 0.0,
+                    "\u5bb9\u503c\u8bef\u5dee": "1",
+                }
+            )
+            self.assertEqual(zero_price["\u6210\u672c"], expected_cost, type_dimension)
+            self.assertEqual(zero_price["MOQ"], expected_moq, type_dimension)
+
         missing_range_model = app["build_rule_fallback_row_from_model"]("FRC0402F5233TS")
         self.assertEqual(len(missing_range_model), 1)
         fallback_row = missing_range_model.iloc[0]
@@ -635,6 +665,30 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(fallback_display.iloc[0]["品牌"], "FOJAN(富捷)")
         self.assertEqual(fallback_display.iloc[0]["成本"], "1.7")
         self.assertEqual(fallback_display.iloc[0]["MOQ"], "10000PCS")
+
+        for invalid_model in (
+            "FRC0402F5243TS",
+            "FRC0402F9993TS",
+            "FRC0402F0003TS",
+            "FRL0402F5233TS",
+        ):
+            self.assertTrue(app["build_rule_fallback_row_from_model"](invalid_model).empty, invalid_model)
+
+        mode, spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(),
+            "0402 523K\u03a9 1% 1/16W \u539a\u819c\u7535\u963b",
+        )
+        self.assertEqual(mode, "\u539a\u819c\u7535\u963b")
+        spec_rows = app["load_search_dataframe_for_query"](mode, spec)
+        spec_fojan = spec_rows[
+            spec_rows["\u54c1\u724c"].astype(str).str.contains("FOJAN|\u5bcc\u6377", case=False, regex=True)
+        ]
+        self.assertIn(
+            "FRC0402F5233TS",
+            set(spec_fojan["\u578b\u53f7"].map(app["clean_model"])),
+        )
+        spec_price = app["lookup_resistor_series_pricing"](spec_fojan.iloc[0].to_dict())
+        self.assertEqual(spec_price["\u6210\u672c"], "1.7")
 
     def test_09_pdc_series_descriptions_do_not_repeat_vendor_and_series(self):
         app = self.app
@@ -923,6 +977,110 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["fetch_search_candidate_pairs"] = original_fetch
         self.assertEqual(matched["型号"].tolist(), ["RESONANT-1210-473-630V"])
+
+
+    def test_12_runtime_databases_survive_instance_reset(self):
+        app = self.app
+        snapshots = {
+            key: {"version": 0, "sha256": "", "payload_base64": "", "updated_at": ""}
+            for key in ("cost-price", "no-match")
+        }
+        api_secret = "runtime-regression-secret"
+
+        class RuntimeSnapshotHandler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                return
+
+            def _store(self):
+                return parse_qs(urlsplit(self.path).query).get("store", [""])[0]
+
+            def _send(self, status, payload):
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_GET(self):
+                if self.headers.get("Authorization", "") != f"Bearer {api_secret}":
+                    self._send(401, {"error": "unauthorized"})
+                    return
+                store = self._store()
+                self._send(200, {"store": store, **snapshots[store]})
+
+            def do_PUT(self):
+                if self.headers.get("Authorization", "") != f"Bearer {api_secret}":
+                    self._send(401, {"error": "unauthorized"})
+                    return
+                store = self._store()
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                snapshot = snapshots[store]
+                if int(body.get("expected_version") or 0) != int(snapshot["version"]):
+                    self._send(409, {"error": "version_conflict", "version": snapshot["version"]})
+                    return
+                snapshot.update(
+                    {
+                        "version": snapshot["version"] + 1,
+                        "sha256": body["sha256"],
+                        "payload_base64": body["payload_base64"],
+                        "updated_at": "2026-07-03T00:00:00Z",
+                    }
+                )
+                self._send(200, {"ok": True, "store": store, "version": snapshot["version"], "sha256": snapshot["sha256"]})
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RuntimeSnapshotHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        saved_env = {
+            key: os.environ.get(key)
+            for key in ("RUNTIME_STORE_REMOTE_API_URL", "RUNTIME_STORE_REMOTE_API_SECRET", "RUNTIME_STORE_REMOTE_FORCE")
+        }
+        original_state_dir = app["RUNTIME_STORE_REMOTE_STATE_DIR"]
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        original_report_path = app["NO_MATCH_REPORT_DB_PATH"]
+        try:
+            os.environ["RUNTIME_STORE_REMOTE_API_URL"] = f"http://127.0.0.1:{server.server_port}/api/runtime-store/snapshot"
+            os.environ["RUNTIME_STORE_REMOTE_API_SECRET"] = api_secret
+            os.environ["RUNTIME_STORE_REMOTE_FORCE"] = "1"
+            app["RUNTIME_STORE_REMOTE_STATE_DIR"] = os.path.join(self.temp_dir, "runtime-state")
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "runtime-cost.sqlite")
+            app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "runtime-reports.sqlite")
+            app["reset_runtime_store_remote_refresh_cache"]()
+
+            ok, message, _ = app["import_cost_price_list_from_upload"](
+                UploadedBytes("runtime-cost.xlsx", fojan_quote_xlsx_bytes()),
+                "regression",
+            )
+            self.assertTrue(ok, message)
+            self.assertGreater(snapshots["cost-price"]["version"], 0)
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "runtime-cost-restored.sqlite")
+            app["reset_runtime_store_remote_refresh_cache"]("cost-price")
+            restored_cost = app["get_active_cost_price_list"]()
+            self.assertIsNotNone(restored_cost)
+            self.assertEqual(restored_cost["row_count"], 5)
+
+            ok, message, report_id = app["submit_no_match_report"]("REMOTE-UNMATCHED-PART", reason="regression")
+            self.assertTrue(ok, message)
+            self.assertGreater(snapshots["no-match"]["version"], 0)
+            app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "runtime-reports-restored.sqlite")
+            app["reset_runtime_store_remote_refresh_cache"]("no-match")
+            restored_reports = app["list_no_match_reports"]("all")
+            self.assertEqual([row["id"] for row in restored_reports], [report_id])
+            self.assertEqual(restored_reports[0]["query_text"], "REMOTE-UNMATCHED-PART")
+        finally:
+            app["RUNTIME_STORE_REMOTE_STATE_DIR"] = original_state_dir
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["NO_MATCH_REPORT_DB_PATH"] = original_report_path
+            app["reset_runtime_store_remote_refresh_cache"]()
+            for key, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

@@ -533,3 +533,17 @@
 - Root cause: The exact model was absent from the component library. The naming-rule fallback parsed its electrical parameters but left the brand blank and produced pseudo-series `FRC0402F`, so neither the active FOJAN range rule nor the official `FRC` profile could match.
 - Fix: Infer `FOJAN(富捷)` for valid missing-library `FRC/FRL` resistor part numbers before applying model rules. The fallback now resolves the official `FRC` series and is priced by the current active range list without requiring one database row per resistance value.
 - Verification: The original workbook maps this model to `FRC / 0402 1/16W / 10R-1M / 1%`, cost `1.7`, MOQ `10000PCS`. The full 17-test member/system suite passes.
+
+## 2026-07-03 - FOJAN rule fallback accepted invalid models and mispriced 1% zero-ohm parts
+
+- Bug: Missing-library strings such as `FRC0402F5243TS`, `FRC0402F9993TS`, and `FRC0402F0003TS` were accepted as FOJAN models. Separately, 1% zero-ohm FRC rows used the 5% zero-ohm price, so 0805 displayed `4.4` instead of `5.2`.
+- Root cause: The fallback regex accepted any digits/R value code and the generic resistor parser could bypass failed FOJAN brand inference. The zero-ohm pricing branch explicitly fell back from `price_1` to `price_5`.
+- Fix: Validate FRC/FRL structure, value-code shape, series range, and E24/E96 resistance values before creating a rule row. Require an applicable active price rule. Generate the same validated FOJAN row for complete specification searches. Price every 1% zero-ohm FRC row from that size's 1% `10R-1M` segment.
+- Verification: Invalid model negatives return no fallback; `0402 523KΩ 1% 1/16W` includes `FRC0402F5233TS`. Zero-ohm checks cover every priced size from 0201 through 2512. All 19 member/system tests pass.
+
+## 2026-07-03 - Cost lists and no-match reports were not durable across instances
+
+- Bug: Member accounts survived Streamlit instance replacement through D1, but uploaded cost lists and no-match reports remained local SQLite files and could disappear with an instance reset.
+- Root cause: Only `member_auth.sqlite` used the authenticated snapshot API. The two other runtime databases had no remote snapshot, history, checksum, or restore path.
+- Fix: Add an authenticated `/api/runtime-store/snapshot` endpoint with separate `cost-price` and `no-match` keys, optimistic versions, SHA-256 validation, bounded payloads, and per-store history. Runtime reads use a 60-second refresh window; mutations force a pull before writing and flush afterward.
+- Verification: A regression uploads each database, switches to a fresh local path, and restores the records from its remote snapshot. Worker source/security tests, Python/JavaScript compilation, unauthenticated endpoint `401`, and all 19 member/system tests pass.

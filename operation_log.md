@@ -3201,3 +3201,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Valid missing-library `FRC/FRL` resistor model numbers now infer `FOJAN(富捷)` before rule parsing, resolve to the official family (`FRC` or `FRL`), and use the active series range cost without adding every standard resistance as a database row.
 - The user's original workbook imported 136 rules in an isolated verification. `FRC0402F5233TS` matched `FRC / 0402 1/16W / 10R-1M / 1%` with cost `1.7` and MOQ `10000PCS`; all 17 member/system tests and Python compilation pass.
 - Formal verification: the deployed member search shows `FOJAN(富捷) / FRC0402F5233TS / FRC / 523KΩ / ±1% / 1/16W`, cost `1.7`, active-list update time `2026-06-30 23:25:02`, and MOQ `10000PCS`. The result iframe contains all expected fields and the browser console has no application errors.
+
+### 2026-07-03 09:30 [cost/matching/durability] Validate FOJAN range models, correct 1% 0R prices, and persist runtime databases
+
+- Reproduced two uncovered FOJAN boundary failures: arbitrary FRC value codes could be synthesized as official-looking FOJAN rows, while pure specification search did not include a valid missing-library FOJAN model.
+- Added strict FRC/FRL structure and resistance validation, blocked generic-parser bypass, required an active price-range hit, and added validated FOJAN candidate generation for complete resistor specifications.
+- Corrected all 1% FRC zero-ohm prices to use the same-size 1% `10R-1M` segment. Expected values are `0201=1.7`, `0402=1.7`, `0603=3.1`, `0805=5.2`, `1206=8.8`, `1210=21.0`, `1812=57.0`, `2010=39.6`, and `2512=60.0`.
+- Added authenticated D1 runtime snapshots for `cost-price` and `no-match`, with separate keys/history, optimistic versions, checksum validation, bounded payloads, lazy refresh, and instance-reset recovery tests.
+- Deployed the Cloudflare Pages Worker preview `https://64084631.fruition-component.pages.dev`; the formal runtime-store endpoint rejects unauthenticated access with `401`. Full verification passes: 19/19 tests, Python compilation, Worker syntax check, and runtime-database restore simulations.

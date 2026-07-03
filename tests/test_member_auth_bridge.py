@@ -49,6 +49,13 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('searchParams.get("version")', self.worker)
         self.assertIn("INSERT OR REPLACE INTO member_auth_snapshot_history", self.worker)
 
+    def test_runtime_snapshot_api_separates_cost_and_no_match_stores(self):
+        self.assertIn('dispatchPath === "/api/runtime-store/snapshot"', self.worker)
+        self.assertIn('new Set(["cost-price", "no-match"])', self.worker)
+        self.assertIn("runtime_store_snapshots", self.worker)
+        self.assertIn("runtime_store_snapshot_history", self.worker)
+        self.assertIn("PRIMARY KEY (store_key, version)", self.worker)
+
     def test_member_auth_controls_do_not_use_nested_forms(self):
         function_start = self.matcher.index("def render_member_auth_panel(")
         function_end = self.matcher.index("\ndef render_member_center_page", function_start)
