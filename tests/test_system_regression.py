@@ -76,12 +76,14 @@ class SystemRegressionTests(unittest.TestCase):
             for key in [
                 "MEMBER_AUTH_DB_PATH",
                 "COST_PRICE_DB_PATH",
+                "NO_MATCH_REPORT_DB_PATH",
                 "COMPONENT_MATCHER_BUILD_MODE",
                 "COMPONENT_MATCHER_STARTUP_MAINTENANCE",
             ]
         }
         os.environ["MEMBER_AUTH_DB_PATH"] = os.path.join(cls.temp_dir, "member.sqlite")
         os.environ["COST_PRICE_DB_PATH"] = os.path.join(cls.temp_dir, "cost.sqlite")
+        os.environ["NO_MATCH_REPORT_DB_PATH"] = os.path.join(cls.temp_dir, "reports.sqlite")
         os.environ["COMPONENT_MATCHER_BUILD_MODE"] = "1"
         os.environ["COMPONENT_MATCHER_STARTUP_MAINTENANCE"] = "0"
         loaded = runpy.run_path(
@@ -106,6 +108,12 @@ class SystemRegressionTests(unittest.TestCase):
             else:
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
+
+    def test_00_runtime_database_paths_are_isolated(self):
+        temp_root = os.path.normcase(os.path.abspath(self.temp_dir))
+        for key in ("MEMBER_AUTH_DB_PATH", "COST_PRICE_DB_PATH", "NO_MATCH_REPORT_DB_PATH"):
+            database_path = os.path.normcase(os.path.abspath(self.app[key]))
+            self.assertEqual(os.path.commonpath([temp_root, database_path]), temp_root, key)
 
     def test_01_exact_model_categories_and_library_rows(self):
         models = [

@@ -3216,3 +3216,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Confirmed the backend active-cost lookup was a separate path from static series pricing and had not inherited the earlier 1% zero-ohm correction.
 - Updated `lookup_active_cost_price_for_row()` so FRC 1% 0R dynamically uses the newly activated workbook's same-size 1% `10R-1M` rule; 5% 0R remains independent.
 - Added an upload-and-activate regression proving a workbook with 5% 0R=`2.60` and 1% `10R-1M`=`3.10` prices `FRC0603F0000TS` at `3.10`. The complete 12-test system regression suite passes.
+
+### 2026-07-03 21:05 [release safety] Protect member and backend runtime records
+
+- Made the member, active-cost, and no-match database paths independently redirectable so every system test runs only against temporary SQLite files.
+- Added `tools/run_release_safety_gate.py`: it fingerprints protected SQLite/main/WAL/SHM/journal files, runs syntax checks plus the complete member/backend/matching regression suite, and blocks release if any protected file changes.
+- Wired the safety gate into `sync_local_and_public.py` before bundle build, commit, or push, and added permanent repository rules in `AGENTS.md` covering additive migrations, backup/rollback, isolated tests, and prohibited runtime database replacement.
+- Verification: 13/13 regressions pass; explicit path-isolation coverage passes; protected file fingerprints are unchanged; read-only `PRAGMA integrity_check` returns `ok` for member, cost-list, and no-match databases.

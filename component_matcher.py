@@ -89,7 +89,10 @@ MLCC_OFFICIAL_DIMENSION_CACHE_PATH = os.path.join(BASE_DIR, "cache", "mlcc_offic
 PREPARED_CACHE_META_PATH = os.path.join(BASE_DIR, "cache", "components_prepared_v5_meta.json")
 SOURCE_NORMALIZED_CACHE_DIR = os.path.join(BASE_DIR, "cache", "source_normalized")
 SEARCH_DB_PATH = os.path.join(BASE_DIR, "cache", "components_search.sqlite")
-NO_MATCH_REPORT_DB_PATH = os.path.join(BASE_DIR, "cache", "no_match_reports.sqlite")
+NO_MATCH_REPORT_DB_PATH = os.path.abspath(
+    os.getenv("NO_MATCH_REPORT_DB_PATH", os.path.join(BASE_DIR, "cache", "no_match_reports.sqlite")) or
+    os.path.join(BASE_DIR, "cache", "no_match_reports.sqlite")
+)
 MEMBER_AUTH_DB_PATH = os.path.abspath(
     os.getenv("MEMBER_AUTH_DB_PATH", os.path.join(BASE_DIR, "cache", "member_auth.sqlite")) or
     os.path.join(BASE_DIR, "cache", "member_auth.sqlite")

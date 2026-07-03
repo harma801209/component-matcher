@@ -23,6 +23,7 @@ PUBLISH_FILES = [
     "requirements.txt",
     "runtime.txt",
     "README.md",
+    "AGENTS.md",
     "PUBLIC_ACCESS.md",
     ".gitattributes",
     ".gitignore",
@@ -54,6 +55,7 @@ PUBLISH_FILES = [
     "reports/library_expansion_audit.csv",
     "reports/library_expansion_audit.md",
     "tools/build_passive_series_gap_report.py",
+    "tools/run_release_safety_gate.py",
     "publish_public.ps1",
     "publish_public.cmd",
     # Raw workbook sources required for rebuilding the cloud database.
@@ -536,6 +538,14 @@ def validate_python_files(python_cmd: list[str]) -> None:
         run_command(python_cmd + ["-m", "py_compile"] + files, capture_output=False)
 
 
+def run_release_safety_gate(python_cmd: list[str]) -> None:
+    gate_script = ROOT / "tools" / "run_release_safety_gate.py"
+    if not gate_script.exists():
+        raise CommandError(f"Required release safety gate is missing: {gate_script}")
+    write_step("Running member, backend, and runtime-data safety gate")
+    run_command(python_cmd + [str(gate_script)], capture_output=False)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="One-click sync for local and public Component Matcher deployments.")
     parser.add_argument("--commit-message", default="", help="Optional custom git commit message.")
@@ -556,6 +566,7 @@ def main() -> int:
     repo_full_name = parse_repo_full_name(repo_remote)
     commit_message = args.commit_message.strip() or f"Sync local and public release {time.strftime('%Y-%m-%d %H:%M')}"
 
+    run_release_safety_gate(python_cmd)
     bundle_rebuilt = build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
     if bundle_rebuilt:
         refresh_public_release_stamp()

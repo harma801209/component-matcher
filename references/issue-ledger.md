@@ -561,3 +561,10 @@
 - Root cause: The earlier correction covered `lookup_resistor_series_pricing()` only; `lookup_active_cost_price_for_row()` retained the generic resistance-range lookup.
 - Fix: For FRC 1% zero-ohm rows, active-list lookup now selects the current workbook's same-size 1% rule using the `10R` boundary. The value is dynamic and follows each newly activated workbook rather than a hard-coded cost.
 - Verification: An uploaded workbook containing 5% 0R=`2.60` and 1% `10R-1M`=`3.10` prices `FRC0603F0000TS` at `3.10`. The full 12-test system regression suite passes.
+
+## 2026-07-03 - Release workflow did not enforce runtime-data isolation
+
+- Risk: The normal publish workflow validated Python syntax but did not run the member/backend regression suite or prove that local runtime databases remained unchanged. The no-match database path also lacked the environment override already used by member and cost databases.
+- Fix: Added a mandatory release safety gate that runs syntax checks and the complete system suite with all three runtime databases redirected to a temporary directory. It fingerprints the member, cost-list, and no-match SQLite files plus WAL/SHM/journal files before and after validation and blocks release on any change.
+- Prevention: Added repository-level safety rules requiring additive migrations, protected runtime records, isolated tests, and post-change verification. The one-click publish path now invokes the gate before bundle building, committing, or pushing.
+- Verification: The gate passes 13 system tests, including an explicit assertion that all runtime database paths are inside the temporary test directory. Protected database fingerprints are unchanged and all three local SQLite integrity checks return `ok`.
