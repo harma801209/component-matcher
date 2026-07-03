@@ -1260,6 +1260,8 @@ def flush_runtime_store_remote_snapshot(store_key):
                 payload = handle.read()
         except Exception:
             return False
+        if not payload.startswith(b"SQLite format 3\x00"):
+            return False
         payload_sha = hashlib.sha256(payload).hexdigest()
         state = load_runtime_store_remote_state(store_key)
         if clean_text(state.get("sha256", "")) == payload_sha and int(state.get("version") or 0) > 0:
@@ -1304,6 +1306,8 @@ def refresh_runtime_store_remote_snapshot(store_key, force=False):
         return "cached"
     status = pull_runtime_store_remote_snapshot(store_key)
     _RUNTIME_STORE_REMOTE_REFRESH_CACHE[store_key] = now
+    if status == "empty" and os.path.exists(db_path):
+        return "seeded" if flush_runtime_store_remote_snapshot(store_key) else "seed_failed"
     return status
 
 

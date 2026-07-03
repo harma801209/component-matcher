@@ -545,5 +545,5 @@
 
 - Bug: Member accounts survived Streamlit instance replacement through D1, but uploaded cost lists and no-match reports remained local SQLite files and could disappear with an instance reset.
 - Root cause: Only `member_auth.sqlite` used the authenticated snapshot API. The two other runtime databases had no remote snapshot, history, checksum, or restore path.
-- Fix: Add an authenticated `/api/runtime-store/snapshot` endpoint with separate `cost-price` and `no-match` keys, optimistic versions, SHA-256 validation, bounded payloads, and per-store history. Runtime reads use a 60-second refresh window; mutations force a pull before writing and flush afterward.
+- Fix: Add an authenticated `/api/runtime-store/snapshot` endpoint with separate `cost-price` and `no-match` keys, optimistic versions, SHA-256 validation, bounded payloads, and per-store history. Runtime reads use a 60-second refresh window; mutations force a pull before writing and flush afterward. An existing valid local SQLite database automatically seeds an empty remote store on its first read.
 - Verification: A regression uploads each database, switches to a fresh local path, and restores the records from its remote snapshot. Worker source/security tests, Python/JavaScript compilation, unauthenticated endpoint `401`, and all 19 member/system tests pass.

@@ -1041,9 +1041,6 @@ class SystemRegressionTests(unittest.TestCase):
         original_cost_path = app["COST_PRICE_DB_PATH"]
         original_report_path = app["NO_MATCH_REPORT_DB_PATH"]
         try:
-            os.environ["RUNTIME_STORE_REMOTE_API_URL"] = f"http://127.0.0.1:{server.server_port}/api/runtime-store/snapshot"
-            os.environ["RUNTIME_STORE_REMOTE_API_SECRET"] = api_secret
-            os.environ["RUNTIME_STORE_REMOTE_FORCE"] = "1"
             app["RUNTIME_STORE_REMOTE_STATE_DIR"] = os.path.join(self.temp_dir, "runtime-state")
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "runtime-cost.sqlite")
             app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "runtime-reports.sqlite")
@@ -1054,6 +1051,12 @@ class SystemRegressionTests(unittest.TestCase):
                 "regression",
             )
             self.assertTrue(ok, message)
+            self.assertEqual(snapshots["cost-price"]["version"], 0)
+            os.environ["RUNTIME_STORE_REMOTE_API_URL"] = f"http://127.0.0.1:{server.server_port}/api/runtime-store/snapshot"
+            os.environ["RUNTIME_STORE_REMOTE_API_SECRET"] = api_secret
+            os.environ["RUNTIME_STORE_REMOTE_FORCE"] = "1"
+            app["reset_runtime_store_remote_refresh_cache"]("cost-price")
+            self.assertIsNotNone(app["get_active_cost_price_list"]())
             self.assertGreater(snapshots["cost-price"]["version"], 0)
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "runtime-cost-restored.sqlite")
             app["reset_runtime_store_remote_refresh_cache"]("cost-price")
