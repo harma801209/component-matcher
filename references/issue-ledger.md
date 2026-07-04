@@ -592,3 +592,11 @@
 - Accuracy boundary: Walsin 1812 rows at 3.20mm, bulk/nonstandard WR suffixes, and unsupported reel options remain blank. Active cost-list MOQ continues to override every manufacturer fallback.
 - Coverage: Added 22,616 rows, increasing total source-backed manufacturer package coverage to 128,440 library rows.
 - Verification: The full 14-test release safety gate passes and protected member, cost-list, and no-match runtime databases are unchanged.
+
+## 2026-07-04 - Specialized Walsin MLCC and Samsung current-sense families lacked package quantities
+
+- Gap: Walsin SH/RF/HH/MT capacitors and Samsung RU/RUK/RUT/RJ resistors still had blank manufacturer fallback MOQ values.
+- Fix: Added per-series Walsin size-code, case-size, thickness, and `CT` validation from four current manufacturer specifications. Expanded Samsung `CS` decoding to documented current-sense and wide-terminal families, including the RJ1220 2mΩ embossed-tape exception.
+- Accuracy boundary: RUW and Walsin rows whose thickness is absent from the corresponding series table remain blank; values are not copied from a different Walsin MLCC family.
+- Coverage: Added 2,015 rows and increased total source-backed manufacturer package coverage to 130,455 rows.
+- Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.

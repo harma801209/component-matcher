@@ -1138,6 +1138,15 @@ class SystemRegressionTests(unittest.TestCase):
             ({"品牌": "华新科Walsin", "型号": "0805A106K250CT", "系列": "常规", "尺寸（inch）": "0805", "高度（mm）": "1.25"}, "3000PCS"),
             ({"品牌": "华新科Walsin", "型号": "1210B102J101CT", "系列": "常规", "尺寸（inch）": "1210", "高度（mm）": "2.50"}, "1000PCS"),
             ({"品牌": "华新科Walsin", "型号": "0402N0R1A500CT", "系列": "0402N", "尺寸（inch）": "0402", "高度（mm）": "0.50"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RU1005FR020CS", "系列": "RU", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RUK1608FR010CS", "系列": "RU", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RUT2012FR100CS", "系列": "RU", "尺寸（inch）": "0805"}, "5000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RJ1220FR005CS", "系列": "RJ", "尺寸（inch）": "0508"}, "5000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RJ1220FR002CS", "系列": "RJ", "尺寸（inch）": "0508"}, "4000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "SH31B101K102CT", "系列": "SH", "尺寸（inch）": "1206", "高度（mm）": "1.60"}, "2000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "RF03N0R1A250CT", "系列": "RF", "尺寸（inch）": "0201", "高度（mm）": "0.30"}, "15000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "HH21N0R5B101CT", "系列": "HH", "尺寸（inch）": "0805", "高度（mm）": "1.25"}, "3000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "MT15N0R5B500CT", "系列": "MT", "尺寸（inch）": "0402", "高度（mm）": "0.50"}, "10000PCS"),
         ]
         for row, expected in cases:
             result = lookup(row)
@@ -1171,6 +1180,14 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertEqual(
             lookup({"品牌": "华新科Walsin", "型号": "1812B102J101CT", "系列": "常规", "尺寸（inch）": "1812", "高度（mm）": "3.20"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "华新科Walsin", "型号": "SH43B103K102CT", "系列": "SH", "尺寸（inch）": "1812", "高度（mm）": "3.20"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "华新科Walsin", "型号": "MT15B101K500CT", "系列": "MT", "尺寸（inch）": "0402", "高度（mm）": "0.85"}),
             {},
         )
         original_cost_path = self.app["COST_PRICE_DB_PATH"]

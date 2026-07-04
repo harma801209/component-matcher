@@ -41,6 +41,18 @@
 
 第三批净新增：`22,616` 条型号记录；三批去重后合计覆盖：`128,440` 条。
 
+## 第四批覆盖
+
+| 器件/系列 | 原厂证据 | 已覆盖型号行数 | 规则 |
+|---|---|---:|---|
+| Samsung RU/RUK/RUT/RJ 电阻 | [三星 Chip Resistor 原厂目录](https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf) | 455 | 仅覆盖后缀 `CS` 的 7 英寸包装；RU/RUK/RUT 按公制尺寸码，RJ 同时处理 1220 低至 2mΩ 的压纹带特例 |
+| Walsin SH 软端 MLCC | [SH 2026 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Soft_term_SH.pdf) | 484 | 校验 SH 尺寸码、EIA 尺寸、厚度和 `CT` 包装 |
+| Walsin RF 微波 MLCC | [RF 2026 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Microwave_RF.pdf) | 569 | 校验 RF 尺寸码、EIA 尺寸、厚度和 `CT` 包装 |
+| Walsin HH 高 Q/低 ESR MLCC | [HH 2026 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_HQ_Low_ESR_HH.pdf) | 434 | 校验 HH 尺寸码、EIA 尺寸、厚度和 `CT` 包装 |
+| Walsin MT 车规 MLCC | [MT 2026 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf) | 73 | 校验 MT 尺寸码、EIA 尺寸、厚度和 `CT` 包装 |
+
+第四批净新增：`2,015` 条型号记录；四批去重后合计覆盖：`130,455` 条。
+
 ## 规格参数抽查
 
 - `RC0603FR-0710KL`：0603、10KΩ、±1%，与 YAGEO RC_L 型号规则一致；标准 7 英寸纸带卷盘为 5,000 pcs。
@@ -62,6 +74,8 @@
 - Murata LQW 等电感：库中大量型号以 `#` 代替实际包装后缀；原厂同一基础型号可同时有散装和多种卷盘数量，因此继续留空。
 - Walsin 常规 1812：库内主要记录为 3.20mm 厚，但 2026 原厂包装表只列到 2.80mm；这 1,298 条继续留空。
 - Samsung RC：部分库记录的 `尺寸（inch）` 实际存放公制代码；本轮 MOQ 从已校验的型号公制尺寸码解析，不把该字段当成包装依据。
+- Samsung RUW：库内仅 1 条，当前原厂包装表未明确列入 RUW，继续留空。
+- Walsin SH/RF/MT：部分库内厚度不在对应系列当前原厂表中，例如 SH 1812 的 3.20mm、RF 0805 的 1.25mm 和多条 MT 的 0.85mm；不跨系列套用数量。
 
 ## 写入原则
 

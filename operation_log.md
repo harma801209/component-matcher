@@ -3245,3 +3245,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Manufacturer fallback coverage is now 128,440 rows. Cost-list MOQ remains first priority.
 - Kept unsupported reel codes, bulk packaging, and Walsin 1812 3.20mm rows blank because the current official tables do not uniquely support them.
 - Verification: 14/14 system regressions pass through the release safety gate; protected runtime database fingerprints remain unchanged.
+
+### 2026-07-04 [data/MOQ] Add specialized Walsin MLCC and Samsung current-sense packaging rules
+
+- Added official-source 7-inch package quantities for 455 Samsung RU/RUK/RUT/RJ rows and 1,560 Walsin SH/RF/HH/MT rows.
+- Total manufacturer fallback coverage is now 130,455 rows; active cost-list MOQ remains authoritative.
+- Unsupported RUW and series/thickness combinations remain blank instead of inheriting another family rule.
+- Verification: 14/14 system regressions pass through the release safety gate, and protected runtime database fingerprints remain unchanged.
