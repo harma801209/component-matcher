@@ -1105,6 +1105,30 @@ class SystemRegressionTests(unittest.TestCase):
             ({"品牌": "威世Vishay", "型号": "NTCS0603E3103FMT", "系列": "NTCS0603E", "尺寸（inch）": "0603"}, "4000PCS"),
             ({"品牌": "威世Vishay", "型号": "NTCS0805E3103FLT", "系列": "NTCS0805E", "尺寸（inch）": "0805"}, "4000PCS"),
             ({"品牌": "东电化TDK", "型号": "C1608C0G2E182J080AA", "系列": "C", "尺寸（inch）": "0603"}, "4000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "CC0402KRX7R9BB103", "系列": "CC", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "CC0201KRX5R7BB104", "系列": "CC", "尺寸（inch）": "0201"}, "15000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "CC0402KPX7R9BB103", "系列": "CC", "尺寸（inch）": "0402"}, "50000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "CC0603JRX7R9BB104", "系列": "CC", "尺寸（inch）": "0603"}, "4000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "CC0603KPX7R7BB104", "系列": "CC", "尺寸（inch）": "0603"}, "15000PCS"),
+            ({"品牌": "东电化TDK", "型号": "C0603X7S0J224K030BC", "系列": "C", "尺寸（inch）": "0201"}, "15000PCS"),
+            ({"品牌": "东电化TDK", "型号": "C1005X7R1V224K050BC", "系列": "C", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "东电化TDK", "型号": "C2012C0G2W221J060AE", "系列": "C", "尺寸（inch）": "0805"}, "4000PCS"),
+            ({"品牌": "东电化TDK", "型号": "C2012X5R1V226M125AC", "系列": "C", "尺寸（inch）": "0805"}, "2000PCS"),
+            ({"品牌": "东电化TDK", "型号": "NTCG063JF103FTDS", "系列": "NTCG", "尺寸（inch）": "0201"}, "15000PCS"),
+            ({"品牌": "东电化TDK", "型号": "NTCG103JF103FTDS", "系列": "NTCG", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "东电化TDK", "型号": "NTCG163JF103FTDS", "系列": "NTCG", "尺寸（inch）": "0603"}, "4000PCS"),
+            ({"品牌": "村田Murata", "型号": "GRM155R71E472KA01D", "系列": "GRM", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "村田Murata", "型号": "GRM155R71E472KA01J", "系列": "GRM", "尺寸（inch）": "0402"}, "50000PCS"),
+            ({"品牌": "村田Murata", "型号": "GRM188R11H104KA93D", "系列": "GRM", "尺寸（inch）": "0603"}, "4000PCS"),
+            ({"品牌": "村田Murata", "型号": "GCM188R71H273KA55V", "系列": "GCM", "尺寸（inch）": "0603"}, "30000PCS"),
+            ({"品牌": "村田Murata", "型号": "GCJ21BR71H104KA01L", "系列": "GCJ", "尺寸（inch）": "0805"}, "3000PCS"),
+            ({"品牌": "村田Murata", "型号": "GCJ21BR71H104KA01K", "系列": "GCJ", "尺寸（inch）": "0805"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL02A102KP2NNNC", "系列": "CL", "尺寸（inch）": "01005", "高度（mm）": "0.20±0.02"}, "20000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL03A102KA31INC", "系列": "CL", "尺寸（inch）": "0201", "高度（mm）": "0.30±0.03"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL05A104JO5NNNC", "系列": "CL", "尺寸（inch）": "0402", "高度（mm）": "0.50±0.05"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL10A104KA8NNNC", "系列": "CL", "尺寸（inch）": "0603", "高度（mm）": "0.80±0.10"}, "4000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL21A105KACLNNC", "系列": "CL", "尺寸（inch）": "0805", "高度（mm）": "0.85±0.10"}, "4000PCS"),
+            ({"品牌": "三星Samsung", "型号": "CL21A106KOQNNWC", "系列": "CL", "尺寸（inch）": "0805", "高度（mm）": "1.25±0.15"}, "2000PCS"),
         ]
         for row, expected in cases:
             result = lookup(row)
@@ -1114,6 +1138,18 @@ class SystemRegressionTests(unittest.TestCase):
 
         self.assertEqual(
             lookup({"品牌": "国巨YAGEO", "型号": "RC0603FK-0710KL", "系列": "RC", "尺寸（inch）": "0603"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "村田Murata", "型号": "LQW18AN20NG00#", "系列": "LQW18AN", "尺寸（inch）": "0603"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "国巨YAGEO", "型号": "CC0805MRX7R9BB104", "系列": "CC", "尺寸（inch）": "0805"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "三星Samsung", "型号": "CL10A105KA8NNND", "系列": "CL", "尺寸（inch）": "0603", "高度（mm）": "0.80±0.10"}),
             {},
         )
         original_cost_path = self.app["COST_PRICE_DB_PATH"]

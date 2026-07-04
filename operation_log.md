@@ -3231,3 +3231,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The active cost-list MOQ remains first priority. A blank purchase MOQ now falls back to the official standard package quantity and displays a separate `MOQ来源` column.
 - First-batch coverage is 81,796 rows. Representative resistor, thermistor, and MLCC electrical parameters were checked against official datasheets/model pages and matched.
 - Verification: 14/14 system regressions and the release safety gate pass; protected member, cost-list, and no-match databases are unchanged.
+
+### 2026-07-04 [data/MOQ] Expand manufacturer package quantities to other brands
+
+- Added strict official-source rules for Murata GRM/GCM/GCJ, YAGEO CC 0201/0402/0603, TDK C-series/NTCG, and Samsung CL models whose size, thickness, reel, and package code determine one quantity.
+- Coverage increased from 81,796 to 105,824 library rows. Cost-list MOQ still has priority over every manufacturer fallback.
+- Deliberately left ambiguous YAGEO 0805+, Samsung non-`C` packaging, and Murata inductor `#` suffixes blank; these cannot be assigned safely from size alone.
+- Verification: 14/14 system regressions pass through the release safety gate, and all protected runtime database fingerprints remain unchanged.

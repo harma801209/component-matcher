@@ -576,3 +576,11 @@
 - Fix: Added a strict manufacturer-packaging rule layer. Cost-list MOQ remains authoritative; only a blank MOQ falls back to an explicitly labeled manufacturer standard package quantity with an official source.
 - First coverage: 81,796 rows across Panasonic ERJ/ERA, YAGEO RC, TDK C1608/080/A MLCC, and Vishay NTCS0402E/0603E/0805E.
 - Verification: Datasheet/model-page samples confirm electrical parameters and package quantities. The full 14-test safety gate passes and protected member/backend runtime databases remain unchanged.
+
+## 2026-07-04 - Manufacturer package quantity coverage was limited to the first brand batch
+
+- Gap: Murata, Samsung, additional YAGEO/TDK capacitor sizes, and TDK NTC thermistors still had blank fallback MOQ values even where ordering-code packaging and official package quantities were available.
+- Fix: Added source-backed rules for Murata GRM/GCM/GCJ, YAGEO CC 0201/0402/0603, TDK C0603/C1005/C2012 and NTCG06/10/16, and Samsung CL models with explicit 7-inch packaging code `C` plus a supported thickness class.
+- Accuracy boundary: YAGEO CC 0805 can have different quantities under the same apparent packaging letter, Samsung non-`C` suffixes have reel/quantity options, and Murata inductor `#` suffixes do not identify one package. Those cases remain blank instead of receiving a guessed MOQ.
+- Coverage: Source-backed manufacturer fallback now covers 105,824 library rows, an increase of 24,028 over the first batch. Active cost-list MOQ remains authoritative and is never overwritten.
+- Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.

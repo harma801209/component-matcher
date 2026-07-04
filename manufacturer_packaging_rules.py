@@ -12,6 +12,10 @@ VISHAY_NTCS_SOURCES = {
     "0805": "https://www.vishay.com/docs/29044/ntcs0805e3t.pdf",
 }
 TDK_MLCC_PRODUCT_URL = "https://product.tdk.com/en/search/capacitor/ceramic/mlcc/info?part_no={}"
+TDK_NTC_PRODUCT_URL = "https://product.tdk.com/en/search/sensor/ntc/chip-ntc-thermistor/info?part_no={}"
+YAGEO_CAPACITOR_PRODUCT_URL = "https://yageogroup.com/products/Capacitors/part/{}"
+MURATA_PRODUCT_URL = "https://www.murata.com/en-us/products/productdetail?partno={}"
+SAMSUNG_MLCC_PRODUCT_URL = "https://product.samsungsem.com/mlcc/basic-search.do?partNumber={}"
 
 YAGEO_RC_7_INCH_QUANTITIES = {
     ("0075", "S"): 20000,
@@ -39,6 +43,27 @@ PANASONIC_STANDARD_REEL_QUANTITIES = {
     "2512": 4000,
 }
 
+YAGEO_CC_REEL_QUANTITIES = {
+    ("0201", "R"): 15000,
+    ("0402", "R"): 10000,
+    ("0402", "P"): 50000,
+    ("0603", "R"): 4000,
+    ("0603", "P"): 15000,
+}
+
+MURATA_MLCC_REEL_QUANTITIES = {
+    ("0402", "D"): 10000,
+    ("0402", "W"): 20000,
+    ("0402", "J"): 50000,
+    ("0402", "V"): 100000,
+    ("0603", "D"): 4000,
+    ("0603", "W"): 8000,
+    ("0603", "J"): 10000,
+    ("0603", "V"): 30000,
+    ("0805", "L"): 3000,
+    ("0805", "K"): 10000,
+}
+
 
 def _text(record: Any, *keys: str) -> str:
     for key in keys:
@@ -56,6 +81,11 @@ def _brand_key(value: object) -> str:
 
 def _model_text(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "").upper())
+
+
+def _leading_number(value: object) -> float | None:
+    match = re.match(r"\s*(\d+(?:\.\d+)?)", str(value or ""))
+    return float(match.group(1)) if match else None
 
 
 def _packaging_result(quantity: int, method: str, source_name: str, source_url: str) -> dict[str, str]:
@@ -86,6 +116,20 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
                 method = "178mm纸带卷盘" if key[1] == "R" else "178mm压纹/ESD卷盘"
                 return _packaging_result(quantity, method, "YAGEO RC_L Table 4", YAGEO_RC_SOURCE)
 
+    if ("YAGEO" in brand or "国巨" in brand) and series == "CC":
+        match = re.match(r"^CC(?P<size>0201|0402|0603)[A-Z](?P<pack>[RP])", model)
+        if match and (not size or size == match.group("size")):
+            key = (match.group("size"), match.group("pack"))
+            quantity = YAGEO_CC_REEL_QUANTITIES.get(key)
+            if quantity:
+                reel = "178mm" if key[1] == "R" else "330mm"
+                return _packaging_result(
+                    quantity,
+                    f"{reel}纸带卷盘",
+                    f"YAGEO {model} official product packaging",
+                    YAGEO_CAPACITOR_PRODUCT_URL.format(model),
+                )
+
     if "PANASONIC" in brand and (model.startswith("ERJ") or model.startswith("ERA")):
         quantity = PANASONIC_STANDARD_REEL_QUANTITIES.get(size)
         if quantity and not (model.startswith("ERA") and size in {"1210", "1812", "2010", "2512"}):
@@ -111,14 +155,95 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
                     VISHAY_NTCS_SOURCES[rule_size],
                 )
 
-    if ("TDK" in brand or "东电化" in brand) and series == "C" and size == "0603":
+    if ("MURATA" in brand or "村田" in brand) and series in {"GRM", "GCM", "GCJ"}:
         clean_model = re.sub(r"[^A-Z0-9]", "", model)
-        if re.fullmatch(r"C1608[A-Z0-9]+080A[A-Z]", clean_model):
+        pack_code = clean_model[-1:] if clean_model else ""
+        quantity = MURATA_MLCC_REEL_QUANTITIES.get((size, pack_code))
+        if quantity:
+            methods = {
+                "D": "180mm纸带卷盘",
+                "W": "180mm窄间距纸带卷盘",
+                "J": "330mm纸带卷盘",
+                "V": "330mm窄间距纸带卷盘",
+                "L": "180mm压纹带卷盘",
+                "K": "330mm压纹带卷盘",
+            }
             return _packaging_result(
-                4000,
-                "180mm冲孔纸带卷盘",
-                "TDK C1608/080/A official product packaging",
-                TDK_MLCC_PRODUCT_URL.format(clean_model),
+                quantity,
+                methods[pack_code],
+                f"Murata {series}/{size}/{pack_code} official product packaging",
+                MURATA_PRODUCT_URL.format(clean_model),
             )
+
+    if ("SAMSUNG" in brand or "三星" in brand) and series == "CL":
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        size_codes = {
+            "01005": "CL02",
+            "0201": "CL03",
+            "0402": "CL05",
+            "0603": "CL10",
+            "0805": "CL21",
+            "1206": "CL31",
+            "1210": "CL32",
+            "1808": "CL42",
+        }
+        height = _leading_number(_text(record, "高度（mm）", "厚度(mm)", "厚度（mm）"))
+        quantity = None
+        method = ""
+        if clean_model.startswith(size_codes.get(size, "_")) and clean_model.endswith("C") and height is not None:
+            if (size, height) in {("01005", 0.2), ("0201", 0.3), ("0402", 0.5)}:
+                quantity = {"01005": 20000, "0201": 10000, "0402": 10000}[size]
+                method = "7英寸纸带卷盘"
+            elif size == "0603" and height <= 0.8:
+                quantity, method = 4000, "7英寸纸带卷盘"
+            elif size == "0603" and height >= 1.0:
+                quantity, method = 3000, "7英寸压纹带卷盘"
+            elif size in {"0805", "1206"} and height <= 0.85:
+                quantity, method = 4000, "7英寸纸带卷盘"
+            elif size in {"0805", "1206"} and height >= 1.0:
+                quantity, method = 2000, "7英寸压纹带卷盘"
+            elif size in {"1210", "1808"} and height <= 1.6:
+                quantity, method = 2000, "7英寸压纹带卷盘"
+            elif size in {"1210", "1808"} and height >= 2.0:
+                quantity, method = 1000, "7英寸压纹带卷盘"
+        if quantity:
+            return _packaging_result(
+                quantity,
+                method,
+                f"Samsung CL/{size}/{height:g}mm/7-inch official packaging table",
+                SAMSUNG_MLCC_PRODUCT_URL.format(clean_model),
+            )
+
+    if "TDK" in brand or "东电化" in brand:
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        tdk_mlcc_rules = (
+            ("C", "0201", r"C0603[A-Z0-9]+030B[A-Z]", 15000, "C0603/030/B"),
+            ("C", "0402", r"C1005[A-Z0-9]+050B[A-Z]", 10000, "C1005/050/B"),
+            ("C", "0603", r"C1608[A-Z0-9]+080A[A-Z]", 4000, "C1608/080/A"),
+            ("C", "0805", r"C2012[A-Z0-9]+060A[A-Z]", 4000, "C2012/060/A"),
+            ("C", "0805", r"C2012[A-Z0-9]+125A[A-Z]", 2000, "C2012/125/A"),
+        )
+        for rule_series, rule_size, pattern, quantity, source_key in tdk_mlcc_rules:
+            if series == rule_series and size == rule_size and re.fullmatch(pattern, clean_model):
+                return _packaging_result(
+                    quantity,
+                    "180mm冲孔纸带卷盘",
+                    f"TDK {source_key} official product packaging",
+                    TDK_MLCC_PRODUCT_URL.format(clean_model),
+                )
+
+        tdk_ntc_rules = {
+            "NTCG06": ("0201", 15000),
+            "NTCG10": ("0402", 10000),
+            "NTCG16": ("0603", 4000),
+        }
+        for prefix, (rule_size, quantity) in tdk_ntc_rules.items():
+            if series == "NTCG" and clean_model.startswith(prefix) and size == rule_size:
+                return _packaging_result(
+                    quantity,
+                    "180mm冲孔纸带卷盘",
+                    f"TDK {prefix} official product packaging",
+                    TDK_NTC_PRODUCT_URL.format(clean_model),
+                )
 
     return {}
