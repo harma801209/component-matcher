@@ -31,6 +31,16 @@
 
 第二批净新增：`24,028` 条型号记录；两批去重后合计覆盖：`105,824` 条。
 
+## 第三批覆盖
+
+| 器件/系列 | 原厂证据 | 已覆盖型号行数 | 规则 |
+|---|---|---:|---|
+| Samsung RC/RCS 贴片电阻 | [三星 Chip Resistor 原厂目录](https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf) | 7,609 | 型号必须以 `RC/RCS + 公制尺寸码` 开头并以 7 英寸包装码 `CS` 结尾；数量按公制尺寸码确定 |
+| Walsin WR 贴片电阻 | [华新科 WR 2025 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/chipR/ASC_WR.pdf) | 5,050 | 从型号中的 WR 尺寸码、包装码和终端码组合确定卷盘数量；散装及非标准后缀不回填 |
+| Walsin 常规/NP0 MLCC | [华新科 General Purpose MLCC 2026 原厂规格书](https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf) | 9,957 | 仅覆盖包装末位 `T` 的 7 英寸卷盘，并同时校验 EIA 尺寸和厚度 |
+
+第三批净新增：`22,616` 条型号记录；三批去重后合计覆盖：`128,440` 条。
+
 ## 规格参数抽查
 
 - `RC0603FR-0710KL`：0603、10KΩ、±1%，与 YAGEO RC_L 型号规则一致；标准 7 英寸纸带卷盘为 5,000 pcs。
@@ -50,6 +60,8 @@
 - Samsung CL：末位非 `C` 的型号可能是 10/13 英寸卷盘、定向包装或数量选项，未唯一确认前不补。
 - YAGEO CC 0805 及更大尺寸：相同包装字母仍可能因具体料号而有不同数量，不能套用单一尺寸规则。
 - Murata LQW 等电感：库中大量型号以 `#` 代替实际包装后缀；原厂同一基础型号可同时有散装和多种卷盘数量，因此继续留空。
+- Walsin 常规 1812：库内主要记录为 3.20mm 厚，但 2026 原厂包装表只列到 2.80mm；这 1,298 条继续留空。
+- Samsung RC：部分库记录的 `尺寸（inch）` 实际存放公制代码；本轮 MOQ 从已校验的型号公制尺寸码解析，不把该字段当成包装依据。
 
 ## 写入原则
 

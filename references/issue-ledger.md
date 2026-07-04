@@ -584,3 +584,11 @@
 - Accuracy boundary: YAGEO CC 0805 can have different quantities under the same apparent packaging letter, Samsung non-`C` suffixes have reel/quantity options, and Murata inductor `#` suffixes do not identify one package. Those cases remain blank instead of receiving a guessed MOQ.
 - Coverage: Source-backed manufacturer fallback now covers 105,824 library rows, an increase of 24,028 over the first batch. Active cost-list MOQ remains authoritative and is never overwritten.
 - Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.
+
+## 2026-07-04 - High-volume Samsung and Walsin families still lacked manufacturer package quantities
+
+- Gap: Samsung RC/RCS resistors and Walsin WR resistors/general-purpose MLCCs had blank fallback MOQ values despite carrying explicit manufacturer packaging codes.
+- Fix: Decode Samsung `CS`, Walsin WR size/package/termination combinations, and Walsin MLCC `T` packaging together with exact case thickness. The rules link to current manufacturer catalogs and do not trust inconsistent display-size fields when the ordering code is authoritative.
+- Accuracy boundary: Walsin 1812 rows at 3.20mm, bulk/nonstandard WR suffixes, and unsupported reel options remain blank. Active cost-list MOQ continues to override every manufacturer fallback.
+- Coverage: Added 22,616 rows, increasing total source-backed manufacturer package coverage to 128,440 library rows.
+- Verification: The full 14-test release safety gate passes and protected member, cost-list, and no-match runtime databases are unchanged.

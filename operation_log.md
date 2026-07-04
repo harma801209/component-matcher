@@ -3238,3 +3238,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Coverage increased from 81,796 to 105,824 library rows. Cost-list MOQ still has priority over every manufacturer fallback.
 - Deliberately left ambiguous YAGEO 0805+, Samsung non-`C` packaging, and Murata inductor `#` suffixes blank; these cannot be assigned safely from size alone.
 - Verification: 14/14 system regressions pass through the release safety gate, and all protected runtime database fingerprints remain unchanged.
+
+### 2026-07-04 [data/MOQ] Add Samsung resistor and Walsin resistor/MLCC packaging rules
+
+- Added official-source package quantity decoding for 7,609 Samsung RC/RCS rows, 5,050 Walsin WR rows, and 9,957 Walsin general/NP0 MLCC rows.
+- Manufacturer fallback coverage is now 128,440 rows. Cost-list MOQ remains first priority.
+- Kept unsupported reel codes, bulk packaging, and Walsin 1812 3.20mm rows blank because the current official tables do not uniquely support them.
+- Verification: 14/14 system regressions pass through the release safety gate; protected runtime database fingerprints remain unchanged.

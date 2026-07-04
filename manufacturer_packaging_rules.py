@@ -16,6 +16,9 @@ TDK_NTC_PRODUCT_URL = "https://product.tdk.com/en/search/sensor/ntc/chip-ntc-the
 YAGEO_CAPACITOR_PRODUCT_URL = "https://yageogroup.com/products/Capacitors/part/{}"
 MURATA_PRODUCT_URL = "https://www.murata.com/en-us/products/productdetail?partno={}"
 SAMSUNG_MLCC_PRODUCT_URL = "https://product.samsungsem.com/mlcc/basic-search.do?partNumber={}"
+SAMSUNG_RESISTOR_SOURCE = "https://www.samsungsem.com/resources/file/global/support/product_catalog/Chip_Resistor.pdf"
+WALSIN_WR_SOURCE = "https://www.passivecomponent.com/wp-content/uploads/chipR/ASC_WR.pdf"
+WALSIN_MLCC_GENERAL_SOURCE = "https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf"
 
 YAGEO_RC_7_INCH_QUANTITIES = {
     ("0075", "S"): 20000,
@@ -62,6 +65,83 @@ MURATA_MLCC_REEL_QUANTITIES = {
     ("0603", "V"): 30000,
     ("0805", "L"): 3000,
     ("0805", "K"): 10000,
+}
+
+SAMSUNG_RESISTOR_CS_QUANTITIES = {
+    "0402": 20000,
+    "0603": 15000,
+    "1005": 10000,
+    "1608": 5000,
+    "2012": 5000,
+    "3216": 5000,
+    "3225": 5000,
+    "5025": 4000,
+    "6432": 4000,
+}
+
+WALSIN_WR_PACKAGING_QUANTITIES = {
+    ("02", "T"): 10000,
+    ("02", "A"): 15000,
+    ("02", "D"): 20000,
+    ("02", "G"): 70000,
+    ("02", "H"): 50000,
+    ("04", "T"): 10000,
+    ("04", "A"): 15000,
+    ("04", "D"): 20000,
+    ("04", "G"): 70000,
+    ("04", "H"): 50000,
+    ("06", "T"): 5000,
+    ("06", "Q"): 10000,
+    ("06", "G"): 20000,
+    ("08", "T"): 5000,
+    ("08", "Q"): 10000,
+    ("08", "G"): 20000,
+    ("10", "T"): 5000,
+    ("10", "Q"): 10000,
+    ("10", "G"): 20000,
+    ("12", "T"): 5000,
+    ("12", "Q"): 10000,
+    ("12", "G"): 20000,
+    ("18", "T"): 3000,
+    ("20", "T"): 4000,
+    ("20", "Q"): 8000,
+    ("20", "G"): 16000,
+    ("25", "T"): 4000,
+    ("25", "Q"): 8000,
+    ("25", "G"): 16000,
+}
+
+WALSIN_MLCC_7_INCH_QUANTITIES = {
+    ("0201", 0.30): (15000, "7英寸纸带卷盘"),
+    ("0402", 0.50): (10000, "7英寸纸带卷盘"),
+    ("0603", 0.50): (4000, "7英寸纸带卷盘"),
+    ("0603", 0.80): (4000, "7英寸纸带卷盘"),
+    ("0805", 0.50): (4000, "7英寸纸带卷盘"),
+    ("0805", 0.60): (4000, "7英寸纸带卷盘"),
+    ("0805", 0.80): (4000, "7英寸纸带卷盘"),
+    ("0805", 0.85): (4000, "7英寸纸带卷盘"),
+    ("0805", 1.25): (3000, "7英寸压纹带卷盘"),
+    ("1206", 0.80): (4000, "7英寸纸带卷盘"),
+    ("1206", 0.85): (4000, "7英寸纸带卷盘"),
+    ("1206", 0.95): (3000, "7英寸压纹带卷盘"),
+    ("1206", 1.15): (3000, "7英寸压纹带卷盘"),
+    ("1206", 1.25): (3000, "7英寸压纹带卷盘"),
+    ("1206", 1.60): (2000, "7英寸压纹带卷盘"),
+    ("1210", 0.85): (3000, "7英寸压纹带卷盘"),
+    ("1210", 0.95): (3000, "7英寸压纹带卷盘"),
+    ("1210", 1.25): (3000, "7英寸压纹带卷盘"),
+    ("1210", 1.60): (2000, "7英寸压纹带卷盘"),
+    ("1210", 2.00): (1000, "7英寸压纹带卷盘"),
+    ("1210", 2.50): (1000, "7英寸压纹带卷盘"),
+    ("1808", 1.25): (2000, "7英寸压纹带卷盘"),
+    ("1808", 1.40): (2000, "7英寸压纹带卷盘"),
+    ("1808", 1.60): (2000, "7英寸压纹带卷盘"),
+    ("1808", 2.00): (1000, "7英寸压纹带卷盘"),
+    ("1812", 1.25): (1000, "7英寸压纹带卷盘"),
+    ("1812", 1.60): (1000, "7英寸压纹带卷盘"),
+    ("1812", 2.00): (1000, "7英寸压纹带卷盘"),
+    ("1812", 2.50): (500, "7英寸压纹带卷盘"),
+    ("1812", 2.80): (500, "7英寸压纹带卷盘"),
 }
 
 
@@ -213,6 +293,59 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
                 f"Samsung CL/{size}/{height:g}mm/7-inch official packaging table",
                 SAMSUNG_MLCC_PRODUCT_URL.format(clean_model),
             )
+
+    if ("SAMSUNG" in brand or "三星" in brand) and series in {"RC", "RCS"}:
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        match = re.fullmatch(r"(?P<family>RCS|RC)(?P<metric>0402|0603|1005|1608|2012|3216|3225|5025|6432)[A-Z0-9R]+CS", clean_model)
+        if match and match.group("family") == series:
+            metric = match.group("metric")
+            quantity = SAMSUNG_RESISTOR_CS_QUANTITIES[metric]
+            carrier = "压纹塑料带" if metric in {"5025", "6432"} else "纸带"
+            return _packaging_result(
+                quantity,
+                f"7英寸{carrier}卷盘",
+                f"Samsung {series}/{metric}/CS official packaging table",
+                SAMSUNG_RESISTOR_SOURCE,
+            )
+
+    if ("WALSIN" in brand or "华新科" in brand) and series == "WR":
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        match = re.fullmatch(r"WR(?P<size_code>02|04|06|08|10|12|18|20|25)[A-Z0-9R]+(?P<pack>[TQGADH])L", clean_model)
+        if match:
+            key = (match.group("size_code"), match.group("pack"))
+            quantity = WALSIN_WR_PACKAGING_QUANTITIES.get(key)
+            if quantity:
+                pack = match.group("pack")
+                reel = "254mm" if key == ("18", "T") or pack == "Q" else ("330mm" if pack in {"G", "H"} else "178mm")
+                return _packaging_result(
+                    quantity,
+                    f"{reel}载带卷盘",
+                    f"Walsin WR/{key[0]}/{pack} official packaging table",
+                    WALSIN_WR_SOURCE,
+                )
+
+    if ("WALSIN" in brand or "华新科" in brand) and series in {
+        "常规",
+        "0201N",
+        "0402N",
+        "0603N",
+        "0805N",
+        "1206N",
+        "1808N",
+    }:
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        match = re.fullmatch(r"(?P<size>0201|0402|0603|0805|1206|1210|1808|1812)[A-Z0-9R]+CT", clean_model)
+        height = _leading_number(_text(record, "高度（mm）", "厚度(mm)", "厚度（mm）"))
+        if match and height is not None and (not size or size == match.group("size")):
+            rule = WALSIN_MLCC_7_INCH_QUANTITIES.get((match.group("size"), round(height, 2)))
+            if rule:
+                quantity, method = rule
+                return _packaging_result(
+                    quantity,
+                    method,
+                    f"Walsin general MLCC/{size}/{height:g}mm/T official packaging table",
+                    WALSIN_MLCC_GENERAL_SOURCE,
+                )
 
     if "TDK" in brand or "东电化" in brand:
         clean_model = re.sub(r"[^A-Z0-9]", "", model)

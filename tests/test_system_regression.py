@@ -1129,6 +1129,15 @@ class SystemRegressionTests(unittest.TestCase):
             ({"品牌": "三星Samsung", "型号": "CL10A104KA8NNNC", "系列": "CL", "尺寸（inch）": "0603", "高度（mm）": "0.80±0.10"}, "4000PCS"),
             ({"品牌": "三星Samsung", "型号": "CL21A105KACLNNC", "系列": "CL", "尺寸（inch）": "0805", "高度（mm）": "0.85±0.10"}, "4000PCS"),
             ({"品牌": "三星Samsung", "型号": "CL21A106KOQNNWC", "系列": "CL", "尺寸（inch）": "0805", "高度（mm）": "1.25±0.15"}, "2000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RC1005F100CS", "系列": "RC", "尺寸（inch）": "01005"}, "10000PCS"),
+            ({"品牌": "三星Samsung", "型号": "RCS1608F100CS", "系列": "RCS", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "WR04W1005FTL", "系列": "WR", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "WR02W1005FAL", "系列": "WR", "尺寸（inch）": "01005"}, "15000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "WR18X40R2FTL", "系列": "WR", "尺寸（inch）": "1218"}, "3000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "0402B101J100CT", "系列": "常规", "尺寸（inch）": "0402", "高度（mm）": "0.50"}, "10000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "0805A106K250CT", "系列": "常规", "尺寸（inch）": "0805", "高度（mm）": "1.25"}, "3000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "1210B102J101CT", "系列": "常规", "尺寸（inch）": "1210", "高度（mm）": "2.50"}, "1000PCS"),
+            ({"品牌": "华新科Walsin", "型号": "0402N0R1A500CT", "系列": "0402N", "尺寸（inch）": "0402", "高度（mm）": "0.50"}, "10000PCS"),
         ]
         for row, expected in cases:
             result = lookup(row)
@@ -1150,6 +1159,18 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertEqual(
             lookup({"品牌": "三星Samsung", "型号": "CL10A105KA8NNND", "系列": "CL", "尺寸（inch）": "0603", "高度（mm）": "0.80±0.10"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "三星Samsung", "型号": "RC1608F100AS", "系列": "RC", "尺寸（inch）": "0603"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "华新科Walsin", "型号": "WR04W1005FBL", "系列": "WR", "尺寸（inch）": "0402"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "华新科Walsin", "型号": "1812B102J101CT", "系列": "常规", "尺寸（inch）": "1812", "高度（mm）": "3.20"}),
             {},
         )
         original_cost_path = self.app["COST_PRICE_DB_PATH"]
