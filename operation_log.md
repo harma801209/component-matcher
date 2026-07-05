@@ -3252,3 +3252,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Total manufacturer fallback coverage is now 130,455 rows; active cost-list MOQ remains authoritative.
 - Unsupported RUW and series/thickness combinations remain blank instead of inheriting another family rule.
 - Verification: 14/14 system regressions pass through the release safety gate, and protected runtime database fingerprints remain unchanged.
+
+### 2026-07-05 [data/MOQ] Complete all source-decodable manufacturer packaging rules
+
+- Audited all `1,676,716` component rows with the production manufacturer-packaging lookup.
+- Added current official-source parsing for KOA `TP/TD/TE`, nine YAGEO surface-resistor families, Vishay CRCW lead-free/lead-bearing codes, CRCW0201, and TNPW codes.
+- Final reliable fallback coverage is `452,883` rows, up `322,428` from `130,455`; active cost-list MOQ still overrides manufacturer fallback.
+- Recorded the remaining `1,223,833` rows as explicit non-unique-source exceptions instead of assigning guessed size-based quantities.
+- No runtime database was written during implementation or audit.
+- Verification: 14/14 release-safety regressions pass; protected member, cost-list, and no-match database fingerprints are unchanged.

@@ -585,6 +585,15 @@
 - Coverage: Source-backed manufacturer fallback now covers 105,824 library rows, an increase of 24,028 over the first batch. Active cost-list MOQ remains authoritative and is never overwritten.
 - Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.
 
+## 2026-07-05 - Complete source-decodable manufacturer package quantity audit
+
+- Gap: The prior four passes covered only 130,455 of 1,676,716 library rows and left several high-volume surface-mount families with blank manufacturer fallback quantities.
+- Fix: Added strict ordering-code decoders for KOA current chip families with `TP/TD/TE`, YAGEO RT/AC/AA/AT/RE/PT/AR/RL/RP, Vishay CRCW 0201 plus lead-free/lead-bearing package codes, and Vishay TNPW package codes. Active cost-list MOQ remains authoritative.
+- Coverage: A fresh full-library execution covers 452,883 rows, a net increase of 322,428. The scan executes the production lookup function against every library row rather than estimating by series counts.
+- Accuracy boundary: Legacy KOA RN73, axial/military resistors, ambiguous YAGEO AF reels, undefined CRCW/TNPW legacy suffixes, and components missing thickness or package suffix remain blank. These are final source-data exceptions, not candidates for size-only defaults.
+- Data safety: No component, member, cost-list, or no-match SQLite database is modified by these lookup rules or the read-only audit.
+- Verification: The release safety gate passes all 14 system regressions with isolated temporary databases; every protected runtime database fingerprint is unchanged.
+
 ## 2026-07-04 - High-volume Samsung and Walsin families still lacked manufacturer package quantities
 
 - Gap: Samsung RC/RCS resistors and Walsin WR resistors/general-purpose MLCCs had blank fallback MOQ values despite carrying explicit manufacturer packaging codes.

@@ -81,4 +81,22 @@
 
 - 成本清单 MOQ 优先于原厂标准包装数量。
 - 只有品牌、系列、尺寸和包装代码全部满足原厂规则时才显示回退 MOQ。
-- 无法唯一确认的型号保持空白，并在后续批次按原厂型号页或包装表补充。
+- 无法唯一确认的型号保持空白，列入最终例外清单；只有取得可唯一定位的包装代码或原厂型号页后才补充。
+
+## 2026-07-05 全库最终审计
+
+- 全库记录：`1,676,716` 条。
+- 原厂标准包装数量可可靠回退：`452,883` 条，占全库 `27.01%`。
+- 本次一次性净新增：`322,428` 条，覆盖从 `130,455` 条提高到 `452,883` 条。
+- 新增范围：KOA RN73H/RN73R、RS73、RK73、SG73、HV73、WK73 等明确 `TP/TD/TE` 包装码系列；YAGEO RT/AC/AA/AT/RE/PT/AR/RL/RP；Vishay CRCW 0201、无铅/含铅包装码及 TNPW 明确包装码。
+- 原厂依据：[KOA Appendix C](https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/chip_taping.pdf)、[YAGEO RT](https://www.yageogroup.com/content/datasheet/asset/file/PYU-RT_1-TO-0-01_ROHS_L)、[YAGEO AC](https://www.yageogroup.com/content/datasheet/asset/file/PYU-AC_51_ROHS_L)、[Vishay CRCW e3](https://www.vishay.com/docs/20035/dcrcwe3.pdf)、[Vishay CRCW 含铅版](https://www.vishay.com/doc?20008=)、[Vishay TNPW e3](https://www.vishay.com/docs/28758/tnpw_e3.pdf)。
+
+### 最终例外边界
+
+- 轴向、军规和通孔电阻常同时提供散装、编带、弹药盒或不同卷盘，型号未带包装后缀时不能唯一确定数量；主要包括 Vishay RNC/CMF/RLR/RN、YAGEO MF/FMP、Stackpole RNCF/RNF 等。
+- KOA 旧版 RN73 共 `47,096` 条未出现在当前 Appendix C 的系列清单中，不把新版 RN73H/RN73R 数量反向套给旧料号。
+- PSA FAF-MH 等系列虽数量大，但当前料号未提供可由原厂表唯一解出的包装代码，继续留空。
+- Vishay CRCW 的 `EB`、TNPW 的 `EN` 等旧/特殊包装代码未被当前原厂表定义，继续留空。
+- YAGEO AF 0201/0402 的相同 `07` 代码对应 10,000/20,000 两种每卷数量，料号无法唯一分辨时不回填。
+- MLCC、电感和热敏器件仍需同时校验厚度、载带材料、卷径及完整包装后缀；缺一项不按尺寸猜测。
+- 验证：发布安全门 14/14 系统回归通过；真实会员、成本清单和未匹配数据库及事务文件指纹保持不变。

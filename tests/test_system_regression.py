@@ -1099,6 +1099,30 @@ class SystemRegressionTests(unittest.TestCase):
         cases = [
             ({"品牌": "国巨YAGEO", "型号": "RC0603FR-0710KL", "系列": "RC", "尺寸（inch）": "0603"}, "5000PCS"),
             ({"品牌": "国巨YAGEO", "型号": "RC2010FK-0710KL", "系列": "RC", "尺寸（inch）": "2010"}, "4000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RT0402BRD0733RL", "系列": "RT", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RT0805BRA0710KL", "系列": "RT", "尺寸（inch）": "0805"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RT2512BKB07100KL", "系列": "RT", "尺寸（inch）": "2512"}, "4000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "AA0603FR-071KL", "系列": "AA", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "AT0603BRC0710KL", "系列": "AT", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RE1206BRE07100KL", "系列": "RE", "尺寸（inch）": "1206"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "PT2512DK-070R4L", "系列": "PT", "尺寸（inch）": "2512"}, "4000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "AR0805FR-07100KL", "系列": "AR", "尺寸（inch）": "0805"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RL1206FR-070R011L", "系列": "RL", "尺寸（inch）": "1206"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "RP0603BRD07100KL", "系列": "RP", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "AC0603BRE0722KL", "系列": "AC", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "国巨YAGEO", "型号": "AC1020FK-07100KL", "系列": "AC", "尺寸（inch）": "1020"}, "4000PCS"),
+            ({"品牌": "KOA", "型号": "RN73H1ETTP1000B25", "系列": "RN73H", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "KOA", "型号": "RS73F2BRTTD1000B", "系列": "RS73", "尺寸（inch）": "1206"}, "5000PCS"),
+            ({"品牌": "KOA", "型号": "WK73R2HTTE1000F", "系列": "WK73R", "尺寸（inch）": "1020"}, "4000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW0402100KJNED", "系列": "CRCW", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW06030000Z0EAHP", "系列": "CRCW", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW25120000Z0EG", "系列": "CRCW", "尺寸（inch）": "2512"}, "2000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW0201100KFNEI", "系列": "CRCW", "尺寸（inch）": "0201"}, "20000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW08050000ZSTA", "系列": "CRCW", "尺寸（inch）": "0805"}, "5000PCS"),
+            ({"品牌": "威世Vishay", "型号": "CRCW25120000ZSTH", "系列": "CRCW", "尺寸（inch）": "2512"}, "4000PCS"),
+            ({"品牌": "威世Vishay", "型号": "TNPW0402100KBEED", "系列": "TNPW", "尺寸（inch）": "0402"}, "10000PCS"),
+            ({"品牌": "威世Vishay", "型号": "TNPW0603100KBETA", "系列": "TNPW", "尺寸（inch）": "0603"}, "5000PCS"),
+            ({"品牌": "威世Vishay", "型号": "TNPW1206100KBECN", "系列": "TNPW", "尺寸（inch）": "1206"}, "1000PCS"),
             ({"品牌": "Panasonic", "型号": "ERJ6GEYJ103V", "系列": "ERJ", "尺寸（inch）": "0805"}, "5000PCS"),
             ({"品牌": "Panasonic", "型号": "ERA2AEB102X", "系列": "ERA-2A", "尺寸（inch）": "0402"}, "10000PCS"),
             ({"品牌": "威世Vishay", "型号": "NTCS0402E3103JL1T", "系列": "NTCS0402E", "尺寸（inch）": "0402"}, "10000PCS"),
@@ -1156,6 +1180,22 @@ class SystemRegressionTests(unittest.TestCase):
 
         self.assertEqual(
             lookup({"品牌": "国巨YAGEO", "型号": "RC0603FK-0710KL", "系列": "RC", "尺寸（inch）": "0603"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "国巨YAGEO", "型号": "RT2010BRD07100RL", "系列": "RT", "尺寸（inch）": "2010"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "KOA", "型号": "SLR1TTE1000D", "系列": "SLR", "尺寸（inch）": "2512"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "威世Vishay", "型号": "CRCW08050000Z0EB", "系列": "CRCW", "尺寸（inch）": "0805"}),
+            {},
+        )
+        self.assertEqual(
+            lookup({"品牌": "威世Vishay", "型号": "TNPW1206100KBEEN", "系列": "TNPW", "尺寸（inch）": "1206"}),
             {},
         )
         self.assertEqual(

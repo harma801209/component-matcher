@@ -5,7 +5,22 @@ from typing import Any
 
 
 YAGEO_RC_SOURCE = "https://yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L"
+YAGEO_RT_SOURCE = "https://www.yageogroup.com/content/datasheet/asset/file/PYU-RT_1-TO-0-01_ROHS_L"
+YAGEO_AA_SOURCE = "https://www.yageogroup.com/content/datasheet/asset/file/pyu-aa_51_rohs_l"
+YAGEO_AT_SOURCE = "https://www.yageogroup.com/content/Resource%20Library/Datasheet/PYU-AT_51_ROHS_L.pdf"
+YAGEO_RE_SOURCE = "https://yageogroup.com/content/datasheet/asset/file/PYU-RE_105_ROHS_L"
+YAGEO_PT_SOURCE = "https://yageogroup.com/content/datasheet/asset/file/PYU-PT-GROUP_521_ROHS_L"
+YAGEO_AR_SOURCE = "https://www.yageogroup.com/content/datasheet/asset/file/PYU-AR_51_ROHS_L"
+YAGEO_RL_SOURCE = "https://yageogroup.com/content/datasheet/asset/file/pyu-rl_group_521_rohs_l"
+YAGEO_RP_SOURCE = "https://yageogroup.com/content/datasheet/asset/file/PYU-RP_51_ROHS_L"
+YAGEO_AC_SOURCE = "https://www.yageogroup.com/content/datasheet/asset/file/PYU-AC_51_ROHS_L"
 PANASONIC_RESISTOR_SOURCE = "https://industrial.panasonic.com/cdbs/www-data/pdf/RDM0000/DMM0000COL26.pdf"
+KOA_CHIP_PACKAGING_SOURCE = "https://www.koaglobal.com/-/media/Files/KOA_Global/EN/product/commonpdf/chip_taping.pdf"
+VISHAY_CRCW_SOURCE = "https://www.vishay.com/docs/20035/dcrcwe3.pdf"
+VISHAY_CRCW_0201_SOURCE = "https://www.vishay.com/docs/20052/crcw0201e3.pdf"
+VISHAY_CRCW_LEAD_SOURCE = "https://www.vishay.com/doc?20008="
+VISHAY_TNPW_E3_SOURCE = "https://www.vishay.com/docs/28758/tnpw_e3.pdf"
+VISHAY_TNPW_SOURCE = "https://www.vishay.com/doc/?31006="
 VISHAY_NTCS_SOURCES = {
     "0402": "https://www.vishay.com/docs/29003/ntcs0402e3t.pdf",
     "0603": "https://www.vishay.com/docs/29056/ntcs0603e3t.pdf",
@@ -38,6 +53,146 @@ YAGEO_RC_7_INCH_QUANTITIES = {
     ("1218", "K"): 4000,
     ("2010", "K"): 4000,
     ("2512", "K"): 4000,
+}
+
+YAGEO_RT_REEL_QUANTITIES = {
+    **{(size, "R", "07"): 10000 for size in ("0100", "0201", "0402")},
+    **{(size, "R", "10"): 20000 for size in ("0100", "0201", "0402")},
+    **{(size, "R", "13"): 50000 for size in ("0100", "0201", "0402")},
+    **{(size, "R", "07"): 5000 for size in ("0603", "0805", "1206", "1210")},
+    **{(size, "R", "10"): 10000 for size in ("0603", "0805", "1206", "1210")},
+    **{(size, "R", "13"): 20000 for size in ("0603", "0805", "1206", "1210")},
+    ("2010", "K", "07"): 4000,
+    ("2512", "K", "07"): 4000,
+}
+
+YAGEO_ADDITIONAL_RESISTOR_SOURCES = {
+    "AC": YAGEO_AC_SOURCE,
+    "AA": YAGEO_AA_SOURCE,
+    "AT": YAGEO_AT_SOURCE,
+    "RE": YAGEO_RE_SOURCE,
+    "PT": YAGEO_PT_SOURCE,
+    "AR": YAGEO_AR_SOURCE,
+    "RL": YAGEO_RL_SOURCE,
+    "RP": YAGEO_RP_SOURCE,
+}
+
+YAGEO_ADDITIONAL_RESISTOR_QUANTITIES = {
+    **{("AC", size, "R", "07"): quantity for size, quantity in {
+        "0201": 10000, "0402": 10000, "0508": 5000, "0603": 5000,
+        "0612": 5000, "0805": 5000, "1206": 5000, "1210": 5000,
+    }.items()},
+    **{("AC", size, "R", "13"): quantity for size, quantity in {
+        "0201": 50000, "0402": 50000, "0508": 20000, "0603": 20000,
+        "0612": 20000, "0805": 20000, "1206": 20000, "1210": 20000,
+    }.items()},
+    **{("AC", size, "K", "07"): 4000 for size in ("1020", "1218", "1225", "2010", "2512")},
+    ("AC", "2010", "K", "13"): 16000,
+    **{("AA", size, "R", "07"): quantity for size, quantity in {
+        "0201": 10000, "0402": 10000, "0603": 5000, "0805": 5000,
+        "1206": 5000, "1210": 5000,
+    }.items()},
+    **{("AA", size, "R", "13"): quantity for size, quantity in {
+        "0201": 50000, "0402": 50000, "0603": 20000, "0805": 20000,
+        "1206": 20000, "1210": 20000,
+    }.items()},
+    **{("AA", size, "K", "07"): 4000 for size in ("1218", "2010", "2512")},
+    **{("AT", size, "R", "07"): quantity for size, quantity in {
+        "0402": 10000, "0603": 5000, "0805": 5000, "1206": 5000,
+    }.items()},
+    **{("RE", size, "R", "07"): quantity for size, quantity in {
+        "0201": 10000, "0402": 10000, "0603": 5000, "0805": 5000, "1206": 5000,
+    }.items()},
+    **{("RE", size, "R", "10"): quantity for size, quantity in {
+        "0201": 20000, "0402": 20000, "0603": 10000, "0805": 10000, "1206": 10000,
+    }.items()},
+    **{("RE", size, "R", "13"): quantity for size, quantity in {
+        "0201": 50000, "0402": 50000, "0603": 20000, "0805": 20000, "1206": 20000,
+    }.items()},
+    **{("PT", size, "R", "07"): quantity for size, quantity in {
+        "0402": 10000, "0603": 5000, "0805": 5000, "1206": 5000,
+    }.items()},
+    **{("PT", size, "R", "13"): quantity for size, quantity in {
+        "0402": 50000, "0603": 20000, "0805": 20000, "1206": 20000,
+    }.items()},
+    **{("PT", size, "K", "07"): 4000 for size in ("2010", "2512")},
+    **{("AR", size, "R", "07"): quantity for size, quantity in {
+        "0402": 10000, "0603": 5000, "0805": 5000, "1206": 5000,
+    }.items()},
+    **{("RL", size, "R", "07"): quantity for size, quantity in {
+        "0402": 10000, "0603": 5000, "0805": 5000, "1206": 5000, "1210": 5000,
+    }.items()},
+    **{("RL", size, "R", "10"): quantity for size, quantity in {
+        "0402": 20000, "0603": 10000, "0805": 10000, "1206": 10000, "1210": 10000,
+    }.items()},
+    **{("RL", size, "R", "13"): quantity for size, quantity in {
+        "0402": 50000, "0603": 20000, "0805": 20000, "1206": 20000, "1210": 20000,
+    }.items()},
+    **{("RL", size, "K", "07"): 4000 for size in ("1218", "2010", "2512")},
+    **{("RP", size, "R", "07"): quantity for size, quantity in {
+        "0201": 10000, "0402": 10000, "0603": 5000, "0805": 5000,
+        "1206": 5000, "1210": 5000,
+    }.items()},
+}
+
+KOA_STANDARD_CHIP_SERIES = {
+    "RK73B", "RK73H", "RK73G", "RK73Z", "RS73", "HSG73P", "HV73", "HV73V",
+    "SG73", "SG73P", "SG73S", "SG73G", "SR73", "RF73", "RN73H", "RN73R",
+    "LT73", "LT73V", "WK73", "WK73R", "WK73S", "WU73", "WG73", "WN73H",
+}
+
+KOA_STANDARD_CHIP_PACKAGING_QUANTITIES = {
+    "TP": 10000,
+    "TD": 5000,
+    "TE": 4000,
+}
+
+VISHAY_CRCW_PACKAGING_QUANTITIES = {
+    ("0201", "ED"): 10000,
+    ("0201", "EI"): 20000,
+    ("0201", "EE"): 50000,
+    ("0402", "ED"): 10000,
+    ("0402", "EE"): 50000,
+    ("0603", "EI"): 5000,
+    ("0603", "ED"): 10000,
+    ("0603", "EE"): 50000,
+    ("0603", "EA"): 5000,
+    ("0603", "EC"): 20000,
+    ("0805", "EA"): 5000,
+    ("0805", "EC"): 20000,
+    ("1206", "EA"): 5000,
+    ("1206", "EC"): 20000,
+    ("1210", "EA"): 5000,
+    ("1210", "EC"): 20000,
+    ("1218", "EK"): 4000,
+    ("2010", "EF"): 4000,
+    ("2512", "EG"): 2000,
+    ("2512", "EH"): 4000,
+    ("0402", "TD"): 10000,
+    ("0402", "TE"): 50000,
+    ("0603", "TA"): 5000,
+    ("0603", "TC"): 20000,
+    ("0805", "TA"): 5000,
+    ("0805", "TC"): 20000,
+    ("1206", "TA"): 5000,
+    ("1206", "TC"): 20000,
+    ("1210", "TA"): 5000,
+    ("1210", "TC"): 20000,
+    ("1218", "TK"): 4000,
+    ("2010", "TF"): 4000,
+    ("2512", "TG"): 2000,
+    ("2512", "TH"): 4000,
+}
+
+VISHAY_TNPW_PACKAGING_QUANTITIES = {
+    ("0201", "ED"): (10000, VISHAY_TNPW_E3_SOURCE),
+    ("0402", "ED"): (10000, VISHAY_TNPW_E3_SOURCE),
+    ("0402", "TP"): (1000, VISHAY_TNPW_SOURCE),
+    ("0402", "TD"): (10000, VISHAY_TNPW_SOURCE),
+    **{(size, "EA"): (5000, VISHAY_TNPW_E3_SOURCE) for size in ("0603", "0805", "1206", "1210")},
+    **{(size, "EC"): (20000, VISHAY_TNPW_E3_SOURCE) for size in ("0603", "0805", "1206", "1210")},
+    **{(size, "CN"): (1000, VISHAY_TNPW_SOURCE) for size in ("0603", "0805", "1206", "1210")},
+    **{(size, "TA"): (5000, VISHAY_TNPW_SOURCE) for size in ("0603", "0805", "1206", "1210")},
 }
 
 PANASONIC_STANDARD_REEL_QUANTITIES = {
@@ -278,6 +433,59 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
                 method = "178mm纸带卷盘" if key[1] == "R" else "178mm压纹/ESD卷盘"
                 return _packaging_result(quantity, method, "YAGEO RC_L Table 4", YAGEO_RC_SOURCE)
 
+    if ("YAGEO" in brand or "国巨" in brand) and series == "RT":
+        match = re.fullmatch(
+            r"RT(?P<size>0100|0201|0402|0603|0805|1206|1210|2010|2512)"
+            r"[LPWBCDF](?P<pack>[RK])[ABCDE](?P<reel>07|10|13)"
+            r"[0-9RKM]{2,4}L",
+            model,
+        )
+        if match and (not size or size == match.group("size")):
+            key = (match.group("size"), match.group("pack"), match.group("reel"))
+            quantity = YAGEO_RT_REEL_QUANTITIES.get(key)
+            if quantity:
+                method = "纸带卷盘" if key[1] == "R" else "压纹带卷盘"
+                reel_mm = {"07": "178mm", "10": "254mm", "13": "330mm"}[key[2]]
+                return _packaging_result(
+                    quantity,
+                    f"{reel_mm}{method}",
+                    "YAGEO RT Table 3",
+                    YAGEO_RT_SOURCE,
+                )
+
+    if ("YAGEO" in brand or "国巨" in brand) and series in YAGEO_ADDITIONAL_RESISTOR_SOURCES:
+        match = re.fullmatch(
+            rf"{series}(?P<size>0201|0402|0508|0603|0612|0805|1020|1206|1210|1218|1225|2010|2512)"
+            r"[A-Z-](?P<pack>[RK])[A-Z-](?P<reel>07|10|13)"
+            r"[0-9RKM]{2,5}L",
+            model,
+        )
+        if match and (not size or size == match.group("size")):
+            key = (series, match.group("size"), match.group("pack"), match.group("reel"))
+            quantity = YAGEO_ADDITIONAL_RESISTOR_QUANTITIES.get(key)
+            if quantity:
+                method = "纸带卷盘" if key[2] == "R" else "压纹带卷盘"
+                reel_mm = {"07": "178mm", "10": "254mm", "13": "330mm"}[key[3]]
+                return _packaging_result(
+                    quantity,
+                    f"{reel_mm}{method}",
+                    f"YAGEO {series} packaging table",
+                    YAGEO_ADDITIONAL_RESISTOR_SOURCES[series],
+                )
+
+    if brand == "KOA" and series in KOA_STANDARD_CHIP_SERIES:
+        match = re.search(r"(?P<pack>TP|TD|TE)(?=[0-9R]|$)", model)
+        if match:
+            pack = match.group("pack")
+            quantity = KOA_STANDARD_CHIP_PACKAGING_QUANTITIES[pack]
+            method = "180mm纸带卷盘" if pack in {"TP", "TD"} else "180mm压纹带卷盘"
+            return _packaging_result(
+                quantity,
+                method,
+                f"KOA Appendix C/{series}/{pack}",
+                KOA_CHIP_PACKAGING_SOURCE,
+            )
+
     if ("YAGEO" in brand or "国巨" in brand) and series == "CC":
         match = re.match(r"^CC(?P<size>0201|0402|0603)[A-Z](?P<pack>[RP])", model)
         if match and (not size or size == match.group("size")):
@@ -303,6 +511,45 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
             )
 
     if "VISHAY" in brand or "威世" in brand:
+        if series == "CRCW":
+            match = re.fullmatch(
+                r"CRCW(?P<size>0201|0402|0603|0805|1206|1210|1218|2010|2512)"
+                r"[0-9RKM]{4}[A-Z][A-Z0-9]"
+                r"(?P<pack>ED|EE|EI|EA|EC|EK|EF|EG|EH|TD|TE|TA|TC|TK|TF|TG|TH)(?:[A-Z]{0,2})?",
+                model,
+            )
+            if match and (not size or size == match.group("size")):
+                key = (match.group("size"), match.group("pack"))
+                quantity = VISHAY_CRCW_PACKAGING_QUANTITIES.get(key)
+                if quantity:
+                    method = "纸带卷盘" if key[0] in {"0201", "0402", "0603", "0805", "1206", "1210"} else "压纹带卷盘"
+                    return _packaging_result(
+                        quantity,
+                        method,
+                        f"Vishay D/CRCW/{key[0]}/{key[1]}",
+                        VISHAY_CRCW_0201_SOURCE
+                        if key[0] == "0201"
+                        else (VISHAY_CRCW_SOURCE if key[1].startswith("E") else VISHAY_CRCW_LEAD_SOURCE),
+                    )
+
+        if series == "TNPW":
+            match = re.fullmatch(
+                r"TNPW(?P<size>0201|0402|0603|0805|1206|1210)"
+                r"[0-9RKM]{4}[BDF][HEXY](?P<pack>ED|EA|EC|TP|TD|CN|TA)",
+                model,
+            )
+            if match and (not size or size == match.group("size")):
+                key = (match.group("size"), match.group("pack"))
+                rule = VISHAY_TNPW_PACKAGING_QUANTITIES.get(key)
+                if rule:
+                    quantity, source_url = rule
+                    return _packaging_result(
+                        quantity,
+                        "180mm/330mm纸带卷盘",
+                        f"Vishay TNPW/{key[0]}/{key[1]}",
+                        source_url,
+                    )
+
         vishay_rules = {
             "NTCS0402E": ("0402", 10000),
             "NTCS0603E": ("0603", 4000),
