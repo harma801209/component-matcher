@@ -3274,3 +3274,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - When a supported brand alias is present in the free-text spec, the matcher now treats it as a hard brand filter across candidate loading, scoped dataframe matching, and final result filtering.
 - Plain spec searches without a brand remain unchanged and still return all matching brands.
 - Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-09 [matching] Lock decimal-K backslash resistor spec searches
+
+- Verified `贴片\1.24K\±1%\1/16W\0402 ROHS` parses as `贴片电阻 / 0402 / 1240Ω / ±1% / 1/16W` and returns matching 0402 resistor candidates, including FOJAN `FRC0402F1241TS`.
+- Added the reported input to the backslash-separated resistor regression set so decimal KΩ values cannot regress separately from integer `R/K` values.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.

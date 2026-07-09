@@ -623,3 +623,10 @@
 - Root cause: Brand inference was only used for exact/model-derived rows and for same-brand exclusion. Free-text specification parsing did not preserve a requested-brand flag, so later matching still considered all brands.
 - Fix: Detect supported brand aliases in the full query text, persist a requested-brand flag on the parsed spec, and apply that filter before candidate-row matching, database candidate selection, and final same-brand exclusion.
 - Verification: Added regression coverage proving plain `0402 1% 10K` returns multiple brands while `富捷 0402 1% 10K`, `0402 1% 10K 富捷`, and `FOJAN 0402 1% 10K` return only FOJAN rows. The focused resistor test and release safety gate pass with protected runtime database fingerprints unchanged.
+
+## 2026-07-09 - Decimal-K backslash resistor spec was not covered by regression
+
+- Bug: The reported input `贴片\1.24K\±1%\1/16W\0402 ROHS` was still observed as no-result in the running system even though the current local parser resolves it to a complete chip-resistor spec.
+- Root cause: The prior backslash-separated resistor regression covered integer `R/K` values but did not lock decimal KΩ notation such as `1.24K`.
+- Fix: Add `贴片\1.24K\±1%\1/16W\0402 ROHS` to the same regression path, proving it parses to `1240Ω`, `0402`, `±1%`, and `1/16W` and stays in resistor mode rather than generic capacitor/no-match handling.
+- Verification: The focused resistor regression and release safety gate pass with protected runtime database fingerprints unchanged.

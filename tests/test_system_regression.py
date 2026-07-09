@@ -272,6 +272,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(float(megaohm["_resistance_ohm"]), 1_000_000.0)
 
         slash_specs = [
+            ("贴片\\1.24K\\±1%\\1/16W\\0402 ROHS", 1_240.0, "1"),
             ("贴片\\499R\\±1%\\1/16W\\0402 ROHS", 499.0, "1"),
             ("贴片\\499K\\±1%\\1/16W\\0402 ROHS", 499_000.0, "1"),
             ("贴片\\51R\\±5%\\1/16W\\0402 ROHS", 51.0, "5"),
