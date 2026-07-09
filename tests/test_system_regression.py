@@ -271,6 +271,24 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.01)
         self.assertAlmostEqual(float(megaohm["_resistance_ohm"]), 1_000_000.0)
 
+        slash_specs = [
+            ("贴片\\499R\\±1%\\1/16W\\0402 ROHS", 499.0, "1"),
+            ("贴片\\499K\\±1%\\1/16W\\0402 ROHS", 499_000.0, "1"),
+            ("贴片\\51R\\±5%\\1/16W\\0402 ROHS", 51.0, "5"),
+        ]
+        for query, expected_ohm, expected_tol in slash_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["器件类型"], "贴片电阻", query)
+            self.assertEqual(parsed["尺寸（inch）"], "0402", query)
+            self.assertEqual(parsed["_power"], "1/16W", query)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), expected_tol, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertEqual(detected["器件类型"], "贴片电阻", query)
+            self.assertIsNone(detected.get("容值_pf"), query)
+
         code_105 = app["parse_resistor_model_rule"]("FRC0402J105 TS", brand="FOJAN(富捷)")
         code_106 = app["parse_resistor_model_rule"]("FRC0402J106 TS", brand="FOJAN(富捷)")
         self.assertAlmostEqual(float(code_105["_resistance_ohm"]), 1_000_000.0)

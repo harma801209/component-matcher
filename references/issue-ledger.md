@@ -585,6 +585,13 @@
 - Coverage: Source-backed manufacturer fallback now covers 105,824 library rows, an increase of 24,028 over the first batch. Active cost-list MOQ remains authoritative and is never overwritten.
 - Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.
 
+## 2026-07-09 - Backslash-separated chip-resistor specs were parsed as capacitors or incomplete specs
+
+- Bug: Inputs like `贴片\499R\±1%\1/16W\0402 ROHS`, `贴片\499K\±1%\1/16W\0402 ROHS`, and `贴片\51R\±5%\1/16W\0402 ROHS` did not search as chip-resistor specifications. `499K` could be misread by the generic capacitor parser, while `499R` and `51R` were reported as incomplete specs.
+- Root cause: The resistor value token boundary accepted `/` but not backslash `\`, and query-mode detection reached MLCC/generic spec parsing before trying a complete resistor spec parse.
+- Fix: Treat backslash as a resistor value delimiter and run the explicit resistor-spec parser before MLCC/generic spec parsing. The three reported inputs now resolve as `贴片电阻 / 0402 / 1/16W` with `499Ω`, `499KΩ`, and `51Ω`.
+- Verification: Added regression coverage for all three original strings. The focused resistor test passes, and the release safety gate passes all 14 system tests with member, cost-list, and no-match databases isolated and protected runtime fingerprints unchanged.
+
 ## 2026-07-05 - Complete source-decodable manufacturer package quantity audit
 
 - Gap: The prior four passes covered only 130,455 of 1,676,716 library rows and left several high-volume surface-mount families with blank manufacturer fallback quantities.

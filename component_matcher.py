@@ -6562,7 +6562,7 @@ SPEC_EMBEDDED_MATERIALS = [
     ("X6S", "X6S"),
     ("Y5V", "Y5V"),
 ]
-RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s/|;,:()\-]|$)"
+RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s/\\|;,:()\-]|$)"
 RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
 EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])", flags=re.I)
@@ -31066,6 +31066,14 @@ def detect_query_mode_and_spec(df, line):
         parsed_part = parse_model_rule(line)
         if parsed_part is not None and count_core_params(parsed_part) >= 3:
             return "料号", parsed_part
+
+    resistor_spec = parse_resistor_spec_query(line)
+    if resistor_spec is not None:
+        if bool(resistor_spec.get("_unsupported_component", False)):
+            return "暂不支持", resistor_spec
+        if count_query_params(resistor_spec) < other_passive_min_required_params(resistor_spec):
+            return "规格不足", resistor_spec
+        return normalized_other_passive_mode(resistor_spec), resistor_spec
 
     if looks_like_mlcc_context(line):
         spec = parse_spec_query(line)

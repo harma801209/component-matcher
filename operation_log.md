@@ -3261,3 +3261,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Recorded the remaining `1,223,833` rows as explicit non-unique-source exceptions instead of assigning guessed size-based quantities.
 - No runtime database was written during implementation or audit.
 - Verification: 14/14 release-safety regressions pass; protected member, cost-list, and no-match database fingerprints are unchanged.
+
+### 2026-07-09 [matching] Fix backslash-separated chip-resistor specification parsing
+
+- Reproduced `贴片\499R\±1%\1/16W\0402 ROHS`, `贴片\499K\±1%\1/16W\0402 ROHS`, and `贴片\51R\±5%\1/16W\0402 ROHS`: backslash-separated resistor values were not recognized, and `499K` could fall into generic capacitor parsing.
+- Added backslash as a resistor token delimiter and prioritized explicit resistor spec parsing before MLCC/generic spec parsing.
+- Added regression coverage for all three original inputs. Focused resistor test and full release safety gate pass; protected member, cost-list, and no-match runtime database fingerprints remain unchanged.
