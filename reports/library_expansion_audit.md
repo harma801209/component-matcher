@@ -1,11 +1,11 @@
 # Library Expansion Audit
 
-- Generated: 2026-06-15 03:16:30
+- Generated: 2026-05-27 00:52:41
 - Target pairs: 171
 - Brand-covered pairs: 171
 - Brand-gap pairs: 0
-- Series-semantics ready pairs: 135
-- Series-semantics partial pairs: 36
+- Series-semantics ready pairs: 138
+- Series-semantics partial pairs: 33
 - Series-semantics gap pairs: 0
 
 ## Priority Series-Semantics Gaps
@@ -14,7 +14,7 @@
 |---|---|---:|---:|---:|---:|---:|
 | passive | MLCC | Murata | 56635 | 53742 | 2893 | 94.89% |
 | passive | MLCC | TDK | 8860 | 8569 | 291 | 96.72% |
-| passive | 厚膜电阻 | Yageo | 53707 | 53436 | 271 | 99.50% |
+| passive | 厚膜电阻 | Yageo | 52788 | 52517 | 271 | 99.49% |
 | passive | 厚膜电阻 | Walsin | 5649 | 5636 | 13 | 99.77% |
 | passive | 厚膜电阻 | UNI-ROYAL | 23090 | 23089 | 1 | 100.00% |
 | passive | 厚膜电阻 | FOJAN | 5442 | 5441 | 1 | 99.98% |
@@ -24,17 +24,14 @@
 | passive | 厚膜电阻 | RALEC | 6109 | 5976 | 133 | 97.82% |
 | passive | 厚膜电阻 | Ever Ohms | 4765 | 4755 | 10 | 99.79% |
 | passive | 薄膜电阻 | Yageo | 112171 | 111564 | 607 | 99.46% |
-| passive | 薄膜电阻 | Vishay | 350568 | 339336 | 11232 | 96.80% |
+| passive | 薄膜电阻 | Vishay | 350568 | 339116 | 11452 | 96.73% |
 | passive | 薄膜电阻 | KOA | 156154 | 156118 | 36 | 99.98% |
 | passive | 薄膜电阻 | Panasonic | 12795 | 12678 | 117 | 99.09% |
 | passive | 合金电阻 | Vishay | 4 | 1 | 3 | 25.00% |
 | passive | 热敏电阻 | Murata | 383 | 227 | 156 | 59.27% |
-| passive | 热敏电阻 | Vishay | 890 | 544 | 346 | 61.12% |
+| passive | 热敏电阻 | Vishay | 890 | 534 | 356 | 60.00% |
 | passive | 贴片压敏电阻 | TDK | 1091 | 943 | 148 | 86.43% |
-| passive | 贴片压敏电阻 | Littelfuse | 3189 | 3188 | 1 | 99.97% |
 | passive | 贴片压敏电阻 | Panasonic | 1062 | 928 | 134 | 87.38% |
-| passive | 引线型压敏电阻 | TDK | 522 | 520 | 2 | 99.62% |
-| passive | 引线型压敏电阻 | Panasonic | 507 | 470 | 37 | 92.70% |
 | passive | 功率电感 | Murata | 1869 | 1498 | 371 | 80.15% |
 | passive | 功率电感 | TDK | 4 | 3 | 1 | 75.00% |
 | passive | 功率电感 | Taiyo Yuden | 6793 | 6792 | 1 | 99.99% |
@@ -44,7 +41,7 @@
 | passive | 功率电感 | Coilcraft | 238 | 217 | 21 | 91.18% |
 | passive | 功率电感 | Sumida | 4891 | 4890 | 1 | 99.98% |
 | passive | 铝电解电容 | Nichicon | 3821 | 2818 | 1003 | 73.75% |
-| passive | 铝电解电容 | Panasonic | 331 | 280 | 51 | 84.59% |
+| passive | 铝电解电容 | Panasonic | 331 | 13 | 318 | 3.93% |
 | passive | 铝电解电容 | Jianghai | 4661 | 4654 | 7 | 99.85% |
 | passive | 晶振 | Epson | 27 | 24 | 3 | 88.89% |
 | passive | 振荡器 | Epson | 150 | 148 | 2 | 98.67% |
@@ -99,13 +96,16 @@
 | passive | 热敏电阻 | Mitsubishi | 1 | 1 |
 | passive | 热敏电阻 | Sunlord | 445 | 445 |
 | passive | 贴片压敏电阻 | Murata | 1 | 1 |
-| passive | 贴片压敏电阻 | Bourns | 768 | 768 |
+| passive | 贴片压敏电阻 | Bourns | 557 | 557 |
+| passive | 贴片压敏电阻 | Littelfuse | 5218 | 5218 |
 | passive | 贴片压敏电阻 | Vishay | 495 | 495 |
 | passive | 贴片压敏电阻 | Sunlord | 120 | 120 |
-| passive | 贴片压敏电阻 | Yageo | 14 | 14 |
-| passive | 引线型压敏电阻 | Bourns | 445 | 445 |
-| passive | 引线型压敏电阻 | Littelfuse | 5534 | 5534 |
-| passive | 引线型压敏电阻 | Vishay | 320 | 320 |
+| passive | 贴片压敏电阻 | Yageo | 1 | 1 |
+| passive | 引线型压敏电阻 | TDK | 1 | 1 |
+| passive | 引线型压敏电阻 | Bourns | 235 | 235 |
+| passive | 引线型压敏电阻 | Littelfuse | 1 | 1 |
+| passive | 引线型压敏电阻 | Panasonic | 1 | 1 |
+| passive | 引线型压敏电阻 | Vishay | 1 | 1 |
 | passive | 引线型压敏电阻 | Epcos | 1 | 1 |
 | passive | 引线型压敏电阻 | Joyin | 436 | 436 |
 | passive | 功率电感 | Panasonic | 149 | 149 |
@@ -161,8 +161,8 @@
 | passive | 振荡器 | NDK | 1 | 1 |
 | passive | 振荡器 | Kyocera | 1 | 1 |
 | passive | 振荡器 | SiTime | 1 | 1 |
-| semiconductor | MOSFET | Infineon | 5 | 5 |
-| semiconductor | MOSFET | onsemi | 3 | 3 |
+| semiconductor | MOSFET | Infineon | 3 | 3 |
+| semiconductor | MOSFET | onsemi | 2 | 2 |
 | semiconductor | MOSFET | STMicroelectronics | 1 | 1 |
 | semiconductor | MOSFET | Vishay | 1 | 1 |
 | semiconductor | MOSFET | AOSMD | 2 | 2 |
@@ -170,11 +170,8 @@
 | semiconductor | MOSFET | ROHM | 1 | 1 |
 | semiconductor | MOSFET | Toshiba | 1 | 1 |
 | semiconductor | MOSFET | Nexperia | 1 | 1 |
-| semiconductor | 二极管 | Diodes Incorporated | 7 | 7 |
-| semiconductor | 二极管 | Vishay | 16 | 16 |
-| semiconductor | 二极管 | onsemi | 23 | 23 |
+| semiconductor | 二极管 | Diodes Incorporated | 2 | 2 |
+| semiconductor | 二极管 | Vishay | 4 | 4 |
+| semiconductor | 二极管 | onsemi | 2 | 2 |
 | semiconductor | 二极管 | Nexperia | 2 | 2 |
 | semiconductor | 二极管 | STMicroelectronics | 1 | 1 |
-| semiconductor | 二极管 | ROHM | 1 | 1 |
-| semiconductor | 二极管 | Toshiba | 1 | 1 |
-| semiconductor | 二极管 | Littelfuse | 1 | 1 |
