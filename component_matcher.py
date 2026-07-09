@@ -16236,6 +16236,8 @@ def reverse_lookup_row_priority(row):
 
     if "Part Number List" in data_source or "官方" in data_source:
         score += 200
+    if data_source.startswith("型号编码解析"):
+        score -= 100
 
     if looks_like_thermistor_context(model_text):
         if row_type == "热敏电阻":
@@ -16280,17 +16282,22 @@ def prioritize_component_rows_for_lookup(df):
 
     work = df.copy()
     work["_lookup_order"] = range(len(work))
+    work["_lookup_model_key"] = work["型号"].astype(str).apply(clean_model)
+    if "_component_type" in work.columns:
+        work["_lookup_component_key"] = work["_component_type"].astype(str).apply(normalize_component_type)
+    else:
+        work["_lookup_component_key"] = work.apply(lambda row: infer_db_component_type(row) or normalize_component_type(row.get("器件类型", "")), axis=1)
     try:
         work["_lookup_priority"] = work.apply(reverse_lookup_row_priority, axis=1)
     except Exception:
         work["_lookup_priority"] = 0
 
     work = work.sort_values(
-        by=["品牌", "型号", "_lookup_priority", "_lookup_order"],
-        ascending=[True, True, False, True],
+        by=["品牌", "_lookup_model_key", "_lookup_component_key", "_lookup_priority", "_lookup_order"],
+        ascending=[True, True, True, False, True],
         kind="mergesort",
     )
-    return work.drop(columns=["_lookup_priority", "_lookup_order"], errors="ignore")
+    return work.drop(columns=["_lookup_priority", "_lookup_order", "_lookup_model_key", "_lookup_component_key"], errors="ignore")
 
 
 def has_explicit_capacitance_value_token(text):
@@ -26385,7 +26392,13 @@ def concat_component_frames(frames):
         combined["品牌"] = combined["品牌"].astype(str).apply(clean_text)
         combined["型号"] = combined["型号"].astype(str).apply(clean_text)
         combined = prioritize_component_rows_for_lookup(combined)
-        combined = combined.drop_duplicates(subset=["品牌", "型号"], keep="first")
+        combined["_concat_model_key"] = combined["型号"].astype(str).apply(clean_model)
+        if "_component_type" in combined.columns:
+            combined["_concat_component_key"] = combined["_component_type"].astype(str).apply(normalize_component_type)
+        else:
+            combined["_concat_component_key"] = combined.apply(lambda row: infer_db_component_type(row) or normalize_component_type(row.get("器件类型", "")), axis=1)
+        combined = combined.drop_duplicates(subset=["品牌", "_concat_model_key", "_concat_component_key"], keep="first")
+        combined = combined.drop(columns=["_concat_model_key", "_concat_component_key"], errors="ignore")
     return combined
 
 

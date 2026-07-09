@@ -3280,3 +3280,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Verified `贴片\1.24K\±1%\1/16W\0402 ROHS` parses as `贴片电阻 / 0402 / 1240Ω / ±1% / 1/16W` and returns matching 0402 resistor candidates, including FOJAN `FRC0402F1241TS`.
 - Added the reported input to the backslash-separated resistor regression set so decimal KΩ values cannot regress separately from integer `R/K` values.
 - Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-09 [matching] Deduplicate exact FOJAN rows against rule fallbacks
+
+- Reproduced `FRC0603J102 TS`: the real database row `FRC0603J102 TS` was merged with the FOJAN rule fallback `FRC0603J102TS`, so the matched part-data panel showed two rows for the same cleaned model.
+- Component-frame merging now deduplicates by brand, cleaned model, and component type, and lowers the priority of `型号编码解析` fallback rows so real database rows win.
+- Verification: the reported query now leaves one FOJAN exact-normalized row, `FRC0603J102 TS`; focused resistor regression and full release safety gate pass with protected runtime databases unchanged.

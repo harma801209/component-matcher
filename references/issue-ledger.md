@@ -630,3 +630,10 @@
 - Root cause: The prior backslash-separated resistor regression covered integer `R/K` values but did not lock decimal KΩ notation such as `1.24K`.
 - Fix: Add `贴片\1.24K\±1%\1/16W\0402 ROHS` to the same regression path, proving it parses to `1240Ω`, `0402`, `±1%`, and `1/16W` and stays in resistor mode rather than generic capacitor/no-match handling.
 - Verification: The focused resistor regression and release safety gate pass with protected runtime database fingerprints unchanged.
+
+## 2026-07-09 - Exact FOJAN search displayed both spaced and compact model variants
+
+- Bug: Searching `FRC0603J102 TS` showed both the real database row `FRC0603J102 TS` and a generated fallback row `FRC0603J102TS` in the matched part-data panel.
+- Root cause: Frame merging deduplicated by raw `品牌 + 型号`. The exact-row loader and FOJAN rule fallback share the same `clean_model`, but their raw model strings differ only by spacing.
+- Fix: Merge component frames by `品牌 + clean_model + 器件类型`, and rank `型号编码解析` fallback rows below real database rows so the stored original model text wins.
+- Verification: The reported query now returns one FOJAN exact-normalized row, `FRC0603J102 TS`; focused regression and release safety gate pass with protected runtime database fingerprints unchanged.

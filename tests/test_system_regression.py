@@ -402,6 +402,41 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["fetch_search_candidate_pairs"] = original_fetch
 
+        real_fojan_row = pd.DataFrame(
+            [
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FRC0603J102 TS",
+                    "器件类型": "厚膜电阻",
+                    "_component_type": "厚膜电阻",
+                    "系列": "FRC",
+                    "系列说明": "普通厚膜贴片电阻",
+                    "尺寸（inch）": "0603",
+                    "容值": "1",
+                    "容值单位": "KΩ",
+                    "容值误差": "5",
+                    "数据来源": "JLC-SMT官方元器件清单",
+                }
+            ]
+        )
+        fallback_fojan_row = pd.DataFrame(
+            [
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FRC0603J102TS",
+                    "器件类型": "厚膜电阻",
+                    "_component_type": "厚膜电阻",
+                    "系列": "FRC",
+                    "系列说明": "普通厚膜贴片电阻",
+                    "尺寸（inch）": "0603",
+                    "容值误差": "5",
+                    "数据来源": "型号编码解析（成本按当前富捷系列规则）",
+                }
+            ]
+        )
+        merged_fojan = app["concat_component_frames"]([real_fojan_row, fallback_fojan_row])
+        self.assertEqual(merged_fojan["型号"].tolist(), ["FRC0603J102 TS"])
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")
