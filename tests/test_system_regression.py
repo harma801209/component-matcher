@@ -399,8 +399,22 @@ class SystemRegressionTests(unittest.TestCase):
                 matched_brand = app["run_query_match"](prepared_brand, mode, brand_spec)
                 self.assertEqual(set(matched_brand["品牌"]), {"FOJAN(富捷)"}, query)
                 self.assertEqual(set(matched_brand["型号"]), {"FRC0402F1002TS"}, query)
+
+            mode, rohm_spec = app["detect_query_mode_and_spec"](
+                pd.DataFrame(), "贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM"
+            )
+            self.assertEqual(mode, "厚膜电阻")
+            self.assertEqual(rohm_spec["品牌"], "ROHM")
+            self.assertTrue(rohm_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
         finally:
             app["fetch_search_candidate_pairs"] = original_fetch
+
+        fojan_no_power = app["parse_resistor_spec_query"]("0805 910R ±1%")
+        self.assertEqual(app["build_fojan_resistor_model_from_spec"](fojan_no_power), "FRC0805F9100TS")
+        fojan_low_ohm_no_power = app["parse_resistor_spec_query"]("1206 10mΩ ±1%")
+        self.assertEqual(app["build_fojan_resistor_model_from_spec"](fojan_low_ohm_no_power), "FRL1206FR010TS")
+        fojan_wrong_power = app["parse_resistor_spec_query"]("1206 10mΩ ±1% 1W")
+        self.assertEqual(app["build_fojan_resistor_model_from_spec"](fojan_wrong_power), "")
 
         real_fojan_row = pd.DataFrame(
             [

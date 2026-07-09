@@ -6370,6 +6370,7 @@ BRAND_QUERY_ALIAS_GROUPS = (
     ("Stackpole", ("STACKPOLE",)),
     ("Panasonic", ("PANASONIC", "松下")),
     ("江海Jianghai", ("江海", "JIANGHAI", "NANTONG JIANGHAI")),
+    ("ROHM", ("ROHM", "罗姆", "羅姆")),
 )
 BRAND_QUERY_FILTER_FLAG = "_brand_filter"
 BRAND_QUERY_FILTER_ALIASES_KEY = "_brand_filter_aliases"
@@ -27463,10 +27464,12 @@ def build_fojan_resistor_model_from_spec(spec):
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))
     resistance_ohm = spec.get("_resistance_ohm", None)
     power = format_power_display(spec.get("_power", ""))
-    if size == "" or tolerance not in {"1", "5"} or resistance_ohm is None or power == "":
+    if size == "" or tolerance not in {"1", "5"} or resistance_ohm is None:
         return ""
     expected_power = format_power_display(RESISTOR_POWER_BY_SIZE.get(size, ""))
-    if expected_power == "" or power != expected_power:
+    if expected_power == "":
+        return ""
+    if power != "" and power != expected_power:
         return ""
     try:
         value = float(resistance_ohm)

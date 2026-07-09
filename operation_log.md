@@ -3286,3 +3286,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Reproduced `FRC0603J102 TS`: the real database row `FRC0603J102 TS` was merged with the FOJAN rule fallback `FRC0603J102TS`, so the matched part-data panel showed two rows for the same cleaned model.
 - Component-frame merging now deduplicates by brand, cleaned model, and component type, and lowers the priority of `型号编码解析` fallback rows so real database rows win.
 - Verification: the reported query now leaves one FOJAN exact-normalized row, `FRC0603J102 TS`; focused resistor regression and full release safety gate pass with protected runtime databases unchanged.
+
+### 2026-07-09 [matching] Add ROHM brand hints and relax FOJAN default-power fallback
+
+- Reproduced the user's resistor batch. Local matching already returned candidates for all rows, but `ROHM` was not recognized as a brand hint, so `贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM` did not restrict to ROHM.
+- Added `ROHM/罗姆/羅姆` to brand hint aliases. The same query now resolves to `ROHM / ESR03EZPF1002`.
+- Relaxed FOJAN FRC/FRL rule fallback so a missing power field uses the size's default power; explicit mismatched power still blocks fallback.
+- Confirmed FOJAN official pages list additional FRM/FPM alloy families. Full official-series ingestion remains a separate source-backed data expansion because those alloy naming rules must be decoded from datasheets, not guessed.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.

@@ -637,3 +637,11 @@
 - Root cause: Frame merging deduplicated by raw `品牌 + 型号`. The exact-row loader and FOJAN rule fallback share the same `clean_model`, but their raw model strings differ only by spacing.
 - Fix: Merge component frames by `品牌 + clean_model + 器件类型`, and rank `型号编码解析` fallback rows below real database rows so the stored original model text wins.
 - Verification: The reported query now returns one FOJAN exact-normalized row, `FRC0603J102 TS`; focused regression and release safety gate pass with protected runtime database fingerprints unchanged.
+
+## 2026-07-09 - ROHM brand hint and FOJAN default-power fallback gaps
+
+- Bug: `ROHM` in a free-text resistor spec was not treated as a brand hint, so `贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM` returned other brands instead of the matching ROHM ESR row.
+- Root cause: The brand alias table covered several passive vendors but omitted `ROHM/罗姆/羅姆`. Separately, FOJAN FRC/FRL fallback generation required the user to explicitly enter the default power even when size, tolerance, and resistance were otherwise complete.
+- Fix: Add ROHM aliases to requested-brand filtering. Let FOJAN FRC/FRL fallback use the standard power for the size when no power is specified, while still rejecting explicit mismatched power.
+- Boundary: FOJAN FRM/FPM alloy series are present only as imported rows today. Full official-series generation must be implemented from source-backed datasheet naming rules, not by treating FRL as alloy or guessing model codes.
+- Verification: `ROHM` ESR query now returns `ROHM / ESR03EZPF1002`; no-power FOJAN examples generate `FRC0805F9100TS` and `FRL1206FR010TS`; focused regression and release safety gate pass with protected runtime database fingerprints unchanged.
