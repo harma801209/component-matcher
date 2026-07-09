@@ -3267,3 +3267,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Reproduced `贴片\499R\±1%\1/16W\0402 ROHS`, `贴片\499K\±1%\1/16W\0402 ROHS`, and `贴片\51R\±5%\1/16W\0402 ROHS`: backslash-separated resistor values were not recognized, and `499K` could fall into generic capacitor parsing.
 - Added backslash as a resistor token delimiter and prioritized explicit resistor spec parsing before MLCC/generic spec parsing.
 - Added regression coverage for all three original inputs. Focused resistor test and full release safety gate pass; protected member, cost-list, and no-match runtime database fingerprints remain unchanged.
+
+### 2026-07-09 [matching] Add brand-qualified specification filtering
+
+- Added explicit brand hints for specification searches such as `FOJAN 0402 1% 10K`, `富捷 0402 1% 10K`, and `0402 1% 10K 富捷`.
+- When a supported brand alias is present in the free-text spec, the matcher now treats it as a hard brand filter across candidate loading, scoped dataframe matching, and final result filtering.
+- Plain spec searches without a brand remain unchanged and still return all matching brands.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.

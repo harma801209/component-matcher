@@ -616,3 +616,10 @@
 - Accuracy boundary: RUW and Walsin rows whose thickness is absent from the corresponding series table remain blank; values are not copied from a different Walsin MLCC family.
 - Coverage: Added 2,015 rows and increased total source-backed manufacturer package coverage to 130,455 rows.
 - Verification: The full 14-test release safety gate passes; protected member, cost-list, and no-match runtime databases are unchanged.
+
+## 2026-07-09 - Brand-qualified specification searches still returned other brands
+
+- Bug: A query such as `富捷 0402 1% 10K` or `0402 1% 10K 富捷` parsed the electrical specification, but the brand text was not treated as a strict result constraint.
+- Root cause: Brand inference was only used for exact/model-derived rows and for same-brand exclusion. Free-text specification parsing did not preserve a requested-brand flag, so later matching still considered all brands.
+- Fix: Detect supported brand aliases in the full query text, persist a requested-brand flag on the parsed spec, and apply that filter before candidate-row matching, database candidate selection, and final same-brand exclusion.
+- Verification: Added regression coverage proving plain `0402 1% 10K` returns multiple brands while `富捷 0402 1% 10K`, `0402 1% 10K 富捷`, and `FOJAN 0402 1% 10K` return only FOJAN rows. The focused resistor test and release safety gate pass with protected runtime database fingerprints unchanged.

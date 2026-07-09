@@ -6348,6 +6348,110 @@ def clean_brand(x):
     return clean_text(x)
 
 
+BRAND_QUERY_ALIAS_GROUPS = (
+    ("FOJAN(富捷)", ("富捷", "FOJAN")),
+    ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL")),
+    ("华新科Walsin", ("华新科", "華新科", "华科", "華科", "WALSIN")),
+    ("信昌PDC", ("信昌", "信昌电陶", "信昌電陶", "PDC", "PSA", "PROSPERITY")),
+    ("国巨YAGEO", ("国巨", "國巨", "YAGEO", "YEGO")),
+    ("村田Murata", ("村田", "MURATA")),
+    ("三星Samsung", ("三星", "SAMSUNG", "SAMSU")),
+    ("东电化TDK", ("东电化", "東電化", "TDK")),
+    ("风华Fenghua", ("风华", "風華", "FENGHUA", "FENGHUA ADVANCED")),
+    ("三环CCTC", ("三环", "三環", "CCTC")),
+    ("太阳诱电Taiyo Yuden", ("太阳诱电", "太誘", "TAIYO", "TAIYO YUDEN")),
+    ("三和Samwha", ("三和", "SAMWHA")),
+    ("大毅TA-I", ("大毅", "TA-I", "TAI")),
+    ("光颉Viking", ("光颉", "光頡", "VIKING")),
+    ("威世Vishay", ("威世", "VISHAY")),
+    ("旺诠RALEC", ("旺诠", "旺詮", "RALEC")),
+    ("KOA", ("KOA",)),
+    ("Bourns", ("BOURNS",)),
+    ("Stackpole", ("STACKPOLE",)),
+    ("Panasonic", ("PANASONIC", "松下")),
+    ("江海Jianghai", ("江海", "JIANGHAI", "NANTONG JIANGHAI")),
+)
+BRAND_QUERY_FILTER_FLAG = "_brand_filter"
+BRAND_QUERY_FILTER_ALIASES_KEY = "_brand_filter_aliases"
+
+
+def brand_query_aliases_for_label(label):
+    label_text = clean_brand(label)
+    if label_text == "":
+        return ()
+    label_upper = label_text.upper()
+    for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
+        canonical_upper = clean_text(canonical).upper()
+        if label_upper == canonical_upper or brand_alias_matches(label_text, aliases):
+            return tuple(aliases)
+    return (label_text,)
+
+
+def extract_requested_brand_from_query(query_text):
+    raw = clean_text(query_text)
+    if raw == "":
+        return ""
+    upper = raw.upper()
+    compact = normalize_component_keyword_compact(raw)
+    for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
+        if any(alias_token_matches(upper, compact, alias) for alias in aliases):
+            return canonical
+    return ""
+
+
+def apply_query_brand_hint_to_spec(spec, query_text):
+    if spec is None:
+        return spec
+    requested_brand = extract_requested_brand_from_query(query_text)
+    if requested_brand == "":
+        return spec
+    merged = dict(spec)
+    merged["品牌"] = requested_brand
+    merged[BRAND_QUERY_FILTER_FLAG] = True
+    merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(brand_query_aliases_for_label(requested_brand))
+    return merged
+
+
+def requested_brand_aliases_from_spec(spec):
+    if spec is None or not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+        return ()
+    alias_text = clean_text(spec.get(BRAND_QUERY_FILTER_ALIASES_KEY, ""))
+    if alias_text != "":
+        aliases = tuple(clean_text(part) for part in alias_text.split("|") if clean_text(part) != "")
+        if aliases:
+            return aliases
+    return brand_query_aliases_for_label(spec.get("品牌", ""))
+
+
+def row_brand_matches_requested_brand(row_brand, spec):
+    aliases = requested_brand_aliases_from_spec(spec)
+    if not aliases:
+        return True
+    return brand_alias_matches(row_brand, aliases)
+
+
+def filter_dataframe_by_requested_brand(df, spec):
+    if not isinstance(df, pd.DataFrame) or df.empty or "品牌" not in df.columns:
+        return df
+    aliases = requested_brand_aliases_from_spec(spec)
+    if not aliases:
+        return df
+    mask = df["品牌"].astype(str).apply(lambda value: brand_alias_matches(value, aliases))
+    return df.loc[mask].copy()
+
+
+def filter_candidate_pairs_by_requested_brand(pairs, spec):
+    aliases = requested_brand_aliases_from_spec(spec)
+    if not aliases or not pairs:
+        return pairs
+    filtered = [
+        (brand, model)
+        for brand, model in pairs
+        if brand_alias_matches(brand, aliases)
+    ]
+    return filtered
+
+
 JOYIN_DISPLAY_BRAND = "久尹（信昌PDC）"
 BRAND_DISPLAY_ALIAS_COLUMNS = {
     "品牌",
@@ -15234,6 +15338,7 @@ def parse_voltage_from_text(text):
 def merge_query_text_hints_into_spec(spec, query_text):
     if spec is None:
         return spec
+    spec = apply_query_brand_hint_to_spec(spec, query_text)
     explicit_voltage = parse_voltage_from_text(query_text)
     if explicit_voltage == "":
         return spec
@@ -16417,7 +16522,7 @@ def parse_resistor_spec_query(line):
             f"尺寸输入错误：{invalid_size_token} 不是当前贴片电阻库支持的封装尺寸；"
             "请确认是否应为 0201、0402、0603、0805、1206、1210、2010、2512 等。"
         )
-    return result
+    return apply_query_brand_hint_to_spec(result, raw)
 
 def looks_like_electrolytic_context(text):
     if looks_like_film_capacitor_context(text):
@@ -21359,7 +21464,8 @@ def match_by_partial_spec(df, spec):
     work["_provided_param_count"] = provided_count
 
     out = work.copy()
-    out = exclude_same_brand(out, spec.get("品牌", ""))
+    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+        out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
 
     drop_cols = [
@@ -25685,6 +25791,8 @@ def serialize_spec_for_cache(spec):
         "_core_param_count",
         "_partial_part",
         "_partial_query",
+        BRAND_QUERY_FILTER_FLAG,
+        BRAND_QUERY_FILTER_ALIASES_KEY,
         "规格摘要",
     ]
     parts = []
@@ -28001,11 +28109,13 @@ def fetch_search_candidate_pairs(spec):
                         exact_result,
                         target_mlcc_class,
                     )
-                return exact_result
+                exact_result = filter_candidate_pairs_by_requested_brand(exact_result, spec)
+                return exact_result if exact_result else []
         rows = conn.execute(query, params).fetchall()
         result = [(clean_text(row[0]), clean_text(row[1])) for row in rows if clean_text(row[1]) != ""]
         if target_type == "MLCC" and mlcc_series_class_requires_filter(target_mlcc_class):
             result = filter_mlcc_candidate_pairs_by_series_class(result, target_mlcc_class)
+        result = filter_candidate_pairs_by_requested_brand(result, spec)
         return result if result else []
     except Exception:
         return None
@@ -28026,6 +28136,9 @@ def scope_search_dataframe(df, spec):
         if base.empty:
             return base
     base = prepare_search_dataframe(base)
+    if base.empty:
+        return base
+    base = filter_dataframe_by_requested_brand(base, spec)
     if base.empty:
         return base
 
@@ -28913,7 +29026,8 @@ def match_by_spec(df, spec):
         mask &= work["_volt_num"].notna() & (spec_volt_num is not None) & work["_volt_num"].ge(spec_volt_num)
 
     out = work[mask].copy()
-    out = exclude_same_brand(out, spec.get("品牌", ""))
+    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+        out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
     return out.drop(columns=[c for c in ["_size", "_mat", "_tol", "_volt", "_pf", "_tol_kind", "_tol_num", "_volt_num", "_component_type", "_res_ohm"] if c in out.columns])
 
@@ -33925,6 +34039,7 @@ def resolve_search_query_dataframe_and_spec(
     prefetched_exact_rows = resolve_prefetched_exact_part_rows(line, exact_part_rows=exact_part_rows)
     detect_df = prefetched_exact_rows if isinstance(prefetched_exact_rows, pd.DataFrame) and not prefetched_exact_rows.empty else None
     mode, spec = detect_query_mode_and_spec(detect_df, line)
+    spec = merge_query_text_hints_into_spec(spec, line)
     query_df = None
     candidate_rows = 0
     query_frame_cache_key = ""
@@ -33953,6 +34068,7 @@ def resolve_search_query_dataframe_and_spec(
         model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
+            token_spec = merge_query_text_hints_into_spec(token_spec, line)
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,
@@ -34046,6 +34162,7 @@ def resolve_search_query_dataframe_and_spec(
         model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
+            token_spec = merge_query_text_hints_into_spec(token_spec, line)
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,

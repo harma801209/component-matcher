@@ -347,6 +347,60 @@ class SystemRegressionTests(unittest.TestCase):
             app["fetch_search_candidate_pairs"] = original_fetch
         self.assertEqual(set(matched["型号"]), {"R-1-16"})
 
+        brand_candidates = pd.DataFrame(
+            [
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FRC0402F1002TS",
+                    "器件类型": "贴片电阻",
+                    "尺寸（inch）": "0402",
+                    "材质（介质）": "",
+                    "耐压（V）": "",
+                    "容值_pf": None,
+                    "_resistance_ohm": 10000.0,
+                    "容值": "10",
+                    "容值单位": "KΩ",
+                    "容值误差": "1",
+                    "功率": "1/16W",
+                },
+                {
+                    "品牌": "华新科Walsin",
+                    "型号": "WR04X1002FTL",
+                    "器件类型": "贴片电阻",
+                    "尺寸（inch）": "0402",
+                    "材质（介质）": "",
+                    "耐压（V）": "",
+                    "容值_pf": None,
+                    "_resistance_ohm": 10000.0,
+                    "容值": "10",
+                    "容值单位": "KΩ",
+                    "容值误差": "1",
+                    "功率": "1/16W",
+                },
+            ]
+        )
+        prepared_brand = app["prepare_search_dataframe"](app["ensure_component_display_columns"](brand_candidates))
+        original_fetch = app["fetch_search_candidate_pairs"]
+        app["fetch_search_candidate_pairs"] = lambda _spec: None
+        try:
+            no_brand = app["run_query_match"](
+                prepared_brand,
+                "贴片电阻",
+                app["parse_resistor_spec_query"]("0402 1% 10K"),
+            )
+            self.assertEqual(set(no_brand["型号"]), {"FRC0402F1002TS", "WR04X1002FTL"})
+
+            for query in ("富捷 0402 1% 10K", "0402 1% 10K 富捷", "FOJAN 0402 1% 10K"):
+                mode, brand_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+                self.assertEqual(mode, "贴片电阻", query)
+                self.assertEqual(brand_spec["品牌"], "FOJAN(富捷)", query)
+                self.assertTrue(brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"]), query)
+                matched_brand = app["run_query_match"](prepared_brand, mode, brand_spec)
+                self.assertEqual(set(matched_brand["品牌"]), {"FOJAN(富捷)"}, query)
+                self.assertEqual(set(matched_brand["型号"]), {"FRC0402F1002TS"}, query)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")
