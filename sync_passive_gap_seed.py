@@ -5,6 +5,12 @@ import datetime as dt
 import os
 import sqlite3
 
+import pandas as pd
+
+import component_matcher as cm
+from incremental_semiconductor_cache_update import refresh_search_sidecar_rows
+from sync_selected_cache_rows import stream_replace_prepared_rows
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "components.db")
@@ -1294,6 +1300,15 @@ def ensure_columns(conn):
     return [row[1] for row in conn.execute("PRAGMA table_info(components)").fetchall()]
 
 
+def quoted_identifier(value):
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def normalized_model_expr(column):
+    quoted = quoted_identifier(column)
+    return f"REPLACE(REPLACE(REPLACE(UPPER(IFNULL({quoted}, '')), '-', ''), ' ', ''), '_', '')"
+
+
 def clean_model_key(value):
     return str(value or "").upper().replace("-", "").replace(" ", "").replace("_", "")
 
@@ -1318,7 +1333,25 @@ def validate_seed_rows(seed_rows):
         raise ValueError(f"passive seed rows fail series/source admission checks:\n{joined}")
 
 
-def sync_rows(dry_run=False):
+def load_synced_rows(conn, rows):
+    columns = ensure_columns(conn)
+    brand_col, model_col = columns[0], columns[1]
+    brand_sql = quoted_identifier(brand_col)
+    model_expr = normalized_model_expr(model_col)
+    frames = []
+    for row in rows:
+        frames.append(
+            pd.read_sql_query(
+                f"SELECT * FROM components WHERE {brand_sql} = ? AND {model_expr} = ?",
+                conn,
+                params=(row.get(brand_col, ""), clean_model_key(row.get(model_col, ""))),
+            )
+        )
+    frames = [frame for frame in frames if not frame.empty]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def sync_rows(dry_run=False, skip_cache=False):
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(DB_PATH)
     validate_seed_rows(SEED_ROWS)
@@ -1347,6 +1380,17 @@ def sync_rows(dry_run=False):
         insert_sql = f"INSERT INTO components ({column_sql}) VALUES ({placeholders})"
         conn.executemany(insert_sql, [[row.get(col, "") for col in columns] for row in rows])
         conn.commit()
+
+        cache_counts = {"prepared_rows": 0, "search_core_rows": 0}
+        if not skip_cache:
+            selected = load_synced_rows(conn, rows)
+            prepared = cm.prepare_search_dataframe(cm.deduplicate_component_rows(selected))
+            if not prepared.empty:
+                _, cache_counts["prepared_rows"] = stream_replace_prepared_rows(prepared)
+                row_counts = refresh_search_sidecar_rows(prepared)
+                cache_counts["search_core_rows"] = row_counts.get(cm.COMPONENTS_SEARCH_CORE_TABLE, 0)
+            for key, value in cache_counts.items():
+                print(f"{key}={value}")
         return len(rows)
     finally:
         conn.close()
@@ -1355,8 +1399,9 @@ def sync_rows(dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="Sync source-backed passive gap seed rows into components.db")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skip-cache", action="store_true")
     args = parser.parse_args()
-    count = sync_rows(dry_run=args.dry_run)
+    count = sync_rows(dry_run=args.dry_run, skip_cache=args.skip_cache)
     action = "would_sync" if args.dry_run else "synced"
     print(f"{action}_passive_gap_rows={count}")
 

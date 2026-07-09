@@ -1,31 +1,31 @@
 {
-  "generated_at": "2026-05-27T00:56:44+08:00",
+  "generated_at": "2026-06-15T03:16:13+08:00",
   "summary": {
-    "total_rows": 1481247,
-    "semantic_ready_rows": 1428598,
-    "semantic_gap_rows": 52649,
-    "semantic_coverage_rate": 0.9645,
+    "total_rows": 1489426,
+    "semantic_ready_rows": 1436010,
+    "semantic_gap_rows": 53416,
+    "semantic_coverage_rate": 0.9641,
     "component_types_with_gaps": 16,
-    "brand_type_pairs_with_gaps": 305
+    "brand_type_pairs_with_gaps": 343
   },
   "top_component_type_gaps": [
     {
       "component_type": "薄膜电阻",
       "total_rows": 746034,
-      "unresolved_rows": 22742,
-      "semantic_coverage_rate": 0.9695
+      "unresolved_rows": 22522,
+      "semantic_coverage_rate": 0.9698
     },
     {
       "component_type": "绕线电阻",
-      "total_rows": 71662,
-      "unresolved_rows": 8297,
-      "semantic_coverage_rate": 0.8842
+      "total_rows": 71687,
+      "unresolved_rows": 8322,
+      "semantic_coverage_rate": 0.8839
     },
     {
       "component_type": "厚膜电阻",
-      "total_rows": 458616,
-      "unresolved_rows": 6609,
-      "semantic_coverage_rate": 0.9856
+      "total_rows": 459535,
+      "unresolved_rows": 6585,
+      "semantic_coverage_rate": 0.9857
     },
     {
       "component_type": "MLCC",
@@ -41,9 +41,9 @@
     },
     {
       "component_type": "贴片压敏电阻",
-      "total_rows": 11072,
-      "unresolved_rows": 2133,
-      "semantic_coverage_rate": 0.8074
+      "total_rows": 9581,
+      "unresolved_rows": 2448,
+      "semantic_coverage_rate": 0.7445
     },
     {
       "component_type": "碳膜电阻",
@@ -52,22 +52,22 @@
       "semantic_coverage_rate": 0.8293
     },
     {
+      "component_type": "热敏电阻",
+      "total_rows": 2973,
+      "unresolved_rows": 1272,
+      "semantic_coverage_rate": 0.5721
+    },
+    {
+      "component_type": "引线型压敏电阻",
+      "total_rows": 10644,
+      "unresolved_rows": 1157,
+      "semantic_coverage_rate": 0.8913
+    },
+    {
       "component_type": "铝电解电容",
       "total_rows": 15416,
-      "unresolved_rows": 1328,
-      "semantic_coverage_rate": 0.9139
-    },
-    {
-      "component_type": "热敏电阻",
-      "total_rows": 2967,
-      "unresolved_rows": 1276,
-      "semantic_coverage_rate": 0.5699
-    },
-    {
-      "component_type": "贴片电阻",
-      "total_rows": 1016,
-      "unresolved_rows": 843,
-      "semantic_coverage_rate": 0.1703
+      "unresolved_rows": 1061,
+      "semantic_coverage_rate": 0.9312
     },
     {
       "component_type": "功率电感",
@@ -76,22 +76,22 @@
       "semantic_coverage_rate": 0.9507
     },
     {
+      "component_type": "贴片电阻",
+      "total_rows": 1058,
+      "unresolved_rows": 646,
+      "semantic_coverage_rate": 0.3894
+    },
+    {
       "component_type": "合金电阻",
-      "total_rows": 1153,
-      "unresolved_rows": 589,
-      "semantic_coverage_rate": 0.4892
+      "total_rows": 1363,
+      "unresolved_rows": 581,
+      "semantic_coverage_rate": 0.5737
     },
     {
       "component_type": "射频电感",
       "total_rows": 6527,
       "unresolved_rows": 60,
       "semantic_coverage_rate": 0.9908
-    },
-    {
-      "component_type": "引线型压敏电阻",
-      "total_rows": 2367,
-      "unresolved_rows": 10,
-      "semantic_coverage_rate": 0.9958
     },
     {
       "component_type": "晶振",
@@ -111,8 +111,8 @@
       "brand": "威世Vishay",
       "component_type": "薄膜电阻",
       "total_rows": 350568,
-      "unresolved_rows": 11452,
-      "semantic_coverage_rate": 0.9673,
+      "unresolved_rows": 11232,
+      "semantic_coverage_rate": 0.968,
       "sample_models": [
         "IGBRC5000CJJNCT5",
         "Y40825K00000T9W",
@@ -519,8 +519,8 @@
       "brand": "威世Vishay",
       "component_type": "热敏电阻",
       "total_rows": 890,
-      "unresolved_rows": 356,
-      "semantic_coverage_rate": 0.6,
+      "unresolved_rows": 346,
+      "semantic_coverage_rate": 0.6112,
       "sample_models": [
         "NTCALUG01T103FL",
         "NTCLG100E2224JB",
@@ -547,23 +547,6 @@
         "PFR02S-270-JNH",
         "PFR03S-752-FNH",
         "RLT0510-1-1R00-FNH"
-      ]
-    },
-    {
-      "brand": "松下Panasonic",
-      "component_type": "铝电解电容",
-      "total_rows": 331,
-      "unresolved_rows": 318,
-      "semantic_coverage_rate": 0.0393,
-      "sample_models": [
-        "EEUFS1A102B",
-        "EEUFS0J912B",
-        "EEUFS1A102",
-        "EEUFS1A122L",
-        "EEUFS1A122B",
-        "EEUFS1A122",
-        "EEUFS0J752S",
-        "EEUFS0J822L"
       ]
     },
     {
@@ -615,6 +598,23 @@
         "SMR4010",
         "SMR4D25",
         "SMR11D0"
+      ]
+    },
+    {
+      "brand": "Meritek",
+      "component_type": "贴片压敏电阻",
+      "total_rows": 299,
+      "unresolved_rows": 299,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "MVR05D391K",
+        "MVR10D621K-S",
+        "MVR05D301K",
+        "MVR05D270K",
+        "MVR14D180K-S",
+        "MVR10D681K-S",
+        "MVR07D820K-S",
+        "MVR07D331K-S"
       ]
     },
     {
@@ -671,9 +671,9 @@
     {
       "brand": "国巨YAGEO",
       "component_type": "厚膜电阻",
-      "total_rows": 52788,
+      "total_rows": 53707,
       "unresolved_rows": 271,
-      "semantic_coverage_rate": 0.9949,
+      "semantic_coverage_rate": 0.995,
       "sample_models": [
         "PH1206FKF070R02Z",
         "TR0603KR-071KL",
@@ -700,23 +700,6 @@
         "SRP0315",
         "SRP0320",
         "SRP0410"
-      ]
-    },
-    {
-      "brand": "Milliohm(毫欧)",
-      "component_type": "贴片电阻",
-      "total_rows": 240,
-      "unresolved_rows": 240,
-      "semantic_coverage_rate": 0.0,
-      "sample_models": [
-        "HOAR0805-1/8W-10KR-1%-TCR50",
-        "HORS1210-1/2W-200MR-1%",
-        "HORS2512-2W-2R7-5%",
-        "HOAR0805-1/8W-1KR-0.01%-TCR10",
-        "HOCR0805-1/3W-4.99R-1%",
-        "HOAR1206-1/4W-1R-0.1%-TCR25",
-        "HOAR0805-1/10W-10KR-0.1%-TCR5",
-        "HOCR1812-1W-50MR-1%TCR100"
       ]
     },
     {
@@ -1043,6 +1026,23 @@
       ]
     },
     {
+      "brand": "Liown(里阳半导体)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 148,
+      "unresolved_rows": 148,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "330KD07",
+        "121KD07",
+        "221KD07",
+        "561KD07",
+        "820KD07",
+        "180KD07",
+        "220KD07",
+        "181KD07"
+      ]
+    },
+    {
       "brand": "Firstohm(第一电阻)",
       "component_type": "薄膜电阻",
       "total_rows": 145,
@@ -1079,6 +1079,23 @@
     {
       "brand": "SHM(南方宏明)",
       "component_type": "贴片压敏电阻",
+      "total_rows": 143,
+      "unresolved_rows": 143,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "ZVR14D821KL8B7A0",
+        "ZVR14D221KL8B7A0",
+        "ZVR10D561KL857A0",
+        "ZVR05D471KK6F5A0",
+        "ZVR10D102KL8B7A0",
+        "ZVR05D471KL6F5A0",
+        "ZVR07D241KL635A0",
+        "ZVR14D561KL8B7A0"
+      ]
+    },
+    {
+      "brand": "SHM(南方宏明)",
+      "component_type": "引线型压敏电阻",
       "total_rows": 143,
       "unresolved_rows": 143,
       "semantic_coverage_rate": 0.0,
@@ -1281,6 +1298,23 @@
       ]
     },
     {
+      "brand": "VDR(嵩隆)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 128,
+      "unresolved_rows": 128,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "VDR-14D101KJ",
+        "VDR-14D121KJ",
+        "25D511K",
+        "20D820KJ",
+        "10D561K",
+        "VDR-10D471K",
+        "VDR-07D181K",
+        "VDR-10D471K(11D)"
+      ]
+    },
+    {
       "brand": "CCO(千志电子)",
       "component_type": "金属氧化膜电阻",
       "total_rows": 125,
@@ -1434,20 +1468,20 @@
       ]
     },
     {
-      "brand": "Milliohm(毫欧)",
-      "component_type": "厚膜电阻",
-      "total_rows": 97,
-      "unresolved_rows": 97,
+      "brand": "COV(德欣)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 98,
+      "unresolved_rows": 98,
       "semantic_coverage_rate": 0.0,
       "sample_models": [
-        "HORF1206-1/4W-100MR-1%",
-        "HOCUH2512-3W-200KR-1%",
-        "HORF1206-1/4W-300MR-1%",
-        "HORF1210-1/3W-270MR-1%",
-        "HORF2512-1W-470MR-1%",
-        "HORF1206-1/4W-620MR-1%",
-        "HORF1206-1/4W-560MR-1%",
-        "HORF0805-1/8W-30MR-1%"
+        "07D391K",
+        "07D821K",
+        "07D621K",
+        "07D681K",
+        "07D331K",
+        "07D151K",
+        "07D121K",
+        "07D101K"
       ]
     },
     {
@@ -1519,6 +1553,23 @@
       ]
     },
     {
+      "brand": "HEL(鸿志)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 92,
+      "unresolved_rows": 92,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "7D470K",
+        "14D561K",
+        "10D220",
+        "7D561K",
+        "20D471K",
+        "10D560K",
+        "10D390K",
+        "20D681K"
+      ]
+    },
+    {
       "brand": "VO(翔胜)",
       "component_type": "厚膜电阻",
       "total_rows": 3894,
@@ -1533,6 +1584,23 @@
         "FCR0402F10K",
         "FCR2010F1R2",
         "FCR0402J0R"
+      ]
+    },
+    {
+      "brand": "RUILON(瑞隆源)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 89,
+      "unresolved_rows": 89,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "07D470K",
+        "07D220K",
+        "14D560K",
+        "07D560K",
+        "10D470K",
+        "07D471K",
+        "14D561K",
+        "07D180K"
       ]
     },
     {
@@ -1655,6 +1723,23 @@
       ]
     },
     {
+      "brand": "Milliohm(毫欧)",
+      "component_type": "厚膜电阻",
+      "total_rows": 97,
+      "unresolved_rows": 73,
+      "semantic_coverage_rate": 0.2474,
+      "sample_models": [
+        "HOCUH2512-3W-200KR-1%",
+        "HOLTT1206-1/4W-27R-1%",
+        "HOLTT0805-1/8W-910K-1%",
+        "HOLTT0603-1/10W-35.7K-1%",
+        "HOLTT0603-1/10W-4.7K-1%",
+        "HOLTT0603-1/10W-100KR-1%",
+        "HOLTT0603-1/10W-5.6K-1%",
+        "HOLTT0603-1/10W-3.01K-1%"
+      ]
+    },
+    {
       "brand": "STE(松田)",
       "component_type": "热敏电阻",
       "total_rows": 81,
@@ -1720,6 +1805,23 @@
         "SCK05101MSY",
         "TSM1A103",
         "TSM2A103"
+      ]
+    },
+    {
+      "brand": "FTR(乔光电子)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 70,
+      "unresolved_rows": 70,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "FTR14D122K",
+        "FTR07D781K",
+        "FTR07D391K",
+        "FTR07D431K",
+        "FTR07D180K",
+        "FTR07D330K",
+        "FTR20D122K",
+        "FTR10D471KJ"
       ]
     },
     {
@@ -1978,6 +2080,57 @@
       ]
     },
     {
+      "brand": "Vitrohm",
+      "component_type": "绕线电阻",
+      "total_rows": 51,
+      "unresolved_rows": 51,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "RWI502JK-13-10RAA",
+        "RWN502FK-13-R047AA",
+        "RWI502JK-13-1RAA",
+        "RWN502FK-13-R01AA",
+        "RWI502JK-13-100RAA",
+        "RWC502FK-13-4R7AA",
+        "RWN502FK-13-R005AA",
+        "RWC502FK-13-10RAA"
+      ]
+    },
+    {
+      "brand": "松下Panasonic",
+      "component_type": "铝电解电容",
+      "total_rows": 331,
+      "unresolved_rows": 51,
+      "semantic_coverage_rate": 0.8459,
+      "sample_models": [
+        "ECA0JHG332B",
+        "ECA0JHG332E",
+        "ECA0JHG472",
+        "ECA0JHG472B",
+        "ECA0JHG471E",
+        "ECA0JEN101E",
+        "ECA0JEN331E",
+        "ECA0JEN331B"
+      ]
+    },
+    {
+      "brand": "SOCAY(硕凯)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 50,
+      "unresolved_rows": 50,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "14D820K",
+        "14D101K",
+        "07D471K",
+        "05D180K",
+        "05D471K",
+        "07D220K",
+        "07D270K",
+        "07D330K"
+      ]
+    },
+    {
       "brand": "SEMBO(深波)",
       "component_type": "贴片压敏电阻",
       "total_rows": 49,
@@ -2026,6 +2179,40 @@
         "JF72100D11MB7250F",
         "JF72100D20MA0250F",
         "JF72030D13MB7035F"
+      ]
+    },
+    {
+      "brand": "SEMBO(深波)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 49,
+      "unresolved_rows": 49,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "14D681K",
+        "07D471K",
+        "07D431K",
+        "10D561K",
+        "14D560K",
+        "10D560K",
+        "07D330K",
+        "10D220K"
+      ]
+    },
+    {
+      "brand": "SURGING(绍鑫)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 49,
+      "unresolved_rows": 49,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "7D471K",
+        "20D561K",
+        "10D471K",
+        "14D561K",
+        "7D561K",
+        "10D561K",
+        "14D621K",
+        "14D681KJ"
       ]
     },
     {
@@ -2148,6 +2335,23 @@
       ]
     },
     {
+      "brand": "Wurth(伍尔特)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 42,
+      "unresolved_rows": 42,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "820471511",
+        "820554001",
+        "820552501",
+        "820523006",
+        "820412711",
+        "820573011",
+        "820521311",
+        "820543001"
+      ]
+    },
+    {
       "brand": "Tyohm(幸亚电阻)",
       "component_type": "绕线电阻",
       "total_rows": 41,
@@ -2182,6 +2386,23 @@
       ]
     },
     {
+      "brand": "Brightking(君耀电子)",
+      "component_type": "贴片压敏电阻",
+      "total_rows": 40,
+      "unresolved_rows": 40,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "621KH20J",
+        "471KH14J",
+        "471KN20-P12.5",
+        "122KN20-P7.5",
+        "681KH14",
+        "561KH14",
+        "621KH14J",
+        "511KH14-FTR"
+      ]
+    },
+    {
       "brand": "QAMcn(恭成科技)",
       "component_type": "热敏电阻",
       "total_rows": 40,
@@ -2196,6 +2417,23 @@
         "QN0402X104F4250FB",
         "QN0603X103F3450FB",
         "QN0603X103J3950HB"
+      ]
+    },
+    {
+      "brand": "Panasonic",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 507,
+      "unresolved_rows": 37,
+      "semantic_coverage_rate": 0.927,
+      "sample_models": [
+        "ERZV14D681",
+        "ERZVA7V241",
+        "ERZE14A511",
+        "ERZV07D471",
+        "ERZVGAD560",
+        "ERZV14D221",
+        "ERZV14D621CS",
+        "ERZV14D271"
       ]
     },
     {
@@ -2250,20 +2488,37 @@
       ]
     },
     {
-      "brand": "Vitrohm",
-      "component_type": "绕线电阻",
-      "total_rows": 31,
-      "unresolved_rows": 31,
+      "brand": "Milliohm(毫欧)",
+      "component_type": "贴片电阻",
+      "total_rows": 237,
+      "unresolved_rows": 32,
+      "semantic_coverage_rate": 0.865,
+      "sample_models": [
+        "HOLRTX1206-1W-100MR-1%",
+        "HOGXT2512-2W-360MR-1%",
+        "HOGXT0805-1/2W-10MR-1%",
+        "HOGXT0805-1/2W-20MR-1%",
+        "HOGXT0805-1/4W-100MR-1%",
+        "HOTFE-5.2D-0R",
+        "HOTFE-8.2D-0R",
+        "HOTCU-10.2D-0R"
+      ]
+    },
+    {
+      "brand": "WMEC(万明)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 28,
+      "unresolved_rows": 28,
       "semantic_coverage_rate": 0.0,
       "sample_models": [
-        "RWI502JK-13-10RAA",
-        "RWN502FK-13-R047AA",
-        "RWI502JK-13-1RAA",
-        "RWN502FK-13-R01AA",
-        "RWI502JK-13-100RAA",
-        "RWC502FK-13-4R7AA",
-        "RWN502FK-13-R005AA",
-        "RWC502FK-13-10RAA"
+        "WMR07D561KG2AW",
+        "WMR14D561KE3B3.5WS",
+        "WMR07D561KG2AW-3A000",
+        "WMR14D681KE3B3.5W",
+        "WMR10D561KH3B3.5W",
+        "WMR10D561KG3BW-3A000",
+        "WMR14D471KA3BW",
+        "WMR07D431KB2B3.5W-3A000"
       ]
     },
     {
@@ -2335,20 +2590,20 @@
       ]
     },
     {
-      "brand": "Brightking(君耀电子)",
-      "component_type": "贴片压敏电阻",
+      "brand": "CNR(舜全)",
+      "component_type": "引线型压敏电阻",
       "total_rows": 25,
       "unresolved_rows": 25,
       "semantic_coverage_rate": 0.0,
       "sample_models": [
-        "621KH20J",
-        "471KH14J",
-        "471KN20-P12.5",
-        "122KN20-P7.5",
-        "681KH14",
-        "561KH14",
-        "621KH14J",
-        "511KH14-FTR"
+        "CNR-14D471KTTK3.5",
+        "CNR-10D471KTTS3.5",
+        "CNR-14D561K",
+        "CNR-14D471K",
+        "CNR-14D391K",
+        "CNR-07D471K-BTS",
+        "CNR-10V511KTRSA",
+        "CNR-10N511KTRSA"
       ]
     },
     {
@@ -2539,6 +2794,23 @@
       ]
     },
     {
+      "brand": "Stackpole",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 20,
+      "unresolved_rows": 20,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "RV391K07T",
+        "RV241K07T",
+        "RV391K10T",
+        "RV471K05T",
+        "RV511K14T",
+        "RV821K10T",
+        "RV471K07T",
+        "RV271K07T"
+      ]
+    },
+    {
       "brand": "WMEC(万明)",
       "component_type": "贴片压敏电阻",
       "total_rows": 19,
@@ -2570,6 +2842,23 @@
         "TMP6131DECR",
         "TMP6331QDYARQ1",
         "TMP6131QDECTQ1"
+      ]
+    },
+    {
+      "brand": "Brightking(君耀电子)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 561,
+      "unresolved_rows": 19,
+      "semantic_coverage_rate": 0.9661,
+      "sample_models": [
+        "621KH20J",
+        "471KH14J",
+        "471KN20-P12.5",
+        "122KN20-P7.5",
+        "681KH14",
+        "561KH14",
+        "621KH14J",
+        "621KN14"
       ]
     },
     {
@@ -2706,6 +2995,23 @@
         "MCP9700-E/TO",
         "MCP9701A-E/TO",
         "MCP9700T-E/LT"
+      ]
+    },
+    {
+      "brand": "NDF(达孚)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 17,
+      "unresolved_rows": 17,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "S07D471K55250L50A-NDF",
+        "S10D511K78250L75A-NDF",
+        "S10D561K78250L75-NDF",
+        "S10D471K78250L75A-NDF",
+        "S14D821K78250L75A-NDF",
+        "S20D561K98250L10-NDF",
+        "S20D511K98250L10-NDF",
+        "S07D561K55250L50A-NDF"
       ]
     },
     {
@@ -2898,9 +3204,9 @@
     {
       "brand": "Milliohm(毫欧)",
       "component_type": "合金电阻",
-      "total_rows": 13,
+      "total_rows": 221,
       "unresolved_rows": 13,
-      "semantic_coverage_rate": 0.0,
+      "semantic_coverage_rate": 0.9412,
       "sample_models": [
         "HORR2512-1W-50MR-1%",
         "HOFLQ60-65A-50MV-1%-6.5H27",
@@ -3066,6 +3372,23 @@
       ]
     },
     {
+      "brand": "村田Murata",
+      "component_type": "贴片电阻",
+      "total_rows": 11,
+      "unresolved_rows": 11,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "NCU18WF104E60RB",
+        "PRF18AR471QB5RB",
+        "PRF18BB471QB5RB",
+        "PRF18BF471QB5RB",
+        "PRF18BC471QB5RB",
+        "PRF18BD471QB5RB",
+        "PRF18BA471QB5RB",
+        "PRF21BB471QB5RA"
+      ]
+    },
+    {
       "brand": "EVER OHMS(天二科技)",
       "component_type": "厚膜电阻",
       "total_rows": 4765,
@@ -3131,23 +3454,6 @@
         "SFI0603ML240C-LF",
         "SFI0603ML470C-LF",
         "SFI0805ML120C-LF"
-      ]
-    },
-    {
-      "brand": "WMEC(万明)",
-      "component_type": "引线型压敏电阻",
-      "total_rows": 10,
-      "unresolved_rows": 10,
-      "semantic_coverage_rate": 0.0,
-      "sample_models": [
-        "WMR07D561KG2AW",
-        "WMR14D561KE3B3.5WS",
-        "WMR07D561KG2AW-3A000",
-        "WMR14D681KE3B3.5W",
-        "WMR10D561KH3B3.5W",
-        "WMR10D561KG3BW-3A000",
-        "WMR14D471KA3BW",
-        "WMR07D431KB2B3.5W-3A000"
       ]
     },
     {
@@ -3270,6 +3576,23 @@
       ]
     },
     {
+      "brand": "KNSCHA(科尼盛)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 9,
+      "unresolved_rows": 9,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "20D471K68RV0134",
+        "14D471K68RV0005",
+        "10D471K68RV0121",
+        "7D471K68RV0090",
+        "7D561K68RV0092",
+        "10D681K37RV0012",
+        "14D681K68RV0142",
+        "14D561K68RV0007"
+      ]
+    },
+    {
       "brand": "MACOM",
       "component_type": "厚膜电阻",
       "total_rows": 8,
@@ -3284,23 +3607,6 @@
         "MTR-4R7K-SR3-J-NA-G-0-T",
         "MMR-8R0K-SR5-K-K-B-0-T",
         "MIR-100RK-SR3-G-NA-B-0-T"
-      ]
-    },
-    {
-      "brand": "旺诠RALEC",
-      "component_type": "合金电阻",
-      "total_rows": 8,
-      "unresolved_rows": 8,
-      "semantic_coverage_rate": 0.0,
-      "sample_models": [
-        "LR2010-21R015F2",
-        "LR2512-22R004F4",
-        "LR2728-24R005J1",
-        "LRE0805-2CR004F5",
-        "LRE1206-21R003F5",
-        "LRE1206-21R010F5",
-        "LRE1206-21R007F5",
-        "LRE0603-2FR005F5"
       ]
     },
     {
@@ -3369,23 +3675,6 @@
         "HVR07D561KS52",
         "HVR10D681KS71L",
         "HVR07D471KN52"
-      ]
-    },
-    {
-      "brand": "村田Murata",
-      "component_type": "贴片电阻",
-      "total_rows": 8,
-      "unresolved_rows": 8,
-      "semantic_coverage_rate": 0.0,
-      "sample_models": [
-        "NCU18WF104E60RB",
-        "PRF18AR471QB5RB",
-        "PRF18BB471QB5RB",
-        "PRF18BF471QB5RB",
-        "PRF18BC471QB5RB",
-        "PRF18BD471QB5RB",
-        "PRF18BA471QB5RB",
-        "PRF21BB471QB5RA"
       ]
     },
     {
@@ -3534,6 +3823,22 @@
       ]
     },
     {
+      "brand": "ISND(华信安)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 7,
+      "unresolved_rows": 7,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "HVR10D471KS72",
+        "HVR14D511KS72",
+        "HVR14D471KS72",
+        "HVR07D561KS59",
+        "HVR07D561KS52",
+        "HVR10D681KS71L",
+        "HVR07D471KN52"
+      ]
+    },
+    {
       "brand": "LJ(朗捷)",
       "component_type": "绕线电阻",
       "total_rows": 6,
@@ -3606,6 +3911,66 @@
         "THERMISTOR-ATH10KL2C",
         "THERMISTOR-ATH10K1R0",
         "THERMISTOR-ATH10KL2D"
+      ]
+    },
+    {
+      "brand": "SEMIWARE(赛米微尔)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 6,
+      "unresolved_rows": 6,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "10D560K",
+        "14D681K",
+        "14D820K",
+        "10D680K",
+        "14D561K",
+        "10D681K"
+      ]
+    },
+    {
+      "brand": "JKSEMI(金开盛)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 6,
+      "unresolved_rows": 6,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "20D470K",
+        "07D330K",
+        "10D621K",
+        "07D270K",
+        "10D391K",
+        "10D221K"
+      ]
+    },
+    {
+      "brand": "JK-ET(健坤)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 6,
+      "unresolved_rows": 6,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "JVRS07D511KF5150A07BFA",
+        "JVRS10D561KF7150A10BFA",
+        "JVRS14D471KF7150A14BFA",
+        "JVRS10D511KF7150A10BFA",
+        "JVRS10D681KF7150A10BFA260",
+        "JVRS07D681KF5150A07BFA220"
+      ]
+    },
+    {
+      "brand": "VDR(嵩隆)",
+      "component_type": "热敏电阻",
+      "total_rows": 6,
+      "unresolved_rows": 6,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "10D-11",
+        "5D-9",
+        "NTC22D-7",
+        "NTC5D-9",
+        "NTC20D-15",
+        "NTC5D-13"
       ]
     },
     {
@@ -3704,6 +4069,34 @@
         "MAX6691MUB+",
         "MAX6691MUB+T",
         "MAX6691MUB"
+      ]
+    },
+    {
+      "brand": "WEC",
+      "component_type": "绕线电阻",
+      "total_rows": 5,
+      "unresolved_rows": 5,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "CRP200JT-52-3R3AA",
+        "CRP200JT-52-22RAA",
+        "CRP200JT-52-470RAA",
+        "CRP200JT-52-100RAA",
+        "CRP200JT-52-R22AA"
+      ]
+    },
+    {
+      "brand": "NCC(日本贵弥功)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 5,
+      "unresolved_rows": 5,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "TND05V-390KB00AAA0",
+        "TND05V-470KB00AAA0",
+        "TND05V-330KB00AAA0",
+        "TND20V-431KB00AAA0",
+        "TND14V-561KB00AAA0"
       ]
     },
     {
@@ -3992,6 +4385,30 @@
       ]
     },
     {
+      "brand": "SANTE(惠州三特)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 3,
+      "unresolved_rows": 3,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "14D621K-B",
+        "14D561K-B",
+        "14D681K-B"
+      ]
+    },
+    {
+      "brand": "SET(赛尔特)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 3,
+      "unresolved_rows": 3,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "SFV10D681K",
+        "SFV14D511K",
+        "SFV10D471K"
+      ]
+    },
+    {
       "brand": "华新科Walsin",
       "component_type": "薄膜电阻",
       "total_rows": 15,
@@ -4190,6 +4607,17 @@
       ]
     },
     {
+      "brand": "东电化TDK",
+      "component_type": "贴片电阻",
+      "total_rows": 2,
+      "unresolved_rows": 2,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "B57230V2103F260",
+        "B57236S0509M000"
+      ]
+    },
+    {
       "brand": "Littelfuse",
       "component_type": "热敏电阻",
       "total_rows": 2,
@@ -4264,6 +4692,50 @@
       "sample_models": [
         "EV7050EAN",
         "EV7050EAN"
+      ]
+    },
+    {
+      "brand": "东电化TDK",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 521,
+      "unresolved_rows": 2,
+      "semantic_coverage_rate": 0.9962,
+      "sample_models": [
+        "S20K320",
+        "B72587E3140S246"
+      ]
+    },
+    {
+      "brand": "PTTC(聚鼎)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 2,
+      "unresolved_rows": 2,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "PVR10D101KJ-SB-3.0",
+        "PVR14D681K"
+      ]
+    },
+    {
+      "brand": "ametherm",
+      "component_type": "贴片电阻",
+      "total_rows": 2,
+      "unresolved_rows": 2,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "SL082R503",
+        "SL322R025"
+      ]
+    },
+    {
+      "brand": "Amphenol",
+      "component_type": "贴片电阻",
+      "total_rows": 2,
+      "unresolved_rows": 2,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "CL-70A",
+        "CL-60"
       ]
     },
     {
@@ -4537,16 +5009,6 @@
       ]
     },
     {
-      "brand": "东电化TDK",
-      "component_type": "贴片电阻",
-      "total_rows": 1,
-      "unresolved_rows": 1,
-      "semantic_coverage_rate": 0.0,
-      "sample_models": [
-        "B57230V2103F260"
-      ]
-    },
-    {
       "brand": "Banner",
       "component_type": "热敏电阻",
       "total_rows": 1,
@@ -4694,6 +5156,86 @@
       "semantic_coverage_rate": 0.0,
       "sample_models": [
         "BOB-08882"
+      ]
+    },
+    {
+      "brand": "Bourns",
+      "component_type": "贴片电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "CRL0805-FW-R100ELF"
+      ]
+    },
+    {
+      "brand": "JEC(智旭)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "JEC07D471KS0517"
+      ]
+    },
+    {
+      "brand": "VICOR",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "30076"
+      ]
+    },
+    {
+      "brand": "DOWO(东沃)",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "20D751KJ"
+      ]
+    },
+    {
+      "brand": "华新科Walsin",
+      "component_type": "引线型压敏电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "SR390K07DS20C5DEN"
+      ]
+    },
+    {
+      "brand": "Cantherm",
+      "component_type": "贴片电阻",
+      "total_rows": 1,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.0,
+      "sample_models": [
+        "MF72-200D9"
+      ]
+    },
+    {
+      "brand": "Littelfuse",
+      "component_type": "贴片压敏电阻",
+      "total_rows": 3189,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.9997,
+      "sample_models": [
+        "250S130VDR"
+      ]
+    },
+    {
+      "brand": "威世Vishay",
+      "component_type": "贴片电阻",
+      "total_rows": 23,
+      "unresolved_rows": 1,
+      "semantic_coverage_rate": 0.9565,
+      "sample_models": [
+        "NTCALUG01T103G501"
       ]
     }
   ]
