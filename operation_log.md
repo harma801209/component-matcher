@@ -2,6 +2,32 @@
 
 This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
+### 2026-07-09 23:05 [direct] Source-scoped FOJAN FRM/FPM alloy resistor fallback
+
+- Received / problem: User reported many alloy-resistor specs (for example `合金电阻 电阻10毫欧 ±1% 1206`, `贴片合金电阻 0.06R 2512 3W ±1%`) could not return FOJAN models, and asked for an accurate way to expand alloy-resistor brand/model coverage without risking member/backend data.
+
+- Investigation:
+  1. Existing FOJAN rule fallback only covered FRC/FRL thick-film/low-ohm resistor price-series rows, so alloy specs could not generate FRM/FPM candidates.
+  2. A smoke test also showed an old side effect: alloy specs below 1Ω could incorrectly add an FRL FOJAN candidate even though FRL is not the requested alloy-resistor family.
+  3. Checked source evidence: FOJAN/FPM datasheet explains `FPM253WFR005TM` part-number structure and 2512/2512-L resistance ranges; JLCPCB/LCSC FOJAN product pages confirm FRM 1206 examples such as `FRM121WFR010TM` and `FRM121WFR050TM`; local official-view alloy catalog contains matching FRM/FPM sample rows.
+
+- Fix / action:
+  1. Added FOJAN FRM/FPM alloy model parsing for resistance, tolerance, size, power, series description, current-sense/alloy usage, and dimensions.
+  2. Added source-scoped alloy spec fallback: 1206 1W FRM generates `FRM121W...TM`; 2512 3W FPM generates `FPM253W...TM/TML` only within the datasheet-supported ranges.
+  3. Prevented the existing FRC/FRL price fallback from serving explicit `合金电阻` specs, so alloy searches no longer mix in FOJAN FRL low-ohm thick-film rows.
+  4. Added FOJAN FRM/FPM manufacturer packaging MOQ rules: FRM 1206 -> 5000PCS, FPM 2512 -> 4000PCS. Costs remain blank unless the active backend cost list supplies them.
+
+- Verification:
+  1. `python -m unittest tests.test_system_regression.SystemRegressionTests.test_13_manufacturer_packaging_moq_is_source_backed tests.test_system_regression.SystemRegressionTests.test_14_fojan_alloy_resistor_rules_are_source_scoped` passed.
+  2. `python -m unittest tests.test_system_regression` passed.
+  3. Smoke checks: `合金电阻 电阻10毫欧 ±1% 1206` returns `FRM121WFR010TM`; `贴片合金电阻 18mΩ 1206 ±1%` returns `FRM121WFR018TM`; `富捷 贴片合金电阻 0.06R 2512 3W ±1%` returns only `FPM253WFR060TM`.
+
+- Other issues:
+  - Specs outside current source-backed ranges intentionally do not generate FOJAN alloy models yet, e.g. `贴片合金电阻 0.3Ω ±1% 1206 1W` and `贴片合金电阻 2512 0.2R ±1%`. These need a wider official FOJAN FRM/FPM ordering table before adding more generated models.
+  - Runtime member/cost/no-match SQLite files were not edited.
+
+- Handoff notes: Before deployment/commit, run `python tools/run_release_safety_gate.py` and verify protected DB fingerprints remain unchanged per `AGENTS.md`.
+
 ### 2026-05-20 [Agent-2 research] PDC/PSA(信昌电陶) 电阻系列规则调查与数据库缺口审查
 
 - Received / problem: 发现 `resistor_series_rules.py` 中完全没有 PDC/信昌 电阻系列条目，但 信昌 是电阻推广品牌优先级第一位（信昌 > 华新科 > 厚声 > 富捷）。用户要求整理官方命名规则。
@@ -3275,6 +3301,15 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Plain spec searches without a brand remain unchanged and still return all matching brands.
 - Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
 
+### 2026-07-10 21:20 [direct] Import quote-confirmed PDC and JOYIN models
+
+- Received / problem: User supplied `C:\Users\zjh\Desktop\导入数据库.xlsx` and confirmed the listed PDC/JOYIN models had been quoted and should be searchable in the system.
+- Investigation: Parsed 976 populated model rows into 968 unique canonical models. The list contains 835 PDC capacitor models and 133 JOYIN thermistor/varistor/ESD models. Before import, only 319 target models existed in `components.db`; 649 were missing. Cross-checked model coding against local PDC/JOYIN official FE/FJ/FK/FH/FM/FN/FP/FR/FS/FV/MG/MT and JAS/JCR/JMV/JNR/JSN/JSR/JVR/JVT/JVZ specifications. Normalized the quote note `FS32B107M160LGG大卷` to canonical model `FS32B107M160LGG`.
+- Fix / action: Added `sync_confirmed_pdc_joyin_models.py` with dry-run by default, mandatory database backup on apply, insert-only behavior for missing models, and blank-field-only enrichment for existing models. Imported 649 new rows and filled 3,611 blank cells across 319 existing rows without deleting or replacing any component record. Refreshed only the 968 target rows in the prepared/search sidecars. Backup: `components.db.confirmed_pdc_joyin_20260710_210039.bak`.
+- Verification: All 968 canonical models exist exactly once in `components.db` and all 968 exist in `components_search_core`; no target identity fields are blank. Representative exact searches across FE/FGA/FM/FN/FP/FS/FV/MT/JAS/JES/JMV/JNR/JSN/JVR/JVZ all load the exact row through the fast part-number path with the correct brand. SQLite integrity checks passed for component, search, member, cost-list, and no-match databases. The release safety gate passed 15/15 tests before and after import.
+- Other issues: Three legacy `FGAAN` quote-confirmed models have no verified footprint code in the available ordering tables, and `FP32N103J12EEGG` uses an unrecognized voltage code. Those specific fields remain blank rather than guessed; the models themselves are searchable.
+- Handoff notes: Protected runtime fingerprints remained unchanged: member `E9057B...A9F4E`, cost `9AD6BD...D63A17`, no-match `41E441...52C19`. Future reruns are idempotent because existing non-empty values are preserved.
+
 ### 2026-07-09 [matching] Lock decimal-K backslash resistor spec searches
 
 - Verified `贴片\1.24K\±1%\1/16W\0402 ROHS` parses as `贴片电阻 / 0402 / 1240Ω / ±1% / 1/16W` and returns matching 0402 resistor candidates, including FOJAN `FRC0402F1241TS`.
@@ -3294,3 +3329,17 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Relaxed FOJAN FRC/FRL rule fallback so a missing power field uses the size's default power; explicit mismatched power still blocks fallback.
 - Confirmed FOJAN official pages list additional FRM/FPM alloy families. Full official-series ingestion remains a separate source-backed data expansion because those alloy naming rules must be decoded from datasheets, not guessed.
 - Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-11 [member-ui] Return after login, reduce sync delay, and split BOM page
+
+- Received / problem: Member login opened the member profile page instead of returning to the page that initiated login; login felt slow; the BOM batch upload tool was embedded at the bottom of the main search page.
+- Fix / action: Successful login now clears only the member-page route while preserving the authenticated session and any BOM origin route. Repeated remote member snapshot reads during a single login interaction are coalesced, while the session update is still flushed to remote storage. The existing BOM upload and matching workflow was moved unchanged into a dedicated `bom=1` page, with a fixed `BOM批量匹配` entry below the member button and responsive mobile positioning.
+- Verification: Added regression coverage for login return routing and startup/login remote snapshot coalescing. `python -m unittest tests.test_system_regression` passed 16/16 tests, and `python tools/run_release_safety_gate.py` passed. Browser verification confirmed the main page no longer renders the BOM uploader, the dedicated BOM page renders the upload control on desktop and mobile without horizontal overflow, and an isolated temporary-member login returns to the search page with the member session active.
+- Safety: The browser login check used temporary member, cost, and no-match database paths and the temporary data was removed afterward. Protected runtime database fingerprints remained unchanged.
+
+### 2026-07-11 [member-public] Resume the blocked search after member login
+
+- Received / problem: The public site still showed the previous layout because the local member/BOM changes had not been published. When a logged-out visitor entered a query and clicked search, the login prompt appeared, but a successful login returned to the search page without executing the original query.
+- Fix / action: Added a one-time pending-search session value. A blocked search stores the current query, successful login resumes it automatically, and the value is cleared as soon as the resumed search starts so refreshes and later logins cannot repeat it. Logout also clears any pending query.
+- Verification: Added isolated regression coverage for logged-out storage, logged-in resume, and one-time clearing. The full release safety gate passes 17/17 tests. The public bundle was rebuilt from the current search assets, split into its tracked release parts, and the Streamlit release stamp was advanced to `2026-07-11T18:12:06+08:00` for the formal deployment target `https://fruition-component.pages.dev/`.
+- Safety: No member, cost-list, or no-match database is included in the public bundle or staged release. Other unrelated working-tree files remain excluded from the publish commit.

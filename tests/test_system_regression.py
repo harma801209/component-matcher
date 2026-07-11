@@ -264,6 +264,48 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertFalse(trend.empty)
             self.assertLessEqual(int(trend["排名"].max()), 10)
 
+    def test_02b_member_login_returns_to_requesting_page(self):
+        app = self.app
+        original_functions = {
+            name: app[name]
+            for name in ["set_current_member", "is_member_page_requested", "update_query_params"]
+        }
+        member_calls = []
+        route_updates = []
+        try:
+            app["set_current_member"] = lambda member: member_calls.append(member)
+            app["update_query_params"] = lambda **updates: route_updates.append(updates)
+            app["is_member_page_requested"] = lambda: True
+            app["complete_member_login"]({"id": 7})
+            self.assertEqual(member_calls, [{"id": 7}])
+            self.assertEqual(route_updates, [{"member": "", "admin": ""}])
+
+            app["is_member_page_requested"] = lambda: False
+            app["complete_member_login"]({"id": 8})
+            self.assertEqual(member_calls[-1], {"id": 8})
+            self.assertEqual(len(route_updates), 1)
+        finally:
+            app.update(original_functions)
+
+    def test_02c_pending_search_resumes_once_after_login(self):
+        app = self.app
+        original_st = app["st"]
+        original_current_member = app["current_member"]
+        fake_st = type("FakeStreamlit", (), {"session_state": {}})()
+        try:
+            app["st"] = fake_st
+            app["current_member"] = lambda: None
+            app["remember_pending_member_search"](" 0402 1% 10K ")
+            self.assertEqual(app["resumable_member_search_query"](), "")
+
+            app["current_member"] = lambda: {"id": 7}
+            self.assertEqual(app["resumable_member_search_query"](), "0402 1% 10K")
+            app["clear_pending_member_search"]()
+            self.assertEqual(app["resumable_member_search_query"](), "")
+        finally:
+            app["st"] = original_st
+            app["current_member"] = original_current_member
+
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
         milliohm = app["parse_resistor_spec_query"]("1206 0.01R 1% 1/4W")
@@ -687,6 +729,7 @@ class SystemRegressionTests(unittest.TestCase):
             app["ensure_configured_admin_member_account"]()
             app["reset_member_auth_remote_refresh_cache"]()
             requests_before_login = dict(request_counts)
+            app["initialize_member_auth_remote_storage"]()
             restored, message = app["authenticate_member"]("DURABLEUSER", "secret1")
             self.assertIsNotNone(restored, message)
             self.assertEqual(request_counts["get"] - requests_before_login["get"], 1)
@@ -1293,6 +1336,8 @@ class SystemRegressionTests(unittest.TestCase):
             ({"品牌": "华新科Walsin", "型号": "RF03N0R1A250CT", "系列": "RF", "尺寸（inch）": "0201", "高度（mm）": "0.30"}, "15000PCS"),
             ({"品牌": "华新科Walsin", "型号": "HH21N0R5B101CT", "系列": "HH", "尺寸（inch）": "0805", "高度（mm）": "1.25"}, "3000PCS"),
             ({"品牌": "华新科Walsin", "型号": "MT15N0R5B500CT", "系列": "MT", "尺寸（inch）": "0402", "高度（mm）": "0.50"}, "10000PCS"),
+            ({"品牌": "FOJAN(富捷)", "型号": "FRM121WFR010TM", "系列": "FRM", "尺寸（inch）": "1206"}, "5000PCS"),
+            ({"品牌": "FOJAN(富捷)", "型号": "FPM253WFR060TM", "系列": "FPM", "尺寸（inch）": "2512"}, "4000PCS"),
         ]
         for row, expected in cases:
             result = lookup(row)
@@ -1379,6 +1424,82 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             self.app["COST_PRICE_DB_PATH"] = original_cost_path
             self.app["clear_cost_price_lookup_cache"]()
+
+    def test_14_fojan_alloy_resistor_rules_are_source_scoped(self):
+        app = self.app
+
+        parsed_frm = app["parse_resistor_model_rule"](
+            "FRM121WFR010TM",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_frm["器件类型"], "合金电阻")
+        self.assertEqual(parsed_frm["系列"], "FRM")
+        self.assertEqual(parsed_frm["尺寸（inch）"], "1206")
+        self.assertEqual(parsed_frm["容值"], "10")
+        self.assertEqual(parsed_frm["容值单位"], "mΩ")
+        self.assertEqual(parsed_frm["容值误差"], "1")
+        self.assertEqual(parsed_frm["功率"], "1W")
+
+        parsed_fpm = app["parse_resistor_model_rule"](
+            "FPM253WFR060TM",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_fpm["器件类型"], "合金电阻")
+        self.assertEqual(parsed_fpm["系列"], "FPM")
+        self.assertEqual(parsed_fpm["尺寸（inch）"], "2512")
+        self.assertEqual(parsed_fpm["容值"], "60")
+        self.assertEqual(parsed_fpm["容值单位"], "mΩ")
+        self.assertEqual(parsed_fpm["容值误差"], "1")
+        self.assertEqual(parsed_fpm["功率"], "3W")
+
+        mode, spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(),
+            "合金电阻 电阻10毫欧 ±1% 1206",
+        )
+        self.assertEqual(mode, "合金电阻")
+        rows = app["load_search_dataframe_for_query"](mode, spec)
+        fojan_models = set(
+            rows[rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)]["型号"].map(app["clean_model"])
+        )
+        self.assertIn("FRM121WFR010TM", fojan_models)
+        self.assertNotIn("FRL1206FR010TS", fojan_models)
+        display = app["select_component_display_columns"](
+            rows[rows["型号"].map(app["clean_model"]).eq("FRM121WFR010TM")],
+            spec,
+            prefix_columns=["品牌", "型号", "系列"],
+        )
+        self.assertEqual(display.iloc[0]["MOQ"], "5000PCS")
+        self.assertIn("FOJAN", display.iloc[0]["MOQ来源"])
+
+        mode, spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(),
+            "富捷 贴片合金电阻 0.06R 2512 3W ±1%",
+        )
+        self.assertEqual(mode, "合金电阻")
+        self.assertEqual(spec["品牌"], "FOJAN(富捷)")
+        rows = app["load_search_dataframe_for_query"](mode, spec)
+        self.assertEqual(set(rows["品牌"]), {"FOJAN(富捷)"})
+        self.assertEqual(set(rows["型号"].map(app["clean_model"])), {"FPM253WFR060TM"})
+        display = app["select_component_display_columns"](
+            rows,
+            spec,
+            prefix_columns=["品牌", "型号", "系列"],
+        )
+        self.assertEqual(display.iloc[0]["MOQ"], "4000PCS")
+        self.assertIn("FOJAN FPM", display.iloc[0]["MOQ来源"])
+
+        for query in (
+            "贴片合金电阻 0.3Ω ±1% 1206 1W",
+            "贴片合金电阻 2512 0.2R ±1%",
+        ):
+            mode, spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            rows = app["load_search_dataframe_for_query"](mode, spec)
+            if rows is None or rows.empty:
+                continue
+            fojan_rows = rows[rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)]
+            self.assertTrue(fojan_rows.empty, query)
 
 
 if __name__ == "__main__":

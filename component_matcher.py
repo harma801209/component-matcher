@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import sqlite3
 import os
@@ -136,6 +136,7 @@ MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
 MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
 MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
+MEMBER_PENDING_SEARCH_QUERY_KEY = "_member_pending_search_query"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
@@ -1071,7 +1072,7 @@ def flush_member_auth_remote_snapshot():
 
 
 def initialize_member_auth_remote_storage():
-    status = pull_member_auth_remote_snapshot()
+    status = refresh_member_auth_remote_snapshot()
     if status == "empty" and os.path.exists(MEMBER_AUTH_DB_PATH):
         flush_member_auth_remote_snapshot()
     return status
@@ -1403,14 +1404,14 @@ def render_no_match_admin_entry_button():
         member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
             get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
         )
-        href_updates = {"admin": "0", "member": "0"}
+        href_updates = {"admin": "0", "member": "0", "bom": "0"}
         if member_token:
             href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
         href = build_app_href(**href_updates)
         css_class = "admin-login-fixed secondary"
     else:
         label = "进入后台" if authenticated else "登入后台"
-        href = build_app_href(admin="1")
+        href = build_app_href(admin="1", member="0", bom="0")
         css_class = "admin-login-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
@@ -2850,7 +2851,7 @@ def create_member_session(member_id):
 
 
 def authenticate_member(username, password):
-    refresh_member_auth_remote_snapshot(force=True)
+    refresh_member_auth_remote_snapshot()
     ensure_configured_admin_member_account()
     member = get_member_by_username(username)
     if not member:
@@ -3077,6 +3078,12 @@ def set_current_member(member):
         update_query_params(**{MEMBER_AUTH_QUERY_PARAM: token})
 
 
+def complete_member_login(member):
+    set_current_member(member)
+    if is_member_page_requested():
+        update_query_params(member="", admin="")
+
+
 def set_current_member_from_admin_login(username, password):
     if not no_match_admin_login_valid(username, password):
         return None
@@ -3105,12 +3112,17 @@ def logout_member():
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
     update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
 
 
 def is_member_page_requested():
     return get_query_param_value("member").lower() in {"1", "true", "yes", "on", "login", "center"}
+
+
+def is_bom_page_requested():
+    return get_query_param_value("bom").lower() in {"1", "true", "yes", "on", "upload", "match"}
 
 
 def render_member_entry_button():
@@ -3129,6 +3141,23 @@ def render_member_entry_button():
         label = "会员登录"
         href = build_app_href(member="1")
         css_class = "member-login-fixed"
+    st.markdown(
+        f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_bom_entry_button():
+    if is_no_match_admin_page_requested():
+        return
+    if is_bom_page_requested():
+        label = "返回搜索"
+        href = build_app_href(bom="0", member="0", admin="0")
+        css_class = "bom-entry-fixed secondary"
+    else:
+        label = "BOM批量匹配"
+        href = build_app_href(bom="1", member="0", admin="0")
+        css_class = "bom-entry-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
         unsafe_allow_html=True,
@@ -3169,7 +3198,7 @@ def render_member_auth_panel(action_text=""):
         if submitted:
             member, error = authenticate_member(username, password)
             if member:
-                set_current_member(member)
+                complete_member_login(member)
                 st.success("登录成功。")
                 st.rerun()
             else:
@@ -3571,6 +3600,23 @@ def require_member_login_for_action(action_text):
     st.session_state["_member_auth_prompt_action"] = clean_text(action_text)
     render_member_auth_panel(action_text)
     return False
+
+
+def remember_pending_member_search(query_text):
+    query_text = clean_text(query_text)
+    if query_text:
+        st.session_state[MEMBER_PENDING_SEARCH_QUERY_KEY] = query_text
+
+
+def resumable_member_search_query():
+    query_text = clean_text(st.session_state.get(MEMBER_PENDING_SEARCH_QUERY_KEY, ""))
+    if query_text and current_member():
+        return query_text
+    return ""
+
+
+def clear_pending_member_search():
+    st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
 
 
 def render_no_match_report_button(
@@ -5247,6 +5293,23 @@ def should_render_inline_footer():
     return embed_value not in {"1", "true", "yes", "on"}
 
 
+def render_inline_footer():
+    if not should_render_inline_footer():
+        return
+    st.markdown(
+        '''
+        <div class="app-footer-shell">
+        <div class="app-footer">
+            网站管理员：Terry Wu　　
+            系统问题请与管理员联系：
+            <a href="mailto:terry@fruition-sz.com" style="color: #1565c0; text-decoration: none;">terry@fruition-sz.com</a>
+        </div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+
 def require_app_access():
     startup_trace("require_app_access:enter")
     access_code = get_configured_access_code()
@@ -5750,6 +5813,36 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     background: #ffffff;
     color: #475569 !important;
 }
+.bom-entry-fixed {
+    position: fixed;
+    top: 118px;
+    right: 28px;
+    z-index: 100000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 118, 110, 0.24);
+    background: #ffffff;
+    color: #0f766e !important;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+.bom-entry-fixed:hover {
+    background: #f0fdfa;
+    color: #115e59 !important;
+    text-decoration: none !important;
+}
+.bom-entry-fixed.secondary {
+    border-color: rgba(100, 116, 139, 0.26);
+    color: #475569 !important;
+}
 @media (max-width: 700px) {
     .admin-hero {
         display: block;
@@ -5780,6 +5873,14 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     }
     .member-login-fixed {
         top: 54px;
+        right: 12px;
+        min-width: 86px;
+        height: 34px;
+        padding: 0 12px;
+        font-size: 13px;
+    }
+    .bom-entry-fixed {
+        top: 96px;
         right: 12px;
         min-width: 86px;
         height: 34px;
@@ -9294,6 +9395,150 @@ def parse_pdc_fmf_alloy_resistor_model(model, brand="", component_type=""):
     }
 
 
+FOJAN_ALLOY_MODEL_PATTERN = re.compile(
+    r"^(?P<series>FRM|FPM)(?P<size_code>12|25)(?P<power>[123]W)"
+    r"(?P<tol>[FGJ])(?P<res>R\d{3,4})T(?P<suffix>ML|M|N|K)$"
+)
+FOJAN_ALLOY_TOLERANCE_CODE_MAP = {"F": "1", "G": "2", "J": "5"}
+FOJAN_FPM_DATASHEET_SOURCE = (
+    "FPM Series Low Resistance High Power Alloy Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FRM_1206_EVIDENCE_SOURCE = (
+    "FOJAN/JLCPCB FRM121WFR010TM and FRM121WFR050TM product pages; "
+    "local official-view catalog rows"
+)
+
+
+def fojan_alloy_resistance_mohm(resistance_ohm):
+    try:
+        value = float(resistance_ohm)
+    except Exception:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    mohm = value * 1000.0
+    if mohm <= 0:
+        return None
+    return mohm
+
+
+def fojan_alloy_value_code(resistance_ohm):
+    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
+    if mohm is None:
+        return ""
+    scaled = round(mohm * 10)
+    if abs(mohm * 10 - scaled) < 1e-9 and scaled % 10 != 0:
+        if 1 <= scaled <= 9999:
+            return f"R{scaled:04d}"
+        return ""
+    rounded = round(mohm)
+    if abs(mohm - rounded) > 1e-9 or not (1 <= rounded <= 999):
+        return ""
+    return f"R{rounded:03d}"
+
+
+def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
+    series = clean_text(series).upper()
+    size = clean_size(size)
+    power = format_power_display(power)
+    suffix = clean_text(suffix).upper()
+    if mohm is None:
+        return False
+    if series == "FPM":
+        if size != "2512" or power != "3W":
+            return False
+        if suffix == "ML":
+            return 0.5 <= mohm <= 4.0
+        if suffix == "M":
+            return 1.0 <= mohm <= 100.0
+        return False
+    if series == "FRM":
+        if size == "1206" and power == "1W":
+            return 1.0 <= mohm <= 250.0
+        if size == "2512" and power in {"2W", "3W"}:
+            return 1.0 <= mohm <= 680.0
+    return False
+
+
+def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
+    resistance_ohm = parse_resistor_value_code(value_code)
+    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
+    if resistance_ohm is None or not fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
+        return None
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    dimensions = {
+        "1206": ("3.20", "1.60", ""),
+        "2512": ("6.40", "3.20", ""),
+    }.get(size, ("", "", ""))
+    special_parts = ["电流检测", "分流器", "低阻", "合金"]
+    series_desc = "低阻值高功率合金电阻" if series == "FPM" else "合金低阻贴片电阻"
+    data_source = FOJAN_FPM_DATASHEET_SOURCE if series == "FPM" else FOJAN_FRM_1206_EVIDENCE_SOURCE
+    if suffix == "ML":
+        special_parts.append("大电极")
+        series_desc += "（大电极）"
+    summary_parts = [
+        f"{value_text}{unit_text}" if value_text and unit_text else "",
+        clean_tol_for_display(tol),
+        format_power_display(power),
+        size,
+        series_desc,
+    ]
+    return {
+        "品牌": "FOJAN(富捷)",
+        "器件类型": "合金电阻",
+        "系列": series,
+        "系列说明": series_desc,
+        "特殊用途": " | ".join(special_parts),
+        "尺寸（inch）": size,
+        "尺寸（mm）": f"{dimensions[0]}*{dimensions[1]}mm" if dimensions[0] and dimensions[1] else "",
+        "长度（mm）": dimensions[0],
+        "宽度（mm）": dimensions[1],
+        "高度（mm）": dimensions[2],
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "阻值@25C": f"{float(resistance_ohm):g}",
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "功率": format_power_display(power),
+        "安装方式": "贴片",
+        "封装代码": size,
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "数据来源": data_source,
+        "数据状态": "规格书/平台可查",
+        "_resistance_ohm": float(resistance_ohm),
+        "_power": format_power_display(power),
+        "_model_rule_authority": "fojan_alloy_resistor_model",
+        "_value_code": value_code,
+        "_fojan_suffix": suffix,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power else 0]),
+    }
+
+
+def parse_fojan_alloy_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model).upper()
+    match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
+    if match is None:
+        return None
+    size = {"12": "1206", "25": "2512"}.get(match.group("size_code"), "")
+    tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
+    if size == "" or tol == "":
+        return None
+    parsed = fojan_alloy_model_fields(
+        match.group("series"),
+        size,
+        match.group("power"),
+        tol,
+        match.group("res"),
+        match.group("suffix"),
+    )
+    if parsed is None:
+        return None
+    parsed["型号"] = compact
+    return parsed
+
+
 def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
     match_2010 = re.fullmatch(
@@ -9478,6 +9723,7 @@ def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
         parse_murata_mhr_resistor_model,
         parse_milliohm_holr_alloy_resistor_model,
+        parse_fojan_alloy_resistor_model,
         parse_bourns_crf0805_current_sense_model,
         parse_pdc_fmf_alloy_resistor_model,
         parse_ralec_lr_alloy_resistor_model,
@@ -27458,7 +27704,10 @@ def format_fojan_resistor_value_code(resistance_ohm, tolerance):
 
 
 def build_fojan_resistor_model_from_spec(spec):
-    if not isinstance(spec, dict) or infer_spec_component_type(spec) not in RESISTOR_COMPONENT_TYPES:
+    if not isinstance(spec, dict):
+        return ""
+    component_type = infer_spec_component_type(spec)
+    if component_type == "合金电阻" or component_type not in RESISTOR_COMPONENT_TYPES:
         return ""
     size = clean_size(spec.get("尺寸（inch）", ""))
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))
@@ -27483,11 +27732,46 @@ def build_fojan_resistor_model_from_spec(spec):
     return model if parse_valid_fojan_resistor_model(model) is not None else ""
 
 
+def fojan_brand_requested_or_unset(spec):
+    brand = clean_brand((spec or {}).get("品牌", ""))
+    if brand == "":
+        return True
+    brand_upper = brand.upper()
+    return "FOJAN" in brand_upper or "富捷" in brand
+
+
+def build_fojan_alloy_models_from_spec(spec):
+    if not isinstance(spec, dict) or infer_spec_component_type(spec) != "合金电阻":
+        return []
+    if not fojan_brand_requested_or_unset(spec):
+        return []
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    power = format_power_display(spec.get("_power", ""))
+    tol_code = {"1": "F", "2": "G", "5": "J"}.get(tolerance, "")
+    value_code = fojan_alloy_value_code(resistance_ohm)
+    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
+    if size == "" or tol_code == "" or value_code == "" or mohm is None:
+        return []
+    candidates = []
+    if size == "1206" and power in {"", "1W"} and 1.0 <= mohm <= 250.0:
+        candidates.append(f"FRM121W{tol_code}{value_code}TM")
+    if size == "2512" and power == "3W":
+        if 0.5 <= mohm <= 4.0:
+            candidates.append(f"FPM253W{tol_code}{value_code}TML")
+        if 1.0 <= mohm <= 100.0:
+            candidates.append(f"FPM253W{tol_code}{value_code}TM")
+    return list(dict.fromkeys(candidates))
+
+
 def infer_rule_fallback_brand_from_model(model, brand=""):
     resolved_brand = clean_brand(brand)
     if resolved_brand != "":
         return resolved_brand
     compact = clean_model(model).upper()
+    if parse_fojan_alloy_resistor_model(compact, brand="FOJAN(富捷)", component_type="合金电阻") is not None:
+        return "FOJAN(富捷)"
     if parse_valid_fojan_resistor_model(compact) is not None:
         return "FOJAN(富捷)"
     return ""
@@ -27498,7 +27782,11 @@ def build_rule_fallback_row_from_model(model, brand=""):
     if compact_model.startswith(("FRC", "FRL")) and parse_valid_fojan_resistor_model(compact_model) is None:
         return pd.DataFrame()
     resolved_brand = infer_rule_fallback_brand_from_model(model, brand=brand)
-    if resolved_brand == "FOJAN(富捷)" and parse_valid_fojan_resistor_model(model) is None:
+    if (
+        resolved_brand == "FOJAN(富捷)"
+        and parse_valid_fojan_resistor_model(model) is None
+        and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
+    ):
         return pd.DataFrame()
     parsed = parse_model_rule(model, brand=resolved_brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
@@ -27536,7 +27824,11 @@ def build_rule_fallback_row_from_model(model, brand=""):
         fallback = prepare_search_dataframe(fallback)
     except Exception:
         pass
-    if resolved_brand == "FOJAN(富捷)" and not fallback.empty:
+    if (
+        resolved_brand == "FOJAN(富捷)"
+        and not fallback.empty
+        and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
+    ):
         price = lookup_resistor_series_pricing(fallback.iloc[0].to_dict())
         if clean_text(price.get("成本", "")) == "":
             return pd.DataFrame()
@@ -27544,10 +27836,17 @@ def build_rule_fallback_row_from_model(model, brand=""):
 
 
 def build_fojan_rule_candidate_from_spec(spec):
+    frames = []
     model = build_fojan_resistor_model_from_spec(spec)
-    if model == "":
-        return pd.DataFrame()
-    return build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
+    if model != "":
+        frame = build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    for alloy_model in build_fojan_alloy_models_from_spec(spec):
+        frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    return concat_component_frames(frames)
 
 
 def load_component_rows_by_clean_model(model):
@@ -34319,6 +34618,470 @@ def build_bom_run_signature(uploaded_file, selected_mapping):
     )
 
 
+def render_bom_upload_page():
+    st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
+    startup_trace("after_bom_title")
+    uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
+    startup_trace("after_file_uploader")
+    effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
+
+    if effective_uploaded_file is not None:
+        if not require_member_login_for_action("BOM 批量上传匹配"):
+            st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = True
+            st.stop()
+        st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
+        uploaded_file = effective_uploaded_file
+        progress_placeholder = st.empty()
+        try:
+            render_bom_progress_card(
+                progress_placeholder,
+                {
+                    "title": "BOM 文件读取中",
+                    "subtitle": "正在解析上传的 Excel / CSV / 图片文件",
+                    "current_text": getattr(uploaded_file, "name", "正在读取上传文件"),
+                    "processed_rows": 0,
+                    "total_rows": 0,
+                    "percent": 3.0,
+                    "done": False,
+                    "elapsed_seconds": 0.0,
+                    "chips": [
+                        {"label": "阶段", "value": "读取文件", "tone": "warn"},
+                        {"label": "状态", "value": "等待中", "tone": "warn"},
+                    ],
+                },
+            )
+            bom_workbook = read_uploaded_bom_workbook(uploaded_file)
+            bom_sheet_frames = bom_workbook.get("sheet_frames", [])
+            security_limits = get_runtime_security_limits()
+            bom_total_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
+            bom_total_sheets = len(bom_sheet_frames)
+            if bom_total_rows > security_limits["max_bom_rows"]:
+                render_bom_progress_card(
+                    progress_placeholder,
+                    {
+                        "title": "BOM 文件过大",
+                        "subtitle": "当前文件行数超过了系统安全上限",
+                        "current_text": f"行数：{bom_total_rows}，上限：{security_limits['max_bom_rows']}",
+                        "processed_rows": 0,
+                        "total_rows": bom_total_rows,
+                        "percent": 100.0,
+                        "done": True,
+                        "elapsed_seconds": 0.0,
+                        "chips": [
+                            {"label": "限制", "value": "行数过大", "tone": "fail"},
+                            {"label": "当前", "value": str(bom_total_rows), "tone": "fail"},
+                            {"label": "上限", "value": str(security_limits["max_bom_rows"]), "tone": "warn"},
+                        ],
+                    },
+                )
+                st.error(f"单次 BOM 处理行数不能超过 {security_limits['max_bom_rows']} 行。")
+                st.stop()
+            if bom_total_sheets > security_limits["max_bom_sheets"]:
+                render_bom_progress_card(
+                    progress_placeholder,
+                    {
+                        "title": "BOM 文件过大",
+                        "subtitle": "当前文件分页过多，已触发安全上限",
+                        "current_text": f"分页数：{bom_total_sheets}，上限：{security_limits['max_bom_sheets']}",
+                        "processed_rows": 0,
+                        "total_rows": bom_total_rows,
+                        "percent": 100.0,
+                        "done": True,
+                        "elapsed_seconds": 0.0,
+                        "chips": [
+                            {"label": "限制", "value": "分页过多", "tone": "fail"},
+                            {"label": "当前", "value": str(bom_total_sheets), "tone": "fail"},
+                            {"label": "上限", "value": str(security_limits["max_bom_sheets"]), "tone": "warn"},
+                        ],
+                    },
+                )
+                st.error(f"单次 BOM 分页数不能超过 {security_limits['max_bom_sheets']} 页。")
+                st.stop()
+
+            if not bom_sheet_frames:
+                bom_read_error = clean_text(bom_workbook.get("read_error", ""))
+                bom_failure_note = bom_read_error or "上传文件内容为空，未能生成可匹配数据"
+                render_bom_progress_card(
+                    progress_placeholder,
+                    {
+                        "title": "BOM 读取失败",
+                        "subtitle": bom_failure_note,
+                        "current_text": getattr(uploaded_file, "name", "空文件"),
+                        "processed_rows": 0,
+                        "total_rows": 0,
+                        "percent": 100.0,
+                        "done": True,
+                        "elapsed_seconds": 0.0,
+                        "chips": [
+                            {"label": "阶段", "value": "读取完成", "tone": "fail"},
+                            {"label": "状态", "value": "读取失败" if bom_read_error else "空文件", "tone": "fail"},
+                        ],
+                    },
+                )
+                st.warning(bom_failure_note)
+            else:
+                workbook_signature = build_uploaded_file_signature(uploaded_file)
+                if st.session_state.get("_bom_workbook_signature") != workbook_signature:
+                    for key in [
+                        "_bom_result_signature",
+                        "_bom_result_df",
+                        "_bom_export_bytes",
+                        "_bom_sheet_results",
+                        "_bom_sheet_mappings",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.session_state["_bom_workbook_signature"] = workbook_signature
+                    st.session_state["_bom_manual_mapping_open"] = False
+
+                st.session_state["_bom_workbook_state"] = bom_workbook
+                if "_bom_sheet_mappings" not in st.session_state:
+                    st.session_state["_bom_sheet_mappings"] = {}
+                if "_bom_sheet_results" not in st.session_state:
+                    st.session_state["_bom_sheet_results"] = {}
+
+                sheet_names = [item.get("sheet_name", f"Sheet{idx + 1}") for idx, item in enumerate(bom_sheet_frames)]
+                selected_sheet_name = sheet_names[0]
+                sheet_selector_key = f"bom_sheet_selector_{workbook_signature}"
+                if len(sheet_names) > 1:
+                    selected_sheet_name = st.selectbox("分页", sheet_names, key=sheet_selector_key)
+                    st.caption(f"本次上传共 {len(sheet_names)} 个分页，系统会逐页匹配并在下载时保留原分页结构。")
+
+                selected_sheet = next(
+                    (item for item in bom_sheet_frames if clean_text(item.get("sheet_name", "")) == clean_text(selected_sheet_name)),
+                    bom_sheet_frames[0],
+                )
+                bom_df = selected_sheet.get("df", pd.DataFrame()).copy()
+                total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
+                bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
+
+                cached_bom_result_df = pd.DataFrame()
+                cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
+                if (
+                    st.session_state.get("_bom_workbook_signature") == workbook_signature
+                    and isinstance(cached_bom_sheet_results, dict)
+                    and cached_bom_sheet_results
+                ):
+                    cached_bom_result_df = cached_bom_sheet_results.get(
+                        selected_sheet_name,
+                        st.session_state.get("_bom_result_df", pd.DataFrame()),
+                    )
+                if isinstance(cached_bom_result_df, pd.DataFrame) and not cached_bom_result_df.empty:
+                    cached_status_counts = count_bom_recommendation_statuses(cached_bom_result_df)
+                    cached_component_distribution_text = build_bom_component_distribution_text(cached_bom_result_df)
+                    cached_summary_lines = [
+                        (
+                            f"解析完成：可推荐 {cached_status_counts['可推荐']} 行，"
+                            f"需确认 {cached_status_counts['需确认']} 行，"
+                            f"参数冲突 {cached_status_counts['参数冲突']} 行，"
+                            f"解析失败 {cached_status_counts['解析失败']} 行，"
+                            f"无匹配 {cached_status_counts['无匹配']} 行。"
+                        ),
+                    ]
+                    if cached_component_distribution_text:
+                        cached_summary_lines.append(cached_component_distribution_text)
+                    render_bom_progress_card(
+                        progress_placeholder,
+                        {
+                            "title": "BOM 匹配完成",
+                            "subtitle": f"已生成当前分页匹配结果，共 {len(bom_sheet_frames)} 个分页，下载文件已保留原分页结构",
+                            "current_text": f"当前分页：{selected_sheet_name}",
+                            "processed_rows": total_workbook_rows,
+                            "total_rows": total_workbook_rows,
+                            "percent": 100.0,
+                            "done": True,
+                            "elapsed_seconds": 0.0,
+                                "chips": [
+                                    {"label": "阶段", "value": "完成", "tone": "success"},
+                                    {"label": "状态", "value": "可下载", "tone": "success"},
+                                    {"label": "可推荐", "value": str(cached_status_counts["可推荐"]), "tone": "success"},
+                                    {"label": "需确认", "value": str(cached_status_counts["需确认"]), "tone": "warn"},
+                                    {"label": "参数冲突", "value": str(cached_status_counts["参数冲突"]), "tone": "fail"},
+                                    {"label": "解析失败", "value": str(cached_status_counts["解析失败"]), "tone": "success" if cached_status_counts["解析失败"] == 0 else "fail"},
+                                    {"label": "无匹配", "value": str(cached_status_counts["无匹配"]), "tone": "success" if cached_status_counts["无匹配"] == 0 else "warn"},
+                                ],
+                                "summary_lines": cached_summary_lines,
+                            },
+                        )
+                else:
+                    render_bom_progress_card(
+                        progress_placeholder,
+                        {
+                            "title": "BOM 文件读取完成",
+                            "subtitle": f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据，正在准备列识别",
+                            "current_text": f"当前分页：{selected_sheet_name}",
+                            "processed_rows": 0,
+                            "total_rows": total_workbook_rows,
+                            "percent": 8.0,
+                            "done": False,
+                            "elapsed_seconds": 0.0,
+                            "chips": [
+                                {"label": "阶段", "value": "读取完成", "tone": "success"},
+                                {"label": "分页", "value": f"{len(bom_sheet_frames)}", "tone": "success"},
+                                {"label": "行数", "value": str(total_workbook_rows), "tone": "success"},
+                            ],
+                        },
+                    )
+
+                guessed_mapping = guess_bom_column_mapping(bom_df)
+                bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)
+                sheet_mapping_store = st.session_state["_bom_sheet_mappings"]
+                for item in bom_sheet_frames:
+                    sheet_name = clean_text(item.get("sheet_name", ""))
+                    if sheet_name == "":
+                        continue
+                    if sheet_name not in sheet_mapping_store or not isinstance(sheet_mapping_store.get(sheet_name), dict):
+                        sheet_mapping_store[sheet_name] = guess_bom_column_mapping(item.get("df", pd.DataFrame()))
+                if "_bom_manual_mapping_open" not in st.session_state:
+                    st.session_state["_bom_manual_mapping_open"] = False
+                consume_bom_manual_mapping_toggle(workbook_signature)
+                manual_mapping_open = bool(st.session_state.get("_bom_manual_mapping_open", False))
+                stored_manual_mapping = sheet_mapping_store.get(selected_sheet_name, guessed_mapping)
+
+                st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
+                if bom_read_warning:
+                    st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
+                else:
+                    st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
+                preview_df = bom_df.copy()
+                preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
+                is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
+                preview_html = render_static_preview_table(
+                    preview_df,
+                    wrapper_class="bom-result-table-wrap",
+                )
+                if preview_html:
+                    components.html(
+                        preview_html,
+                        height=estimate_bom_preview_iframe_height(len(preview_df), compact=is_ocr_preview),
+                        scrolling=False,
+                    )
+
+                def resolve_bom_mapping_value(role, fallback_mapping):
+                    value = clean_text(stored_manual_mapping.get(role, ""))
+                    if value not in bom_column_options:
+                        value = clean_text((fallback_mapping or {}).get(role, ""))
+                    if value not in bom_column_options:
+                        value = BOM_NONE_OPTION
+                    return None if value == BOM_NONE_OPTION else value
+
+                selected_mapping = {
+                    role: resolve_bom_mapping_value(role, guessed_mapping)
+                    for role in ["model", "spec", "name", "quantity"]
+                }
+
+                if manual_mapping_open:
+                    st.caption("系统会先自动猜测常见表头，你也可以手动改成正确的型号列、规格列、品名列、数量列。再次点击按钮即可收起。")
+                    mapping_cols = st.columns(4)
+                    selected_mapping = {}
+                    for col_ui, role in zip(mapping_cols, ["model", "spec", "name", "quantity"]):
+                        default_value = resolve_bom_mapping_value(role, guessed_mapping)
+                        widget_value = col_ui.selectbox(
+                            BOM_ROLE_LABELS[role],
+                            bom_column_options,
+                            index=bom_column_options.index(default_value if default_value in bom_column_options else BOM_NONE_OPTION),
+                            key=f"bom_{workbook_signature}_{selected_sheet_name}_{role}_column",
+                        )
+                        selected_mapping[role] = None if widget_value == BOM_NONE_OPTION else widget_value
+                    sheet_mapping_store[selected_sheet_name] = selected_mapping
+                else:
+                    sheet_mapping_store[selected_sheet_name] = selected_mapping
+
+                parse_columns = [selected_mapping.get(x) for x in ["model", "spec", "name"] if selected_mapping.get(x)]
+                if not parse_columns:
+                    st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
+                else:
+                    current_bom_signature = build_bom_workbook_run_signature(uploaded_file, sheet_mapping_store)
+                    stored_bom_signature = st.session_state.get("_bom_result_signature", "")
+                    if stored_bom_signature != current_bom_signature:
+                        st.session_state.pop("_bom_result_signature", None)
+                        st.session_state.pop("_bom_result_df", None)
+                        st.session_state.pop("_bom_export_bytes", None)
+                        st.session_state.pop("_bom_sheet_results", None)
+
+                    if len(parse_columns) != len(set(parse_columns)):
+                        st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
+
+                    if stored_bom_signature != current_bom_signature:
+                        if not ensure_component_data_ready("BOM 匹配"):
+                            render_bom_progress_card(
+                                progress_placeholder,
+                                {
+                                    "title": "BOM 匹配失败",
+                                    "subtitle": "当前环境缺少可用数据库，无法开始匹配",
+                                    "current_text": "请先确认部署数据包或本地数据库是否完整",
+                                    "processed_rows": 0,
+                                    "total_rows": total_workbook_rows,
+                                    "percent": 100.0,
+                                    "done": True,
+                                    "elapsed_seconds": 0.0,
+                                    "chips": [
+                                        {"label": "阶段", "value": "匹配终止", "tone": "fail"},
+                                        {"label": "状态", "value": "数据不可用", "tone": "fail"},
+                                    ],
+                                },
+                            )
+                            st.warning("当前环境缺少可用数据库，请先确认部署数据包或本地数据库。")
+                        else:
+                            progress_state_holder = {"state": {}}
+
+                            def update_bom_progress(progress_state):
+                                progress_state_holder["state"] = progress_state or {}
+                                render_bom_progress_card(progress_placeholder, progress_state_holder["state"])
+
+                            update_bom_progress({
+                                "title": "BOM 正在匹配",
+                                "subtitle": f"正在解析上传文件并匹配元器件库（分页 {selected_sheet_name}）",
+                                "current_text": "准备开始 BOM 匹配",
+                                "processed_rows": 0,
+                                "total_rows": total_workbook_rows,
+                                "percent": 8.0,
+                                "done": False,
+                                "elapsed_seconds": 0.0,
+                                "chips": [
+                                    {"label": "阶段", "value": "匹配中", "tone": "warn"},
+                                    {"label": "分页", "value": f"{len(bom_sheet_frames)}", "tone": "warn"},
+                                    {"label": "当前", "value": selected_sheet_name, "tone": "warn"},
+                                ],
+                            })
+                            sheet_results = build_bom_workbook_sheet_results(bom_workbook, sheet_mapping_store, progress_callback=update_bom_progress)
+                            sheet_result_map = {item["sheet_name"]: item.get("result_df", pd.DataFrame()) for item in sheet_results}
+
+                            final_match_state = dict(progress_state_holder["state"] or {})
+                            base_match_chips = [
+                                chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
+                                if clean_text(chip.get("label", "")) not in {"阶段", "状态"}
+                            ]
+                            final_match_state.update({
+                                "title": "BOM 正在生成下载文件",
+                                "subtitle": "匹配已完成，正在生成导出 Excel",
+                                "current_text": "请稍候，下载文件正在生成",
+                                "processed_rows": total_workbook_rows,
+                                "total_rows": total_workbook_rows,
+                                "percent": 96.0,
+                                "done": False,
+                                "chips": [
+                                    {"label": "阶段", "value": "导出中", "tone": "warn"},
+                                    {"label": "状态", "value": "准备下载", "tone": "warn"},
+                                ] + base_match_chips,
+                            })
+                            render_bom_progress_card(progress_placeholder, final_match_state)
+                            st.session_state["_bom_result_signature"] = current_bom_signature
+                            st.session_state["_bom_sheet_results"] = sheet_result_map
+                            current_bom_result_df = sheet_result_map.get(selected_sheet_name, pd.DataFrame())
+                            st.session_state["_bom_result_df"] = current_bom_result_df
+                            st.session_state["_bom_export_bytes"] = bom_to_excel_bytes(
+                                st.session_state["_bom_result_df"],
+                                bom_df,
+                                source_workbook=bom_workbook,
+                                sheet_results=sheet_results,
+                            )
+                            component_distribution_text = build_bom_component_distribution_text(
+                                current_bom_result_df
+                            )
+                            status_counts = count_bom_recommendation_statuses(current_bom_result_df) if isinstance(current_bom_result_df, pd.DataFrame) else count_bom_recommendation_statuses(pd.DataFrame())
+                            final_done_state = dict(progress_state_holder["state"] or {})
+                            base_done_chips = [
+                                chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
+                                if clean_text(chip.get("label", "")) not in {"阶段", "状态"}
+                            ]
+                            final_done_state.update({
+                                "title": "BOM 匹配完成",
+                                "subtitle": "已生成匹配结果和下载文件",
+                                "current_text": "可以继续查看下方结果表或下载 Excel",
+                                "processed_rows": total_workbook_rows,
+                                "total_rows": total_workbook_rows,
+                                "percent": 100.0,
+                                "done": True,
+                                "chips": [
+                                    {"label": "阶段", "value": "完成", "tone": "success"},
+                                    {"label": "状态", "value": "可下载", "tone": "success"},
+                                ] + base_done_chips,
+                                "summary_lines": [
+                                    (
+                                        f"解析完成：可推荐 {status_counts['可推荐']} 行，"
+                                        f"需确认 {status_counts['需确认']} 行，"
+                                        f"参数冲突 {status_counts['参数冲突']} 行，"
+                                        f"解析失败 {status_counts['解析失败']} 行，"
+                                        f"无匹配 {status_counts['无匹配']} 行。"
+                                    ),
+                                ] + ([component_distribution_text] if component_distribution_text else []),
+                            })
+                            render_bom_progress_card(progress_placeholder, final_done_state)
+
+                    bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
+                    bom_result_df = bom_sheet_results.get(selected_sheet_name, st.session_state.get("_bom_result_df", pd.DataFrame()))
+                    if isinstance(bom_result_df, pd.DataFrame) and not bom_result_df.empty:
+                        bom_display_df = build_bom_display_df(bom_result_df)
+                        bom_view_df = bom_display_df.copy()
+                        styled_bom_result_df = style_bom_result_rows(bom_view_df)
+
+                        status_counts = count_bom_recommendation_statuses(bom_result_df)
+                        component_distribution_text = build_bom_component_distribution_text(bom_result_df)
+
+                        display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
+                        export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
+                        export_filename = f"{export_name_root}_匹配后.xlsx"
+                        export_bytes = st.session_state.get("_bom_export_bytes", b"")
+                        result_header_cols = st.columns([0.72, 0.28], gap="small")
+                        with result_header_cols[0]:
+                            st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
+                        with result_header_cols[1]:
+                            download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
+                            download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
+                            if export_bytes:
+                                st.download_button(
+                                    "下载 BOM 匹配后 Excel",
+                                    data=export_bytes,
+                                    file_name=export_filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key=download_key,
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.button("下载文件尚未生成", key=f"{download_key}_disabled", disabled=True, use_container_width=True)
+                        clickable_bom_html = render_clickable_result_table(
+                            display_bom_result_df,
+                            hide_columns=[],
+                            show_official_status=False,
+                            wrapper_class="bom-result-table-wrap",
+                            footer_html="",
+                            outer_footer_html="",
+                        )
+                        if clickable_bom_html:
+                            components.html(
+                                clickable_bom_html,
+                                height=estimate_bom_result_iframe_height(
+                                    len(display_bom_result_df),
+                                ),
+                                scrolling=False,
+                            )
+                    else:
+                        st.info("正在等待当前自动匹配结果生成。")
+
+        except Exception as e:
+            try:
+                render_bom_progress_card(
+                    progress_placeholder,
+                    {
+                        "title": "BOM 处理失败",
+                        "subtitle": "上传文件或匹配流程发生异常",
+                        "current_text": str(e),
+                        "processed_rows": 0,
+                        "total_rows": 0,
+                        "percent": 100.0,
+                        "done": True,
+                        "elapsed_seconds": 0.0,
+                        "chips": [
+                            {"label": "阶段", "value": "异常", "tone": "fail"},
+                            {"label": "状态", "value": "请重试", "tone": "fail"},
+                        ],
+                    },
+                )
+            except Exception:
+                pass
+            st.error(f"BOM 处理失败：{e}")
+
+
 if __name__ == "__main__" and "--rebuild-search-index" in sys.argv:
     rebuild_search_index_from_database_fast()
     raise SystemExit(0)
@@ -34391,6 +35154,7 @@ initialize_member_auth_remote_storage()
 render_member_auth_browser_persistence_bridge()
 render_no_match_admin_entry_button()
 render_member_entry_button()
+render_bom_entry_button()
 
 logo_b64 = image_to_base64(LOGO_PATH)
 startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
@@ -34406,12 +35170,16 @@ if logo_b64:
     startup_trace("after_logo_markdown")
 
 st.markdown('<div class="main-title">富临通元器件匹配系统</div>', unsafe_allow_html=True)
-if not is_no_match_admin_page_requested():
+if is_no_match_admin_page_requested():
+    startup_trace("after_admin_header_markdown")
+elif is_bom_page_requested():
+    st.markdown('<div class="sub-title">上传 BOM 文件并批量匹配元器件型号</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title-2">支持 Excel、CSV 和图片；上传后可预览、调整列映射并下载匹配结果。</div>', unsafe_allow_html=True)
+    startup_trace("after_bom_intro_markdown")
+else:
     st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
     startup_trace("after_intro_markdown")
-else:
-    startup_trace("after_admin_header_markdown")
 
 last_report_message = st.session_state.pop("_no_match_report_last_message", None)
 if isinstance(last_report_message, dict) and clean_text(last_report_message.get("message", "")) != "":
@@ -34424,6 +35192,11 @@ if is_no_match_admin_page_requested():
     st.stop()
 if is_member_page_requested():
     render_member_center_page()
+    st.stop()
+if is_bom_page_requested():
+    render_bom_upload_page()
+    render_inline_footer()
+    startup_trace("after_footer")
     st.stop()
 
 search_text_area_kwargs = {
@@ -34439,7 +35212,14 @@ search_clicked = st.button("搜索")
 restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
 if restore_search_after_report and not query_input.strip():
     query_input = clean_text(st.session_state.get("_last_search_query_input", ""))
-search_requested = bool(search_clicked or (restore_search_after_report and query_input.strip()))
+pending_search_after_login = resumable_member_search_query()
+if pending_search_after_login:
+    query_input = pending_search_after_login
+search_requested = bool(
+    search_clicked or
+    (restore_search_after_report and query_input.strip()) or
+    pending_search_after_login
+)
 startup_trace("after_search_form")
 
 pending_member_action = clean_text(st.session_state.get("_member_auth_prompt_action", ""))
@@ -34447,8 +35227,11 @@ if pending_member_action and not current_member() and not search_requested:
     render_member_auth_panel(pending_member_action)
 
 if search_requested:
+    if not current_member():
+        remember_pending_member_search(query_input)
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
+    clear_pending_member_search()
     if not query_input.strip():
         st.warning("请输入料号或规格参数")
     else:
@@ -34970,482 +35753,9 @@ if search_requested:
             summary_lines=summary_lines,
         )
 
-st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
-startup_trace("after_bom_title")
-uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
-startup_trace("after_file_uploader")
-effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
-
-if effective_uploaded_file is not None:
-    if not require_member_login_for_action("BOM 批量上传匹配"):
-        st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = True
-        st.stop()
-    st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
-    uploaded_file = effective_uploaded_file
-    progress_placeholder = st.empty()
-    try:
-        render_bom_progress_card(
-            progress_placeholder,
-            {
-                "title": "BOM 文件读取中",
-                "subtitle": "正在解析上传的 Excel / CSV / 图片文件",
-                "current_text": getattr(uploaded_file, "name", "正在读取上传文件"),
-                "processed_rows": 0,
-                "total_rows": 0,
-                "percent": 3.0,
-                "done": False,
-                "elapsed_seconds": 0.0,
-                "chips": [
-                    {"label": "阶段", "value": "读取文件", "tone": "warn"},
-                    {"label": "状态", "value": "等待中", "tone": "warn"},
-                ],
-            },
-        )
-        bom_workbook = read_uploaded_bom_workbook(uploaded_file)
-        bom_sheet_frames = bom_workbook.get("sheet_frames", [])
-        security_limits = get_runtime_security_limits()
-        bom_total_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
-        bom_total_sheets = len(bom_sheet_frames)
-        if bom_total_rows > security_limits["max_bom_rows"]:
-            render_bom_progress_card(
-                progress_placeholder,
-                {
-                    "title": "BOM 文件过大",
-                    "subtitle": "当前文件行数超过了系统安全上限",
-                    "current_text": f"行数：{bom_total_rows}，上限：{security_limits['max_bom_rows']}",
-                    "processed_rows": 0,
-                    "total_rows": bom_total_rows,
-                    "percent": 100.0,
-                    "done": True,
-                    "elapsed_seconds": 0.0,
-                    "chips": [
-                        {"label": "限制", "value": "行数过大", "tone": "fail"},
-                        {"label": "当前", "value": str(bom_total_rows), "tone": "fail"},
-                        {"label": "上限", "value": str(security_limits["max_bom_rows"]), "tone": "warn"},
-                    ],
-                },
-            )
-            st.error(f"单次 BOM 处理行数不能超过 {security_limits['max_bom_rows']} 行。")
-            st.stop()
-        if bom_total_sheets > security_limits["max_bom_sheets"]:
-            render_bom_progress_card(
-                progress_placeholder,
-                {
-                    "title": "BOM 文件过大",
-                    "subtitle": "当前文件分页过多，已触发安全上限",
-                    "current_text": f"分页数：{bom_total_sheets}，上限：{security_limits['max_bom_sheets']}",
-                    "processed_rows": 0,
-                    "total_rows": bom_total_rows,
-                    "percent": 100.0,
-                    "done": True,
-                    "elapsed_seconds": 0.0,
-                    "chips": [
-                        {"label": "限制", "value": "分页过多", "tone": "fail"},
-                        {"label": "当前", "value": str(bom_total_sheets), "tone": "fail"},
-                        {"label": "上限", "value": str(security_limits["max_bom_sheets"]), "tone": "warn"},
-                    ],
-                },
-            )
-            st.error(f"单次 BOM 分页数不能超过 {security_limits['max_bom_sheets']} 页。")
-            st.stop()
-
-        if not bom_sheet_frames:
-            bom_read_error = clean_text(bom_workbook.get("read_error", ""))
-            bom_failure_note = bom_read_error or "上传文件内容为空，未能生成可匹配数据"
-            render_bom_progress_card(
-                progress_placeholder,
-                {
-                    "title": "BOM 读取失败",
-                    "subtitle": bom_failure_note,
-                    "current_text": getattr(uploaded_file, "name", "空文件"),
-                    "processed_rows": 0,
-                    "total_rows": 0,
-                    "percent": 100.0,
-                    "done": True,
-                    "elapsed_seconds": 0.0,
-                    "chips": [
-                        {"label": "阶段", "value": "读取完成", "tone": "fail"},
-                        {"label": "状态", "value": "读取失败" if bom_read_error else "空文件", "tone": "fail"},
-                    ],
-                },
-            )
-            st.warning(bom_failure_note)
-        else:
-            workbook_signature = build_uploaded_file_signature(uploaded_file)
-            if st.session_state.get("_bom_workbook_signature") != workbook_signature:
-                for key in [
-                    "_bom_result_signature",
-                    "_bom_result_df",
-                    "_bom_export_bytes",
-                    "_bom_sheet_results",
-                    "_bom_sheet_mappings",
-                ]:
-                    st.session_state.pop(key, None)
-                st.session_state["_bom_workbook_signature"] = workbook_signature
-                st.session_state["_bom_manual_mapping_open"] = False
-
-            st.session_state["_bom_workbook_state"] = bom_workbook
-            if "_bom_sheet_mappings" not in st.session_state:
-                st.session_state["_bom_sheet_mappings"] = {}
-            if "_bom_sheet_results" not in st.session_state:
-                st.session_state["_bom_sheet_results"] = {}
-
-            sheet_names = [item.get("sheet_name", f"Sheet{idx + 1}") for idx, item in enumerate(bom_sheet_frames)]
-            selected_sheet_name = sheet_names[0]
-            sheet_selector_key = f"bom_sheet_selector_{workbook_signature}"
-            if len(sheet_names) > 1:
-                selected_sheet_name = st.selectbox("分页", sheet_names, key=sheet_selector_key)
-                st.caption(f"本次上传共 {len(sheet_names)} 个分页，系统会逐页匹配并在下载时保留原分页结构。")
-
-            selected_sheet = next(
-                (item for item in bom_sheet_frames if clean_text(item.get("sheet_name", "")) == clean_text(selected_sheet_name)),
-                bom_sheet_frames[0],
-            )
-            bom_df = selected_sheet.get("df", pd.DataFrame()).copy()
-            total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
-            bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
-
-            cached_bom_result_df = pd.DataFrame()
-            cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
-            if (
-                st.session_state.get("_bom_workbook_signature") == workbook_signature
-                and isinstance(cached_bom_sheet_results, dict)
-                and cached_bom_sheet_results
-            ):
-                cached_bom_result_df = cached_bom_sheet_results.get(
-                    selected_sheet_name,
-                    st.session_state.get("_bom_result_df", pd.DataFrame()),
-                )
-            if isinstance(cached_bom_result_df, pd.DataFrame) and not cached_bom_result_df.empty:
-                cached_status_counts = count_bom_recommendation_statuses(cached_bom_result_df)
-                cached_component_distribution_text = build_bom_component_distribution_text(cached_bom_result_df)
-                cached_summary_lines = [
-                    (
-                        f"解析完成：可推荐 {cached_status_counts['可推荐']} 行，"
-                        f"需确认 {cached_status_counts['需确认']} 行，"
-                        f"参数冲突 {cached_status_counts['参数冲突']} 行，"
-                        f"解析失败 {cached_status_counts['解析失败']} 行，"
-                        f"无匹配 {cached_status_counts['无匹配']} 行。"
-                    ),
-                ]
-                if cached_component_distribution_text:
-                    cached_summary_lines.append(cached_component_distribution_text)
-                render_bom_progress_card(
-                    progress_placeholder,
-                    {
-                        "title": "BOM 匹配完成",
-                        "subtitle": f"已生成当前分页匹配结果，共 {len(bom_sheet_frames)} 个分页，下载文件已保留原分页结构",
-                        "current_text": f"当前分页：{selected_sheet_name}",
-                        "processed_rows": total_workbook_rows,
-                        "total_rows": total_workbook_rows,
-                        "percent": 100.0,
-                        "done": True,
-                        "elapsed_seconds": 0.0,
-                            "chips": [
-                                {"label": "阶段", "value": "完成", "tone": "success"},
-                                {"label": "状态", "value": "可下载", "tone": "success"},
-                                {"label": "可推荐", "value": str(cached_status_counts["可推荐"]), "tone": "success"},
-                                {"label": "需确认", "value": str(cached_status_counts["需确认"]), "tone": "warn"},
-                                {"label": "参数冲突", "value": str(cached_status_counts["参数冲突"]), "tone": "fail"},
-                                {"label": "解析失败", "value": str(cached_status_counts["解析失败"]), "tone": "success" if cached_status_counts["解析失败"] == 0 else "fail"},
-                                {"label": "无匹配", "value": str(cached_status_counts["无匹配"]), "tone": "success" if cached_status_counts["无匹配"] == 0 else "warn"},
-                            ],
-                            "summary_lines": cached_summary_lines,
-                        },
-                    )
-            else:
-                render_bom_progress_card(
-                    progress_placeholder,
-                    {
-                        "title": "BOM 文件读取完成",
-                        "subtitle": f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据，正在准备列识别",
-                        "current_text": f"当前分页：{selected_sheet_name}",
-                        "processed_rows": 0,
-                        "total_rows": total_workbook_rows,
-                        "percent": 8.0,
-                        "done": False,
-                        "elapsed_seconds": 0.0,
-                        "chips": [
-                            {"label": "阶段", "value": "读取完成", "tone": "success"},
-                            {"label": "分页", "value": f"{len(bom_sheet_frames)}", "tone": "success"},
-                            {"label": "行数", "value": str(total_workbook_rows), "tone": "success"},
-                        ],
-                    },
-                )
-
-            guessed_mapping = guess_bom_column_mapping(bom_df)
-            bom_column_options = [BOM_NONE_OPTION] + list(bom_df.columns)
-            sheet_mapping_store = st.session_state["_bom_sheet_mappings"]
-            for item in bom_sheet_frames:
-                sheet_name = clean_text(item.get("sheet_name", ""))
-                if sheet_name == "":
-                    continue
-                if sheet_name not in sheet_mapping_store or not isinstance(sheet_mapping_store.get(sheet_name), dict):
-                    sheet_mapping_store[sheet_name] = guess_bom_column_mapping(item.get("df", pd.DataFrame()))
-            if "_bom_manual_mapping_open" not in st.session_state:
-                st.session_state["_bom_manual_mapping_open"] = False
-            consume_bom_manual_mapping_toggle(workbook_signature)
-            manual_mapping_open = bool(st.session_state.get("_bom_manual_mapping_open", False))
-            stored_manual_mapping = sheet_mapping_store.get(selected_sheet_name, guessed_mapping)
-
-            st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
-            if bom_read_warning:
-                st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
-            else:
-                st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
-            preview_df = bom_df.copy()
-            preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
-            is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
-            preview_html = render_static_preview_table(
-                preview_df,
-                wrapper_class="bom-result-table-wrap",
-            )
-            if preview_html:
-                components.html(
-                    preview_html,
-                    height=estimate_bom_preview_iframe_height(len(preview_df), compact=is_ocr_preview),
-                    scrolling=False,
-                )
-
-            def resolve_bom_mapping_value(role, fallback_mapping):
-                value = clean_text(stored_manual_mapping.get(role, ""))
-                if value not in bom_column_options:
-                    value = clean_text((fallback_mapping or {}).get(role, ""))
-                if value not in bom_column_options:
-                    value = BOM_NONE_OPTION
-                return None if value == BOM_NONE_OPTION else value
-
-            selected_mapping = {
-                role: resolve_bom_mapping_value(role, guessed_mapping)
-                for role in ["model", "spec", "name", "quantity"]
-            }
-
-            if manual_mapping_open:
-                st.caption("系统会先自动猜测常见表头，你也可以手动改成正确的型号列、规格列、品名列、数量列。再次点击按钮即可收起。")
-                mapping_cols = st.columns(4)
-                selected_mapping = {}
-                for col_ui, role in zip(mapping_cols, ["model", "spec", "name", "quantity"]):
-                    default_value = resolve_bom_mapping_value(role, guessed_mapping)
-                    widget_value = col_ui.selectbox(
-                        BOM_ROLE_LABELS[role],
-                        bom_column_options,
-                        index=bom_column_options.index(default_value if default_value in bom_column_options else BOM_NONE_OPTION),
-                        key=f"bom_{workbook_signature}_{selected_sheet_name}_{role}_column",
-                    )
-                    selected_mapping[role] = None if widget_value == BOM_NONE_OPTION else widget_value
-                sheet_mapping_store[selected_sheet_name] = selected_mapping
-            else:
-                sheet_mapping_store[selected_sheet_name] = selected_mapping
-
-            parse_columns = [selected_mapping.get(x) for x in ["model", "spec", "name"] if selected_mapping.get(x)]
-            if not parse_columns:
-                st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
-            else:
-                current_bom_signature = build_bom_workbook_run_signature(uploaded_file, sheet_mapping_store)
-                stored_bom_signature = st.session_state.get("_bom_result_signature", "")
-                if stored_bom_signature != current_bom_signature:
-                    st.session_state.pop("_bom_result_signature", None)
-                    st.session_state.pop("_bom_result_df", None)
-                    st.session_state.pop("_bom_export_bytes", None)
-                    st.session_state.pop("_bom_sheet_results", None)
-
-                if len(parse_columns) != len(set(parse_columns)):
-                    st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
-
-                if stored_bom_signature != current_bom_signature:
-                    if not ensure_component_data_ready("BOM 匹配"):
-                        render_bom_progress_card(
-                            progress_placeholder,
-                            {
-                                "title": "BOM 匹配失败",
-                                "subtitle": "当前环境缺少可用数据库，无法开始匹配",
-                                "current_text": "请先确认部署数据包或本地数据库是否完整",
-                                "processed_rows": 0,
-                                "total_rows": total_workbook_rows,
-                                "percent": 100.0,
-                                "done": True,
-                                "elapsed_seconds": 0.0,
-                                "chips": [
-                                    {"label": "阶段", "value": "匹配终止", "tone": "fail"},
-                                    {"label": "状态", "value": "数据不可用", "tone": "fail"},
-                                ],
-                            },
-                        )
-                        st.warning("当前环境缺少可用数据库，请先确认部署数据包或本地数据库。")
-                    else:
-                        progress_state_holder = {"state": {}}
-
-                        def update_bom_progress(progress_state):
-                            progress_state_holder["state"] = progress_state or {}
-                            render_bom_progress_card(progress_placeholder, progress_state_holder["state"])
-
-                        update_bom_progress({
-                            "title": "BOM 正在匹配",
-                            "subtitle": f"正在解析上传文件并匹配元器件库（分页 {selected_sheet_name}）",
-                            "current_text": "准备开始 BOM 匹配",
-                            "processed_rows": 0,
-                            "total_rows": total_workbook_rows,
-                            "percent": 8.0,
-                            "done": False,
-                            "elapsed_seconds": 0.0,
-                            "chips": [
-                                {"label": "阶段", "value": "匹配中", "tone": "warn"},
-                                {"label": "分页", "value": f"{len(bom_sheet_frames)}", "tone": "warn"},
-                                {"label": "当前", "value": selected_sheet_name, "tone": "warn"},
-                            ],
-                        })
-                        sheet_results = build_bom_workbook_sheet_results(bom_workbook, sheet_mapping_store, progress_callback=update_bom_progress)
-                        sheet_result_map = {item["sheet_name"]: item.get("result_df", pd.DataFrame()) for item in sheet_results}
-
-                        final_match_state = dict(progress_state_holder["state"] or {})
-                        base_match_chips = [
-                            chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
-                            if clean_text(chip.get("label", "")) not in {"阶段", "状态"}
-                        ]
-                        final_match_state.update({
-                            "title": "BOM 正在生成下载文件",
-                            "subtitle": "匹配已完成，正在生成导出 Excel",
-                            "current_text": "请稍候，下载文件正在生成",
-                            "processed_rows": total_workbook_rows,
-                            "total_rows": total_workbook_rows,
-                            "percent": 96.0,
-                            "done": False,
-                            "chips": [
-                                {"label": "阶段", "value": "导出中", "tone": "warn"},
-                                {"label": "状态", "value": "准备下载", "tone": "warn"},
-                            ] + base_match_chips,
-                        })
-                        render_bom_progress_card(progress_placeholder, final_match_state)
-                        st.session_state["_bom_result_signature"] = current_bom_signature
-                        st.session_state["_bom_sheet_results"] = sheet_result_map
-                        current_bom_result_df = sheet_result_map.get(selected_sheet_name, pd.DataFrame())
-                        st.session_state["_bom_result_df"] = current_bom_result_df
-                        st.session_state["_bom_export_bytes"] = bom_to_excel_bytes(
-                            st.session_state["_bom_result_df"],
-                            bom_df,
-                            source_workbook=bom_workbook,
-                            sheet_results=sheet_results,
-                        )
-                        component_distribution_text = build_bom_component_distribution_text(
-                            current_bom_result_df
-                        )
-                        status_counts = count_bom_recommendation_statuses(current_bom_result_df) if isinstance(current_bom_result_df, pd.DataFrame) else count_bom_recommendation_statuses(pd.DataFrame())
-                        final_done_state = dict(progress_state_holder["state"] or {})
-                        base_done_chips = [
-                            chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
-                            if clean_text(chip.get("label", "")) not in {"阶段", "状态"}
-                        ]
-                        final_done_state.update({
-                            "title": "BOM 匹配完成",
-                            "subtitle": "已生成匹配结果和下载文件",
-                            "current_text": "可以继续查看下方结果表或下载 Excel",
-                            "processed_rows": total_workbook_rows,
-                            "total_rows": total_workbook_rows,
-                            "percent": 100.0,
-                            "done": True,
-                            "chips": [
-                                {"label": "阶段", "value": "完成", "tone": "success"},
-                                {"label": "状态", "value": "可下载", "tone": "success"},
-                            ] + base_done_chips,
-                            "summary_lines": [
-                                (
-                                    f"解析完成：可推荐 {status_counts['可推荐']} 行，"
-                                    f"需确认 {status_counts['需确认']} 行，"
-                                    f"参数冲突 {status_counts['参数冲突']} 行，"
-                                    f"解析失败 {status_counts['解析失败']} 行，"
-                                    f"无匹配 {status_counts['无匹配']} 行。"
-                                ),
-                            ] + ([component_distribution_text] if component_distribution_text else []),
-                        })
-                        render_bom_progress_card(progress_placeholder, final_done_state)
-
-                bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
-                bom_result_df = bom_sheet_results.get(selected_sheet_name, st.session_state.get("_bom_result_df", pd.DataFrame()))
-                if isinstance(bom_result_df, pd.DataFrame) and not bom_result_df.empty:
-                    bom_display_df = build_bom_display_df(bom_result_df)
-                    bom_view_df = bom_display_df.copy()
-                    styled_bom_result_df = style_bom_result_rows(bom_view_df)
-
-                    status_counts = count_bom_recommendation_statuses(bom_result_df)
-                    component_distribution_text = build_bom_component_distribution_text(bom_result_df)
-
-                    display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
-                    export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
-                    export_filename = f"{export_name_root}_匹配后.xlsx"
-                    export_bytes = st.session_state.get("_bom_export_bytes", b"")
-                    result_header_cols = st.columns([0.72, 0.28], gap="small")
-                    with result_header_cols[0]:
-                        st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
-                    with result_header_cols[1]:
-                        download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
-                        download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
-                        if export_bytes:
-                            st.download_button(
-                                "下载 BOM 匹配后 Excel",
-                                data=export_bytes,
-                                file_name=export_filename,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key=download_key,
-                                use_container_width=True,
-                            )
-                        else:
-                            st.button("下载文件尚未生成", key=f"{download_key}_disabled", disabled=True, use_container_width=True)
-                    clickable_bom_html = render_clickable_result_table(
-                        display_bom_result_df,
-                        hide_columns=[],
-                        show_official_status=False,
-                        wrapper_class="bom-result-table-wrap",
-                        footer_html="",
-                        outer_footer_html="",
-                    )
-                    if clickable_bom_html:
-                        components.html(
-                            clickable_bom_html,
-                            height=estimate_bom_result_iframe_height(
-                                len(display_bom_result_df),
-                            ),
-                            scrolling=False,
-                        )
-                else:
-                    st.info("正在等待当前自动匹配结果生成。")
-
-    except Exception as e:
-        try:
-            render_bom_progress_card(
-                progress_placeholder,
-                {
-                    "title": "BOM 处理失败",
-                    "subtitle": "上传文件或匹配流程发生异常",
-                    "current_text": str(e),
-                    "processed_rows": 0,
-                    "total_rows": 0,
-                    "percent": 100.0,
-                    "done": True,
-                    "elapsed_seconds": 0.0,
-                    "chips": [
-                        {"label": "阶段", "value": "异常", "tone": "fail"},
-                        {"label": "状态", "value": "请重试", "tone": "fail"},
-                    ],
-                },
-            )
-        except Exception:
-            pass
-        st.error(f"BOM 处理失败：{e}")
 
 
-if should_render_inline_footer():
-    st.markdown(
-        '''
-        <div class="app-footer-shell">
-        <div class="app-footer">
-            网站管理员：Terry Wu　　
-            系统问题请与管理员联系：
-            <a href="mailto:terry@fruition-sz.com" style="color: #1565c0; text-decoration: none;">terry@fruition-sz.com</a>
-        </div>
-        </div>
-        ''',
-        unsafe_allow_html=True
-    )
+render_inline_footer()
 startup_trace("after_footer")
 
 
