@@ -3180,6 +3180,28 @@ def render_member_auth_panel(action_text=""):
             """,
             unsafe_allow_html=True,
         )
+        if hasattr(st, "dialog"):
+            @st.dialog("会员登录", width="small")
+            def render_action_login_dialog():
+                st.caption(f"登录后将自动继续{context_text}，无需再次提交。")
+                with st.form("member_action_login_form", clear_on_submit=False):
+                    username = st.text_input("账号", key="member_action_login_username")
+                    password = st.text_input("密码", type="password", key="member_action_login_password")
+                    submitted = st.form_submit_button("登录并继续", use_container_width=True)
+                if submitted:
+                    member, error = authenticate_member(username, password)
+                    if member:
+                        complete_member_login(member)
+                        st.rerun()
+                    st.error(error or "登录失败。")
+                register_href = build_app_href(member="1", admin="")
+                st.markdown(
+                    f'<div class="member-action-login-note">没有账号？<a href="{html.escape(register_href, quote=True)}" target="_self">前往会员中心注册</a></div>',
+                    unsafe_allow_html=True,
+                )
+
+            render_action_login_dialog()
+            return
         st.warning(f"请先登录会员后再使用{context_text}。")
     st.markdown(
         """
@@ -4582,12 +4604,188 @@ def render_cost_price_admin_page():
         render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
 
 
+def read_sqlite_table_count_for_runtime(path, table_name):
+    if not os.path.exists(path) or not re.fullmatch(r"[A-Za-z0-9_]+", clean_text(table_name)):
+        return 0
+    try:
+        uri_path = urllib.parse.quote(os.path.abspath(path).replace("\\", "/"), safe="/:")
+        conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
+        try:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone()
+            if exists is None:
+                return 0
+            row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+            return int(row[0] or 0) if row else 0
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+
+
+def read_search_index_count_for_runtime():
+    if not os.path.exists(SEARCH_DB_PATH):
+        return 0
+    try:
+        uri_path = urllib.parse.quote(os.path.abspath(SEARCH_DB_PATH).replace("\\", "/"), safe="/:")
+        conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(f"SELECT meta_json FROM {SEARCH_META_TABLE} LIMIT 1").fetchone()
+            meta = json.loads(row[0]) if row and clean_text(row[0]) else {}
+            table_counts = meta.get("table_row_counts", {}) if isinstance(meta, dict) else {}
+            count = int(table_counts.get(COMPONENTS_SEARCH_CORE_TABLE, 0) or 0)
+            if count > 0:
+                return count
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return read_sqlite_table_count_for_runtime(SEARCH_DB_PATH, COMPONENTS_SEARCH_CORE_TABLE)
+
+
+def format_runtime_epoch_ns(epoch_ns):
+    try:
+        epoch_seconds = int(epoch_ns or 0) / 1_000_000_000
+        if epoch_seconds <= 0:
+            return "-"
+        return datetime.fromtimestamp(epoch_seconds, tz=APP_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "-"
+
+
+def format_runtime_release_label(release_stamp):
+    release_stamp = clean_text(release_stamp)
+    if release_stamp == "":
+        return "本地工作区"
+    try:
+        parsed = datetime.fromisoformat(release_stamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(APP_TIMEZONE)
+        return parsed.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return release_stamp[:24]
+
+
+def build_runtime_status_snapshot():
+    manifest_document = load_streamlit_cloud_bundle_manifest_document()
+    manifest = load_streamlit_cloud_bundle_manifest()
+    search_member = manifest.get("cache/components_search.sqlite", {})
+    bundle_signature = clean_text(get_streamlit_cloud_bundle_signature())
+    release_stamp = clean_text(os.getenv("COMPONENT_MATCHER_RELEASE_STAMP", "")) or "本地工作区"
+    member_state = load_member_auth_remote_state()
+    cost_state = load_runtime_store_remote_state("cost-price")
+    no_match_state = load_runtime_store_remote_state("no-match")
+    return {
+        "runtime_mode": "正式公网" if is_public_mode() else "本地测试",
+        "release_stamp": release_stamp,
+        "release_label": format_runtime_release_label(release_stamp),
+        "bundle_build_time": format_runtime_epoch_ns(manifest_document.get("build_epoch_ns", 0)),
+        "bundle_member_count": len(manifest),
+        "bundle_signature": bundle_signature[:12] or "-",
+        "database_version": clean_text(search_member.get("sha256", ""))[:12] or "-",
+        "search_rows": read_search_index_count_for_runtime(),
+        "component_rows": read_sqlite_table_count_for_runtime(DB_PATH, "components"),
+        "member_rows": read_sqlite_table_count_for_runtime(MEMBER_AUTH_DB_PATH, "members"),
+        "cost_list_rows": read_sqlite_table_count_for_runtime(COST_PRICE_DB_PATH, "cost_price_lists"),
+        "no_match_rows": read_sqlite_table_count_for_runtime(NO_MATCH_REPORT_DB_PATH, "no_match_reports"),
+        "member_remote_version": int(member_state.get("version") or 0),
+        "member_remote_synced_at": clean_text(member_state.get("synced_at", "")) or "-",
+        "cost_remote_version": int(cost_state.get("version") or 0),
+        "cost_remote_synced_at": clean_text(cost_state.get("synced_at", "")) or "-",
+        "no_match_remote_version": int(no_match_state.get("version") or 0),
+        "no_match_remote_synced_at": clean_text(no_match_state.get("synced_at", "")) or "-",
+    }
+
+
+def probe_runtime_endpoint(url, timeout_seconds=6):
+    started_at = time.monotonic()
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Fruition-Runtime-Monitor/1.0", "Cache-Control": "no-cache"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            response.read(1)
+            status_code = int(response.getcode() or 0)
+        return {
+            "ok": 200 <= status_code < 400,
+            "status_code": status_code,
+            "elapsed_ms": int(round((time.monotonic() - started_at) * 1000)),
+            "error": "",
+        }
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code or 0)
+        return {
+            "ok": 200 <= status_code < 500,
+            "status_code": status_code,
+            "elapsed_ms": int(round((time.monotonic() - started_at) * 1000)),
+            "error": clean_text(exc.reason),
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "elapsed_ms": int(round((time.monotonic() - started_at) * 1000)),
+            "error": clean_text(exc),
+        }
+
+
+def render_runtime_status_admin_page():
+    snapshot = build_runtime_status_snapshot()
+    render_admin_section_header(
+        "运行状态",
+        "查看当前发布版本、搜索数据包和业务记录库状态。页面只读，不会修改会员或后台资料。",
+        "系统监控",
+    )
+    render_admin_metric_cards(
+        [
+            {"label": "当前实例", "value": "正常", "note": snapshot["runtime_mode"], "tone": "green"},
+            {"label": "发布版本", "value": snapshot["release_label"], "note": "当前运行代码", "tone": "neutral"},
+            {"label": "数据版本", "value": snapshot["database_version"], "note": f"构建 {snapshot['bundle_build_time']}", "tone": "neutral"},
+            {"label": "可搜索型号", "value": f"{snapshot['search_rows']:,}", "note": "搜索索引记录", "tone": "green"},
+        ]
+    )
+    status_rows = [
+        {"项目": "主器件库", "状态": "正常" if snapshot["component_rows"] > 0 else "待检查", "说明": f"{snapshot['component_rows']:,} 条"},
+        {"项目": "发布数据包", "状态": "正常" if snapshot["bundle_member_count"] > 0 else "待检查", "说明": f"{snapshot['bundle_member_count']} 个文件 · {snapshot['bundle_signature']}"},
+        {"项目": "会员资料", "状态": "正常", "说明": f"{snapshot['member_rows']:,} 个账号 · 远端版本 {snapshot['member_remote_version']} · {snapshot['member_remote_synced_at']}"},
+        {"项目": "成本清单", "状态": "正常", "说明": f"{snapshot['cost_list_rows']:,} 份 · 远端版本 {snapshot['cost_remote_version']} · {snapshot['cost_remote_synced_at']}"},
+        {"项目": "未匹配记录", "状态": "正常", "说明": f"{snapshot['no_match_rows']:,} 条 · 远端版本 {snapshot['no_match_remote_version']} · {snapshot['no_match_remote_synced_at']}"},
+    ]
+    st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("#### 公网连通性")
+    st.caption("仅在点击检查时访问公网地址，不会影响平常搜索和登录速度。")
+    if st.button("立即检查公网", key="admin_runtime_probe", use_container_width=False):
+        with st.spinner("正在检查公开入口和上游服务..."):
+            st.session_state["_admin_runtime_probe_results"] = [
+                {"服务": "公开入口", "网址": "https://fruition-component.pages.dev/", **probe_runtime_endpoint("https://fruition-component.pages.dev/")},
+                {"服务": "上游应用", "网址": "https://fruition-componentmatche.streamlit.app/", **probe_runtime_endpoint("https://fruition-componentmatche.streamlit.app/")},
+            ]
+    probe_results = st.session_state.get("_admin_runtime_probe_results") or []
+    if probe_results:
+        probe_rows = []
+        for result in probe_results:
+            probe_rows.append(
+                {
+                    "服务": result.get("服务", ""),
+                    "状态": "可访问" if result.get("ok") else "异常",
+                    "HTTP": result.get("status_code") or "-",
+                    "响应时间": f"{int(result.get('elapsed_ms') or 0)} ms",
+                    "说明": result.get("error", "") or result.get("网址", ""),
+                }
+            )
+        st.dataframe(pd.DataFrame(probe_rows), use_container_width=True, hide_index=True)
+
+
 def render_no_match_report_admin_page():
     if not require_no_match_admin_login():
         return
 
-    report_counts = get_no_match_report_counts()
-    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理"]
+    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理", "运行状态"]
     active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
     nav_cols = st.columns([0.76, 0.24], gap="small")
     with nav_cols[0]:
@@ -4612,7 +4810,11 @@ def render_no_match_report_admin_page():
     if backend_module == "成本清单":
         render_cost_price_admin_page()
         return
+    if backend_module == "运行状态":
+        render_runtime_status_admin_page()
+        return
 
+    report_counts = get_no_match_report_counts()
     render_admin_section_header(
         "无匹配物料回报",
         "前台搜索无匹配时提交的记录会进入这里。补入正确品牌和型号后，系统会写入后台补料映射并结案。",
@@ -4799,7 +5001,7 @@ def get_path_signature(path):
         }
 
 
-def load_streamlit_cloud_bundle_manifest():
+def load_streamlit_cloud_bundle_manifest_document():
     if not os.path.exists(STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH):
         return {}
     try:
@@ -4807,6 +5009,11 @@ def load_streamlit_cloud_bundle_manifest():
             data = json.load(handle)
     except Exception:
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_streamlit_cloud_bundle_manifest():
+    data = load_streamlit_cloud_bundle_manifest_document()
     members = data.get("members", []) if isinstance(data, dict) else []
     manifest = {}
     for entry in members:
@@ -6062,6 +6269,67 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 }
 .bom-progress-summary strong {
     color: #111827;
+}
+.search-progress-summary {
+    margin: 10px 0 14px 0;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 1px solid rgba(34, 197, 94, 0.22);
+    border-left: 4px solid #22a06b;
+    border-radius: 8px;
+    background: #f7fcf9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.search-progress-summary-main {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.search-progress-summary-status {
+    color: #166534;
+    font-weight: 900;
+}
+.search-progress-summary-stage {
+    color: #1f2937;
+    font-weight: 700;
+}
+.search-progress-summary-note {
+    color: #64748b;
+}
+.search-progress-summary-meta {
+    flex: 0 0 auto;
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.member-action-login-note {
+    margin-top: 10px;
+    color: #64748b;
+    font-size: 13px;
+    text-align: center;
+}
+.member-action-login-note a {
+    color: #1d4ed8;
+    font-weight: 700;
+    text-decoration: none;
+}
+@media (max-width: 720px) {
+    .search-progress-summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .search-progress-summary-meta {
+        white-space: normal;
+    }
 }
 .result-table-wrap {
     overflow: auto;
@@ -33508,6 +33776,56 @@ def render_bom_progress_card(progress_placeholder, progress_state):
     progress_placeholder.markdown(build_bom_progress_card_html(progress_state), unsafe_allow_html=True)
 
 
+def build_search_progress_summary_html(progress_state):
+    progress_state = progress_state or {}
+    processed_rows = max(0, int(progress_state.get("processed_rows") or 0))
+    total_rows = max(0, int(progress_state.get("total_rows") or 0))
+    elapsed_text = clean_text(progress_state.get("elapsed_text", "")) or format_bom_elapsed_time(
+        progress_state.get("elapsed_seconds", 0.0)
+    )
+    status_text = clean_text(progress_state.get("pill_text", "")) or "已完成"
+    stage_text = ""
+    meta_parts = []
+    for chip in progress_state.get("chips") or []:
+        if not isinstance(chip, dict):
+            continue
+        label = clean_text(chip.get("label", ""))
+        value = clean_text(chip.get("value", ""))
+        if label == "阶段":
+            stage_text = value
+            continue
+        if label == "进度":
+            continue
+        if label and value:
+            meta_parts.append(f"{label} {value}")
+    if total_rows:
+        meta_parts.insert(0, f"处理 {processed_rows}/{total_rows}")
+    meta_parts.append(f"耗时 {elapsed_text}")
+    summary_lines = [clean_text(line) for line in progress_state.get("summary_lines") or [] if clean_text(line)]
+    summary_text = " · ".join(summary_lines[:3])
+    stage_html = f'<span class="search-progress-summary-stage">{html.escape(stage_text)}</span>' if stage_text else ""
+    summary_html = f'<span class="search-progress-summary-note">{html.escape(summary_text)}</span>' if summary_text else ""
+    return f"""
+<div class="search-progress-summary">
+  <div class="search-progress-summary-main">
+    <span class="search-progress-summary-status">{html.escape(status_text)}</span>
+    {stage_html}
+    {summary_html}
+  </div>
+  <div class="search-progress-summary-meta">{html.escape(' · '.join(meta_parts))}</div>
+</div>
+"""
+
+
+def render_search_progress_card(progress_placeholder, progress_state):
+    if progress_placeholder is None:
+        return
+    if bool((progress_state or {}).get("done")):
+        progress_placeholder.markdown(build_search_progress_summary_html(progress_state), unsafe_allow_html=True)
+        return
+    render_bom_progress_card(progress_placeholder, progress_state)
+
+
 def build_search_progress_state(
     total_queries,
     completed_queries,
@@ -35231,24 +35549,28 @@ if search_requested:
         remember_pending_member_search(query_input)
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
-    clear_pending_member_search()
     if not query_input.strip():
+        clear_pending_member_search()
         st.warning("请输入料号或规格参数")
     else:
         lines = [x.strip() for x in query_input.splitlines() if x.strip()]
         security_limits = get_runtime_security_limits()
         total_query_chars = sum(len(line) for line in lines)
         if len(lines) > security_limits["max_search_lines"]:
+            clear_pending_member_search()
             st.error(f"单次最多允许 {security_limits['max_search_lines']} 行查询，当前输入了 {len(lines)} 行。")
             st.stop()
         if total_query_chars > security_limits["max_search_total_chars"]:
+            clear_pending_member_search()
             st.error(f"单次查询总字符数不能超过 {security_limits['max_search_total_chars']}，当前为 {total_query_chars}。")
             st.stop()
         too_long_lines = [line for line in lines if len(line) > security_limits["max_search_line_chars"]]
         if too_long_lines:
+            clear_pending_member_search()
             st.error(f"单行查询最多允许 {security_limits['max_search_line_chars']} 个字符，请先拆分后再搜。")
             st.stop()
         if any(re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", line) for line in lines):
+            clear_pending_member_search()
             st.error("查询内容包含不可见控制字符，请清理后再搜索。")
             st.stop()
         st.session_state["_last_search_query_input"] = query_input
@@ -35280,7 +35602,7 @@ if search_requested:
             done=False,
             summary_lines=None,
         ):
-            render_bom_progress_card(
+            render_search_progress_card(
                 progress_placeholder,
                 build_search_progress_state(
                     len(lines),
@@ -35314,6 +35636,7 @@ if search_requested:
                     summary_lines=["未能准备搜索数据库，请检查部署数据包或本地数据库是否完整。"],
                 )
                 st.error("当前环境缺少可用数据库，暂时无法执行搜索。")
+                clear_pending_member_search()
                 st.stop()
         exact_prefetch_lines = [line for line in dict.fromkeys(lines) if looks_like_compact_part_query(line)]
         if exact_prefetch_lines:
@@ -35752,6 +36075,7 @@ if search_requested:
             done=True,
             summary_lines=summary_lines,
         )
+        clear_pending_member_search()
 
 
 

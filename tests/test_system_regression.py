@@ -306,6 +306,80 @@ class SystemRegressionTests(unittest.TestCase):
             app["st"] = original_st
             app["current_member"] = original_current_member
 
+    def test_02d_compact_search_summary_and_read_only_runtime_snapshot(self):
+        app = self.app
+        progress_state = app["build_search_progress_state"](
+            total_queries=3,
+            completed_queries=3,
+            stage_text="搜索已完成",
+            elapsed_seconds=1.25,
+            done=True,
+            extra_chips=[{"label": "有结果", "value": "2", "tone": "success"}],
+            summary_lines=["已返回可查看结果 2 条", "未找到匹配结果 1 条"],
+        )
+        summary_html = app["build_search_progress_summary_html"](progress_state)
+        self.assertIn('class="search-progress-summary"', summary_html)
+        self.assertIn("处理 3/3", summary_html)
+        self.assertIn("有结果 2", summary_html)
+        self.assertNotIn("bom-progress-track", summary_html)
+
+        original_values = {
+            name: app[name]
+            for name in [
+                "DB_PATH",
+                "SEARCH_DB_PATH",
+                "STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH",
+                "MEMBER_AUTH_REMOTE_STATE_PATH",
+                "RUNTIME_STORE_REMOTE_STATE_DIR",
+            ]
+        }
+        original_release = os.environ.get("COMPONENT_MATCHER_RELEASE_STAMP")
+        try:
+            main_db = os.path.join(self.temp_dir, "runtime-main.sqlite")
+            search_db = os.path.join(self.temp_dir, "runtime-search.sqlite")
+            manifest_path = os.path.join(self.temp_dir, "runtime-manifest.json")
+            with sqlite3.connect(main_db) as conn:
+                conn.execute("CREATE TABLE components (id INTEGER PRIMARY KEY)")
+                conn.executemany("INSERT INTO components (id) VALUES (?)", [(1,), (2,), (3,)])
+            with sqlite3.connect(search_db) as conn:
+                conn.execute("CREATE TABLE search_meta (meta_json TEXT NOT NULL)")
+                conn.execute(
+                    "INSERT INTO search_meta (meta_json) VALUES (?)",
+                    (json.dumps({"table_row_counts": {"components_search_core": 321}}),),
+                )
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "build_epoch_ns": 1_700_000_000_000_000_000,
+                        "members": [
+                            {
+                                "path": "cache/components_search.sqlite",
+                                "size": 100,
+                                "mtime_ns": 1,
+                                "sha256": "abcdef1234567890",
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            app["DB_PATH"] = main_db
+            app["SEARCH_DB_PATH"] = search_db
+            app["STREAMLIT_CLOUD_BUNDLE_MANIFEST_PATH"] = manifest_path
+            app["MEMBER_AUTH_REMOTE_STATE_PATH"] = os.path.join(self.temp_dir, "runtime-member-state.json")
+            app["RUNTIME_STORE_REMOTE_STATE_DIR"] = self.temp_dir
+            os.environ["COMPONENT_MATCHER_RELEASE_STAMP"] = "2026-07-11T18:12:06+08:00"
+            snapshot = app["build_runtime_status_snapshot"]()
+            self.assertEqual(snapshot["component_rows"], 3)
+            self.assertEqual(snapshot["search_rows"], 321)
+            self.assertEqual(snapshot["database_version"], "abcdef123456")
+            self.assertEqual(snapshot["release_stamp"], "2026-07-11T18:12:06+08:00")
+        finally:
+            app.update(original_values)
+            if original_release is None:
+                os.environ.pop("COMPONENT_MATCHER_RELEASE_STAMP", None)
+            else:
+                os.environ["COMPONENT_MATCHER_RELEASE_STAMP"] = original_release
+
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
         milliohm = app["parse_resistor_spec_query"]("1206 0.01R 1% 1/4W")

@@ -3343,3 +3343,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fix / action: Added a one-time pending-search session value. A blocked search stores the current query, successful login resumes it automatically, and the value is cleared as soon as the resumed search starts so refreshes and later logins cannot repeat it. Logout also clears any pending query.
 - Verification: Added isolated regression coverage for logged-out storage, logged-in resume, and one-time clearing. The full release safety gate passes 17/17 tests. The public bundle was rebuilt from the current search assets, split into its tracked release parts, and the Streamlit release stamp was advanced to `2026-07-11T18:12:06+08:00` for the formal deployment target `https://fruition-component.pages.dev/`.
 - Safety: No member, cost-list, or no-match database is included in the public bundle or staged release. Other unrelated working-tree files remain excluded from the publish commit.
+
+### 2026-07-11 [ui-monitoring] Compact action login, search summary, and runtime status
+
+- Replaced the large action-triggered member panel with a focused login dialog. The original search remains pending and is cleared only after the resumed search actually completes, so token-related reruns cannot consume it early.
+- Kept the full login/registration tabs on the dedicated member page. Search completion now collapses into a compact one-line summary; BOM progress remains unchanged.
+- Added a read-only `运行状态` backend module showing release time, bundle/database versions, searchable row count, and member/cost/no-match store status. Public endpoint checks run only when an administrator clicks the check button.
+- Verification: 18/18 system regressions and the release safety gate pass. Browser checks confirmed the compact login dialog, runtime-status desktop layout, and stacked narrow-screen layout. All automated database tests used temporary paths.
