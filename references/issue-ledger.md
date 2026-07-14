@@ -710,3 +710,10 @@
 - Bug: Switching the BOM output mode to `指定品牌` immediately changed the run signature and synchronously restarted the entire workbook match. While that work or a concurrent deployment restart was in progress, the page appeared frozen at the upload area.
 - Fix: Separate custom-brand configuration from execution. Switching mode or changing selected brands now only updates settings; `开始指定品牌匹配` explicitly starts the run. Automatic-brand mode keeps its existing automatic behavior, and clicking the custom start button again intentionally reruns a completed configuration.
 - Verification: Regression coverage requires custom mode to stay idle until explicitly started, while automatic mode still starts on a changed signature. The selected-brand cost/export regression continues to pass.
+
+## 2026-07-14 - BOM matching started before the successful-login dialog closed
+
+- Bug: Uploading a BOM while logged out, then logging in, showed the successful restore message behind a disabled login dialog while synchronous BOM parsing started. The account was already authenticated, but the stale dialog made the page look stuck on login.
+- Root cause: The post-login transition used consecutive server-side `st.rerun()` calls. The success run never completed normally, so Streamlit had no completed page cycle in which to remove the previous dialog before the next blocking match began.
+- Fix: Finish the successful-login page with `st.stop()`, schedule a one-second Streamlit fragment refresh, and only start the full BOM run after that completed browser paint. Keep an `立即开始 BOM 匹配` button as a fallback while preserving the cached upload.
+- Verification: Focused regressions require the success transition to render, schedule auto-resume, and stop without a consecutive rerun; timer and manual-start readiness are both covered.

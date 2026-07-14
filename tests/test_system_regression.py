@@ -335,6 +335,59 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertEqual(resolve_bom_resume(True, "", True, False), "missing_upload")
         self.assertEqual(resolve_bom_resume(True, "", False, True), "")
+        auto_resume_ready = app["bom_post_login_auto_resume_ready"]
+        restored_stage = app["BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED"]
+        self.assertFalse(auto_resume_ready(restored_stage, 101.0, now=100.0))
+        self.assertTrue(auto_resume_ready(restored_stage, 101.0, now=101.0))
+        self.assertTrue(auto_resume_ready(restored_stage, 999.0, now=100.0, manual_start=True))
+        self.assertFalse(auto_resume_ready("login_complete", 0, now=100.0))
+
+        original_resume_values = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member",
+                "render_bom_progress_card",
+                "render_bom_post_login_auto_resume_control",
+            ]
+        }
+        transition_calls = []
+
+        class StopAfterSuccessPage(Exception):
+            pass
+
+        fake_resume_st = type(
+            "FakeResumeStreamlit",
+            (),
+            {
+                "session_state": {
+                    app["BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY"]: True,
+                    app["BOM_POST_LOGIN_RESUME_STAGE_KEY"]: app["BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE"],
+                },
+                "empty": staticmethod(lambda: object()),
+                "stop": staticmethod(lambda: (_ for _ in ()).throw(StopAfterSuccessPage())),
+            },
+        )()
+        try:
+            app["st"] = fake_resume_st
+            app["current_member"] = lambda: {"id": 7}
+            app["render_bom_progress_card"] = lambda *_args, **_kwargs: transition_calls.append("success")
+            app["render_bom_post_login_auto_resume_control"] = lambda: transition_calls.append("auto_resume")
+            with self.assertRaises(StopAfterSuccessPage):
+                app["render_bom_post_login_resume_transition"](
+                    type("RestoredUpload", (), {"name": "restored.xlsx"})()
+                )
+            self.assertEqual(transition_calls, ["success", "auto_resume"])
+            self.assertEqual(
+                fake_resume_st.session_state[app["BOM_POST_LOGIN_RESUME_STAGE_KEY"]],
+                restored_stage,
+            )
+            self.assertGreater(
+                float(fake_resume_st.session_state[app["BOM_POST_LOGIN_AUTO_RESUME_AT_KEY"]]),
+                0,
+            )
+        finally:
+            app.update(original_resume_values)
 
     def test_02d_compact_search_summary_and_read_only_runtime_snapshot(self):
         app = self.app

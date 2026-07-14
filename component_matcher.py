@@ -140,8 +140,10 @@ MEMBER_PENDING_SEARCH_QUERY_KEY = "_member_pending_search_query"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 BOM_POST_LOGIN_RESUME_STAGE_KEY = "_bom_post_login_resume_stage"
+BOM_POST_LOGIN_AUTO_RESUME_AT_KEY = "_bom_post_login_auto_resume_at"
 BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE = "login_complete"
 BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED = "upload_restored"
+BOM_POST_LOGIN_AUTO_RESUME_DELAY_SECONDS = 1.0
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
 APP_TIMEZONE_NAME = "Asia/Shanghai"
@@ -3119,6 +3121,7 @@ def logout_member():
     st.session_state.pop("_member_auth_prompt_action", None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
+    st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
     update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
 
@@ -32194,6 +32197,37 @@ def resolve_bom_post_login_resume_action(waiting_for_login, stage, member_logged
     return ""
 
 
+def bom_post_login_auto_resume_ready(stage, resume_at, now=None, manual_start=False):
+    if clean_text(stage) != BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED:
+        return False
+    if manual_start:
+        return True
+    try:
+        resume_at_value = float(resume_at)
+    except Exception:
+        return False
+    current_time = time.time() if now is None else float(now)
+    return resume_at_value > 0 and current_time >= resume_at_value
+
+
+@st.fragment(run_every=1.0)
+def render_bom_post_login_auto_resume_control():
+    st.caption("登录已完成，页面将在一秒内自动开始 BOM 匹配。")
+    manual_start = st.button(
+        "立即开始 BOM 匹配",
+        key="bom_post_login_start_now",
+        type="primary",
+        use_container_width=True,
+    )
+    if bom_post_login_auto_resume_ready(
+        st.session_state.get(BOM_POST_LOGIN_RESUME_STAGE_KEY, ""),
+        st.session_state.get(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, 0),
+        manual_start=manual_start,
+    ):
+        st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
+        st.rerun(scope="app")
+
+
 def render_bom_post_login_resume_transition(effective_uploaded_file):
     action = resolve_bom_post_login_resume_action(
         bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)),
@@ -32207,6 +32241,7 @@ def render_bom_post_login_resume_transition(effective_uploaded_file):
     if action == "missing_upload":
         st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
         st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
+        st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
         st.success("会员登录成功。")
         st.warning("登录状态已恢复，但之前上传的 BOM 文件已不在当前会话中，请重新选择文件。")
         return action
@@ -32214,6 +32249,9 @@ def render_bom_post_login_resume_transition(effective_uploaded_file):
     if action == "announce_restore":
         st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
         st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED
+        st.session_state[BOM_POST_LOGIN_AUTO_RESUME_AT_KEY] = (
+            time.time() + BOM_POST_LOGIN_AUTO_RESUME_DELAY_SECONDS
+        )
         placeholder = st.empty()
         render_bom_progress_card(
             placeholder,
@@ -32232,12 +32270,13 @@ def render_bom_post_login_resume_transition(effective_uploaded_file):
                 ],
             },
         )
-        # Complete one lightweight UI run so the login dialog disappears
-        # before the next run begins synchronous workbook parsing.
-        time.sleep(0.25)
-        st.rerun()
+        # End this app run normally so Streamlit removes the previous dialog.
+        # The fragment starts a new full run only after the success page paints.
+        render_bom_post_login_auto_resume_control()
+        st.stop()
 
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
+    st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
     st.success("会员登录成功，已恢复刚才上传的 BOM，正在开始解析匹配。")
     return action
 
