@@ -15,3 +15,9 @@ The member system and backend runtime records are production-critical.
 ## Release condition
 
 A functional fix is incomplete until the safety gate passes and protected runtime-data fingerprints remain unchanged.
+
+## Default release behavior
+
+- Unless the user explicitly requests a test version first, completed fixes must be published to the formal public page after verification.
+- A local or test-page fix alone is not complete under the default workflow; run the safety gate, publish only the intended files, and verify the formal endpoint.
+- Work explicitly requested as a test version must remain local until the user approves formal publication.

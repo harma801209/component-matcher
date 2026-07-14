@@ -3350,3 +3350,81 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Kept the full login/registration tabs on the dedicated member page. Search completion now collapses into a compact one-line summary; BOM progress remains unchanged.
 - Added a read-only `运行状态` backend module showing release time, bundle/database versions, searchable row count, and member/cost/no-match store status. Public endpoint checks run only when an administrator clicks the check button.
 - Verification: 18/18 system regressions and the release safety gate pass. Browser checks confirmed the compact login dialog, runtime-status desktop layout, and stacked narrow-screen layout. All automated database tests used temporary paths.
+
+### 2026-07-12 [public/BOM] Publish UI monitoring and simplify BOM quotation output
+
+- Public release: committed and pushed `aeeff114 Publish compact login and runtime monitoring` to `origin/main`, refreshed `PUBLIC_RELEASE_STAMP` to `2026-07-12T13:33:51+08:00`, and deployed the Cloudflare Pages shell at `https://2051c50e.fruition-component.pages.dev`. The formal domain returns the new `20260712-ui-monitoring-1` cache marker.
+- BOM test-version change: added `主营品牌自动匹配 / 指定品牌` output modes. Specified mode supports 1-5 brands; automatic mode keeps the existing capacitor/resistor business-brand groups and falls back to the system-recommended brand for other component types.
+- BOM output now mirrors the directly usable quotation structure: original BOM columns followed by `匹配状态`, `匹配说明`, and one or more `匹配品牌 / 匹配型号 / 匹配成本 / 成本更新时间 / 匹配MOQ / 匹配L&T` groups. Exact original models remain eligible when the selected brand matches, even when no cross-brand substitute is returned.
+- Verification: added an isolated active-cost regression proving that a selected Murata model exports its model, cost, MOQ, and L&T into the generated workbook. The release safety gate passes 19/19 tests with temporary member/cost/no-match databases. Desktop browser automation was stopped by the browser safety state before the upload UI could be visually completed, so the BOM changes remain local test-version work and are not yet published.
+
+### 2026-07-12 [local-runtime] Restore test page with a hard memory guard
+
+- Root cause: the workstation reboot stopped the local Streamlit process, leaving port `8520` closed; the page files themselves were intact.
+- Safety action: restarted `streamlit_app.py` in public/skip-update mode under a Windows Job Object capped at 1 GB. This prevents a future accidental full-dataframe load from exhausting the workstation again.
+- Verification: `http://127.0.0.1:8520/?bom=1` returns HTTP 200 and the initial Python working set is about 62 MB. No rebuild, regression suite, deployment, or protected runtime database modification was performed.
+
+### 2026-07-12 [local-login] Clear a post-login rerun loop without touching member data
+
+- Observed: login produced a valid active-member session token, but one Streamlit Python thread continuously consumed one CPU core and the page remained busy.
+- Data check: the session token exists, remains valid, and the member SQLite database is readable with `PRAGMA quick_check=ok`.
+- Mitigation: restarted only the memory-capped local `8520` process. The browser can reuse the existing token; no member account/session row was deleted or replaced.
+- Verification: the replacement service returns HTTP 200, uses about 144 MB, and consumed only 0.02 CPU seconds during a three-second stability sample.
+
+### 2026-07-12 [BOM-runtime] Stop a CPU-bound BOM match and enable row diagnostics
+
+- Confirmed: the BOM task held one Python thread near one full CPU core for several minutes while memory remained below 200 MB and network connections stayed healthy. It was not blocked by the 1 GB memory guard or by member storage.
+- Action: stopped only the stuck local processing service and restarted `8520` with the same 1 GB hard cap plus `BOM_MATCH_DEBUG=1`, redirecting diagnostic output to `tmp_8520_safe_stdout.log` and `tmp_8520_safe_stderr.log`.
+- Next repro: re-upload the same BOM and start matching once; the row-level diagnostics will expose the exact input responsible for the high-CPU path.
+- Verification: the replacement service returns HTTP 200 and starts at about 145 MB. No protected runtime database, application code, build, test suite, or deployment was changed.
+
+### 2026-07-12 [BOM-performance] Reduce repeated per-row matching work
+
+- Assessment: multi-row runtime was not acceptable because each sheet created a new unbounded query cache, exact models were fetched row by row, weak candidate combinations could run before richer inputs, and recommendation/export work was repeated within a matched row.
+- Changes: bulk-prefetch exact model rows per sheet; share one bounded 256-entry normalized query cache across workbook sheets; prioritize exact models then the richest model/spec/name combinations; reuse the candidate recommendation; and build own-brand export candidates once per row. Row-start and row-done timings are emitted when `BOM_MATCH_DEBUG=1`.
+- Tests: Python compilation, focused cache/order regression, original BOM export regression, and selected-brand active-cost export regression pass. The complete release safety gate passes 20/20 under a 1 GB process-memory guard.
+- Safety: protected member, active-cost, and no-match runtime fingerprints remained unchanged. The local test page is restored at `http://127.0.0.1:8520/?bom=1` with the same 1 GB hard cap.
+
+### 2026-07-12 [BOM-performance] Skip repeated headers and prefilter priced brands
+
+- Diagnostic result: the real upload was progressing, but row 2 (`MPN3 / Description / 项目`) was a repeated header and alone consumed 65.991 seconds. Normal resistor rows took 1.276-2.288 seconds each.
+- Fix: repeated header/description rows now return `已跳过` immediately. Own-brand export pricing/MOQ enrichment now receives only selected or configured business-brand candidates instead of every matched brand.
+- Verification: focused header/prefilter and selected-brand cost tests pass; the complete safety gate passes 20/20 under a 1 GB memory guard; protected runtime data is unchanged.
+- Runtime: local test service restored on port 8520 at about 143 MB with a 1 GB hard cap and row timing diagnostics enabled.
+
+### 2026-07-12 [BOM-login UX] Distinguish successful login from synchronous BOM work
+
+- Confirmed behavior: during the earlier logged-out upload flow, the member token was valid and BOM rows were processing while the login dialog still appeared busy. The synchronous Streamlit rerun made successful login look stuck.
+- Current-state check: the new token is valid and active, but the restarted local server is idle and has no row-start diagnostics, so no BOM match is currently running; the pre-restart in-memory upload cannot survive a service restart.
+- Follow-up design: introduce a dedicated post-login restore/progress state so the login dialog closes before BOM parsing starts and the user can see whether the upload is restored, matching, completed, or needs to be selected again.
+
+### 2026-07-13 [BOM-login UX] Separate login completion from BOM parsing
+
+- Change: a BOM upload waiting for membership now records a post-login stage on successful authentication. One lightweight UI run closes the login dialog and shows `会员登录成功 / BOM恢复中`; the next run restores the cached upload and starts parsing.
+- Missing-cache behavior: when the in-memory upload cannot be restored, the page confirms login success and explicitly asks the user to select the BOM again instead of leaving the login form busy.
+- Verification: focused login routing and BOM resume-state tests pass; the complete safety gate passes 20/20 under a 1 GB process-memory guard; protected member, cost-list, and no-match databases are unchanged.
+- Runtime: test page restored at `http://127.0.0.1:8520/?bom=1`, initial Python memory about 62 MB, hard limit 1 GB.
+
+### 2026-07-14 [resistor matching] Restore FOJAN alternatives for voltage/halogen-qualified FRC queries
+
+- Reproduced the reported Yageo input and confirmed that `FRC0402F1000TS` existed in the 59-row candidate set but was removed because its FOJAN row had no voltage metadata.
+- Added the official FRC package-to-maximum-working-voltage table, query-time FOJAN FRC voltage/halogen-free enrichment, and strict resistor handling for explicit `无卤` notes.
+- The exact reported query now returns `FOJAN(富捷) / FRC0402F1000TS / 50V / 无卤`; the normal cross-brand path is used because the input does not set an explicit brand filter.
+- Display enrichment returns the active cost `1.7`, update time `2026-06-22 13:46:44`, and `MOQ=10000PCS` for the matched FOJAN row.
+- Verification: focused resistor regression passes; the complete release safety gate passes 20/20 under a 1 GB total job-memory cap; member, active-cost, and no-match runtime fingerprints are unchanged.
+- Runtime: the local test page is restored at `http://127.0.0.1:8520/?bom=1`, returns HTTP 200, starts near 62 MB working memory, and remains under the 1 GB total job-memory cap.
+
+### 2026-07-14 [resistor matching] Fix direct-spec stale empty result and false series label
+
+- Reproduced `100Ω;50V;±1%;1/16W;0402;`: the current resolver returned `FOJAN(富捷) / FRC0402F1000TS`, while the page showed an older empty result and mislabeled `100;50V;` as the series.
+- Bumped the search-result cache version to invalidate pre-fix session results. Display-series inference now ignores temporary `型号` text unless it is a valid compact part number.
+- Added a fixed regression requiring the direct input to return `FRC0402F1000TS` and keep the specification-table series blank.
+- Verification: focused regression passes; final release safety gate passes 20/20 under a 1 GB job-memory cap; member, active-cost, and no-match protected data are unchanged.
+- Runtime: local `8520` service restarted cleanly, returns HTTP 200, starts near 62 MB, and retains the 1 GB memory cap.
+
+### 2026-07-14 [formal release] Publish pending verified fixes by default
+
+- Release scope: publish the accumulated BOM output/performance/login-resume changes, FOJAN FRC/FRM/FPM resistor matching and packaging rules, capacitor-dimension maintenance updates, regressions, and issue records to `main`.
+- Workflow rule: unless the user explicitly asks for a test version first, future completed fixes are published to the formal public page after verification; explicit test-version work remains local until approved.
+- Safety: the pre-release gate passes 20/20 tests under a local-only 1 GB validation limit, and protected member, cost-list, and no-match runtime fingerprints are unchanged. Local databases, release bundles, backups, and unrelated untracked files are excluded from the release.
+- Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:01:19+08:00`; this changes only the cloud application reload marker and does not impose the local validation memory limit on production.

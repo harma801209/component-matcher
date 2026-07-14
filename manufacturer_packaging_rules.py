@@ -40,6 +40,9 @@ WALSIN_SPECIAL_MLCC_SOURCES = {
     "HH": "https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_HQ_Low_ESR_HH.pdf",
     "MT": "https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf",
 }
+FOJAN_FPM_SOURCE = "https://datasheet.lcsc.com/datasheet/pdf/fe86020808d14e5dc0e6f4bc937b8053.pdf?productCode=C54815138"
+FOJAN_FRM_1206_SOURCE = "https://jlcpcb.com/partdetail/FOJAN-FRM121WFR010TM/C7467248"
+FOJAN_FRM_LOCAL_SOURCE = "Resistor/合金电阻_官方可查看版.xlsx"
 
 YAGEO_RC_7_INCH_QUANTITIES = {
     ("0075", "S"): 20000,
@@ -423,6 +426,37 @@ def lookup_manufacturer_packaging(record: Any) -> dict[str, str]:
     size = _text(record, "尺寸（inch）", "尺寸").upper()
     if not model:
         return {}
+
+    if ("FOJAN" in brand or "富捷" in brand) and series in {"FRM", "FPM"}:
+        clean_model = re.sub(r"[^A-Z0-9]", "", model)
+        match = re.fullmatch(
+            r"(?P<series>FRM|FPM)(?P<size_code>12|25)(?P<power>[123]W)[FGJ]R\d{3,4}T(?:ML|M|N|K)",
+            clean_model,
+        )
+        if match and match.group("series") == series:
+            model_size = {"12": "1206", "25": "2512"}.get(match.group("size_code"), "")
+            if not size or size == model_size:
+                if series == "FPM" and model_size == "2512":
+                    return _packaging_result(
+                        4000,
+                        "7英寸卷盘",
+                        "FOJAN FPM packaging table",
+                        FOJAN_FPM_SOURCE,
+                    )
+                if series == "FRM" and model_size == "1206":
+                    return _packaging_result(
+                        5000,
+                        "7英寸卷盘",
+                        "FOJAN FRM121WFR010TM product packaging",
+                        FOJAN_FRM_1206_SOURCE,
+                    )
+                if series == "FRM" and model_size == "2512":
+                    return _packaging_result(
+                        4000,
+                        "7英寸卷盘",
+                        "FOJAN FRM local official-view catalog",
+                        FOJAN_FRM_LOCAL_SOURCE,
+                    )
 
     if ("YAGEO" in brand or "国巨" in brand) and series == "RC":
         match = re.match(r"^RC(?P<size>0075|0100|0201|0402|0603|0805|1206|1210|1218|2010|2512)[A-Z](?P<pack>[RKS])-07", model)

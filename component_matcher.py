@@ -139,6 +139,9 @@ MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
 MEMBER_PENDING_SEARCH_QUERY_KEY = "_member_pending_search_query"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
+BOM_POST_LOGIN_RESUME_STAGE_KEY = "_bom_post_login_resume_stage"
+BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE = "login_complete"
+BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED = "upload_restored"
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
 MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
 APP_TIMEZONE_NAME = "Asia/Shanghai"
@@ -150,7 +153,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 81
+QUERY_RESULT_CACHE_VERSION = 82
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -3080,6 +3083,8 @@ def set_current_member(member):
 
 def complete_member_login(member):
     set_current_member(member)
+    if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
+        st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE
     if is_member_page_requested():
         update_query_params(member="", admin="")
 
@@ -3113,6 +3118,7 @@ def logout_member():
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
+    st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
     update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
 
@@ -6722,6 +6728,7 @@ BRAND_QUERY_ALIAS_GROUPS = (
     ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL")),
     ("华新科Walsin", ("华新科", "華新科", "华科", "華科", "WALSIN")),
     ("信昌PDC", ("信昌", "信昌电陶", "信昌電陶", "PDC", "PSA", "PROSPERITY")),
+    ("芯声微HRE", ("芯声微", "芯聲微", "HRE")),
     ("国巨YAGEO", ("国巨", "國巨", "YAGEO", "YEGO")),
     ("村田Murata", ("村田", "MURATA")),
     ("三星Samsung", ("三星", "SAMSUNG", "SAMSU")),
@@ -15855,13 +15862,17 @@ def merge_query_text_hints_into_spec(spec, query_text):
         return spec
     spec = apply_query_brand_hint_to_spec(spec, query_text)
     explicit_voltage = parse_voltage_from_text(query_text)
-    if explicit_voltage == "":
-        return spec
+    explicit_special_use = extract_special_use_from_text(query_text)
     current_voltage = clean_voltage(spec.get("耐压（V）", ""))
-    if current_voltage != "":
+    current_special_use = normalize_special_use(spec.get("特殊用途", ""))
+    if (explicit_voltage == "" or current_voltage != "") and explicit_special_use == "":
         return spec
     merged = dict(spec)
-    merged["耐压（V）"] = explicit_voltage
+    if explicit_voltage != "" and current_voltage == "":
+        merged["耐压（V）"] = explicit_voltage
+    if explicit_special_use != "":
+        special_tokens = special_use_tokens(current_special_use) + special_use_tokens(explicit_special_use)
+        merged["特殊用途"] = "/".join(dict.fromkeys(special_tokens))
     try:
         merged["_param_count"] = max(int(merged.get("_param_count", 0) or 0), count_query_params(merged))
     except Exception:
@@ -18220,9 +18231,12 @@ def build_component_display_row(spec, allow_online_lookup=False):
     series_desc = clean_text(spec.get("系列说明", ""))
     special_use = clean_text(spec.get("特殊用途", ""))
     component_type = resolve_component_display_type(spec)
+    profile_model = clean_text(spec.get("型号", ""))
+    if profile_model != "" and not looks_like_compact_part_query(profile_model):
+        profile_model = ""
     series_profile = resolve_official_series_profile(
         brand=spec.get("品牌", ""),
-        model=spec.get("型号", ""),
+        model=profile_model,
         component_type=component_type,
         series=series_code,
         series_desc=series_desc,
@@ -21683,6 +21697,7 @@ def extract_mounting_style_from_text(text):
 SPECIAL_USE_RULES = [
     ("车规", [r"AEC[- ]?Q200", r"AUTOMOTIVE", r"车规"]),
     ("抗硫化", [r"抗硫", r"ANTI[- ]?SULFUR", r"SULFUR"]),
+    ("无卤", [r"无卤", r"無鹵", r"HALOGEN[- ]?FREE"]),
     ("消费", [r"CONSUMER", r"NOTEBOOK", r"CPU", r"消费"]),
     ("工业", [r"INDUSTRIAL", r"工业"]),
     ("耐腐蚀", [r"CORROSION", r"耐腐蚀"]),
@@ -21885,6 +21900,7 @@ def match_by_partial_spec(df, spec):
     provided_mat = clean_material(spec.get("材质（介质）", ""))
     provided_tol = clean_tol_for_match(spec.get("容值误差", ""))
     provided_volt = clean_voltage(spec.get("耐压（V）", ""))
+    provided_special_use = normalize_special_use(spec.get("特殊用途", ""))
     provided_pf = spec.get("容值_pf", None)
     target_type = infer_spec_component_type(spec)
 
@@ -21901,6 +21917,19 @@ def match_by_partial_spec(df, spec):
             base = base[same_power]
             if base.empty:
                 return pd.DataFrame()
+        if provided_special_use != "":
+            if "_special_use_norm" in base.columns:
+                special_values = base["_special_use_norm"].astype(str)
+            elif "特殊用途" in base.columns:
+                special_values = base["特殊用途"].astype(str)
+            else:
+                return pd.DataFrame()
+            special_mask = special_values.map(
+                lambda value: special_use_matches(value, provided_special_use)
+            )
+            base = base[special_mask]
+            if base.empty:
+                return pd.DataFrame()
 
     # MLCC 的核心参数是尺寸和容值，缺任意一个都不进入部分匹配。
     if target_type == "MLCC" and (provided_size == "" or provided_pf is None):
@@ -21912,6 +21941,7 @@ def match_by_partial_spec(df, spec):
         1 if provided_pf is not None else 0,
         1 if provided_tol != "" else 0,
         1 if provided_volt != "" else 0,
+        1 if provided_special_use != "" else 0,
     ])
     if provided_count == 0:
         return pd.DataFrame()
@@ -22032,6 +22062,9 @@ BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS = (
     ("厚声", ("厚声", "UNI-ROYAL", "UNIROYAL")),
     ("富捷", ("富捷", "FOJAN")),
 )
+BOM_EXPORT_MODE_AUTO = "主营品牌自动匹配"
+BOM_EXPORT_MODE_CUSTOM = "指定品牌"
+BOM_EXPORT_BRAND_MAX_SELECTIONS = 5
 BOM_RESISTOR_GENERAL_SERIES_CODES = {
     "FRC",
     "RM",
@@ -22080,11 +22113,19 @@ BOM_PREFERRED_BRAND_EXCLUDE_ALIASES = tuple(
         if clean_text(alias) != ""
     }
 )
-BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = ("品牌", "型号", "成本", "更新时间", "MOQ", "L&T")
+BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = (
+    "匹配品牌",
+    "匹配型号",
+    "匹配成本",
+    "成本更新时间",
+    "匹配MOQ",
+    "匹配L&T",
+)
 BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有更新时间", "自有MOQ", "自有L&T")
 BOM_OWN_BRAND_EXPORT_MAX_SLOTS = max(
     len(BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS),
     len(BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS),
+    BOM_EXPORT_BRAND_MAX_SELECTIONS,
 )
 BOM_PREFERRED_SLOT_COLUMNS = tuple(
     col
@@ -22163,6 +22204,56 @@ def bom_own_brand_groups_for_component(component_type):
     return ()
 
 
+def normalize_bom_export_settings(export_settings=None):
+    settings = export_settings if isinstance(export_settings, dict) else {}
+    mode = clean_text(settings.get("mode", BOM_EXPORT_MODE_AUTO))
+    if mode not in {BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM}:
+        mode = BOM_EXPORT_MODE_AUTO
+    brands = []
+    seen = set()
+    for value in settings.get("brands", []) or []:
+        brand = clean_brand(value)
+        key = brand.upper()
+        if brand == "" or key in seen:
+            continue
+        seen.add(key)
+        brands.append(brand)
+        if len(brands) >= BOM_EXPORT_BRAND_MAX_SELECTIONS:
+            break
+    return {"mode": mode, "brands": brands}
+
+
+def bom_export_brand_groups(component_type, export_settings=None):
+    settings = normalize_bom_export_settings(export_settings)
+    if settings["mode"] != BOM_EXPORT_MODE_CUSTOM:
+        groups = tuple(bom_own_brand_groups_for_component(component_type))
+        return groups or (("系统推荐", ()),)
+    groups = []
+    for brand in settings["brands"]:
+        groups.append((brand, tuple(brand_query_aliases_for_label(brand))))
+    return tuple(groups)
+
+
+def bom_export_brand_options():
+    options = []
+    seen = set()
+    preferred = [
+        "信昌PDC",
+        "华新科Walsin",
+        "芯声微HRE",
+        "厚声UNI-ROYAL",
+        "FOJAN(富捷)",
+    ]
+    for canonical in preferred + [item[0] for item in BRAND_QUERY_ALIAS_GROUPS]:
+        brand = clean_brand(canonical)
+        key = brand.upper()
+        if brand == "" or key in seen:
+            continue
+        seen.add(key)
+        options.append(brand)
+    return options
+
+
 def infer_bom_own_brand_component_type(spec=None, frame=None):
     if spec is not None:
         ctype = infer_spec_component_type(spec)
@@ -22179,10 +22270,18 @@ def infer_bom_own_brand_component_type(spec=None, frame=None):
     return ""
 
 
-def prepare_bom_own_brand_candidate_frame(frame, component_type):
+def prepare_bom_own_brand_candidate_frame(frame, component_type, brand_groups=None):
     if frame is None or frame.empty:
         return pd.DataFrame()
     work = frame.copy()
+    groups = list(brand_groups or [])
+    if groups and "品牌" in work.columns and not any(not aliases for _, aliases in groups):
+        brand_mask = work["品牌"].astype(str).map(
+            lambda brand: any(brand_alias_matches(brand, aliases) for _, aliases in groups)
+        )
+        work = work[brand_mask].copy()
+        if work.empty:
+            return work
     ctype = normalize_component_type(component_type)
     if ctype in RESISTOR_COMPONENT_TYPES:
         work = normalize_fojan_resistor_series_display_fields(work)
@@ -22288,7 +22387,7 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
     return slots
 
 
-def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS):
+def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS, export_settings=None):
     slots = empty_bom_own_brand_export_slots(limit=limit)
     if frame is None or frame.empty:
         return slots
@@ -22296,11 +22395,11 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
         return slots
 
     component_type = infer_bom_own_brand_component_type(spec=spec, frame=frame)
-    brand_groups = bom_own_brand_groups_for_component(component_type)
+    brand_groups = bom_export_brand_groups(component_type, export_settings=export_settings)
     if not brand_groups:
         return slots
 
-    work = prepare_bom_own_brand_candidate_frame(frame, component_type)
+    work = prepare_bom_own_brand_candidate_frame(frame, component_type, brand_groups=brand_groups)
     if work.empty:
         return slots
 
@@ -22309,12 +22408,13 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
     for label, aliases in brand_groups:
         brand_candidates = []
         for order, (_, row) in enumerate(work.iterrows()):
-            if not brand_alias_matches(row.get("品牌", ""), aliases):
+            if aliases and not brand_alias_matches(row.get("品牌", ""), aliases):
                 continue
             model = clean_text(row.get("型号", ""))
             if model == "":
                 continue
-            key = (label, model)
+            output_brand = label if aliases else clean_brand(row.get("品牌", ""))
+            key = (output_brand, model)
             if key in seen:
                 continue
             brand_candidates.append(
@@ -22322,7 +22422,7 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
                     "_order": order,
                     "_row": row,
                     "key": key,
-                    "品牌": label,
+                    "品牌": output_brand,
                     "型号": model,
                     "成本": clean_text(row.get("成本", "")),
                     "更新时间": clean_text(row.get("更新时间", "")),
@@ -22330,7 +22430,19 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
                     "L&T": clean_text(row.get("L&T", "")),
                 }
             )
-        for item in sort_bom_own_brand_candidates(brand_candidates, component_type, spec=spec):
+        ordered_candidates = sort_bom_own_brand_candidates(brand_candidates, component_type, spec=spec)
+        match_level_rank = {"完全匹配": 0, "高代低": 1, "可直接替代": 1, "部分参数匹配": 2}
+        for selection_order, item in enumerate(ordered_candidates):
+            item["_selection_order"] = selection_order
+        ordered_candidates = sorted(
+            ordered_candidates,
+            key=lambda item: (
+                match_level_rank.get(clean_text(item.get("_row", {}).get("推荐等级", "")), 9),
+                0 if clean_text(item.get("成本", "")) != "" else 1,
+                int(item.get("_selection_order", 0) or 0),
+            ),
+        )
+        for item in ordered_candidates:
             if item["key"] in seen:
                 continue
             seen.add(item["key"])
@@ -22347,6 +22459,34 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
         slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
         slots[bom_own_brand_internal_column("自有L&T", idx)] = item.get("L&T", "")
     return slots
+
+
+def build_bom_export_candidate_frame(matched, query_df=None, spec=None, mode="", exact_model=""):
+    frames = []
+    exact_model = clean_model(exact_model) or (
+        clean_model((spec or {}).get("型号", "")) if isinstance(spec, dict) else ""
+    )
+    if clean_text(mode) == "料号" or exact_model:
+        exact_rows = pd.DataFrame()
+        if exact_model and isinstance(query_df, pd.DataFrame) and not query_df.empty and "型号" in query_df.columns:
+            exact_rows = query_df[query_df["型号"].astype(str).map(clean_model).eq(exact_model)].copy()
+        if exact_model and exact_rows.empty:
+            exact_map = load_component_rows_by_exact_models_from_search_sidecar([exact_model])
+            exact_rows = exact_map.get(exact_model, pd.DataFrame()) if isinstance(exact_map, dict) else pd.DataFrame()
+        if not exact_rows.empty:
+            if "推荐等级" not in exact_rows.columns:
+                exact_rows["推荐等级"] = "完全匹配"
+            else:
+                exact_rows["推荐等级"] = exact_rows["推荐等级"].where(
+                    exact_rows["推荐等级"].astype(str).map(clean_text).ne(""),
+                    "完全匹配",
+                )
+            frames.append(exact_rows)
+    if isinstance(matched, pd.DataFrame) and not matched.empty:
+        frames.append(matched)
+    if not frames:
+        return pd.DataFrame()
+    return concat_component_frames(frames)
 
 
 def choose_bom_display_match(frame, spec=None):
@@ -27109,6 +27249,21 @@ RESISTOR_MAX_WORKING_VOLTAGE_BY_SIZE = {
     "3225": "500",
 }
 
+# FOJAN FRC-Series General Thick Film Chip Resistor Product Specifications
+# FJ-JS-3001-V3.0/2026.04.25.
+FOJAN_FRC_MAX_WORKING_VOLTAGE_BY_SIZE = {
+    "0201": "25",
+    "0402": "50",
+    "0603": "75",
+    "0805": "150",
+    "1206": "200",
+    "1210": "200",
+    "1218": "200",
+    "1812": "200",
+    "2010": "200",
+    "2512": "200",
+}
+
 RESISTOR_DEFAULT_WORKING_TEMPERATURE = "-55~155℃"
 
 
@@ -28339,6 +28494,47 @@ def can_use_fast_search_dataframe(spec):
     )
 
 
+def enrich_fojan_frc_official_query_fields(df):
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if "品牌" not in df.columns or "型号" not in df.columns:
+        return df
+    out = df.copy()
+    brand_mask = out["品牌"].astype(str).map(
+        lambda value: "FOJAN" in clean_brand(value).upper() or "富捷" in clean_brand(value)
+    )
+    model_mask = out["型号"].astype(str).map(clean_model).str.upper().str.startswith("FRC")
+    target_mask = brand_mask & model_mask
+    if not target_mask.any():
+        return out
+
+    size_values = out["尺寸（inch）"].astype(str).map(clean_size) if "尺寸（inch）" in out.columns else pd.Series("", index=out.index)
+    official_voltage = size_values.map(FOJAN_FRC_MAX_WORKING_VOLTAGE_BY_SIZE).fillna("")
+    for column in ["最高工作电压", "耐压（V）", "_volt"]:
+        if column not in out.columns:
+            out[column] = ""
+        blank_mask = out[column].astype(str).map(clean_text).eq("")
+        fill_mask = target_mask & blank_mask & official_voltage.ne("")
+        out.loc[fill_mask, column] = official_voltage.loc[fill_mask]
+    if "_volt_num" not in out.columns:
+        out["_volt_num"] = pd.NA
+    numeric_voltage = pd.to_numeric(official_voltage, errors="coerce")
+    blank_numeric = pd.to_numeric(out["_volt_num"], errors="coerce").isna()
+    fill_numeric = target_mask & blank_numeric & numeric_voltage.notna()
+    out.loc[fill_numeric, "_volt_num"] = numeric_voltage.loc[fill_numeric]
+
+    for column in ["特殊用途", "_special_use_norm"]:
+        if column not in out.columns:
+            out[column] = ""
+        blank_mask = out[column].astype(str).map(clean_text).eq("")
+        out.loc[target_mask & blank_mask, column] = "无卤"
+    return out
+
+
+def finalize_search_candidate_frames(frames):
+    return enrich_fojan_frc_official_query_fields(concat_component_frames(frames))
+
+
 def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=None):
     if spec is None:
         return None
@@ -28366,7 +28562,7 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
                 frames.append(load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=component_type))
                 used_fast_path = True
             else:
-                return concat_component_frames(frames) if frames else pd.DataFrame()
+                return finalize_search_candidate_frames(frames) if frames else pd.DataFrame()
         else:
             if component_type in (
                 INDUCTOR_COMPONENT_TYPES
@@ -28379,7 +28575,7 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
                 used_fast_path = True
     if not used_fast_path:
         return None
-    return concat_component_frames(frames)
+    return finalize_search_candidate_frames(frames)
 
 
 def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
@@ -31938,6 +32134,65 @@ def get_effective_bom_uploaded_file(uploaded_file):
     return None
 
 
+def resolve_bom_post_login_resume_action(waiting_for_login, stage, member_logged_in, upload_available):
+    if not member_logged_in:
+        return ""
+    stage = clean_text(stage)
+    if stage == BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED:
+        return "resume" if upload_available else "missing_upload"
+    if waiting_for_login or stage == BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE:
+        return "announce_restore" if upload_available else "missing_upload"
+    return ""
+
+
+def render_bom_post_login_resume_transition(effective_uploaded_file):
+    action = resolve_bom_post_login_resume_action(
+        bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)),
+        st.session_state.get(BOM_POST_LOGIN_RESUME_STAGE_KEY, ""),
+        current_member() is not None,
+        effective_uploaded_file is not None,
+    )
+    if action == "":
+        return action
+
+    if action == "missing_upload":
+        st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
+        st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
+        st.success("会员登录成功。")
+        st.warning("登录状态已恢复，但之前上传的 BOM 文件已不在当前会话中，请重新选择文件。")
+        return action
+
+    if action == "announce_restore":
+        st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
+        st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED
+        placeholder = st.empty()
+        render_bom_progress_card(
+            placeholder,
+            {
+                "title": "会员登录成功",
+                "subtitle": "已保留刚才上传的 BOM，正在切换到匹配页面",
+                "current_text": clean_text(getattr(effective_uploaded_file, "name", "")) or "正在恢复上传文件",
+                "processed_rows": 0,
+                "total_rows": 0,
+                "percent": 12.0,
+                "done": False,
+                "elapsed_seconds": 0.0,
+                "chips": [
+                    {"label": "登录", "value": "已完成", "tone": "success"},
+                    {"label": "BOM", "value": "恢复中", "tone": "warn"},
+                ],
+            },
+        )
+        # Complete one lightweight UI run so the login dialog disappears
+        # before the next run begins synchronous workbook parsing.
+        time.sleep(0.25)
+        st.rerun()
+
+    st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
+    st.success("会员登录成功，已恢复刚才上传的 BOM，正在开始解析匹配。")
+    return action
+
+
 def normalize_uploaded_bom_frame(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -33122,6 +33377,27 @@ def collect_bom_extra_spec_values(record, column_mapping):
     return [item[1] for item in extras[:2]]
 
 
+def bom_record_looks_like_repeated_header(model_value, spec_value, name_value):
+    normalized = {
+        "model": normalize_bom_header_name(model_value),
+        "spec": normalize_bom_header_name(spec_value),
+        "name": normalize_bom_header_name(name_value),
+    }
+    model_header = bool(
+        re.fullmatch(
+            r"(?:mfr)?(?:mpn|pn|partnumber|manufacturerpartnumber|model|型号|料号)\d*",
+            normalized["model"],
+        )
+    )
+    spec_header = normalized["spec"] in {
+        "description", "desc", "spec", "specification", "规格", "规格描述", "物料描述", "描述",
+    }
+    name_header = normalized["name"] in {
+        "item", "itemname", "project", "name", "品名", "物料名称", "项目", "名称",
+    }
+    return sum([model_header, spec_header, name_header]) >= 2
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
@@ -33133,17 +33409,19 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
             candidates.append({"query": query, "source": source})
             seen.add(query)
 
+    # Exact models are cheapest and most authoritative. If that misses, try the
+    # richest combined specification before weaker single-column fallbacks.
     add_candidate(model_value, "型号列")
-    add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
-    add_candidate(spec_value, "规格列")
-    add_candidate(name_value, "品名列")
     if clean_text(model_value) != "" and clean_text(spec_value) != "":
-        add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
         add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
+        add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
+    add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
     if extra_values:
         add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
         add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
         add_candidate(join_bom_parts(name_value, *extra_values), "品名列+其他列")
+    add_candidate(spec_value, "规格列")
+    add_candidate(name_value, "品名列")
     return candidates
 
 def describe_bom_result(candidate_result):
@@ -33192,11 +33470,32 @@ def describe_bom_result(candidate_result):
         return f"使用{source}解析，首选结果需人工确认替代关系"
     return f"使用{source}解析成功"
 
-def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_cache=None, full_df_provider=None):
-    cached = query_cache.get(query_text) if query_cache is not None else None
+def bom_query_cache_key(query_text):
+    return re.sub(r"\s+", " ", clean_text(query_text)).strip().upper()
+
+
+def store_bom_query_cache(query_cache, cache_key, value, limit=256):
+    if not isinstance(query_cache, dict) or cache_key == "":
+        return
+    query_cache[cache_key] = value
+    while len(query_cache) > max(1, int(limit)):
+        query_cache.pop(next(iter(query_cache)))
+
+
+def evaluate_bom_candidate(
+    df,
+    query_text,
+    source_label,
+    candidate_index,
+    query_cache=None,
+    full_df_provider=None,
+    exact_part_rows=None,
+):
+    cache_key = bom_query_cache_key(query_text)
+    cached = query_cache.get(cache_key) if isinstance(query_cache, dict) else None
     if cached is None:
         full_df = df
-        exact_part_rows = resolve_prefetched_exact_part_rows(query_text)
+        exact_part_rows = resolve_prefetched_exact_part_rows(query_text, exact_part_rows=exact_part_rows)
         detect_df = exact_part_rows if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty else None
         mode, spec = detect_query_mode_and_spec(detect_df, query_text)
         query_df = None
@@ -33268,12 +33567,12 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
                 result["status"] = "无匹配"
             else:
                 recommendation = build_procurement_recommendation(matched, spec)
+                result["recommendation"] = recommendation
                 result["status"] = recommendation.get("status", "需确认")
                 result["recommendation_reason"] = recommendation.get("reason", "")
                 result["top_match_level"] = recommendation.get("level", "")
         cached = result
-        if query_cache is not None:
-            query_cache[query_text] = cached
+        store_bom_query_cache(query_cache, cache_key, cached)
 
     result = {
         "query": query_text,
@@ -33286,6 +33585,7 @@ def evaluate_bom_candidate(df, query_text, source_label, candidate_index, query_
         "status": cached.get("status", "解析失败"),
         "top_match_level": cached.get("top_match_level", ""),
         "recommendation_reason": cached.get("recommendation_reason", ""),
+        "recommendation": cached.get("recommendation"),
         "query_df": cached.get("query_df"),
         "_candidate_index": candidate_index,
     }
@@ -33394,17 +33694,34 @@ def bom_candidate_good_enough(candidate_result):
     return False
 
 
-def choose_best_bom_candidate(df, candidates, query_cache=None, full_df_provider=None):
+def choose_best_bom_candidate(
+    df,
+    candidates,
+    query_cache=None,
+    full_df_provider=None,
+    exact_part_prefetch_map=None,
+):
     best = None
     for idx, candidate in enumerate(candidates):
-        result = evaluate_bom_candidate(df, candidate["query"], candidate["source"], idx, query_cache=query_cache, full_df_provider=full_df_provider)
+        prefetched_rows = None
+        if candidate["source"] == "型号列" and isinstance(exact_part_prefetch_map, dict):
+            prefetched_rows = exact_part_prefetch_map.get(clean_model(candidate["query"]))
+        result = evaluate_bom_candidate(
+            df,
+            candidate["query"],
+            candidate["source"],
+            idx,
+            query_cache=query_cache,
+            full_df_provider=full_df_provider,
+            exact_part_rows=prefetched_rows,
+        )
         if should_replace_best_bom_candidate(best, result):
             best = result
         if bom_candidate_good_enough(best):
             break
     return best
 
-def build_bom_result_row(df, line):
+def build_bom_result_row(df, line, export_settings=None):
     mode, spec = detect_query_mode_and_spec(df, line)
     row = {
         "原始输入": line,
@@ -33481,7 +33798,7 @@ def build_bom_result_row(df, line):
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
         row["推荐型号"] = clean_text(display_match.get("型号", ""))
-    row.update(build_bom_own_brand_export_slots(matched, spec=spec))
+    row.update(build_bom_own_brand_export_slots(matched, spec=spec, export_settings=export_settings))
     row.update(
         build_bom_preferred_brand_slots(
             matched,
@@ -33497,7 +33814,16 @@ def build_bom_result_row(df, line):
     row["推荐理由"] = recommendation.get("reason", "")
     return row
 
-def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cache=None, full_df_provider=None):
+def build_bom_upload_result_row(
+    df,
+    row_index,
+    record,
+    column_mapping,
+    query_cache=None,
+    full_df_provider=None,
+    export_settings=None,
+    exact_part_prefetch_map=None,
+):
     model_value = get_bom_selected_value(record, column_mapping.get("model"))
     spec_value = get_bom_selected_value(record, column_mapping.get("spec"))
     name_value = get_bom_selected_value(record, column_mapping.get("name"))
@@ -33547,6 +33873,13 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
     }
     result_row.update(empty_bom_own_brand_export_slots())
 
+    if bom_record_looks_like_repeated_header(model_value, spec_value, name_value):
+        result_row["解析状态"] = "已跳过"
+        result_row["失败原因"] = "检测到重复表头或说明行"
+        result_row["差异说明"] = "该行不是物料数据，已跳过匹配"
+        result_row["状态"] = "已跳过"
+        return result_row
+
     extra_values = collect_bom_extra_spec_values(record, column_mapping)
     candidates = build_bom_query_candidates(model_value, spec_value, name_value, extra_values=extra_values)
     if not candidates:
@@ -33554,7 +33887,13 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         result_row["差异说明"] = "当前行在已指定列中没有可用于解析的内容"
         return result_row
 
-    best = choose_best_bom_candidate(df, candidates, query_cache=query_cache, full_df_provider=full_df_provider)
+    best = choose_best_bom_candidate(
+        df,
+        candidates,
+        query_cache=query_cache,
+        full_df_provider=full_df_provider,
+        exact_part_prefetch_map=exact_part_prefetch_map,
+    )
     if best is None:
         result_row["失败原因"] = "BOM 解析失败"
         result_row["差异说明"] = "未能生成有效解析结果"
@@ -33593,7 +33932,7 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         matched = matched.copy()
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
-        recommendation = build_procurement_recommendation(matched, spec)
+        recommendation = best.get("recommendation") or build_procurement_recommendation(matched, spec)
         display_match = recommendation.get("row")
         detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
@@ -33602,7 +33941,6 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
         result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
         result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
-        result_row.update(build_bom_own_brand_export_slots(matched, spec=spec))
         result_row.update(
             build_bom_preferred_brand_slots(
                 matched,
@@ -33632,6 +33970,23 @@ def build_bom_upload_result_row(df, row_index, record, column_mapping, query_cac
         result_row["备注1"] = clean_text(detail_match.get("备注1", ""))
         result_row["备注2"] = clean_text(detail_match.get("备注2", ""))
         result_row["备注3"] = clean_text(detail_match.get("备注3", ""))
+
+    export_candidates = build_bom_export_candidate_frame(
+        matched if isinstance(matched, pd.DataFrame) else pd.DataFrame(),
+        query_df=query_df,
+        spec=spec,
+        mode=best.get("mode", ""),
+        exact_model=model_value,
+    )
+    export_slots = build_bom_own_brand_export_slots(
+        export_candidates,
+        spec=spec,
+        export_settings=export_settings,
+    )
+    result_row.update(export_slots)
+    if clean_text(export_slots.get("自有型号", "")) != "" and result_row["状态"] == "无匹配":
+        result_row["状态"] = "可推荐"
+        result_row["推荐理由"] = "已匹配原 BOM 型号及当前成本资料"
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(
@@ -33939,7 +34294,15 @@ def build_bom_preview_notice_html(message, workbook_signature):
 </div>
 '''
 
-def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fallback=False, progress_callback=None):
+def bom_dataframe_from_upload(
+    df,
+    upload_df,
+    column_mapping=None,
+    allow_full_fallback=False,
+    progress_callback=None,
+    export_settings=None,
+    query_cache=None,
+):
     if upload_df is None or upload_df.empty:
         return pd.DataFrame()
 
@@ -33961,9 +34324,22 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
             full_df_cache["prepared"] = True
         return full_df_cache["df"]
 
-    query_cache = {}
+    query_cache = query_cache if isinstance(query_cache, dict) else {}
     full_df_provider = get_full_bom_df if allow_full_fallback else None
     records = work.to_dict(orient="records")
+    model_column = column_mapping.get("model")
+    exact_model_queries = []
+    if model_column:
+        exact_model_queries = [
+            clean_text(record.get(model_column, ""))
+            for record in records
+            if looks_like_compact_part_query(clean_text(record.get(model_column, "")))
+        ]
+    exact_part_prefetch_map = (
+        load_component_rows_by_exact_models_from_database(list(dict.fromkeys(exact_model_queries)))
+        if exact_model_queries
+        else {}
+    )
     total_rows = len(records)
     rows = []
     exact_count = 0
@@ -33972,6 +34348,7 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
     matched_count = 0
     no_match_count = 0
     fail_count = 0
+    skipped_count = 0
     start_ts = time.perf_counter()
     last_emit_ts = start_ts
     last_emit_index = 0
@@ -34017,12 +34394,21 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
                 {"label": "需确认", "value": str(partial_count), "tone": "warn"},
                 {"label": "参数冲突", "value": str(substitute_count), "tone": "fail"},
                 {"label": "无匹配", "value": str(no_match_count), "tone": "warn"},
+                {"label": "已跳过", "value": str(skipped_count)},
                 {"label": "失败", "value": str(fail_count), "tone": "fail"},
             ],
         })
 
     emit_progress(0, {"BOM行号": "", "解析输入": "准备开始 BOM 匹配"}, done=False)
     for idx, record in enumerate(records):
+        row_started_at = time.perf_counter()
+        if BOM_MATCH_DEBUG:
+            bom_match_debug_log(
+                f"row_start={idx + 2}",
+                f"model={clean_text(record.get(column_mapping.get('model'), '')) if column_mapping.get('model') else ''}",
+                f"spec={clean_text(record.get(column_mapping.get('spec'), '')) if column_mapping.get('spec') else ''}",
+                f"name={clean_text(record.get(column_mapping.get('name'), '')) if column_mapping.get('name') else ''}",
+            )
         result_row = build_bom_upload_result_row(
             None,
             idx,
@@ -34030,7 +34416,15 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
             column_mapping,
             query_cache=query_cache,
             full_df_provider=full_df_provider,
+            export_settings=export_settings,
+            exact_part_prefetch_map=exact_part_prefetch_map,
         )
+        if BOM_MATCH_DEBUG:
+            bom_match_debug_log(
+                f"row_done={idx + 2}",
+                f"elapsed={time.perf_counter() - row_started_at:.3f}s",
+                f"status={clean_text(result_row.get('状态', ''))}",
+            )
         rows.append(result_row)
 
         status_text = clean_text(result_row.get("状态", ""))
@@ -34045,6 +34439,8 @@ def bom_dataframe_from_upload(df, upload_df, column_mapping=None, allow_full_fal
             substitute_count += 1
         elif status_text == "无匹配":
             no_match_count += 1
+        elif status_text == "已跳过":
+            skipped_count += 1
         else:
             fail_count += 1
 
@@ -34143,7 +34539,26 @@ def build_bom_own_brand_append_columns(result_df, row_count):
         if slot_has_value:
             max_slot = idx
 
-    append_columns = []
+    status_values = []
+    note_values = []
+    for row_idx in range(max_len):
+        if row_idx < len(result_work):
+            row = result_work.iloc[row_idx]
+            status_values.append(clean_text(row.get("状态", "")) or clean_text(row.get("解析状态", "")))
+            note_values.append(
+                first_clean_row_value(
+                    row,
+                    ["推荐理由", "失败原因", "差异说明", "解析说明"],
+                )
+            )
+        else:
+            status_values.append("")
+            note_values.append("")
+
+    append_columns = [
+        {"header": "匹配状态", "values": status_values},
+        {"header": "匹配说明", "values": note_values},
+    ]
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
             source_col = bom_own_brand_internal_column(internal_prefix, idx)
@@ -34209,11 +34624,12 @@ def copy_excel_cell_style(src_cell, dst_cell):
         pass
 
 
-def build_bom_workbook_run_signature(uploaded_file, sheet_mappings):
+def build_bom_workbook_run_signature(uploaded_file, sheet_mappings, export_settings=None):
     return json.dumps(
         {
             "file": build_uploaded_file_signature(uploaded_file),
             "sheet_mappings": sheet_mappings or {},
+            "export_settings": normalize_bom_export_settings(export_settings),
         },
         sort_keys=True,
         ensure_ascii=True,
@@ -34253,7 +34669,12 @@ def append_export_columns_to_worksheet(ws, source_df, append_columns):
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
 
-def build_bom_workbook_sheet_results(bom_workbook, sheet_mappings=None, progress_callback=None):
+def build_bom_workbook_sheet_results(
+    bom_workbook,
+    sheet_mappings=None,
+    progress_callback=None,
+    export_settings=None,
+):
     sheet_frames = list((bom_workbook or {}).get("sheet_frames", []) or [])
     if not sheet_frames:
         return []
@@ -34262,6 +34683,7 @@ def build_bom_workbook_sheet_results(bom_workbook, sheet_mappings=None, progress
     total_rows = sum(len(item.get("df", pd.DataFrame())) for item in sheet_frames)
     processed_rows = 0
     sheet_results = []
+    shared_query_cache = {}
     start_ts = time.perf_counter()
 
     def emit_workbook_progress(state, sheet_name="", sheet_index=0, sheet_count=0, sheet_offset=0):
@@ -34301,7 +34723,14 @@ def build_bom_workbook_sheet_results(bom_workbook, sheet_mappings=None, progress
         def sheet_progress(progress_state, _sheet_name=sheet_name, _sheet_index=sheet_index, _sheet_count=len(sheet_frames), _sheet_offset=sheet_offset):
             emit_workbook_progress(progress_state, sheet_name=_sheet_name, sheet_index=_sheet_index, sheet_count=_sheet_count, sheet_offset=_sheet_offset)
 
-        result_df = bom_dataframe_from_upload(None, sheet_df, sheet_mapping, progress_callback=sheet_progress if progress_callback is not None else None)
+        result_df = bom_dataframe_from_upload(
+            None,
+            sheet_df,
+            sheet_mapping,
+            progress_callback=sheet_progress if progress_callback is not None else None,
+            export_settings=export_settings,
+            query_cache=shared_query_cache,
+        )
         sheet_results.append({
             "sheet_name": sheet_name,
             "source_df": sheet_df,
@@ -34401,7 +34830,7 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
             if base_name not in wrap_export_bases:
                 continue
             export_letter = get_column_letter(export_col_idx)
-            if base_name.startswith("型号"):
+            if "型号" in base_name:
                 sheet.column_dimensions[export_letter].width = 32
             else:
                 sheet.column_dimensions[export_letter].width = 18
@@ -34942,6 +35371,7 @@ def render_bom_upload_page():
     uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
     startup_trace("after_file_uploader")
     effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
+    render_bom_post_login_resume_transition(effective_uploaded_file)
 
     if effective_uploaded_file is not None:
         if not require_member_login_for_action("BOM 批量上传匹配"):
@@ -35071,6 +35501,44 @@ def render_bom_upload_page():
                 bom_df = selected_sheet.get("df", pd.DataFrame()).copy()
                 total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
                 bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
+
+                st.markdown('<div class="section-title">输出设置</div>', unsafe_allow_html=True)
+                export_mode_key = f"bom_export_mode_{workbook_signature}"
+                if export_mode_key not in st.session_state:
+                    st.session_state[export_mode_key] = BOM_EXPORT_MODE_AUTO
+                if hasattr(st, "segmented_control"):
+                    bom_export_mode = st.segmented_control(
+                        "输出品牌",
+                        [BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM],
+                        key=export_mode_key,
+                        selection_mode="single",
+                        width="stretch",
+                    ) or BOM_EXPORT_MODE_AUTO
+                else:
+                    bom_export_mode = st.radio(
+                        "输出品牌",
+                        [BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM],
+                        key=export_mode_key,
+                        horizontal=True,
+                    )
+                selected_export_brands = []
+                if bom_export_mode == BOM_EXPORT_MODE_CUSTOM:
+                    custom_brand_key = f"bom_export_brands_{workbook_signature}"
+                    if custom_brand_key not in st.session_state:
+                        st.session_state[custom_brand_key] = ["信昌PDC"]
+                    selected_export_brands = st.multiselect(
+                        "选择输出品牌",
+                        bom_export_brand_options(),
+                        key=custom_brand_key,
+                        max_selections=BOM_EXPORT_BRAND_MAX_SELECTIONS,
+                        placeholder="选择 1-5 个品牌",
+                    )
+                    if not selected_export_brands:
+                        st.warning("请至少选择一个输出品牌。")
+                        st.stop()
+                bom_export_settings = normalize_bom_export_settings(
+                    {"mode": bom_export_mode, "brands": selected_export_brands}
+                )
 
                 cached_bom_result_df = pd.DataFrame()
                 cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
@@ -35208,7 +35676,11 @@ def render_bom_upload_page():
                 if not parse_columns:
                     st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
                 else:
-                    current_bom_signature = build_bom_workbook_run_signature(uploaded_file, sheet_mapping_store)
+                    current_bom_signature = build_bom_workbook_run_signature(
+                        uploaded_file,
+                        sheet_mapping_store,
+                        export_settings=bom_export_settings,
+                    )
                     stored_bom_signature = st.session_state.get("_bom_result_signature", "")
                     if stored_bom_signature != current_bom_signature:
                         st.session_state.pop("_bom_result_signature", None)
@@ -35261,7 +35733,12 @@ def render_bom_upload_page():
                                     {"label": "当前", "value": selected_sheet_name, "tone": "warn"},
                                 ],
                             })
-                            sheet_results = build_bom_workbook_sheet_results(bom_workbook, sheet_mapping_store, progress_callback=update_bom_progress)
+                            sheet_results = build_bom_workbook_sheet_results(
+                                bom_workbook,
+                                sheet_mapping_store,
+                                progress_callback=update_bom_progress,
+                                export_settings=bom_export_settings,
+                            )
                             sheet_result_map = {item["sheet_name"]: item.get("result_df", pd.DataFrame()) for item in sheet_results}
 
                             final_match_state = dict(progress_state_holder["state"] or {})
@@ -35336,7 +35813,9 @@ def render_bom_upload_page():
                         status_counts = count_bom_recommendation_statuses(bom_result_df)
                         component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
-                        display_bom_result_df = format_display_df(build_bom_display_df(bom_result_df))
+                        display_bom_result_df = format_display_df(
+                            build_bom_matched_export_df(bom_df, bom_result_df)
+                        )
                         export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
                         export_filename = f"{export_name_root}_匹配后.xlsx"
                         export_bytes = st.session_state.get("_bom_export_bytes", b"")

@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-07-09 - FOJAN alloy resistor specs lacked FRM/FPM source-backed candidates
+
+- Bug: Alloy resistor specs such as `合金电阻 电阻10毫欧 ±1% 1206` and `贴片合金电阻 0.06R 2512 3W ±1%` did not return FOJAN alloy models. Some alloy specs could also be polluted by the older FOJAN FRL low-ohm thick-film fallback.
+- Root cause: The FOJAN rule fallback only generated FRC/FRL price-series resistor models. FRM/FPM alloy ordering rules were not parsed or generated, and the FRC/FRL fallback was not gated away from explicit `合金电阻` specs.
+- Fix: Added FRM/FPM alloy model parsing and source-scoped spec fallback; limited FRC/FRL fallback to non-alloy resistor specs; added FOJAN FRM/FPM manufacturer packaging MOQ rules.
+- Verification: `python -m unittest tests.test_system_regression.SystemRegressionTests.test_13_manufacturer_packaging_moq_is_source_backed tests.test_system_regression.SystemRegressionTests.test_14_fojan_alloy_resistor_rules_are_source_scoped` and `python -m unittest tests.test_system_regression` passed.
+- Remaining scope: FOJAN alloy generation is intentionally limited to source-backed ranges now available in code. Wider FRM/FPM coverage needs a complete official ordering table before adding more generated values.
+
 ## 2026-06-23 - Invalid resistor package code still returned partial matches
 
 - Bug: A resistor spec with a mistyped package such as `0420 10K 1%` could still show partial-match resistor results from other package sizes.
@@ -645,3 +653,34 @@
 - Fix: Add ROHM aliases to requested-brand filtering. Let FOJAN FRC/FRL fallback use the standard power for the size when no power is specified, while still rejecting explicit mismatched power.
 - Boundary: FOJAN FRM/FPM alloy series are present only as imported rows today. Full official-series generation must be implemented from source-backed datasheet naming rules, not by treating FRL as alloy or guessing model codes.
 - Verification: `ROHM` ESR query now returns `ROHM / ESR03EZPF1002`; no-power FOJAN examples generate `FRC0805F9100TS` and `FRL1206FR010TS`; focused regression and release safety gate pass with protected runtime database fingerprints unchanged.
+
+## 2026-07-12 - Local test page was offline after the workstation reboot
+
+- Incident: `http://127.0.0.1:8520/` stopped responding because the reboot terminated the local Streamlit process; no process was listening on port 8520 afterward.
+- Safety finding: The previous local Python process had reached 7.18 GB of virtual memory on a machine with 7.67 GB of physical RAM, so restarting it without a guard could repeat the resource-exhaustion incident.
+- Mitigation: Restarted only the local `streamlit_app.py` entrypoint with database auto-update disabled and attached the Python process to a Windows Job Object with a 1 GB process-memory limit. No database rebuild, automated test, or application-data write was run.
+- Verification: Port 8520 is listening on `127.0.0.1`, `/?bom=1` returns HTTP 200, and the restarted Python process initially uses about 62 MB of working memory.
+- Follow-up: The first post-reboot login created a valid active-member token but left one Python thread in a full-CPU rerun loop. The member database remained readable, passed `PRAGMA quick_check`, and the token had a valid expiry. Restarting only the capped local Streamlit process preserved the session token and cleared the loop; the replacement process added only 0.02 CPU seconds over a three-second sample and used about 144 MB.
+- BOM follow-up: A subsequent BOM run consumed one CPU core continuously for several minutes while memory stayed near 184-197 MB and the browser connection remained established. This confirms a CPU-bound single-row matching path rather than a memory-limit or database failure. The stuck run was stopped, and the capped test server was restarted with `BOM_MATCH_DEBUG=1` and isolated stdout/stderr logs so the next identical upload can identify the exact row and query path.
+- Performance fix: BOM matching now bulk-prefetches exact model rows once per sheet, shares a bounded 256-entry normalized query cache across workbook sheets, tries the richest combined specifications before weak single-column fallbacks, reuses the recommendation already calculated during candidate evaluation, and avoids generating the own-brand export candidate frame twice per row. Debug mode records row start and completion timing, so a future single-row stall identifies the unresolved input immediately.
+- Verification: Candidate-order/cache regressions and existing BOM export/cost regressions pass. The complete 20-test release safety gate passes under a 1 GB process-memory guard, with protected member, cost-list, and no-match fingerprints unchanged.
+- Real BOM evidence: The repeated header row `MPN3 / Description / 项目` was incorrectly processed as a component and consumed 65.991 seconds. Subsequent resistor rows completed in 1.276-2.288 seconds each, proving the page was progressing but still too slow for large files.
+- Follow-up fix: Detect and preserve repeated header/description rows as `已跳过` without querying the library. Before calculating cost/MOQ, restrict the candidate frame to the selected or configured business-brand groups; unrelated matched brands no longer run pricing and manufacturer-packaging enrichment.
+- Follow-up verification: Header-skip and brand-prefilter regressions pass, the selected-brand cost regression remains correct, and the complete 20-test release safety gate passes with protected runtime fingerprints unchanged.
+- UX finding: In the logged-out BOM flow, the member token can be created successfully and the resumed BOM match can run while the submitted login dialog remains visually busy. The prior diagnostic run confirmed row processing behind that dialog. After a local service restart, the token remains valid but the in-memory upload is gone, so an idle server plus a stale dialog does not mean matching is still running. The flow should be split into an explicit post-login restore/progress state instead of coupling login submission to synchronous BOM execution.
+- UX fix: Successful login from a waiting BOM upload now records a dedicated post-login stage. The next run only displays `会员登录成功 / BOM恢复中` and performs one lightweight rerun so the login dialog closes; the following run clears the stage, confirms the cached upload was restored, and starts workbook parsing. If the cached bytes are unavailable, the page reports that login succeeded and asks for the file to be selected again instead of appearing stuck.
+- Verification: Login-route and BOM resume-state regressions pass. The complete 20-test release safety gate passes under the 1 GB guard, and protected member, cost-list, and no-match fingerprints remain unchanged.
+
+## 2026-07-14 - Yageo resistor query omitted the valid FOJAN alternative
+
+- Bug: `100Ω;50V;±1%;1/16W;0402;RC0402FR-07100RL;无卤` showed the Yageo source row but reported that no other-brand alternative was available, even though `FOJAN(富捷) / FRC0402F1000TS` was already generated as a candidate.
+- Root cause: FOJAN FRC rows had blank maximum-working-voltage and halogen-free fields. The explicit `50V` constraint therefore rejected the FOJAN candidate before result display; resistor note text such as `无卤` was also not merged into the parsed specification.
+- Fix: Backfill query-time FRC maximum working voltage by official package table, mark FRC candidates as halogen-free, extract `无卤/無鹵/HALOGEN-FREE`, and apply explicit resistor special-use requirements as strict filters.
+- Verification: The original full query now returns exactly one alternative match, `FOJAN(富捷) / FRC0402F1000TS / 0402 / 100Ω / ±1% / 50V / 无卤`. The focused regression passes, and the complete 20-test release safety gate passes under a 1 GB job-memory limit with protected runtime fingerprints unchanged.
+
+## 2026-07-14 - Direct resistor specification reused an obsolete empty page result
+
+- Bug: Searching `100Ω;50V;±1%;1/16W;0402;` directly showed zero matches even though the current resolver produced `FOJAN(富捷) / FRC0402F1000TS`. The specification table also displayed `100;50V;` as a false series name.
+- Root cause: Existing Streamlit sessions could retain the pre-fix empty DataFrame because the query-result cache version had not changed. Separately, the resistor parser keeps the original specification text in the temporary `型号` field, and the display profile treated that non-model text as a model when inferring a series.
+- Fix: Bump the query-result cache version so old empty frames cannot be reused. Only use `型号` for display-series inference when it passes the compact-part-number check.
+- Verification: Regression coverage now requires the direct specification to parse as `0402 / 100Ω / ±1% / 1/16W / 50V`, generate `FRC0402F1000TS`, return that model, and leave the specification-table series blank. Focused regression and the complete 20-test release safety gate pass; protected runtime fingerprints remain unchanged.

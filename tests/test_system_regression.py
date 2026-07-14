@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 
 class UploadedBytes:
@@ -268,13 +268,22 @@ class SystemRegressionTests(unittest.TestCase):
         app = self.app
         original_functions = {
             name: app[name]
-            for name in ["set_current_member", "is_member_page_requested", "update_query_params"]
+            for name in [
+                "set_current_member",
+                "is_member_page_requested",
+                "is_bom_page_requested",
+                "update_query_params",
+                "st",
+            ]
         }
         member_calls = []
         route_updates = []
+        fake_st = type("FakeStreamlit", (), {"session_state": {}})()
         try:
+            app["st"] = fake_st
             app["set_current_member"] = lambda member: member_calls.append(member)
             app["update_query_params"] = lambda **updates: route_updates.append(updates)
+            app["is_bom_page_requested"] = lambda: False
             app["is_member_page_requested"] = lambda: True
             app["complete_member_login"]({"id": 7})
             self.assertEqual(member_calls, [{"id": 7}])
@@ -284,6 +293,14 @@ class SystemRegressionTests(unittest.TestCase):
             app["complete_member_login"]({"id": 8})
             self.assertEqual(member_calls[-1], {"id": 8})
             self.assertEqual(len(route_updates), 1)
+
+            fake_st.session_state[app["BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY"]] = True
+            app["is_bom_page_requested"] = lambda: True
+            app["complete_member_login"]({"id": 9})
+            self.assertEqual(
+                fake_st.session_state[app["BOM_POST_LOGIN_RESUME_STAGE_KEY"]],
+                app["BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE"],
+            )
         finally:
             app.update(original_functions)
 
@@ -305,6 +322,19 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["st"] = original_st
             app["current_member"] = original_current_member
+
+        resolve_bom_resume = app["resolve_bom_post_login_resume_action"]
+        self.assertEqual(resolve_bom_resume(True, "", True, True), "announce_restore")
+        self.assertEqual(
+            resolve_bom_resume(False, app["BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE"], True, True),
+            "announce_restore",
+        )
+        self.assertEqual(
+            resolve_bom_resume(False, app["BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED"], True, True),
+            "resume",
+        )
+        self.assertEqual(resolve_bom_resume(True, "", True, False), "missing_upload")
+        self.assertEqual(resolve_bom_resume(True, "", False, True), "")
 
     def test_02d_compact_search_summary_and_read_only_runtime_snapshot(self):
         app = self.app
@@ -567,6 +597,69 @@ class SystemRegressionTests(unittest.TestCase):
         merged_fojan = app["concat_component_frames"]([real_fojan_row, fallback_fojan_row])
         self.assertEqual(merged_fojan["型号"].tolist(), ["FRC0603J102 TS"])
 
+        original_query = "100Ω;50V;±1%;1/16W;0402;RC0402FR-07100RL;无卤"
+        exact_yageo = app["prepare_search_dataframe"](
+            app["ensure_component_display_columns"](
+                pd.DataFrame(
+                    [
+                        {
+                            "品牌": "国巨YAGEO",
+                            "型号": "RC0402FR-07100RL",
+                            "器件类型": "厚膜电阻",
+                            "系列": "RC",
+                            "尺寸（inch）": "0402",
+                            "材质（介质）": "",
+                            "容值_pf": None,
+                            "容值": "100",
+                            "容值单位": "Ω",
+                            "容值误差": "1",
+                            "功率": "1/16W",
+                            "耐压（V）": "50",
+                            "特殊用途": "无卤",
+                        }
+                    ]
+                )
+            )
+        )
+        mode, original_spec = app["detect_query_mode_and_spec"](exact_yageo, original_query)
+        original_spec = app["merge_query_text_hints_into_spec"](original_spec, original_query)
+        self.assertEqual(app["normalize_special_use"](original_spec["特殊用途"]), "无卤")
+
+        fojan_candidate = app["build_fojan_rule_candidate_from_spec"](original_spec)
+        candidate_frame = app["finalize_search_candidate_frames"]([exact_yageo, fojan_candidate])
+        fojan_rows = candidate_frame[
+            candidate_frame["型号"].astype(str).map(app["clean_model"]).eq("FRC0402F1000TS")
+        ]
+        self.assertEqual(len(fojan_rows), 1)
+        self.assertEqual(app["clean_voltage"](fojan_rows.iloc[0]["耐压（V）"]), "50")
+        self.assertEqual(app["normalize_special_use"](fojan_rows.iloc[0]["特殊用途"]), "无卤")
+
+        original_matches = app["run_query_match"](candidate_frame, mode, original_spec)
+        self.assertIn(
+            "FRC0402F1000TS",
+            set(original_matches["型号"].astype(str).map(app["clean_model"])),
+        )
+
+        direct_query = "100Ω;50V;±1%;1/16W;0402;"
+        direct_spec = app["parse_resistor_spec_query"](direct_query)
+        direct_spec = app["merge_query_text_hints_into_spec"](direct_spec, direct_query)
+        self.assertEqual(direct_spec["尺寸（inch）"], "0402")
+        self.assertEqual(direct_spec["_power"], "1/16W")
+        self.assertEqual(app["clean_voltage"](direct_spec["耐压（V）"]), "50")
+        self.assertAlmostEqual(float(direct_spec["_resistance_ohm"]), 100.0)
+        self.assertEqual(app["build_fojan_resistor_model_from_spec"](direct_spec), "FRC0402F1000TS")
+
+        direct_candidates = app["finalize_search_candidate_frames"](
+            [app["build_fojan_rule_candidate_from_spec"](direct_spec)]
+        )
+        direct_matches = app["run_query_match"](direct_candidates, "贴片电阻", direct_spec)
+        self.assertEqual(
+            set(direct_matches["型号"].astype(str).map(app["clean_model"])),
+            {"FRC0402F1000TS"},
+        )
+        direct_spec_info = app["build_spec_info_df"](direct_spec)
+        self.assertEqual(app["clean_text"](direct_spec_info.iloc[0]["系列"]), "")
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")
@@ -685,6 +778,7 @@ class SystemRegressionTests(unittest.TestCase):
                     "BOM行号": 1,
                     "BOM型号": "X",
                     "BOM规格": "0603 10K",
+                    "状态": "可推荐",
                     "销售结论": "x",
                     "备选型号": "x",
                     "风险提示": "x",
@@ -696,23 +790,100 @@ class SystemRegressionTests(unittest.TestCase):
             ]
         )
         export = app["build_bom_matched_export_df"](bom, result)
+        self.assertEqual(export.iloc[0]["匹配状态"], "可推荐")
+        self.assertEqual(export.iloc[0]["匹配说明"], "x")
         self.assertEqual(
             list(export.columns[-12:]),
             [
-                "品牌",
-                "型号",
-                "成本",
-                "更新时间",
-                "MOQ",
-                "L&T",
-                "品牌2",
-                "型号2",
-                "成本2",
-                "更新时间2",
-                "MOQ2",
-                "L&T2",
+                "匹配品牌",
+                "匹配型号",
+                "匹配成本",
+                "成本更新时间",
+                "匹配MOQ",
+                "匹配L&T",
+                "匹配品牌2",
+                "匹配型号2",
+                "匹配成本2",
+                "成本更新时间2",
+                "匹配MOQ2",
+                "匹配L&T2",
             ],
         )
+        candidates = pd.DataFrame(
+            [
+                {
+                    "品牌": "华新科Walsin",
+                    "型号": "0402B103K500CT-A",
+                    "器件类型": "MLCC",
+                    "推荐等级": "完全匹配",
+                    "成本": "",
+                },
+                {
+                    "品牌": "华新科Walsin",
+                    "型号": "0402B103K500CT-B",
+                    "器件类型": "MLCC",
+                    "推荐等级": "完全匹配",
+                    "成本": "0.018",
+                    "MOQ": "5000PCS",
+                },
+                {
+                    "品牌": "信昌PDC",
+                    "型号": "CC10B103K500A",
+                    "器件类型": "MLCC",
+                    "推荐等级": "完全匹配",
+                    "成本": "0.020",
+                },
+            ]
+        )
+        custom_settings = {"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["华新科Walsin"]}
+        custom_slots = app["build_bom_own_brand_export_slots"](
+            candidates,
+            spec={"器件类型": "MLCC"},
+            export_settings=custom_settings,
+        )
+        self.assertEqual(custom_slots["自有品牌"], "华新科Walsin")
+        self.assertEqual(custom_slots["自有型号"], "0402B103K500CT-B")
+        self.assertEqual(custom_slots["自有成本"], "0.018")
+        self.assertEqual(custom_slots["自有品牌2"], "")
+
+        auto_slots = app["build_bom_own_brand_export_slots"](
+            candidates,
+            spec={"器件类型": "MLCC"},
+            export_settings={"mode": app["BOM_EXPORT_MODE_AUTO"]},
+        )
+        self.assertEqual(auto_slots["自有品牌"], "华科")
+        self.assertEqual(auto_slots["自有品牌2"], "信昌")
+        self.assertIn("芯声微HRE", app["bom_export_brand_options"]())
+
+        generic_slots = app["build_bom_own_brand_export_slots"](
+            pd.DataFrame(
+                [
+                    {
+                        "品牌": "村田Murata",
+                        "型号": "LQH32PN100MN0L",
+                        "器件类型": "功率电感",
+                        "推荐等级": "完全匹配",
+                        "成本": "0.5",
+                    }
+                ]
+            ),
+            spec={"器件类型": "功率电感"},
+            export_settings={"mode": app["BOM_EXPORT_MODE_AUTO"]},
+        )
+        self.assertEqual(generic_slots["自有品牌"], "村田Murata")
+        self.assertEqual(generic_slots["自有型号"], "LQH32PN100MN0L")
+
+        signature_a = app["build_bom_workbook_run_signature"](
+            UploadedBytes("same.xlsx", b"same"),
+            {"Sheet1": {"model": "型号"}},
+            export_settings=custom_settings,
+        )
+        signature_b = app["build_bom_workbook_run_signature"](
+            UploadedBytes("same.xlsx", b"same"),
+            {"Sheet1": {"model": "型号"}},
+            export_settings={"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["国巨YAGEO"]},
+        )
+        self.assertNotEqual(signature_a, signature_b)
         display = app["build_bom_display_df"](result)
         forbidden = {
             "销售结论",
@@ -724,6 +895,157 @@ class SystemRegressionTests(unittest.TestCase):
             "可直接回复客户",
         }
         self.assertTrue(forbidden.isdisjoint(set(display.columns)))
+
+    def test_06b_bom_selected_brand_exports_active_cost(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "bom-selected-brand-cost.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            cost_upload = UploadedBytes(
+                "bom-cost.xlsx",
+                dataframe_to_xlsx_bytes(
+                    pd.DataFrame(
+                        [
+                            {
+                                "品牌": "村田Murata",
+                                "型号": "GRM155R71C224KA12D",
+                                "成本": "0.123",
+                                "MOQ": "10000PCS",
+                                "L&T": "6W",
+                            }
+                        ]
+                    )
+                ),
+            )
+            ok, message, _ = app["import_cost_price_list_from_upload"](cost_upload, "regression")
+            self.assertTrue(ok, message)
+            result = app["bom_dataframe_from_upload"](
+                None,
+                pd.DataFrame([{"型号": "GRM155R71C224KA12D"}]),
+                {"model": "型号", "spec": None, "name": None, "quantity": None},
+                export_settings={
+                    "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                    "brands": ["村田Murata"],
+                },
+            )
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result.iloc[0]["自有品牌"], "村田Murata", result.to_dict(orient="records"))
+            self.assertEqual(result.iloc[0]["自有型号"], "GRM155R71C224KA12D")
+            self.assertEqual(result.iloc[0]["自有成本"], "0.123")
+            self.assertEqual(result.iloc[0]["自有MOQ"], "10000PCS")
+            self.assertEqual(result.iloc[0]["自有L&T"], "6W")
+            source_df = pd.DataFrame([{"型号": "GRM155R71C224KA12D"}])
+            source_upload = UploadedBytes("selected-brand.xlsx", dataframe_to_xlsx_bytes(source_df))
+            source_workbook = app["read_uploaded_bom_workbook"](source_upload)
+            export_bytes = app["bom_to_excel_bytes"](
+                result,
+                source_df,
+                source_workbook=source_workbook,
+                sheet_results=[
+                    {
+                        "sheet_name": source_workbook["sheet_frames"][0]["sheet_name"],
+                        "source_df": source_df,
+                        "result_df": result,
+                    }
+                ],
+            )
+            exported_workbook = load_workbook(BytesIO(export_bytes), data_only=False)
+            exported_sheet = exported_workbook.active
+            headers = [exported_sheet.cell(row=1, column=idx).value for idx in range(1, exported_sheet.max_column + 1)]
+            values = {
+                headers[idx - 1]: exported_sheet.cell(row=2, column=idx).value
+                for idx in range(1, exported_sheet.max_column + 1)
+            }
+            self.assertEqual(values["匹配状态"], "可推荐")
+            self.assertEqual(values["匹配品牌"], "村田Murata")
+            self.assertEqual(values["匹配型号"], "GRM155R71C224KA12D")
+            self.assertEqual(str(values["匹配成本"]), "0.123")
+            exported_workbook.close()
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_06c_bom_matching_reuses_bounded_cache_and_rich_candidates(self):
+        app = self.app
+        candidates = app["build_bom_query_candidates"](
+            "GRM155R71C224KA12D",
+            "0402 220nF 16V X7R 10%",
+            "贴片电容",
+            extra_values=["车规"],
+        )
+        sources = [item["source"] for item in candidates]
+        self.assertEqual(sources[0], "型号列")
+        self.assertLess(sources.index("型号列+规格列+品名列"), sources.index("规格列"))
+        self.assertLess(sources.index("规格列+品名列+其他列"), sources.index("品名列"))
+
+        cache = {}
+        for index in range(300):
+            app["store_bom_query_cache"](cache, f"Q{index}", {"index": index}, limit=256)
+        self.assertEqual(len(cache), 256)
+        self.assertNotIn("Q0", cache)
+        self.assertEqual(app["bom_query_cache_key"](" 0402   10k  1% "), "0402 10K 1%")
+
+        skipped = app["build_bom_upload_result_row"](
+            None,
+            0,
+            {"型号": "MPN3", "规格": "Description", "品名": "项目"},
+            {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+            query_cache={},
+        )
+        self.assertEqual(skipped["状态"], "已跳过")
+        self.assertIn("重复表头", skipped["失败原因"])
+
+        original_enrich_cost = app["enrich_component_cost_columns"]
+        enriched_brands = []
+
+        def capture_enrich_cost(frame):
+            enriched_brands.extend(frame["品牌"].astype(str).tolist())
+            return frame.copy()
+
+        try:
+            app["enrich_component_cost_columns"] = capture_enrich_cost
+            app["build_bom_own_brand_export_slots"](
+                pd.DataFrame(
+                    [
+                        {"品牌": "华新科Walsin", "型号": "0402B103K500CT", "器件类型": "MLCC"},
+                        {"品牌": "信昌PDC", "型号": "FM05X103K500EGG", "器件类型": "MLCC"},
+                        {"品牌": "村田Murata", "型号": "GRM155R71H103KA88D", "器件类型": "MLCC"},
+                    ]
+                ),
+                spec={"器件类型": "MLCC"},
+                export_settings={"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["华新科Walsin"]},
+            )
+        finally:
+            app["enrich_component_cost_columns"] = original_enrich_cost
+        self.assertEqual(enriched_brands, ["华新科Walsin"])
+
+        original_bom_dataframe = app["bom_dataframe_from_upload"]
+        seen_cache_ids = []
+
+        def fake_bom_dataframe(_df, sheet_df, _mapping, **kwargs):
+            seen_cache_ids.append(id(kwargs.get("query_cache")))
+            return pd.DataFrame(index=sheet_df.index)
+
+        try:
+            app["bom_dataframe_from_upload"] = fake_bom_dataframe
+            workbook = {
+                "sheet_frames": [
+                    {"sheet_name": "A", "df": pd.DataFrame([{"型号": "A1"}])},
+                    {"sheet_name": "B", "df": pd.DataFrame([{"型号": "B1"}])},
+                ]
+            }
+            app["build_bom_workbook_sheet_results"](
+                workbook,
+                sheet_mappings={
+                    "A": {"model": "型号", "spec": None, "name": None, "quantity": None},
+                    "B": {"model": "型号", "spec": None, "name": None, "quantity": None},
+                },
+            )
+        finally:
+            app["bom_dataframe_from_upload"] = original_bom_dataframe
+        self.assertEqual(len(seen_cache_ids), 2)
+        self.assertEqual(seen_cache_ids[0], seen_cache_ids[1])
 
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
         app = self.app
