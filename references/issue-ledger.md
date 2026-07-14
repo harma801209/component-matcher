@@ -698,3 +698,9 @@
 - Root cause: The resistor-context gate, resistance parser, and tolerance parser recognized `±1%` but did not normalize the common Chinese input/OCR variants `士1%` and `土1%`.
 - Fix: Normalize `士/土` to `±` only when it directly introduces a numeric percentage and is not part of a preceding Chinese word. Apply the normalized text consistently to resistor detection, resistance extraction, and tolerance extraction; invalidate stale query-result caches.
 - Verification: The original input parses as three parameters and resolves through the fast index to 66 candidates, with `FOJAN(富捷) / FRC2010F1003TS` first. Regression also covers `土1%`, full-width `士1％`, standard `±1%`, and a Chinese-word false-positive guard.
+
+## 2026-07-14 - FOJAN FRC `RS` suffix sorted before standard `TS`
+
+- Bug: The matched results for the reported `0402 / 1KΩ / ±1% / 1/16W / 50V` query showed `FRC0402F1001RS` before the standard `FRC0402F1001TS` because both rows were completely matched and the final tie-breaker used alphabetical model order.
+- Fix: Add a FOJAN FRC model-family sort key and rank the `TS` suffix before other FRC suffixes within the same model family. Match level, component constraints, brand priority, and database rows remain unchanged.
+- Verification: The real query now returns `FRC0402F1001TS` followed by `FRC0402F1001RS`; an isolated sorting regression keeps both rows and enforces that order.

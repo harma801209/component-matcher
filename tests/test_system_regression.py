@@ -574,6 +574,37 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertEqual(set(matched_brand["品牌"]), {"FOJAN(富捷)"}, query)
                 self.assertEqual(set(matched_brand["型号"]), {"FRC0402F1002TS"}, query)
 
+            suffix_candidates = pd.DataFrame(
+                [
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": model,
+                        "器件类型": "厚膜电阻",
+                        "尺寸（inch）": "0402",
+                        "材质（介质）": "",
+                        "耐压（V）": "50",
+                        "容值_pf": None,
+                        "_resistance_ohm": 1000.0,
+                        "容值": "1",
+                        "容值单位": "KΩ",
+                        "容值误差": "1",
+                        "功率": "1/16W",
+                    }
+                    for model in ["FRC0402F1001RS", "FRC0402F1001TS"]
+                ]
+            )
+            prepared_suffix = app["prepare_search_dataframe"](
+                app["ensure_component_display_columns"](suffix_candidates)
+            )
+            suffix_matches = app["apply_match_levels_and_sort"](
+                prepared_suffix,
+                app["parse_resistor_spec_query"]("0402 1K 1% 1/16W"),
+            )
+            self.assertEqual(
+                suffix_matches["型号"].tolist(),
+                ["FRC0402F1001TS", "FRC0402F1001RS"],
+            )
+
             mode, rohm_spec = app["detect_query_mode_and_spec"](
                 pd.DataFrame(), "贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM"
             )

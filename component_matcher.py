@@ -153,7 +153,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 84
+QUERY_RESULT_CACHE_VERSION = 85
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -31176,6 +31176,17 @@ def brand_priority_value(brand, component_type=""):
             return val
     return 99
 
+
+def fojan_frc_model_sort_parts(brand, model):
+    model_key = clean_model(model)
+    brand_key = clean_brand(brand).upper()
+    if not ("FOJAN" in brand_key or "富捷" in brand_key) or not model_key.startswith("FRC"):
+        return model_key, 0
+    suffix_match = re.fullmatch(r"(FRC[A-Z0-9]*\d)([A-Z]{2})", model_key)
+    if not suffix_match:
+        return model_key, 1
+    return suffix_match.group(1), 0 if suffix_match.group(2) == "TS" else 1
+
 def classify_match_level(row, spec):
     # 比较时区分数据库原始值和查询补齐值，避免把空白字段伪装成“完全匹配”
     row_size_raw = clean_size(row.get("尺寸（inch）", ""))
@@ -31898,6 +31909,16 @@ def apply_match_levels_and_sort(df, spec):
     else:
         work["_thermistor_b_rank"] = 0
         work["_thermistor_series_rank"] = 0
+    if target_type in RESISTOR_COMPONENT_TYPES and "型号" in work.columns:
+        model_sort_parts = work.apply(
+            lambda row: fojan_frc_model_sort_parts(row.get("品牌", ""), row.get("型号", "")),
+            axis=1,
+        )
+        work["_model_family_sort_key"] = [parts[0] for parts in model_sort_parts]
+        work["_fojan_frc_suffix_rank"] = [parts[1] for parts in model_sort_parts]
+    else:
+        work["_model_family_sort_key"] = work["型号"].astype(str).map(clean_model) if "型号" in work.columns else ""
+        work["_fojan_frc_suffix_rank"] = 0
     if target_type in CAPACITOR_COMPONENT_TYPES:
         sort_cols = ["_exact_model_rank", "_automotive_rank", "_seed_rank", "_level_rank", "_brand_rank"]
         ascending = [True, True, True, True, True]
@@ -31918,8 +31939,13 @@ def apply_match_levels_and_sort(df, spec):
         if "_matched_param_count" in work.columns:
             sort_cols.append("_matched_param_count")
             ascending.append(False)
-        sort_cols.extend(["_brand_rank", "品牌", "型号"])
-        ascending.extend([True, True, True])
+        sort_cols.extend(["_brand_rank", "品牌"])
+        ascending.extend([True, True])
+        if target_type in RESISTOR_COMPONENT_TYPES:
+            sort_cols.extend(["_model_family_sort_key", "_fojan_frc_suffix_rank"])
+            ascending.extend([True, True])
+        sort_cols.append("型号")
+        ascending.append(True)
     work = work.sort_values(by=sort_cols, ascending=ascending)
     return work.drop(
         columns=[
@@ -31931,6 +31957,8 @@ def apply_match_levels_and_sort(df, spec):
             "_mlcc_class_rank",
             "_thermistor_b_rank",
             "_thermistor_series_rank",
+            "_model_family_sort_key",
+            "_fojan_frc_suffix_rank",
         ],
         errors="ignore",
     )
