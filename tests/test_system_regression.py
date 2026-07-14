@@ -957,6 +957,31 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_06b_bom_selected_brand_exports_active_cost(self):
         app = self.app
+        self.assertTrue(
+            app["should_start_bom_matching"]("old", "new", app["BOM_EXPORT_MODE_AUTO"])
+        )
+        self.assertFalse(
+            app["should_start_bom_matching"]("old", "new", app["BOM_EXPORT_MODE_CUSTOM"])
+        )
+        self.assertTrue(
+            app["should_start_bom_matching"](
+                "old",
+                "new",
+                app["BOM_EXPORT_MODE_CUSTOM"],
+                custom_start_clicked=True,
+            )
+        )
+        self.assertFalse(
+            app["should_start_bom_matching"]("same", "same", app["BOM_EXPORT_MODE_CUSTOM"])
+        )
+        self.assertTrue(
+            app["should_start_bom_matching"](
+                "same",
+                "same",
+                app["BOM_EXPORT_MODE_CUSTOM"],
+                custom_start_clicked=True,
+            )
+        )
         original_cost_path = app["COST_PRICE_DB_PATH"]
         try:
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "bom-selected-brand-cost.sqlite")

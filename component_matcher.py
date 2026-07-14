@@ -22235,6 +22235,15 @@ def normalize_bom_export_settings(export_settings=None):
     return {"mode": mode, "brands": brands}
 
 
+def should_start_bom_matching(stored_signature, current_signature, export_mode, custom_start_clicked=False):
+    current_signature = clean_text(current_signature)
+    if current_signature == "":
+        return False
+    if clean_text(export_mode) == BOM_EXPORT_MODE_CUSTOM:
+        return bool(custom_start_clicked)
+    return clean_text(stored_signature) != current_signature
+
+
 def bom_export_brand_groups(component_type, export_settings=None):
     settings = normalize_bom_export_settings(export_settings)
     if settings["mode"] != BOM_EXPORT_MODE_CUSTOM:
@@ -35562,6 +35571,7 @@ def render_bom_upload_page():
                         horizontal=True,
                     )
                 selected_export_brands = []
+                custom_match_clicked = False
                 if bom_export_mode == BOM_EXPORT_MODE_CUSTOM:
                     custom_brand_key = f"bom_export_brands_{workbook_signature}"
                     if custom_brand_key not in st.session_state:
@@ -35576,6 +35586,13 @@ def render_bom_upload_page():
                     if not selected_export_brands:
                         st.warning("请至少选择一个输出品牌。")
                         st.stop()
+                    custom_match_clicked = st.button(
+                        "开始指定品牌匹配",
+                        key=f"bom_custom_match_start_{workbook_signature}",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                    st.caption("切换或调整品牌只更新设置；确认品牌后点击上方按钮才会开始匹配。")
                 bom_export_settings = normalize_bom_export_settings(
                     {"mode": bom_export_mode, "brands": selected_export_brands}
                 )
@@ -35722,17 +35739,31 @@ def render_bom_upload_page():
                         export_settings=bom_export_settings,
                     )
                     stored_bom_signature = st.session_state.get("_bom_result_signature", "")
-                    if stored_bom_signature != current_bom_signature:
+                    start_bom_matching = should_start_bom_matching(
+                        stored_bom_signature,
+                        current_bom_signature,
+                        bom_export_mode,
+                        custom_start_clicked=custom_match_clicked,
+                    )
+                    force_custom_rerun = (
+                        bom_export_mode == BOM_EXPORT_MODE_CUSTOM
+                        and bool(custom_match_clicked)
+                        and stored_bom_signature == current_bom_signature
+                    )
+                    if stored_bom_signature != current_bom_signature or force_custom_rerun:
                         st.session_state.pop("_bom_result_signature", None)
                         st.session_state.pop("_bom_result_df", None)
                         st.session_state.pop("_bom_export_bytes", None)
                         st.session_state.pop("_bom_sheet_results", None)
+                        stored_bom_signature = ""
 
                     if len(parse_columns) != len(set(parse_columns)):
                         st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
 
                     if stored_bom_signature != current_bom_signature:
-                        if not ensure_component_data_ready("BOM 匹配"):
+                        if not start_bom_matching:
+                            st.info("指定品牌设置已更新。确认品牌后，请点击上方“开始指定品牌匹配”。")
+                        elif not ensure_component_data_ready("BOM 匹配"):
                             render_bom_progress_card(
                                 progress_placeholder,
                                 {

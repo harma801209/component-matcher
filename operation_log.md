@@ -3450,3 +3450,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added model-family-aware FRC sorting: within the same FOJAN FRC base model, `TS` ranks before `RS` and other suffixes. Both database rows remain available and all specification/brand ranking rules remain intact.
 - Real-data smoke verification now returns `FRC0402F1001TS` first and `FRC0402F1001RS` second; the focused regression passes.
 - Raised the query-result cache version to `85` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T15:36:32+08:00`. No runtime database or bundle was changed.
+
+### 2026-07-14 [BOM UX] Require explicit start after selecting custom brands
+
+- Confirmed that changing BOM output mode to `指定品牌` changed the workbook run signature and immediately launched a synchronous full match, making the segmented-control click look stuck.
+- Custom mode now shows `开始指定品牌匹配`; mode and brand changes remain idle until that button is pressed. Automatic mode is unchanged, and the same custom configuration can be explicitly rerun.
+- Added decision-logic regression coverage and retained the existing selected-brand active-cost/export verification.
+- Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T16:04:34+08:00`. No member, cost-list, no-match, component database, or release bundle was modified.

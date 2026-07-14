@@ -704,3 +704,9 @@
 - Bug: The matched results for the reported `0402 / 1KΩ / ±1% / 1/16W / 50V` query showed `FRC0402F1001RS` before the standard `FRC0402F1001TS` because both rows were completely matched and the final tie-breaker used alphabetical model order.
 - Fix: Add a FOJAN FRC model-family sort key and rank the `TS` suffix before other FRC suffixes within the same model family. Match level, component constraints, brand priority, and database rows remain unchanged.
 - Verification: The real query now returns `FRC0402F1001TS` followed by `FRC0402F1001RS`; an isolated sorting regression keeps both rows and enforces that order.
+
+## 2026-07-14 - Selecting custom BOM brands immediately started a blocking rerun
+
+- Bug: Switching the BOM output mode to `指定品牌` immediately changed the run signature and synchronously restarted the entire workbook match. While that work or a concurrent deployment restart was in progress, the page appeared frozen at the upload area.
+- Fix: Separate custom-brand configuration from execution. Switching mode or changing selected brands now only updates settings; `开始指定品牌匹配` explicitly starts the run. Automatic-brand mode keeps its existing automatic behavior, and clicking the custom start button again intentionally reruns a completed configuration.
+- Verification: Regression coverage requires custom mode to stay idle until explicitly started, while automatic mode still starts on a changed signature. The selected-brand cost/export regression continues to pass.
