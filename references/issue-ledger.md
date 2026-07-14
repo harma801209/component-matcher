@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-07-14 - Resistor matches did not prioritize FOJAN
+
+- Bug: Resistor results ranked PDC, Walsin, and UNI-ROYAL ahead of FOJAN. An exact FOJAN query such as `FRC0603F1402TS` also removed the source FOJAN row from the lower match table, so changing brand rank alone would not fix the reported screen.
+- Root cause: The resistor brand order assigned FOJAN rank 4, and the shared same-brand exclusion removed every source-brand row before result sorting.
+- Fix: Make FOJAN the unique first resistor brand, followed by PDC, Walsin, and UNI-ROYAL. Preserve the exact FOJAN source row for FOJAN resistor queries, while other source brands remain excluded and explicit brand filters remain strict.
+- Verification: Both `FRC0603F1402TS` and `0603 14K 1% 1/10W` now return `FOJAN(富捷) / FRC0603F1402TS / 完全匹配` as the first result. Focused regressions cover brand ranks, FOJAN exact-model retention, non-FOJAN source exclusion, and explicit brand filtering.
+
 ## 2026-07-09 - FOJAN alloy resistor specs lacked FRM/FPM source-backed candidates
 
 - Bug: Alloy resistor specs such as `合金电阻 电阻10毫欧 ±1% 1206` and `贴片合金电阻 0.06R 2512 3W ±1%` did not return FOJAN alloy models. Some alloy specs could also be polluted by the older FOJAN FRL low-ohm thick-film fallback.

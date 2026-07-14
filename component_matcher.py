@@ -153,7 +153,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 82
+QUERY_RESULT_CACHE_VERSION = 83
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -22016,7 +22016,12 @@ def match_by_partial_spec(df, spec):
     work["_provided_param_count"] = provided_count
 
     out = work.copy()
-    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+    source_brand = clean_brand(spec.get("品牌", ""))
+    source_is_fojan_resistor = (
+        target_type in RESISTOR_COMPONENT_TYPES
+        and ("FOJAN" in source_brand.upper() or "富捷" in source_brand)
+    )
+    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)) and not source_is_fojan_resistor:
         out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
 
@@ -31117,10 +31122,10 @@ def brand_priority_value(brand, component_type=""):
     ctype = normalize_component_type(component_type)
     if ctype in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
         priorities = [
-            ("信昌", 1), ("PDC", 1), ("PSA", 1),
-            ("华新科", 2), ("WALSIN", 2), ("华科", 2),
-            ("厚声", 3), ("UNI-ROYAL", 3), ("UNIROYAL", 3),
-            ("富捷", 4), ("FOJAN", 4),
+            ("富捷", 1), ("FOJAN", 1),
+            ("信昌", 2), ("PDC", 2), ("PSA", 2),
+            ("华新科", 3), ("WALSIN", 3), ("华科", 3),
+            ("厚声", 4), ("UNI-ROYAL", 4), ("UNIROYAL", 4),
             ("大毅", 5), ("TA-I", 5), ("TAI", 5),
             ("光颉", 6), ("VIKING", 6),
             ("国巨", 7), ("YAGEO", 7), ("YEGO", 7),

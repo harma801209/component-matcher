@@ -3428,3 +3428,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Workflow rule: unless the user explicitly asks for a test version first, future completed fixes are published to the formal public page after verification; explicit test-version work remains local until approved.
 - Safety: the pre-release gate passes 20/20 tests under a local-only 1 GB validation limit, and protected member, cost-list, and no-match runtime fingerprints are unchanged. Local databases, release bundles, backups, and unrelated untracked files are excluded from the release.
 - Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:01:19+08:00`; this changes only the cloud application reload marker and does not impose the local validation memory limit on production.
+
+### 2026-07-14 [resistor ranking] Put FOJAN first in resistor match results
+
+- Reproduced the reported `FRC0603F1402TS` screen and confirmed two contributing rules: resistor brand order placed FOJAN fourth, and exact FOJAN searches removed their own brand from the lower match table.
+- Changed only resistor-family ordering to `FOJAN -> PDC -> Walsin -> UNI-ROYAL -> existing remaining order`. Capacitor and other-component priorities are unchanged; match accuracy/recommendation level still sorts before brand priority.
+- Exact FOJAN resistor searches now retain the normalized source row at the top. Exact non-FOJAN searches still exclude their source brand so FOJAN alternatives can lead, and explicit brand-qualified searches remain restricted to the requested brand.
+- Raised the query-result cache version to `83`. Real-data smoke checks for `FRC0603F1402TS` and `0603 14K 1% 1/10W` both return `FOJAN(富捷) / FRC0603F1402TS / 完全匹配` first.
+- Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:53:14+08:00`. No runtime database or bundle change is required for this code-only sorting fix.

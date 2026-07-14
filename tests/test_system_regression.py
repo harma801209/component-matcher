@@ -536,6 +536,22 @@ class SystemRegressionTests(unittest.TestCase):
                 app["parse_resistor_spec_query"]("0402 1% 10K"),
             )
             self.assertEqual(set(no_brand["型号"]), {"FRC0402F1002TS", "WR04X1002FTL"})
+            self.assertEqual(no_brand.iloc[0]["品牌"], "FOJAN(富捷)")
+            self.assertEqual(app["brand_priority_value"]("FOJAN(富捷)", "贴片电阻"), 1)
+            self.assertEqual(app["brand_priority_value"]("信昌PDC", "贴片电阻"), 2)
+            self.assertEqual(app["brand_priority_value"]("华新科Walsin", "贴片电阻"), 3)
+            self.assertEqual(app["brand_priority_value"]("厚声UNI-ROYAL", "贴片电阻"), 4)
+
+            fojan_source_spec = app["parse_resistor_spec_query"]("0402 1% 10K")
+            fojan_source_spec.update({"品牌": "FOJAN(富捷)", "型号": "FRC0402F1002TS"})
+            fojan_source_matches = app["run_query_match"](prepared_brand, "料号", fojan_source_spec)
+            self.assertEqual(fojan_source_matches.iloc[0]["品牌"], "FOJAN(富捷)")
+            self.assertEqual(fojan_source_matches.iloc[0]["型号"], "FRC0402F1002TS")
+
+            walsin_source_spec = app["parse_resistor_spec_query"]("0402 1% 10K")
+            walsin_source_spec.update({"品牌": "华新科Walsin", "型号": "WR04X1002FTL"})
+            walsin_source_matches = app["run_query_match"](prepared_brand, "料号", walsin_source_spec)
+            self.assertEqual(set(walsin_source_matches["品牌"]), {"FOJAN(富捷)"})
 
             for query in ("富捷 0402 1% 10K", "0402 1% 10K 富捷", "FOJAN 0402 1% 10K"):
                 mode, brand_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
