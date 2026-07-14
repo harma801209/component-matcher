@@ -436,6 +436,18 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(detected["器件类型"], "贴片电阻", query)
             self.assertIsNone(detected.get("容值_pf"), query)
 
+        for query in ["2010 100K士1%", "2010 100K土1%", "2010 100K士1％", "2010 100K±1%"]:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["尺寸（inch）"], "2010", query)
+            self.assertEqual(parsed["_param_count"], 3, query)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), "1", query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), 100_000.0, msg=query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertEqual(detected["器件类型"], "贴片电阻", query)
+        self.assertEqual(app["normalize_common_tolerance_symbol_typos"]("勇士1%"), "勇士1%")
+
         code_105 = app["parse_resistor_model_rule"]("FRC0402J105 TS", brand="FOJAN(富捷)")
         code_106 = app["parse_resistor_model_rule"]("FRC0402J106 TS", brand="FOJAN(富捷)")
         self.assertAlmostEqual(float(code_105["_resistance_ohm"]), 1_000_000.0)

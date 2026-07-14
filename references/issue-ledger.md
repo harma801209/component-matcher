@@ -691,3 +691,10 @@
 - Root cause: Existing Streamlit sessions could retain the pre-fix empty DataFrame because the query-result cache version had not changed. Separately, the resistor parser keeps the original specification text in the temporary `型号` field, and the display profile treated that non-model text as a model when inferring a series.
 - Fix: Bump the query-result cache version so old empty frames cannot be reused. Only use `型号` for display-series inference when it passes the compact-part-number check.
 - Verification: Regression coverage now requires the direct specification to parse as `0402 / 100Ω / ±1% / 1/16W / 50V`, generate `FRC0402F1000TS`, return that model, and leave the specification-table series blank. Focused regression and the complete 20-test release safety gate pass; protected runtime fingerprints remain unchanged.
+
+## 2026-07-14 - Chinese `士/土` tolerance typo blocked resistor specification matching
+
+- Bug: `2010 100K士1%` was reported as having only two parameters even though it represents package `2010`, resistance `100KΩ`, and tolerance `±1%`.
+- Root cause: The resistor-context gate, resistance parser, and tolerance parser recognized `±1%` but did not normalize the common Chinese input/OCR variants `士1%` and `土1%`.
+- Fix: Normalize `士/土` to `±` only when it directly introduces a numeric percentage and is not part of a preceding Chinese word. Apply the normalized text consistently to resistor detection, resistance extraction, and tolerance extraction; invalidate stale query-result caches.
+- Verification: The original input parses as three parameters and resolves through the fast index to 66 candidates, with `FOJAN(富捷) / FRC2010F1003TS` first. Regression also covers `土1%`, full-width `士1％`, standard `±1%`, and a Chinese-word false-positive guard.

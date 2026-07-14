@@ -3436,3 +3436,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Exact FOJAN resistor searches now retain the normalized source row at the top. Exact non-FOJAN searches still exclude their source brand so FOJAN alternatives can lead, and explicit brand-qualified searches remain restricted to the requested brand.
 - Raised the query-result cache version to `83`. Real-data smoke checks for `FRC0603F1402TS` and `0603 14K 1% 1/10W` both return `FOJAN(富捷) / FRC0603F1402TS / 完全匹配` first.
 - Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:53:14+08:00`. No runtime database or bundle change is required for this code-only sorting fix.
+
+### 2026-07-14 [resistor parsing] Recognize `士/土` as mistyped tolerance symbols
+
+- Reproduced `2010 100K士1%`: the pre-fix parser rejected it before resistor parsing and showed the three-parameter warning.
+- Added narrow tolerance-symbol normalization shared by resistor context detection, resistance extraction, and tolerance extraction. Chinese words ending in `士` remain unchanged.
+- The original query now resolves as `2010 / 100KΩ / ±1%`, loads 66 indexed candidates, and returns `FOJAN(富捷) / FRC2010F1003TS` first.
+- Raised the query-result cache version to `84` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T13:28:17+08:00` for formal publication. This code-only change does not touch runtime databases or bundles.

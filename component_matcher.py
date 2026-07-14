@@ -153,7 +153,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 83
+QUERY_RESULT_CACHE_VERSION = 84
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -15340,8 +15340,13 @@ def parse_resistance_token_to_ohm(token):
         return float(t)
     return None
 
+def normalize_common_tolerance_symbol_typos(text):
+    value = clean_text(text).replace("％", "%").replace("﹪", "%")
+    return re.sub(r"(?<![\u4e00-\u9fff])[士土]\s*(?=\d+(?:\.\d+)?\s*%)", "±", value)
+
+
 def find_resistance_in_text(text):
-    raw = clean_text(text).replace("±", "+/-").replace("卤", "+/-")
+    raw = normalize_common_tolerance_symbol_typos(text).replace("±", "+/-").replace("卤", "+/-")
     explicit_ohm = find_explicit_resistance_in_text(raw)
     if explicit_ohm is not None:
         return explicit_ohm
@@ -15802,7 +15807,8 @@ def find_disc_size_code(text):
     return f"{match.group(1)}D"
 
 def find_tolerance_in_text(text):
-    upper = clean_text(text).upper().replace("±", "+/-").replace("卤", "+/-")
+    upper = normalize_common_tolerance_symbol_typos(text).upper()
+    upper = upper.replace("±", "+/-").replace("卤", "+/-")
     if upper == "":
         return ""
     patterns = [
@@ -16851,8 +16857,9 @@ def looks_like_resistor_context(text):
         return False
     if hint in RESISTOR_COMPONENT_TYPES:
         return True
-    upper = clean_text(text).upper().replace("±", "+/-").replace("卤", "+/-")
-    compact = normalize_component_keyword_compact(text).replace("±", "+/-").replace("卤", "+/-")
+    normalized_text = normalize_common_tolerance_symbol_typos(text)
+    upper = normalized_text.upper().replace("±", "+/-").replace("卤", "+/-")
+    compact = normalize_component_keyword_compact(normalized_text).replace("±", "+/-").replace("卤", "+/-")
     if any(token in upper for token in ["电阻", "RESISTOR", "OHM", "Ω"]) or upper.startswith("RES"):
         return True
     if has_explicit_capacitance_value_token(text):
