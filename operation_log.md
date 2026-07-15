@@ -3464,3 +3464,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The restore-success run now ends normally with `st.stop()`. A one-second fragment refresh then starts the full app run; `立即开始 BOM 匹配` remains available as a fallback and the cached upload is preserved.
 - Added regression coverage for timer/manual readiness and for the success-page transition ending before matching starts.
 - Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T23:48:18+08:00`. No protected database, component database, or release bundle was changed.
+
+### 2026-07-15 [resistor parsing] Support unlabeled numeric ohms in BOM text
+
+- Reproduced `0,50mW Resistor R_0201 1%`: the parser found `0201 / 1% / 1/20W` but left resistance blank, so the public runtime exhausted the fast path and displayed the unavailable-full-library warning.
+- Added a narrowly scoped parser for a plain numeric first field followed by a delimited power field when the row explicitly identifies a resistor. `0` and `150` now resolve as ohms; capacitor and package-only false positives remain blocked.
+- Batch regression covers the supplied 16 resistor rows, 7 capacitor rows, and the exact Murata `NCP03WF104F05RL` token. The reported zero-ohm and 150-ohm rows resolve through the fast index to `FRC0201F0000TS` and `FRC0201F1500TS`.
+- Raised the query-result cache version to `86` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T16:01:01+08:00`. No runtime or component database is modified.

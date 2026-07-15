@@ -717,3 +717,10 @@
 - Root cause: The post-login transition used consecutive server-side `st.rerun()` calls. The success run never completed normally, so Streamlit had no completed page cycle in which to remove the previous dialog before the next blocking match began.
 - Fix: Finish the successful-login page with `st.stop()`, schedule a one-second Streamlit fragment refresh, and only start the full BOM run after that completed browser paint. Keep an `立即开始 BOM 匹配` button as a fallback while preserving the cached upload.
 - Verification: Focused regressions require the success transition to render, schedule auto-resume, and stop without a consecutive rerun; timer and manual-start readiness are both covered.
+
+## 2026-07-15 - Unlabeled numeric resistor values fell through the public fast index
+
+- Bug: BOM-style text such as `0,50mW Resistor R_0201 1%` and `150,50mW Resistor R_0201 1%` identified package, power, and tolerance but missed the resistance value, then fell through to the full-dataframe path that is intentionally unavailable on the public low-memory runtime.
+- Root cause: Resistance parsing required `R/K/M/Ω` notation. It did not support a plain numeric first field even when the row explicitly said `Resistor` and the next delimited field was a power value.
+- Fix: Parse a non-negative leading numeric value as ohms only under the narrow structure `number + field delimiter + power`, with an explicit resistor label. Invalidate stale empty query caches. Capacitor rows, unlabeled package-only resistor rows, and unrelated numeric text remain excluded.
+- Verification: The two reported forms now use the fast index and return `FRC0201F0000TS` and `FRC0201F1500TS`. Regression coverage also checks every resistor/capacitor row visible in the supplied list and the exact `NCP03WF104F05RL` thermistor token path.

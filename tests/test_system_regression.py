@@ -470,6 +470,89 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.01)
         self.assertAlmostEqual(float(megaohm["_resistance_ohm"]), 1_000_000.0)
 
+        unlabeled_bom_specs = [
+            ("0,50mW Resistor R_0201 1%", 0.0, "FRC0201F0000TS"),
+            ("150,50mW Resistor R_0201 1%", 150.0, "FRC0201F1500TS"),
+        ]
+        for query, expected_ohm, expected_fojan_model in unlabeled_bom_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["器件类型"], "贴片电阻", query)
+            self.assertEqual(parsed["尺寸（inch）"], "0201", query)
+            self.assertEqual(parsed["_power"], "1/20W", query)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), "1", query)
+            self.assertEqual(parsed["_param_count"], 4, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            self.assertEqual(app["build_fojan_resistor_model_from_spec"](parsed), expected_fojan_model, query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertAlmostEqual(float(detected["_resistance_ohm"]), expected_ohm, msg=query)
+            resolved = app["resolve_search_query_dataframe_and_spec"](query)
+            self.assertNotEqual(resolved["resolution_path"], "full_dataframe", query)
+            self.assertFalse(resolved["query_df"].empty, query)
+            matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+            self.assertIn(
+                expected_fojan_model,
+                set(matched["型号"].astype(str).map(app["clean_model"])),
+                query,
+            )
+
+        self.assertIsNone(
+            app["find_leading_unlabeled_resistance_in_resistor_text"]("150,50mW Capacitor C_0201 1%")
+        )
+        self.assertIsNone(
+            app["find_leading_unlabeled_resistance_in_resistor_text"]("0201 Resistor 50mW 1%")
+        )
+
+        image_resistor_specs = [
+            ("1M,62.5mW Resistor R_0402 1%", 1_000_000.0, "0402", "1/16W"),
+            ("4.02k,62.5mW Resistor R_0402 1%", 4_020.0, "0402", "1/16W"),
+            ("4.7k,50mW Resistor R_0201 1%", 4_700.0, "0201", "1/20W"),
+            ("4.8k,62.5mW Resistor R_0402 1%", 4_800.0, "0402", "1/16W"),
+            ("10k,50mW Resistor R_0201 1%", 10_000.0, "0201", "1/20W"),
+            ("10k,62.5mW Resistor R_0402 1%", 10_000.0, "0402", "1/16W"),
+            ("12k,62.5mW Resistor R_0402 1%", 12_000.0, "0402", "1/16W"),
+            ("15k,62.5mW Resistor R_0402 1%", 15_000.0, "0402", "1/16W"),
+            ("18k,62.5mW Resistor R_0402 1%", 18_000.0, "0402", "1/16W"),
+            ("20k,62.5mW Resistor R_0402 1%", 20_000.0, "0402", "1/16W"),
+            ("30k,62.5mW Resistor R_0402 1%", 30_000.0, "0402", "1/16W"),
+            ("60.4k,50mW Resistor R_0201 1%", 60_400.0, "0201", "1/20W"),
+            ("60.4k,62.5mW Resistor R_0402 1%", 60_400.0, "0402", "1/16W"),
+            ("100k,62.5mW Resistor R_0402 1%", 100_000.0, "0402", "1/16W"),
+        ]
+        for query, expected_ohm, expected_size, expected_power in image_resistor_specs:
+            mode, parsed = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertEqual(parsed["尺寸（inch）"], expected_size, query)
+            self.assertEqual(parsed["_power"], expected_power, query)
+            self.assertEqual(parsed["_param_count"], 4, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+
+        image_capacitor_specs = [
+            ("1u,10V Capacitor C_0402 TCC0402X5R105K100AT", 1_000_000.0, "0402", "10"),
+            ("2.2u,6.3V Capacitor C_0402 TCC0402X5R225M6R3AT", 2_200_000.0, "0402", "6.3"),
+            ("10n,25V Capacitor C_0201 TCC0201X7R103K250ZT", 10_000.0, "0201", "25"),
+            ("12p,50V Capacitor C_0201 TCC0201C0G120J500ZT", 12.0, "0201", "50"),
+            ("22u,10V Capacitor C_0603 TCC0603X5R226M100CT", 22_000_000.0, "0603", "10"),
+            ("100n,10V Capacitor C_0201 TCC0201X5R104K100ZT", 100_000.0, "0201", "10"),
+            ("100n,16V Capacitor C_0402 0402B104K160CT", 100_000.0, "0402", "16"),
+        ]
+        for query, expected_pf, expected_size, expected_voltage in image_capacitor_specs:
+            mode, parsed = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "规格", query)
+            self.assertEqual(parsed["尺寸（inch）"], expected_size, query)
+            self.assertEqual(app["clean_voltage"](parsed["耐压（V）"]), expected_voltage, query)
+            self.assertGreaterEqual(parsed["_param_count"], 3, query)
+            self.assertAlmostEqual(float(parsed["容值_pf"]), expected_pf, msg=query)
+
+        thermistor_rows, thermistor_tokens, thermistor_match = app["load_component_rows_by_query_model_tokens"](
+            "NCP03WF104F05RL Resistor 0201 无"
+        )
+        self.assertIn("NCP03WF104F05RL", thermistor_tokens)
+        self.assertEqual(thermistor_match, "NCP03WF104F05RL")
+        self.assertFalse(thermistor_rows.empty)
+        self.assertEqual(set(thermistor_rows["器件类型"].map(app["normalize_component_type"])), {"热敏电阻"})
+
         slash_specs = [
             ("贴片\\1.24K\\±1%\\1/16W\\0402 ROHS", 1_240.0, "1"),
             ("贴片\\499R\\±1%\\1/16W\\0402 ROHS", 499.0, "1"),

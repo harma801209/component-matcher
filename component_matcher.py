@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 85
+QUERY_RESULT_CACHE_VERSION = 86
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -15368,6 +15368,28 @@ def find_resistance_in_text(text):
     return None
 
 
+def find_leading_unlabeled_resistance_in_resistor_text(text):
+    """Parse BOM rows whose first resistor field omits R/ohm, e.g. ``150,50mW``."""
+    raw = clean_text(text)
+    if raw == "":
+        return None
+    upper = raw.upper()
+    if not any(token in upper for token in ("RESISTOR", "电阻", "電阻")):
+        return None
+    match = re.match(
+        r"^\s*(\d+(?:\.\d+)?)\s*[,，;；|]\s*(?=\d+(?:\.\d+)?\s*(?:MW|W)(?![A-Z0-9]))",
+        upper,
+        flags=re.I,
+    )
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
 _RESISTOR_SERIES_PRICING_CACHE = {"mtime": None, "rules": None}
 
 
@@ -17010,6 +17032,8 @@ def parse_resistor_spec_query(line):
     size = find_embedded_size(raw)
     tol = find_tolerance_in_text(raw)
     resistance_ohm = find_resistance_in_text(raw)
+    if resistance_ohm is None:
+        resistance_ohm = find_leading_unlabeled_resistance_in_resistor_text(raw)
     power = find_power_in_text(raw)
     if component_type_hint == "" and resistance_ohm is not None:
         compact_raw = clean_model(raw)
