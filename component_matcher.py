@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 86
+QUERY_RESULT_CACHE_VERSION = 87
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -10062,6 +10062,7 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         ("阻值单位", normalize_library_value_unit),
         ("阻值误差", clean_tol_for_match),
         ("B值", normalize_b_value_text),
+        ("B值误差", clean_tol_for_match),
         ("B值条件", clean_text),
         ("功率", format_power_display),
         ("脚距", clean_text),
@@ -10345,10 +10346,13 @@ def normalize_joyin_ntc_series_display_fields(df):
         target_mask &= type_mask
     if not target_mask.any():
         return out
+    if "B值误差" not in out.columns:
+        out["B值误差"] = ""
     for idx, row in out.loc[target_mask].iterrows():
         profile = joyin_ntc_series_profile_from_model(row.get("型号", ""))
         if not profile:
             continue
+        parsed = parse_joyin_ntc_common(row.get("型号", ""), brand=row.get("品牌", ""))
         if "系列" in out.columns:
             out.at[idx, "系列"] = profile["系列"]
         if "系列说明" in out.columns:
@@ -10357,6 +10361,17 @@ def normalize_joyin_ntc_series_display_fields(df):
             out.at[idx, "特殊用途"] = profile["特殊用途"]
         if "器件类型" in out.columns:
             out.at[idx, "器件类型"] = "热敏电阻"
+        if parsed:
+            for col, cleaner in [
+                ("阻值误差", clean_tol_for_display),
+                ("B值", normalize_b_value_text),
+                ("B值误差", clean_tol_for_display),
+                ("B值条件", clean_text),
+            ]:
+                if col in out.columns:
+                    value = cleaner(parsed.get(col, ""))
+                    if value != "":
+                        out.at[idx, col] = value
     return out
 
 
@@ -17891,6 +17906,7 @@ def get_component_display_schema(spec_or_type):
             ("阻值单位", "阻值单位"),
             ("阻值误差", "误差"),
             ("B值", "B值"),
+            ("B值误差", "B值误差"),
             ("B值条件", "B值条件"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
@@ -18347,6 +18363,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "阻值单位": normalize_library_value_unit(spec.get("阻值单位", "")),
         "阻值误差": clean_tol_for_display(spec.get("阻值误差", "")),
         "B值": normalize_b_value_text(spec.get("B值", "")),
+        "B值误差": clean_tol_for_display(thermistor_b_tolerance_from_record(spec)),
         "B值条件": clean_text(spec.get("B值条件", "")),
         "共模阻抗": clean_text(spec.get("共模阻抗", "")),
         "阻抗单位": normalize_library_value_unit(spec.get("阻抗单位", "")),
@@ -18372,7 +18389,7 @@ def build_component_context_text(record):
         "尺寸（inch）", "尺寸（mm）", "材质（介质）", "规格摘要", "容值", "容值单位", "容值误差",
         "工作温度", "寿命（h）", "特殊用途", "生产状态",
         "备注1", "备注2", "备注3", "官网链接", "数据来源", "校验备注",
-        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值误差", "B值条件",
         "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
         "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
         "直径（mm）", "高度（mm）", "极性", "ESR", "纹波电流",
@@ -18772,7 +18789,7 @@ def ensure_component_display_columns(df):
     for col in [
         "容值", "容值单位", "容值误差", "耐压（V）",
         "封装代码", "生产状态", "直径（mm）", "极性", "ESR", "纹波电流",
-        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+        "阻值@25C", "阻值单位", "阻值误差", "B值", "B值误差", "B值条件",
         "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
         "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
         "负载电容（pF）", "驱动电平", "输出类型", "占空比",
@@ -19177,6 +19194,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "阻值单位": "small",
         "阻值误差": "small",
         "B值": "small",
+        "B值误差": "small",
         "B值条件": "small",
         "共模阻抗": "small",
         "阻抗单位": "small",
@@ -20205,6 +20223,18 @@ JOYIN_NTC_RESISTANCE_TOLERANCE_CODES = {
     "J": "5",
     "K": "10",
 }
+JOYIN_NTC_B_TOLERANCE_CODES = {
+    "D": "0.5",
+    "E": "0.7",
+    "F": "1",
+    "G": "2",
+    "H": "3",
+    "J": "5",
+}
+# Murata's official NCP03 list specifies B25/50 tolerance ±1% for NCP03WF.
+MURATA_NTC_B_TOLERANCE_BY_PREFIX = {
+    "NCP03WF": "1",
+}
 JOYIN_NTC_B_CONDITIONS = {
     "A": "25/50℃",
     "B": "25/85℃",
@@ -20292,6 +20322,7 @@ def parse_joyin_ntc_common(model, brand=""):
         "",
     )
     b_value = JOYIN_NTC_UNAMBIGUOUS_B_VALUES.get(match.group("b_code"), "")
+    b_tolerance = JOYIN_NTC_B_TOLERANCE_CODES.get(match.group("b_tol").upper(), "")
     b_condition = JOYIN_NTC_B_CONDITIONS.get(match.group("b_condition").upper(), "")
     return {
         "品牌": clean_brand(brand) or "JOYIN(久尹)",
@@ -20315,13 +20346,18 @@ def parse_joyin_ntc_common(model, brand=""):
         "容值单位": resistance_unit,
         "容值误差": tolerance,
         "B值": b_value,
+        "B值误差": b_tolerance,
         "B值条件": b_condition,
         "规格摘要": " ".join(
             part
             for part in [
                 combine_value_and_unit(resistance_value, resistance_unit, separator=""),
                 clean_tol_for_display(tolerance),
-                f"B{b_condition}={b_value}K" if b_value and b_condition else "",
+                (
+                    f"B{b_condition}={b_value}K {clean_tol_for_display(b_tolerance)}"
+                    if b_value and b_condition
+                    else ""
+                ),
                 body_size,
                 f"({size_inch})" if size_inch else "",
             ]
@@ -20335,9 +20371,40 @@ def parse_joyin_ntc_common(model, brand=""):
                 1 if resistance_ohm is not None else 0,
                 1 if tolerance else 0,
                 1 if b_value else 0,
+                1 if b_tolerance else 0,
             ]
         ),
     }
+
+
+def thermistor_b_tolerance_from_record(record):
+    if not hasattr(record, "get"):
+        return ""
+    explicit = clean_tol_for_match(record.get("B值误差", ""))
+    if explicit != "":
+        return explicit
+
+    model = clean_model(record.get("型号", ""))
+    joyin_match = JOYIN_NTC_MODEL_DETAIL_PATTERN.fullmatch(model)
+    if joyin_match is not None:
+        return JOYIN_NTC_B_TOLERANCE_CODES.get(joyin_match.group("b_tol").upper(), "")
+
+    context = " ".join(
+        clean_text(record.get(col, ""))
+        for col in ("规格摘要", "备注1", "备注2", "备注3")
+    )
+    context_match = re.search(
+        r"B\s*(?:25\s*/\s*(?:50|85|100))?\s*=\s*\d+(?:\.\d+)?\s*K?\s*[±+/-]*\s*(\d+(?:\.\d+)?)\s*%",
+        context,
+        flags=re.I,
+    )
+    if context_match is not None:
+        return clean_tol_for_match(context_match.group(1))
+
+    for prefix, tolerance in MURATA_NTC_B_TOLERANCE_BY_PREFIX.items():
+        if model.startswith(prefix):
+            return tolerance
+    return ""
 
 
 def joyin_ntc_target_class_from_spec(spec):
@@ -29693,6 +29760,7 @@ def reverse_spec(df, model, cache_signature=None):
             "阻值单位": normalize_library_value_unit(row.get("阻值单位", "")),
             "阻值误差": clean_tol_for_match(row.get("阻值误差", "")),
             "B值": normalize_b_value_text(row.get("B值", "")),
+            "B值误差": thermistor_b_tolerance_from_record(row),
             "B值条件": clean_text(row.get("B值条件", "")),
             "共模阻抗": clean_text(row.get("共模阻抗", "")),
             "阻抗单位": normalize_library_value_unit(row.get("阻抗单位", "")),
@@ -29908,7 +29976,7 @@ def format_display_df(show_df):
         "备注1","备注2","备注3","规格参数明细","匹配参数明细",
         "成本","MOQ",
         "功率","脚距","安规","规格","压敏电压","生产状态","极性","ESR","纹波电流",
-        "阻值@25C","阻值单位","阻值误差","B值","B值条件",
+        "阻值@25C","阻值单位","阻值误差","B值","B值误差","B值条件",
         "共模阻抗","阻抗单位","额定电流","DCR","回路数","电感值","电感单位","电感误差","饱和电流","屏蔽类型","阻抗@100MHz",
         "负载电容（pF）","驱动电平","输出类型","占空比",
     ]:
@@ -31278,9 +31346,16 @@ def classify_match_level(row, spec):
         spec_b_value = normalize_b_value_text(spec.get("B值", ""))
         row_b_condition = clean_text(row.get("B值条件", ""))
         spec_b_condition = clean_text(spec.get("B值条件", ""))
+        row_b_tolerance = thermistor_b_tolerance_from_record(row)
+        spec_b_tolerance = thermistor_b_tolerance_from_record(spec)
         b_value_matches = (not is_thermistor or spec_b_value == "" or row_b_value == spec_b_value)
         b_condition_matches = (not is_thermistor or spec_b_condition == "" or row_b_condition == spec_b_condition)
-        b_matches = b_value_matches and b_condition_matches
+        b_tolerance_matches = (
+            not is_thermistor
+            or spec_b_tolerance == ""
+            or (row_b_tolerance != "" and tolerance_equal(row_b_tolerance, spec_b_tolerance))
+        )
+        b_matches = b_value_matches and b_condition_matches and b_tolerance_matches
         thermistor_series_matches = (not is_thermistor or joyin_ntc_series_matches_target(row, spec))
 
         query_complete = (
@@ -31931,6 +32006,7 @@ def apply_match_levels_and_sort(df, spec):
     if target_type == "热敏电阻":
         spec_b_value = normalize_b_value_text(spec.get("B值", ""))
         spec_b_condition = clean_text(spec.get("B值条件", ""))
+        spec_b_tolerance = thermistor_b_tolerance_from_record(spec)
 
         def thermistor_b_rank(row):
             rank = 0
@@ -31938,6 +32014,10 @@ def apply_match_levels_and_sort(df, spec):
                 rank += 1
             if spec_b_condition != "" and clean_text(row.get("B值条件", "")) != spec_b_condition:
                 rank += 1
+            if spec_b_tolerance != "":
+                row_b_tolerance = thermistor_b_tolerance_from_record(row)
+                if row_b_tolerance == "" or not tolerance_equal(row_b_tolerance, spec_b_tolerance):
+                    rank += 1
             return rank
 
         work["_thermistor_b_rank"] = work.apply(thermistor_b_rank, axis=1)

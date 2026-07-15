@@ -3471,3 +3471,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added a narrowly scoped parser for a plain numeric first field followed by a delimited power field when the row explicitly identifies a resistor. `0` and `150` now resolve as ohms; capacitor and package-only false positives remain blocked.
 - Batch regression covers the supplied 16 resistor rows, 7 capacitor rows, and the exact Murata `NCP03WF104F05RL` token. The reported zero-ohm and 150-ohm rows resolve through the fast index to `FRC0201F0000TS` and `FRC0201F1500TS`.
 - Raised the query-result cache version to `86` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T16:01:01+08:00`. No runtime or component database is modified.
+
+### 2026-07-15 [NTC matching] Compare Joyin B-value tolerance separately
+
+- Confirmed from the official Joyin JSN-G order code that the first `F` in `JSNZ104F425?ABXG` is the R25 tolerance (`±1%`), while the later F/G/H/J code is the B-value tolerance (`±1% / ±2% / ±3% / ±5%`).
+- Added query-time B-value-tolerance decoding, a dedicated `B值误差` display column, Murata NCP03WF B25/50 tolerance inference, and B-tolerance-aware thermistor grading/sorting.
+- Real-data regression for `NCP03WF104F05RL` now returns only `JSNZ104F425FABXG` as `完全匹配`; G/H/J remain visible as `需确认替代` rather than being silently treated as exact equivalents.
+- Raised the query-result cache version to `87` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T18:20:00+08:00`. No member, cost-list, no-match, component database, or public bundle is modified.
+- Focused real-data replay passed. The complete 21-test release safety gate also passed with isolated test databases and unchanged protected runtime-data fingerprints.

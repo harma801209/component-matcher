@@ -724,3 +724,10 @@
 - Root cause: Resistance parsing required `R/K/M/Ω` notation. It did not support a plain numeric first field even when the row explicitly said `Resistor` and the next delimited field was a power value.
 - Fix: Parse a non-negative leading numeric value as ohms only under the narrow structure `number + field delimiter + power`, with an explicit resistor label. Invalidate stale empty query caches. Capacitor rows, unlabeled package-only resistor rows, and unrelated numeric text remain excluded.
 - Verification: The two reported forms now use the fast index and return `FRC0201F0000TS` and `FRC0201F1500TS`. Regression coverage also checks every resistor/capacitor row visible in the supplied list and the exact `NCP03WF104F05RL` thermistor token path.
+
+## 2026-07-15 - Joyin NTC B-value tolerance was ignored during matching
+
+- Bug: `NCP03WF104F05RL` incorrectly marked `JSNZ104F425GABXG`, `JSNZ104F425HABXG`, and `JSNZ104F425JABXG` as complete matches alongside `JSNZ104F425FABXG`.
+- Root cause: The model parser decoded the first tolerance code as R25 tolerance but discarded the second tolerance code for the B value. The result table also had no separate B-value-tolerance column, so all four rows appeared to have the same `±1%` requirement.
+- Fix: Decode and display `B值误差`, infer the official Murata NCP03WF B25/50 tolerance, and include B-value tolerance in thermistor match grading and sorting.
+- Verification: Real-database replay keeps `JSNZ104F425FABXG` as `完全匹配`; the G/H/J B-tolerance variants are now `需确认替代` and display `±2% / ±3% / ±5%` respectively.

@@ -2117,6 +2117,74 @@ class SystemRegressionTests(unittest.TestCase):
             fojan_rows = rows[rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)]
             self.assertTrue(fojan_rows.empty, query)
 
+    def test_15_joyin_ntc_b_tolerance_is_decoded_and_ranked(self):
+        app = self.app
+        expected_b_tolerances = {
+            "JSNZ104F425FABXG": "1",
+            "JSNZ104F425GABXG": "2",
+            "JSNZ104F425HABXG": "3",
+            "JSNZ104F425JABXG": "5",
+        }
+        candidate_rows = []
+        for model, expected_b_tolerance in expected_b_tolerances.items():
+            parsed = app["parse_joyin_ntc_common"](model, brand="JOYIN(久尹)")
+            self.assertEqual(parsed["阻值误差"], "1", model)
+            self.assertEqual(parsed["B值误差"], expected_b_tolerance, model)
+            parsed["_res_ohm"] = parsed["_resistance_ohm"]
+            candidate_rows.append(parsed)
+
+        spec = {
+            "品牌": "村田Murata",
+            "型号": "NCP03WF104F05RL",
+            "器件类型": "热敏电阻",
+            "尺寸（inch）": "0201",
+            "容值误差": "1",
+            "阻值误差": "1",
+            "_resistance_ohm": 100000.0,
+            "B值": "4250",
+            "B值条件": "25/50℃",
+        }
+        self.assertEqual(app["thermistor_b_tolerance_from_record"](spec), "1")
+
+        source_rows = app["load_component_rows_by_clean_model"]("NCP03WF104F05RL")
+        self.assertFalse(source_rows.empty)
+        actual_spec = app["reverse_spec"](source_rows, "NCP03WF104F05RL")
+        self.assertEqual(actual_spec["B值误差"], "1")
+
+        ranked = app["apply_match_levels_and_sort"](pd.DataFrame(candidate_rows), spec)
+        levels = dict(zip(ranked["型号"], ranked["推荐等级"]))
+        self.assertEqual(levels["JSNZ104F425FABXG"], "完全匹配")
+        for model in ("JSNZ104F425GABXG", "JSNZ104F425HABXG", "JSNZ104F425JABXG"):
+            self.assertEqual(levels[model], "需确认替代")
+        self.assertEqual(ranked.iloc[0]["型号"], "JSNZ104F425FABXG")
+
+        display = app["select_component_display_columns"](
+            pd.DataFrame(candidate_rows),
+            spec,
+            prefix_columns=["品牌", "型号"],
+        )
+        self.assertIn("B值误差", display.columns)
+        formatted_display = app["format_display_df"](display)
+        displayed = dict(zip(formatted_display["型号"], formatted_display["B值误差"]))
+        self.assertEqual(displayed["JSNZ104F425FABXG"], "±1%")
+        self.assertEqual(displayed["JSNZ104F425GABXG"], "±2%")
+
+        actual_query_rows = app["load_search_dataframe_for_query"](
+            "料号",
+            actual_spec,
+            "NCP03WF104F05RL",
+            exact_part_rows=source_rows,
+        )
+        actual_matches = app["run_query_match"](actual_query_rows, "料号", actual_spec)
+        if isinstance(actual_matches, pd.DataFrame) and not actual_matches.empty and "型号" in actual_matches.columns:
+            actual_joyin = actual_matches[
+                actual_matches["型号"].map(app["clean_model"]).isin(expected_b_tolerances)
+            ]
+            actual_levels = dict(zip(actual_joyin["型号"].map(app["clean_model"]), actual_joyin["推荐等级"]))
+            self.assertEqual(actual_levels["JSNZ104F425FABXG"], "完全匹配")
+            for model in ("JSNZ104F425GABXG", "JSNZ104F425HABXG", "JSNZ104F425JABXG"):
+                self.assertEqual(actual_levels[model], "需确认替代")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
