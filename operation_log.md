@@ -3546,3 +3546,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Updated timing result tables to display those fields and normalized legacy Epson/Kyocera/KDS/Murata/NDK/TXC/Abracon/SiTime brand aliases. Rich official rows now replace duplicate legacy seed rows for the same product number.
 - Real-cache checks return Kyocera, Abracon, Fox, NDK, Epson, and other valid brands for representative crystal and oscillator specifications. Focused Epson and multi-brand timing tests pass.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `94` and `PUBLIC_CODE_STAMP` to `2026-07-17T00:22:00+08:00`. Protected member, cost-list, and no-match databases are not modified by the synchronizer.
+
+### 2026-07-17 [timing matching] Enforce Epson official detailed parameters
+
+- Extended the Epson official synchronizer to import frequency-temperature characteristic, 25C aging, turnover temperature, parabolic coefficient, overtone order, and AEC grade for exact product numbers.
+- Added detailed timing parsing and comparison. Known conflicts in operating temperature, temperature characteristic, aging, turnover temperature, parabolic coefficient, or overtone are filtered; incomplete timing searches remain visible as `部分参数匹配` instead of being overstated as complete.
+- A complete oscillator search now requires operating temperature and aging. A complete MHz crystal search additionally requires temperature characteristic and overtone; a complete low-frequency kHz crystal search requires turnover temperature and parabolic coefficient.
+- Epson cache refresh now merges the multi-brand official timing CSV before rebuilding runtime caches, preserving Abracon, Kyocera, NDK, KDS, TXC, Murata, SiTime, and other official timing rows.
+- Focused integration tests pass, and real-cache replays verify full Epson crystal/oscillator matches plus sparse-query downgrading. Raised `QUERY_RESULT_CACHE_VERSION` to `95` and `PUBLIC_CODE_STAMP` to `2026-07-17T01:18:00+08:00`.

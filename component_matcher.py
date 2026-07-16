@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 94
+QUERY_RESULT_CACHE_VERSION = 95
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-17T00:22:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-17T01:18:00+08:00"
 
 
 def startup_trace(message):
@@ -16279,6 +16279,107 @@ def clean_frequency_tolerance_for_display(value):
     return f"±{normalized}ppm" if re.fullmatch(r"\d+(?:\.\d+)?", normalized) else normalized
 
 
+TIMING_TEMPERATURE_CHARACTERISTIC_LABEL = (
+    r"(?:频率温度特性|温度特性|温度范围频差|温度稳定度|"
+    r"FREQUENCY\s*(?:TOLERANCE|STABILITY)[^,;，；]{0,18}(?:TEMP|TEMPERATURE)|"
+    r"TEMP(?:ERATURE)?\s*(?:RANGE\s*)?(?:TOLERANCE|STABILITY))"
+)
+TIMING_AGING_LABEL = r"(?:25\s*(?:℃|°C|C)?\s*老化|老化|AGING)"
+
+
+def find_labeled_timing_ppm_in_text(text, label_pattern):
+    raw = clean_text(text).replace("±", "+/-")
+    if raw == "":
+        return ""
+    pattern = (
+        rf"{label_pattern}[^0-9+\-]{{0,24}}"
+        rf"(?:\+/-\s*)?([+\-]?\d+(?:\.\d+)?)\s*PPM\b"
+    )
+    match = re.search(pattern, raw, flags=re.I)
+    if not match:
+        return ""
+    normalized = clean_frequency_tolerance_for_match(match.group(1))
+    return clean_frequency_tolerance_for_display(normalized)
+
+
+def find_primary_timing_tolerance_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    masked = raw.replace("±", "+/-")
+    detail_patterns = [
+        rf"{TIMING_TEMPERATURE_CHARACTERISTIC_LABEL}[^,;，；]{{0,36}}?(?:PPM)\b",
+        rf"{TIMING_AGING_LABEL}[^,;，；]{{0,28}}?(?:PPM)\b",
+    ]
+    for pattern in detail_patterns:
+        masked = re.sub(pattern, " ", masked, flags=re.I)
+    return find_frequency_tolerance_in_text(masked)
+
+
+def find_turnover_temperature_in_text(text):
+    raw = clean_text(text).replace("±", "+/-")
+    if raw == "":
+        return ""
+    match = re.search(
+        r"(?:拐点温度|TURNOVER\s*TEMPERATURE)[^0-9+\-]{0,24}"
+        r"([+\-]?\d+(?:\.\d+)?)\s*(?:℃|°C|C)?\s*"
+        r"(?:\+/-)\s*(\d+(?:\.\d+)?)\s*(?:℃|°C|C)?",
+        raw,
+        flags=re.I,
+    )
+    if not match:
+        return ""
+    center = _format_compact_number(float(match.group(1)))
+    tolerance = _format_compact_number(float(match.group(2)))
+    if not center.startswith("-"):
+        center = f"+{center}"
+    return f"{center}℃ ±{tolerance}℃"
+
+
+def find_parabolic_coefficient_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    match = re.search(
+        r"(?:抛物线系数|PARABOLIC\s*COEFFICIENT)[^0-9+\-]{0,24}"
+        r"([+\-]?\d+(?:\.\d+)?)",
+        raw,
+        flags=re.I,
+    )
+    if not match:
+        return ""
+    return f"{_format_compact_number(float(match.group(1)))}ppm/℃²"
+
+
+def normalize_timing_overtone_order(value):
+    text = clean_text(value).upper()
+    if text == "":
+        return ""
+    compact = re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", text)
+    if "FUNDAMENTAL" in compact or "基频" in compact or "基波" in compact:
+        return "FUNDAMENTAL"
+    if (
+        "3RDOVERTONE" in compact
+        or "THIRDOVERTONE" in compact
+        or "三次泛音" in compact
+        or "3次泛音" in compact
+    ):
+        return "3RD OVERTONE"
+    if "OVERTONE" in compact or "泛音" in compact:
+        return compact
+    return text
+
+
+def find_timing_overtone_order_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    normalized = normalize_timing_overtone_order(raw)
+    if normalized in {"FUNDAMENTAL", "3RD OVERTONE"}:
+        return normalized
+    return ""
+
+
 def _find_labeled_resistive_measurement(text, labels):
     raw = clean_text(text).replace("OHMS", "OHM").replace("ohms", "ohm")
     if raw == "":
@@ -18647,12 +18748,15 @@ def get_component_display_schema(spec_or_type):
             ("容值误差", "频差"),
             ("频差选项", "频差选项"),
             ("频率温度特性（ppm）", "温度特性(ppm)"),
+            ("25℃老化（ppm）", "25℃老化"),
             ("工作温度", "工作温度"),
             ("储存温度", "储存温度"),
             ("负载电容（pF）", "负载电容(pF)"),
             ("负载电容选项", "负载电容选项"),
             ("ESR", "ESR"),
             ("驱动电平", "驱动电平"),
+            ("拐点温度", "拐点温度"),
+            ("抛物线系数（ppm/℃²）", "抛物线系数"),
             ("泛音阶次", "泛音阶次"),
             ("AEC等级", "AEC等级"),
             ("官方规格编号", "官方规格编号"),
@@ -18674,6 +18778,8 @@ def get_component_display_schema(spec_or_type):
             ("频率选项", "频率选项"),
             ("容值误差", "频差"),
             ("频差选项", "频差选项"),
+            ("频率温度特性（ppm）", "温度特性(ppm)"),
+            ("25℃老化（ppm）", "25℃老化"),
             ("耐压（V）", "工作电压（V）"),
             ("电压选项", "电压选项"),
             ("工作温度", "工作温度"),
@@ -19019,6 +19125,11 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "高度（mm）": height_mm,
         "尺寸来源": clean_text(spec.get("尺寸来源", "")),
         "工作温度": normalize_working_temperature_text(spec.get("工作温度", "")),
+        "频率温度特性（ppm）": clean_text(spec.get("频率温度特性（ppm）", "")),
+        "25℃老化（ppm）": clean_text(spec.get("25℃老化（ppm）", "")),
+        "拐点温度": clean_text(spec.get("拐点温度", "")),
+        "抛物线系数（ppm/℃²）": clean_text(spec.get("抛物线系数（ppm/℃²）", "")),
+        "泛音阶次": clean_text(spec.get("泛音阶次", "")),
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
         "功率": format_power_display(power_source),
         "安装方式": normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")),
@@ -19469,6 +19580,7 @@ def ensure_component_display_columns(df):
         "负载电容（pF）", "驱动电平", "输出类型", "占空比",
         "型号粒度", "频率下限", "频率上限", "频率选项", "频差选项", "电压选项",
         "负载电容选项", "储存温度", "频率温度特性（ppm）", "泛音阶次", "AEC等级",
+        "25℃老化（ppm）", "拐点温度", "抛物线系数（ppm/℃²）",
         "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
     ]:
         if col not in out.columns:
@@ -19897,6 +20009,9 @@ def build_component_column_config(columns, spec_or_type=None):
         "负载电容选项": "medium",
         "储存温度": "medium",
         "频率温度特性（ppm）": "medium",
+        "25℃老化（ppm）": "medium",
+        "拐点温度": "medium",
+        "抛物线系数（ppm/℃²）": "medium",
         "泛音阶次": "small",
         "AEC等级": "small",
         "封装数量": "small",
@@ -20844,6 +20959,137 @@ def timing_load_cap_candidate_allows(row, required):
     return timing_option_contains(row.get("负载电容选项", ""), required_text)
 
 
+def timing_spec_number(value):
+    text = clean_text(value).replace("−", "-").replace("＋", "+")
+    if text == "" or "包含在总频差内" in text or text.upper() == "TBD":
+        return None
+    numbers = []
+    for match in re.finditer(r"[+\-]?\+?\d+(?:\.\d+)?", text):
+        try:
+            numbers.append(float(match.group(0).replace("++", "+")))
+        except Exception:
+            continue
+    if not numbers:
+        return None
+    return max(abs(number) for number in numbers)
+
+
+def timing_ppm_candidate_allows(candidate, required):
+    required_number = timing_spec_number(required)
+    if required_number is None:
+        return clean_text(candidate).upper() == clean_text(required).upper()
+    candidate_number = timing_spec_number(candidate)
+    if candidate_number is None:
+        return False
+    return candidate_number <= required_number + 1e-9
+
+
+def timing_signed_scalar_equal(candidate, required):
+    def first_number(value):
+        match = re.search(r"[+\-]?\d+(?:\.\d+)?", clean_text(value).replace("−", "-"))
+        return float(match.group(0)) if match else None
+
+    candidate_number = first_number(candidate)
+    required_number = first_number(required)
+    if required_number is None:
+        return True
+    if candidate_number is None:
+        return False
+    return abs(candidate_number - required_number) < 1e-9
+
+
+def timing_turnover_candidate_allows(candidate, required):
+    def numbers(value):
+        parsed = []
+        for match in re.finditer(r"[+\-]?\d+(?:\.\d+)?", clean_text(value).replace("−", "-")):
+            try:
+                parsed.append(float(match.group(0)))
+            except Exception:
+                continue
+        return parsed
+
+    required_values = numbers(required)
+    if not required_values:
+        return True
+    candidate_values = numbers(candidate)
+    if len(candidate_values) < len(required_values):
+        return False
+    return all(
+        abs(candidate_values[index] - required_values[index]) < 1e-9
+        for index in range(len(required_values))
+    )
+
+
+def timing_detail_candidate_state(row, spec):
+    checks = [
+        (
+            "工作温度",
+            lambda candidate, required: working_temperature_covers(candidate, required),
+        ),
+        (
+            "频率温度特性（ppm）",
+            timing_ppm_candidate_allows,
+        ),
+        (
+            "25℃老化（ppm）",
+            timing_ppm_candidate_allows,
+        ),
+        (
+            "拐点温度",
+            timing_turnover_candidate_allows,
+        ),
+        (
+            "抛物线系数（ppm/℃²）",
+            timing_signed_scalar_equal,
+        ),
+        (
+            "泛音阶次",
+            lambda candidate, required: (
+                normalize_timing_overtone_order(candidate)
+                == normalize_timing_overtone_order(required)
+            ),
+        ),
+    ]
+    complete = True
+    for field, allows in checks:
+        required = clean_text(spec.get(field, ""))
+        if required == "":
+            continue
+        candidate = clean_text(row.get(field, ""))
+        if field == "25℃老化（ppm）" and candidate == "":
+            candidate = clean_text(row.get("长期稳定度", ""))
+        if candidate == "":
+            complete = False
+            continue
+        if not allows(candidate, required):
+            return False, False
+    return True, complete
+
+
+def timing_query_has_complete_details(spec, component_type):
+    work_temp = clean_text(spec.get("工作温度", ""))
+    aging = clean_text(spec.get("25℃老化（ppm）", ""))
+    if work_temp == "" or aging == "":
+        return False
+    if component_type == "振荡器":
+        return True
+    unit = clean_text(spec.get("容值单位", "")).upper()
+    try:
+        frequency = float(clean_text(spec.get("容值", "")))
+    except Exception:
+        frequency = None
+    is_khz_crystal = unit == "KHZ" and frequency is not None and frequency <= 100
+    if is_khz_crystal:
+        return (
+            clean_text(spec.get("拐点温度", "")) != ""
+            and clean_text(spec.get("抛物线系数（ppm/℃²）", "")) != ""
+        )
+    return (
+        clean_text(spec.get("频率温度特性（ppm）", "")) != ""
+        and clean_text(spec.get("泛音阶次", "")) != ""
+    )
+
+
 def timing_model_requires_configuration(row):
     granularity = clean_text(row.get("型号粒度", "")).upper()
     if any(token in granularity for token in ["系列", "模板", "可配置"]):
@@ -20919,9 +21165,18 @@ def parse_timing_spec_query(line):
     value, unit = parse_frequency_value_unit(frequency)
     size = find_timing_package_code_in_text(raw) or find_embedded_size(raw)
     body_size = extract_body_size_from_text(raw)
-    freq_tol = clean_frequency_tolerance_for_match(find_frequency_tolerance_in_text(raw))
+    freq_tol = clean_frequency_tolerance_for_match(find_primary_timing_tolerance_in_text(raw))
     output_type = find_timing_output_type_in_text(raw) if component_type == "振荡器" else ""
     load_cap = find_load_capacitance_pf_in_text(raw) if component_type == "晶振" else ""
+    work_temp = extract_working_temperature_from_text(raw)
+    temp_characteristic = find_labeled_timing_ppm_in_text(
+        raw,
+        TIMING_TEMPERATURE_CHARACTERISTIC_LABEL,
+    )
+    aging = find_labeled_timing_ppm_in_text(raw, TIMING_AGING_LABEL)
+    turnover_temp = find_turnover_temperature_in_text(raw) if component_type == "晶振" else ""
+    parabolic_coef = find_parabolic_coefficient_in_text(raw) if component_type == "晶振" else ""
+    overtone_order = find_timing_overtone_order_in_text(raw) if component_type == "晶振" else ""
     voltage = ""
     if component_type == "振荡器":
         voltage_match = re.search(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*V(?![A-Z])", raw.upper())
@@ -20936,6 +21191,12 @@ def parse_timing_spec_query(line):
         1 if voltage != "" else 0,
         1 if output_type != "" else 0,
         1 if load_cap != "" else 0,
+        1 if work_temp != "" else 0,
+        1 if temp_characteristic != "" else 0,
+        1 if aging != "" else 0,
+        1 if turnover_temp != "" else 0,
+        1 if parabolic_coef != "" else 0,
+        1 if overtone_order != "" else 0,
     ])
     if value == "" and unit == "":
         return None
@@ -20957,6 +21218,12 @@ def parse_timing_spec_query(line):
         "电源电压": voltage,
         "输出类型": output_type,
         "负载电容（pF）": load_cap,
+        "工作温度": work_temp,
+        "频率温度特性（ppm）": temp_characteristic,
+        "25℃老化（ppm）": aging,
+        "拐点温度": turnover_temp,
+        "抛物线系数（ppm/℃²）": parabolic_coef,
+        "泛音阶次": overtone_order,
         "_body_size": body_size,
         "_core_param_count": param_count,
         "_param_count": param_count,
@@ -25105,7 +25372,8 @@ LIBRARY_COMMON_COLUMNS = [
     "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
     "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
     "型号粒度", "频率下限", "频率上限", "频率选项", "频差选项", "电压选项",
-    "负载电容选项", "储存温度", "频率温度特性（ppm）", "泛音阶次", "AEC等级",
+    "负载电容选项", "储存温度", "频率温度特性（ppm）", "25℃老化（ppm）",
+    "拐点温度", "抛物线系数（ppm/℃²）", "泛音阶次", "AEC等级",
     "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
 ]
 
@@ -26082,7 +26350,8 @@ def get_search_sidecar_table_specs():
                 "官网链接", "数据来源", "数据状态", "频差（ppm）", "电源电压", "输出类型", "占空比",
                 "频率", "输出频率", "频率单位", "负载电容（pF）", "ESR", "驱动电平",
                 "型号粒度", "频率下限", "频率上限", "频率选项", "频差选项", "电压选项",
-                "负载电容选项", "储存温度", "频率温度特性（ppm）", "泛音阶次", "AEC等级",
+                "负载电容选项", "储存温度", "频率温度特性（ppm）", "25℃老化（ppm）",
+                "拐点温度", "抛物线系数（ppm/℃²）", "泛音阶次", "AEC等级",
                 "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
             ],
             "numeric": ["_value_num", "_volt_num", "频率下限", "频率上限"],
@@ -28483,6 +28752,9 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "负载电容选项": clean_text(detail_row.get("负载电容选项", "")),
         "储存温度": clean_text(detail_row.get("储存温度", "")),
         "频率温度特性（ppm）": clean_text(detail_row.get("频率温度特性（ppm）", "")),
+        "25℃老化（ppm）": clean_text(detail_row.get("25℃老化（ppm）", "")),
+        "拐点温度": clean_text(detail_row.get("拐点温度", "")),
+        "抛物线系数（ppm/℃²）": clean_text(detail_row.get("抛物线系数（ppm/℃²）", "")),
         "泛音阶次": clean_text(detail_row.get("泛音阶次", "")),
         "AEC等级": clean_text(detail_row.get("AEC等级", "")),
         "封装数量": clean_text(detail_row.get("封装数量", "")),
@@ -30551,6 +30823,13 @@ def match_other_passive_spec(df, spec):
                 axis=1,
             )
             work = work[same_load_cap]
+        detail_states = work.apply(
+            lambda row: timing_detail_candidate_state(row, spec),
+            axis=1,
+        )
+        compatible_details = detail_states.apply(lambda state: bool(state[0]))
+        work = work[compatible_details]
+        detail_states = detail_states.loc[work.index]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
@@ -30561,6 +30840,7 @@ def match_other_passive_spec(df, spec):
         complete_query = (
             spec_size != ""
             and spec_tol != ""
+            and timing_query_has_complete_details(spec, component_type)
             and (
                 (component_type == "晶振" and spec_load_cap != "")
                 or (
@@ -30570,7 +30850,10 @@ def match_other_passive_spec(df, spec):
                 )
             )
         )
-        work["推荐等级"] = "完全匹配" if complete_query else "部分参数匹配"
+        detail_complete = detail_states.apply(lambda state: bool(state[1]))
+        work["推荐等级"] = "部分参数匹配"
+        if complete_query:
+            work.loc[detail_complete, "推荐等级"] = "完全匹配"
         configurable_mask = work.apply(timing_model_requires_configuration, axis=1)
         work.loc[configurable_mask, "推荐等级"] = "需确认配置"
         work.loc[work["_exact_model_rank"].eq(0) & ~configurable_mask, "推荐等级"] = "完全匹配"
@@ -30820,6 +31103,11 @@ def reverse_spec(df, model, cache_signature=None):
             "系列": clean_text(row.get("系列", "")),
             "系列说明": clean_text(row.get("系列说明", "")),
             "工作温度": normalize_working_temperature_text(row.get("工作温度", "") or extract_working_temperature_from_text(row_text)),
+            "频率温度特性（ppm）": clean_text(row.get("频率温度特性（ppm）", "")),
+            "25℃老化（ppm）": clean_text(row.get("25℃老化（ppm）", "")),
+            "拐点温度": clean_text(row.get("拐点温度", "")),
+            "抛物线系数（ppm/℃²）": clean_text(row.get("抛物线系数（ppm/℃²）", "")),
+            "泛音阶次": clean_text(row.get("泛音阶次", "")),
             "寿命（h）": normalize_life_hours_value(row.get("寿命（h）", "") or parse_life_hours_from_text(row_text)),
             "安装方式": normalize_mounting_style(row.get("安装方式", ""), row.get("封装代码", "")),
             "特殊用途": normalize_special_use(row.get("特殊用途", "") or extract_special_use_from_text(row_text)),
@@ -31055,6 +31343,7 @@ def format_display_df(show_df):
         "阻值@25C","阻值单位","阻值误差","B值","B值误差","B值条件",
         "共模阻抗","阻抗单位","额定电流","DCR","回路数","电感值","电感单位","电感误差","饱和电流","屏蔽类型","阻抗@100MHz",
         "负载电容（pF）","驱动电平","输出类型","占空比",
+        "频率温度特性（ppm）","25℃老化（ppm）","拐点温度","抛物线系数（ppm/℃²）","泛音阶次",
     ]:
         if col in show_df.columns:
             show_df[col] = show_df[col].astype(str).replace("nan", "").replace("None", "")
