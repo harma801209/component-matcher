@@ -8,6 +8,8 @@ import importlib
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 import component_matcher as cm
 
@@ -95,24 +97,35 @@ def normalize_prepared_dtypes(frame: pd.DataFrame) -> pd.DataFrame:
     return normalized
 
 
-def replace_prepared_cache_rows(seed_prepared: pd.DataFrame) -> int:
+def coerce_frame_to_schema(frame: pd.DataFrame, schema: pa.Schema) -> pd.DataFrame:
+    normalized = frame.reindex(columns=schema.names, fill_value="").copy()
+    for field in schema:
+        column = field.name
+        if pa.types.is_integer(field.type) or pa.types.is_floating(field.type):
+            normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+        elif pa.types.is_boolean(field.type):
+            normalized[column] = normalized[column].map(
+                lambda value: None
+                if str(value or "").strip() == ""
+                else str(value).strip().lower() in {"1", "true", "yes", "y"}
+            )
+        else:
+            normalized[column] = normalized[column].astype("string").fillna("")
+    return normalized
+
+
+def replace_prepared_cache_rows(seed_prepared: pd.DataFrame, batch_size: int = 50_000) -> int:
     prepared_path = Path(cm.PREPARED_CACHE_PATH)
     meta_path = Path(cm.PREPARED_CACHE_META_PATH)
     if not prepared_path.exists():
         raise FileNotFoundError(prepared_path)
+    if seed_prepared is None or seed_prepared.empty:
+        return 0
 
-    prepared = cm.read_prepared_cache()
-    if prepared is None or prepared.empty:
-        raise RuntimeError("prepared cache is empty")
-
-    seed_prepared = seed_prepared.reindex(columns=prepared.columns, fill_value="")
-    seed_prepared = normalize_prepared_dtypes(seed_prepared)
-    prepared = normalize_prepared_dtypes(prepared)
+    parquet_file = pq.ParquetFile(prepared_path)
+    schema = parquet_file.schema_arrow
+    seed_prepared = coerce_frame_to_schema(seed_prepared, schema)
     remove_keys = set(make_prepared_key(seed_prepared).astype(str))
-    keep_mask = ~make_prepared_key(prepared).astype(str).isin(remove_keys)
-    kept = prepared.loc[keep_mask].copy()
-    combined = pd.concat([kept, seed_prepared], ignore_index=True)
-    combined = normalize_prepared_dtypes(cm.optimize_prepared_dataframe_dtypes(combined))
 
     tmp_dir = prepared_path.parent
     fd, tmp_name = tempfile.mkstemp(
@@ -123,9 +136,33 @@ def replace_prepared_cache_rows(seed_prepared: pd.DataFrame) -> int:
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        combined.to_parquet(tmp_path, index=False)
+        with pq.ParquetWriter(tmp_path, schema=schema, compression="snappy") as writer:
+            for batch in parquet_file.iter_batches(batch_size=int(batch_size)):
+                frame = batch.to_pandas()
+                keep_mask = ~make_prepared_key(frame).astype(str).isin(remove_keys)
+                kept = frame.loc[keep_mask].copy()
+                if not kept.empty:
+                    writer.write_table(
+                        pa.Table.from_pandas(
+                            coerce_frame_to_schema(kept, schema),
+                            schema=schema,
+                            preserve_index=False,
+                        )
+                    )
+            writer.write_table(
+                pa.Table.from_pandas(
+                    seed_prepared,
+                    schema=schema,
+                    preserve_index=False,
+                )
+            )
+        parquet_file.close()
         cm.replace_file_atomically(str(tmp_path), str(prepared_path))
     finally:
+        try:
+            parquet_file.close()
+        except Exception:
+            pass
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
 
@@ -151,6 +188,20 @@ def refresh_search_sidecar_rows(seed_prepared: pd.DataFrame) -> dict[str, int]:
     pairs = seed_prepared.loc[:, ["品牌", "型号"]].drop_duplicates()
     with sqlite3.connect(search_path, timeout=60) as conn:
         conn.execute("PRAGMA busy_timeout = 60000")
+        for table_name, spec in specs.items():
+            existing_columns = {
+                str(row[1])
+                for row in conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+            }
+            numeric_columns = set(spec.get("numeric", []))
+            for column in spec.get("columns", []):
+                if column in existing_columns:
+                    continue
+                sql_type = "REAL" if column in numeric_columns else "TEXT"
+                escaped_column = str(column).replace('"', '""')
+                conn.execute(
+                    f'ALTER TABLE "{table_name}" ADD COLUMN "{escaped_column}" {sql_type}'
+                )
         for table_name, spec in specs.items():
             columns = set(spec.get("columns", []))
             if not {"品牌", "型号"}.issubset(columns):

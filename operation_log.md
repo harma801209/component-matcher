@@ -3529,3 +3529,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added NTC query parsing for power, B value, B condition, and B tolerance. `完全匹配` now requires all B fields; specified maximum power must be met. Labeled `Max Power` notes are authoritative, with a Joyin 0201/0402/0603 model-size fallback that avoids a public search-index rebuild.
 - The reported Joyin 0402 candidates now show `170mW`, are graded `需确认替代`, and return a `240mW` versus `170mW` power conflict. Complete B25/50 3370K testing keeps only the F-code model exact.
 - Bumped `QUERY_RESULT_CACHE_VERSION` to `92` and `PUBLIC_CODE_STAMP` to `2026-07-16T18:10:00+08:00`. The 23-test release safety gate passed using isolated databases; member, cost-list, and no-match runtime fingerprints were unchanged.
+
+### 2026-07-16 [timing matching] Integrate Epson official product numbers
+
+- Added an official Epson parameter synchronizer covering 6,060 unique crystal and oscillator product numbers: 1,486 crystal units and 4,574 oscillators. The source CSV keeps exact Epson product numbers, package dimensions, frequency, ppm tolerance, voltage range, output, load capacitance, temperature, ESR, drive level, datasheet, and official source URLs.
+- Extended timing parsing for metric packages such as `3.2x2.5mm`, standard package codes, SPXO/SPSO terms, ppm normalization, and voltage-range containment. Epson is ranked first among timing alternatives while exact source models remain visible.
+- Fixed a mixed-source lookup defect where any old `components.db` hit prevented missing product-number rows from being loaded from the public search sidecar. Database and sidecar candidates are now always merged and deduplicated.
+- Real-cache checks return Epson exact PNs for `32.768kHz / 3215 / 7pF / ±20ppm`, five Epson alternatives for `25MHz / 3225 / 3.3V / CMOS / ±50ppm`, and Epson alternatives from an Abracon exact-model query. Legacy `20PPM` rows remain compatible with normalized `20` queries.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `93` and `PUBLIC_CODE_STAMP` to `2026-07-16T22:31:00+08:00`. The 23-test release safety gate passed with isolated databases and unchanged protected runtime fingerprints.

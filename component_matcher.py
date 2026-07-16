@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 92
+QUERY_RESULT_CACHE_VERSION = 93
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-16T18:10:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-16T22:31:00+08:00"
 
 
 def startup_trace(message):
@@ -596,7 +596,13 @@ def build_no_match_resolution_record(report):
         "容值": clean_text(spec.get("容值", "")),
         "容值单位": clean_text(spec.get("容值单位", "")).upper(),
         "容值_pf": spec.get("容值_pf", None),
-        "容值误差": clean_tol_for_display(spec.get("容值误差", "")),
+        "容值误差": (
+            clean_frequency_tolerance_for_display(
+                spec.get("频差（ppm）", "") or spec.get("容值误差", "")
+            )
+            if component_type in TIMING_COMPONENT_TYPES
+            else clean_tol_for_display(spec.get("容值误差", ""))
+        ),
         "耐压（V）": clean_voltage(spec.get("耐压（V）", "")),
         "安装方式": clean_text(spec.get("安装方式", "")) or "贴片",
         "封装代码": clean_text(spec.get("封装代码", "")),
@@ -16254,6 +16260,18 @@ def find_frequency_tolerance_in_text(text):
     return ""
 
 
+def clean_frequency_tolerance_for_match(value):
+    text = clean_text(value).upper().replace("±", "+/-").replace("PPM", "")
+    return clean_tol_for_match(text)
+
+
+def clean_frequency_tolerance_for_display(value):
+    normalized = clean_frequency_tolerance_for_match(value)
+    if normalized == "":
+        return ""
+    return f"±{normalized}ppm" if re.fullmatch(r"\d+(?:\.\d+)?", normalized) else normalized
+
+
 def _find_labeled_resistive_measurement(text, labels):
     raw = clean_text(text).replace("OHMS", "OHM").replace("ohms", "ohm")
     if raw == "":
@@ -16645,8 +16663,8 @@ COMPONENT_ALIAS_TOKENS = {
         "upper": ["CRYSTAL", "XTAL", "QUARTZ", "晶振", "晶體", "石英晶体", "石英晶體", "石英晶振"],
     },
     "振荡器": {
-        "compact": ["OSCILLATOR", "VCXO", "TCXO", "OCXO", "XO"],
-        "upper": ["OSCILLATOR", "振荡器", "振盪器", "有源晶振"],
+        "compact": ["OSCILLATOR", "VCXO", "TCXO", "OCXO", "SPXO", "SPSO", "XO"],
+        "upper": ["OSCILLATOR", "CLOCK OSCILLATOR", "振荡器", "振盪器", "有源晶振"],
     },
 }
 
@@ -20641,6 +20659,32 @@ def normalize_timing_output_type(value):
     return text
 
 
+def timing_voltage_bounds(value):
+    normalized = clean_voltage(value)
+    if normalized == "":
+        return None, None
+    range_match = re.fullmatch(r"([+\-]?\d+(?:\.\d+)?)~([+\-]?\d+(?:\.\d+)?)", normalized)
+    if range_match:
+        low = float(range_match.group(1))
+        high = float(range_match.group(2))
+        return (min(low, high), max(low, high))
+    try:
+        scalar = float(normalized)
+    except Exception:
+        return None, None
+    return scalar, scalar
+
+
+def timing_voltage_allows(candidate, required):
+    required_low, required_high = timing_voltage_bounds(required)
+    candidate_low, candidate_high = timing_voltage_bounds(candidate)
+    if required_low is None or required_high is None:
+        return True
+    if candidate_low is None or candidate_high is None:
+        return False
+    return candidate_low <= required_low + 1e-9 and candidate_high >= required_high - 1e-9
+
+
 def find_timing_output_type_in_text(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -20666,6 +20710,36 @@ def find_load_capacitance_pf_in_text(text):
     return ""
 
 
+TIMING_PACKAGE_CODES = {
+    "1008", "1210", "1610", "1612", "2012", "2016", "2520",
+    "3215", "3225", "5032", "7015", "7050", "8038",
+}
+
+
+def find_timing_package_code_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    for match in re.finditer(r"(?<!\d)(\d{4})(?!\d)", raw):
+        code = match.group(1)
+        if code in TIMING_PACKAGE_CODES:
+            return code
+    dimension_match = re.search(
+        r"(?<!\d)(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)\s*(?:MM)?",
+        raw,
+        flags=re.I,
+    )
+    if not dimension_match:
+        return ""
+    try:
+        length_code = int(round(float(dimension_match.group(1)) * 10))
+        width_code = int(round(float(dimension_match.group(2)) * 10))
+    except Exception:
+        return ""
+    code = f"{length_code:02d}{width_code:02d}"
+    return code if code in TIMING_PACKAGE_CODES else ""
+
+
 def parse_timing_spec_query(line):
     raw = clean_text(line)
     if raw == "":
@@ -20676,9 +20750,9 @@ def parse_timing_spec_query(line):
 
     frequency = find_frequency_in_text(raw)
     value, unit = parse_frequency_value_unit(frequency)
-    size = find_embedded_size(raw)
+    size = find_timing_package_code_in_text(raw) or find_embedded_size(raw)
     body_size = extract_body_size_from_text(raw)
-    freq_tol = find_frequency_tolerance_in_text(raw)
+    freq_tol = clean_frequency_tolerance_for_match(find_frequency_tolerance_in_text(raw))
     output_type = find_timing_output_type_in_text(raw) if component_type == "振荡器" else ""
     load_cap = find_load_capacitance_pf_in_text(raw) if component_type == "晶振" else ""
     voltage = ""
@@ -20708,7 +20782,7 @@ def parse_timing_spec_query(line):
         "容值": value,
         "容值单位": unit,
         "容值_pf": None,
-        "容值误差": clean_text(freq_tol),
+        "容值误差": freq_tol,
         "耐压（V）": voltage,
         "频率": value if component_type == "晶振" else "",
         "输出频率": value if component_type == "振荡器" else "",
@@ -25829,7 +25903,13 @@ def get_search_sidecar_table_specs():
             ],
         },
         COMPONENTS_SEARCH_VALUE_TABLE: {
-            "columns": ["品牌", "型号", "_component_type", "_size", "_unit_upper", "_value_num", "_tol", "_volt_num"],
+            "columns": [
+                "品牌", "型号", "_component_type", "_size", "_unit_upper", "_value_num", "_tol", "_volt_num",
+                "系列", "系列说明", "尺寸（mm）", "长度（mm）", "宽度（mm）", "高度（mm）", "尺寸来源",
+                "容值误差", "耐压（V）", "工作温度", "安装方式", "特殊用途", "封装代码", "规格摘要",
+                "官网链接", "数据来源", "数据状态", "频差（ppm）", "电源电压", "输出类型", "占空比",
+                "频率", "输出频率", "频率单位", "负载电容（pF）", "ESR", "驱动电平",
+            ],
             "numeric": ["_value_num", "_volt_num"],
             "indexes": [
                 ("brand_model", ["品牌", "型号"]),
@@ -28174,27 +28254,38 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
     component_type = normalize_component_type(
         detail_row.get("_component_type", core_row.get("_component_type", ""))
     )
+    timing_component = component_type in TIMING_COMPONENT_TYPES
+    raw_tolerance = detail_row.get("容值误差", detail_row.get("_tol", ""))
+    raw_voltage = detail_row.get("耐压（V）", detail_row.get("电源电压", ""))
     record = {
         "品牌": brand,
         "型号": model,
         "_model_clean": clean_model(core_row.get("_model_clean", model)),
         "器件类型": component_type,
-        "系列": "",
-        "系列说明": "",
+        "系列": clean_text(detail_row.get("系列", "")),
+        "系列说明": clean_text(detail_row.get("系列说明", "")),
         "尺寸（inch）": clean_size(detail_row.get("_size", "")),
-        "尺寸（mm）": clean_text(detail_row.get("_body_size", "")),
+        "尺寸（mm）": clean_text(detail_row.get("尺寸（mm）", detail_row.get("_body_size", ""))),
         "长度（mm）": normalize_dimension_mm_value(detail_row.get("长度（mm）", "")),
         "宽度（mm）": normalize_dimension_mm_value(detail_row.get("宽度（mm）", "")),
         "高度（mm）": normalize_dimension_mm_value(detail_row.get("高度（mm）", "")),
         "直径（mm）": normalize_dimension_mm_value(detail_row.get("直径（mm）", "")),
         "尺寸来源": clean_text(detail_row.get("尺寸来源", "")),
         "材质（介质）": clean_material(detail_row.get("_mat", "")),
-        "容值误差": clean_tol_for_display(detail_row.get("_tol", "")),
-        "耐压（V）": voltage_display(format_sidecar_numeric_display(detail_row.get("_volt_num", ""))),
-        "工作温度": build_working_temperature_from_sidecar_bounds(detail_row.get("_temp_low", ""), detail_row.get("_temp_high", "")),
+        "容值误差": (
+            clean_frequency_tolerance_for_match(raw_tolerance)
+            if timing_component
+            else clean_tol_for_display(detail_row.get("_tol", ""))
+        ),
+        "耐压（V）": (
+            clean_voltage(raw_voltage)
+            if timing_component
+            else voltage_display(format_sidecar_numeric_display(detail_row.get("_volt_num", "")))
+        ),
+        "工作温度": clean_text(detail_row.get("工作温度", "")) or build_working_temperature_from_sidecar_bounds(detail_row.get("_temp_low", ""), detail_row.get("_temp_high", "")),
         "寿命（h）": format_life_hours_display(format_sidecar_numeric_display(detail_row.get("_life_hours_num", ""))),
-        "安装方式": normalize_mounting_style(detail_row.get("_mount_style", "")),
-        "特殊用途": normalize_special_use(detail_row.get("_special_use_norm", "")),
+        "安装方式": normalize_mounting_style(detail_row.get("安装方式", detail_row.get("_mount_style", ""))),
+        "特殊用途": normalize_special_use(detail_row.get("特殊用途", detail_row.get("_special_use_norm", ""))),
         "B值": normalize_b_value_text(detail_row.get("B值", "")),
         "B值误差": clean_tol_for_match(detail_row.get("B值误差", "")),
         "B值条件": normalize_b_value_condition(detail_row.get("B值条件", "")),
@@ -28203,7 +28294,11 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "安规": clean_text(detail_row.get("_safety_class", "")),
         "压敏电压": voltage_display(clean_voltage(detail_row.get("_varistor_voltage", ""))),
         "规格": clean_text(detail_row.get("_disc_size", "")) or clean_text(detail_row.get("_body_size", "")),
-        "数据来源": "搜索索引轻量回退",
+        "封装代码": clean_text(detail_row.get("封装代码", "")),
+        "规格摘要": clean_text(detail_row.get("规格摘要", "")),
+        "官网链接": clean_text(detail_row.get("官网链接", "")),
+        "数据来源": clean_text(detail_row.get("数据来源", "")) or "搜索索引轻量回退",
+        "数据状态": clean_text(detail_row.get("数据状态", "")),
         "容值_pf": None,
         "_resistance_ohm": None,
         "_model_rule_authority": "search_sidecar_light",
@@ -28240,6 +28335,19 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         elif component_type in INDUCTOR_COMPONENT_TYPES:
             record["电感值"] = value_text
             record["电感单位"] = unit_text
+        elif component_type in TIMING_COMPONENT_TYPES:
+            record["频率单位"] = clean_text(detail_row.get("频率单位", "")) or unit_text
+            record["频差（ppm）"] = clean_text(detail_row.get("频差（ppm）", "")) or clean_frequency_tolerance_for_display(raw_tolerance)
+            record["电源电压"] = clean_voltage(detail_row.get("电源电压", raw_voltage))
+            record["输出类型"] = clean_text(detail_row.get("输出类型", ""))
+            record["占空比"] = clean_text(detail_row.get("占空比", ""))
+            record["负载电容（pF）"] = clean_text(detail_row.get("负载电容（pF）", ""))
+            record["ESR"] = clean_text(detail_row.get("ESR", ""))
+            record["驱动电平"] = clean_text(detail_row.get("驱动电平", ""))
+            if component_type == "晶振":
+                record["频率"] = clean_text(detail_row.get("频率", "")) or value_text
+            else:
+                record["输出频率"] = clean_text(detail_row.get("输出频率", "")) or value_text
 
     power_watt = pd.to_numeric(pd.Series([detail_row.get("_power_watt", None)]), errors="coerce").iloc[0]
     if pd.notna(power_watt) and component_type != "热敏电阻":
@@ -28283,8 +28391,11 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
             combined = pd.DataFrame()
         finally:
             conn.close()
-    if combined.empty:
-        combined = load_search_sidecar_rows_by_brand_model_pairs(pairs, preferred_component_type=preferred_component_type)
+    sidecar_combined = load_search_sidecar_rows_by_brand_model_pairs(
+        pairs,
+        preferred_component_type=preferred_component_type,
+    )
+    combined = concat_component_frames([combined, sidecar_combined])
     seed_rows = load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows()
     if seed_rows:
         combined = concat_component_frames([combined, pd.DataFrame(seed_rows)])
@@ -28292,12 +28403,6 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         return combined
     combined = filter_base_by_candidate_pairs(combined, pairs)
     if combined.empty:
-        sidecar_combined = load_search_sidecar_rows_by_brand_model_pairs(
-            pairs,
-            preferred_component_type=preferred_component_type,
-        )
-        if isinstance(sidecar_combined, pd.DataFrame) and not sidecar_combined.empty:
-            return sidecar_combined
         return combined
     return prepare_search_dataframe(combined)
 
@@ -29579,11 +29684,10 @@ def fetch_search_candidate_pairs(spec):
         size = clean_size(spec.get("尺寸（inch）", ""))
         value_text = clean_text(spec.get("容值", ""))
         unit = clean_text(spec.get("容值单位", "")).upper()
-        tol = clean_tol_for_match(spec.get("容值误差", ""))
-        volt = clean_voltage(spec.get("耐压（V）", ""))
+        tol = clean_frequency_tolerance_for_match(spec.get("容值误差", ""))
         if value_text == "" or unit == "":
             return None
-        required_search_columns.update({"_size", "_value_num", "_unit_upper", "_tol", "_volt_num"})
+        required_search_columns.update({"_size", "_value_num", "_unit_upper", "_tol"})
         placeholders = ",".join(["?"] * len(compatible_types or [target_type]))
         where_clauses.append(f"_component_type IN ({placeholders})")
         params.extend(compatible_types or [target_type])
@@ -29600,9 +29704,6 @@ def fetch_search_candidate_pairs(spec):
         if tol != "":
             where_clauses.append("_tol = ?")
             params.append(tol)
-        if volt != "":
-            where_clauses.append("_volt_num IS NOT NULL AND ABS(_volt_num - ?) < 1e-9")
-            params.append(float(volt))
     elif target_type in {"薄膜电容", "铝电解电容", "引线型陶瓷电容"}:
         pf = spec.get("容值_pf", None)
         tol = clean_tol_for_match(spec.get("容值误差", ""))
@@ -30181,7 +30282,7 @@ def match_other_passive_spec(df, spec):
         work = base.copy()
         spec_value = clean_text(spec.get("容值", ""))
         spec_unit = clean_text(spec.get("容值单位", "")).upper()
-        spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
+        spec_tol = clean_frequency_tolerance_for_match(spec.get("容值误差", ""))
         spec_volt = clean_voltage(spec.get("耐压（V）", "")) or clean_voltage(spec.get("电源电压", ""))
         spec_size = clean_size(spec.get("尺寸（inch）", ""))
         spec_model = clean_model(spec.get("型号", ""))
@@ -30207,11 +30308,19 @@ def match_other_passive_spec(df, spec):
                 same_value = exact_text
             work = work[same_value]
         if spec_tol != "":
-            work = work[tolerance_equal_series(work, spec_tol)]
+            tolerance_column = "容值误差" if "容值误差" in work.columns else "_tol"
+            same_tolerance = work[tolerance_column].astype(str).apply(
+                clean_frequency_tolerance_for_match
+            ).eq(spec_tol)
+            work = work[same_tolerance]
         if spec_volt != "":
-            same_volt = work["耐压（V）"].astype(str).apply(clean_voltage).eq(spec_volt)
+            same_volt = work["耐压（V）"].astype(str).apply(
+                lambda value: timing_voltage_allows(value, spec_volt)
+            )
             if "电源电压" in work.columns:
-                same_volt = same_volt | work["电源电压"].astype(str).apply(clean_voltage).eq(spec_volt)
+                same_volt = same_volt | work["电源电压"].astype(str).apply(
+                    lambda value: timing_voltage_allows(value, spec_volt)
+                )
             work = work[same_volt]
         if component_type == "振荡器" and spec_output != "" and "输出类型" in work.columns:
             same_output = work["输出类型"].astype(str).apply(normalize_timing_output_type).eq(spec_output)
@@ -30222,11 +30331,24 @@ def match_other_passive_spec(df, spec):
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
-        work["推荐等级"] = "完全匹配"
         if spec_model != "":
             work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
         else:
             work["_exact_model_rank"] = 1
+        complete_query = (
+            spec_size != ""
+            and spec_tol != ""
+            and (
+                (component_type == "晶振" and spec_load_cap != "")
+                or (
+                    component_type == "振荡器"
+                    and spec_volt != ""
+                    and spec_output != ""
+                )
+            )
+        )
+        work["推荐等级"] = "完全匹配" if complete_query else "部分参数匹配"
+        work.loc[work["_exact_model_rank"].eq(0), "推荐等级"] = "完全匹配"
         work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
         work = work.sort_values(
             by=["_exact_model_rank", "_brand_rank", "品牌", "型号"],
@@ -32009,6 +32131,17 @@ def brand_priority_value(brand, component_type=""):
             ("威世", 10), ("VISHAY", 10),
             ("旺诠", 11), ("RALEC", 11),
             ("KOA", 12), ("BOURNS", 13), ("STACKPOLE", 14), ("SUSUMU", 15), ("PANASONIC", 16),
+        ]
+    elif ctype in TIMING_COMPONENT_TYPES:
+        priorities = [
+            ("爱普生", 1), ("EPSON", 1),
+            ("NDK", 2), ("NIHON DEMPA", 2),
+            ("TXC", 3),
+            ("KDS", 4), ("DAISHINKU", 4),
+            ("京瓷", 5), ("KYOCERA", 5),
+            ("村田", 6), ("MURATA", 6),
+            ("ABRACON", 7),
+            ("SITIME", 8),
         ]
     elif ctype in CAPACITOR_COMPONENT_TYPES:
         priorities = [

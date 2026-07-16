@@ -780,3 +780,10 @@
 - Root cause: Thermistor completeness required only size, R25, and R25 tolerance; blank B fields passed matching checks. Generic power extraction accepted the first mW token in the source notes.
 - Fix: Require size, R25, R25 tolerance, B value, B condition, and B tolerance before an NTC candidate can be `完全匹配`. Parse only labeled thermistor maximum power, use the official Joyin size rule as a low-memory public fallback, and treat a lower maximum power as a conflict.
 - Verification: The reported query keeps the candidates visible but marks all Joyin 0402 rows `需确认替代` and reports `240mW` required versus `170mW` available. A complete `B25/50=3370K ±1%` query marks only the F-code Joyin model complete; G/H/J remain confirmation-required. The 23-test release safety gate passed with protected runtime-data fingerprints unchanged.
+
+## 2026-07-16 - Old database hits hid new timing product-number rows
+
+- Bug: Epson official crystal and oscillator products existed in the prepared/search caches, but a specification such as `32.768kHz / 3215 / 7pF / ±20ppm` returned only old series-level rows or no usable product number.
+- Root cause: Candidate loading used `components.db` first and queried the search sidecar only when the entire database result was empty. A partial old database hit therefore suppressed all missing product-number candidates from the sidecar. Legacy timing tolerances stored as `20PPM` also failed comparison after query normalization produced `20`.
+- Fix: Always merge database and sidecar candidate rows before exact brand/model filtering and canonical deduplication. Timing tolerance comparison now normalizes both candidate and query values by removing the `ppm` suffix.
+- Verification: The crystal specification now returns `Q13FC13500002`, `X1A0001410001`, and `X1A0001610003` as complete Epson matches. A 25MHz oscillator specification returns five complete Epson matches, and an Abracon exact-model query returns Epson alternatives. A regression test covers partial database plus sidecar merging; the full 23-test safety gate passes with protected databases unchanged.
