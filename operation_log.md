@@ -3479,3 +3479,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Real-data regression for `NCP03WF104F05RL` now returns only `JSNZ104F425FABXG` as `完全匹配`; G/H/J remain visible as `需确认替代` rather than being silently treated as exact equivalents.
 - Raised the query-result cache version to `87` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T18:20:00+08:00`. No member, cost-list, no-match, component database, or public bundle is modified.
 - Focused real-data replay passed. The complete 21-test release safety gate also passed with isolated test databases and unchanged protected runtime-data fingerprints.
+
+### 2026-07-16 [resistor matching] Treat exact-part brands as source metadata
+
+- Reproduced the Fenghua query and confirmed `FRC0603F1002TS` was already present in the candidate frame with `0603 / 10KΩ / ±1% / 1/10W / 75V / 无卤`; independent grading classified it as `完全匹配`.
+- Removed only the requested-brand filter from exact-part and embedded-model-token lookup specifications. The detected Fenghua brand remains attached as the source brand, while direct brand-qualified specification searches keep their existing brand restriction.
+- Added a regression that exercises the exact Fenghua-to-FOJAN case and retains the existing direct FOJAN brand-filter checks.
+- Raised the query-result cache version to `88` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T11:33:57+08:00`. No runtime or component database is modified.

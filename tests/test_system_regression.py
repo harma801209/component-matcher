@@ -710,6 +710,56 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertEqual(set(matched_brand["品牌"]), {"FOJAN(富捷)"}, query)
                 self.assertEqual(set(matched_brand["型号"]), {"FRC0402F1002TS"}, query)
 
+            fenghua_query = "10KΩ;75V;±1%;1/10W;0603;FENGHUA;RS-03K1002FT;无卤"
+            fenghua_spec = app["parse_resistor_spec_query"]("0603 10K 1% 1/10W 75V 无卤")
+            fenghua_spec.update({"品牌": "风华Fenghua", "型号": "RS-03K1002FT"})
+            brand_filtered_part_spec = app["apply_query_brand_hint_to_spec"](fenghua_spec, fenghua_query)
+            self.assertTrue(brand_filtered_part_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+            part_lookup_spec = app["clear_query_brand_filter_for_part_lookup"](brand_filtered_part_spec)
+            self.assertFalse(part_lookup_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
+            self.assertEqual(part_lookup_spec["品牌"], "风华Fenghua")
+
+            cross_brand_candidates = pd.DataFrame(
+                [
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": "FRC0603F1002TS",
+                        "器件类型": "厚膜电阻",
+                        "尺寸（inch）": "0603",
+                        "材质（介质）": "",
+                        "耐压（V）": "75",
+                        "容值_pf": None,
+                        "_resistance_ohm": 10000.0,
+                        "容值": "10",
+                        "容值单位": "KΩ",
+                        "容值误差": "1",
+                        "功率": "1/10W",
+                        "特殊用途": "无卤",
+                    },
+                    {
+                        "品牌": "风华Fenghua",
+                        "型号": "RS-03K1002FT",
+                        "器件类型": "厚膜电阻",
+                        "尺寸（inch）": "0603",
+                        "材质（介质）": "",
+                        "耐压（V）": "75",
+                        "容值_pf": None,
+                        "_resistance_ohm": 10000.0,
+                        "容值": "10",
+                        "容值单位": "KΩ",
+                        "容值误差": "1",
+                        "功率": "1/10W",
+                        "特殊用途": "无卤",
+                    },
+                ]
+            )
+            prepared_cross_brand = app["prepare_search_dataframe"](
+                app["ensure_component_display_columns"](cross_brand_candidates)
+            )
+            cross_brand_matches = app["run_query_match"](prepared_cross_brand, "料号", part_lookup_spec)
+            self.assertEqual(cross_brand_matches["型号"].tolist(), ["FRC0603F1002TS"])
+            self.assertEqual(cross_brand_matches.iloc[0]["推荐等级"], "完全匹配")
+
             suffix_candidates = pd.DataFrame(
                 [
                     {

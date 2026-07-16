@@ -731,3 +731,10 @@
 - Root cause: The model parser decoded the first tolerance code as R25 tolerance but discarded the second tolerance code for the B value. The result table also had no separate B-value-tolerance column, so all four rows appeared to have the same `±1%` requirement.
 - Fix: Decode and display `B值误差`, infer the official Murata NCP03WF B25/50 tolerance, and include B-value tolerance in thermistor match grading and sorting.
 - Verification: Real-database replay keeps `JSNZ104F425FABXG` as `完全匹配`; the G/H/J B-tolerance variants are now `需确认替代` and display `±2% / ±3% / ±5%` respectively.
+
+## 2026-07-16 - Source-brand token blocked valid cross-brand resistor alternatives
+
+- Bug: `10KΩ;75V;±1%;1/10W;0603;FENGHUA;RS-03K1002FT;无卤` found the Fenghua source row but reported no other-brand alternative, even though `FOJAN(富捷) / FRC0603F1002TS` satisfied every requested parameter.
+- Root cause: The brand token beside an exact source part number was reused as an explicit output-brand filter. The candidate scope was reduced to Fenghua before cross-brand matching, so the valid FOJAN row never reached grading.
+- Fix: Exact-part and embedded-model-token lookups now retain the detected brand as the source brand but clear the requested-brand output filter. Direct specification searches such as `富捷 0603 10K 1%` remain restricted to the requested brand.
+- Verification: Exact real-data replay returns `FOJAN(富捷) / FRC0603F1002TS / 完全匹配`; focused regression also confirms that explicit specification brand filters remain active.

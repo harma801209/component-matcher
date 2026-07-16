@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 87
+QUERY_RESULT_CACHE_VERSION = 88
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -6789,6 +6789,15 @@ def apply_query_brand_hint_to_spec(spec, query_text):
     merged["品牌"] = requested_brand
     merged[BRAND_QUERY_FILTER_FLAG] = True
     merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(brand_query_aliases_for_label(requested_brand))
+    return merged
+
+
+def clear_query_brand_filter_for_part_lookup(spec):
+    if spec is None:
+        return spec
+    merged = dict(spec)
+    merged.pop(BRAND_QUERY_FILTER_FLAG, None)
+    merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
     return merged
 
 
@@ -35294,6 +35303,8 @@ def resolve_search_query_dataframe_and_spec(
     detect_df = prefetched_exact_rows if isinstance(prefetched_exact_rows, pd.DataFrame) and not prefetched_exact_rows.empty else None
     mode, spec = detect_query_mode_and_spec(detect_df, line)
     spec = merge_query_text_hints_into_spec(spec, line)
+    if mode == "料号":
+        spec = clear_query_brand_filter_for_part_lookup(spec)
     query_df = None
     candidate_rows = 0
     query_frame_cache_key = ""
@@ -35323,6 +35334,8 @@ def resolve_search_query_dataframe_and_spec(
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
             token_spec = merge_query_text_hints_into_spec(token_spec, line)
+            if token_mode == "料号":
+                token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,
@@ -35417,6 +35430,8 @@ def resolve_search_query_dataframe_and_spec(
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
             token_spec = merge_query_text_hints_into_spec(token_spec, line)
+            if token_mode == "料号":
+                token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,
