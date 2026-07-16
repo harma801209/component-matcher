@@ -63,6 +63,10 @@ class MultiBrandTimingIntegrationTests(unittest.TestCase):
                     "容值单位": "MHz",
                     "容值误差": "10",
                     "负载电容（pF）": "10",
+                    "工作温度": "-40~85℃",
+                    "频率温度特性（ppm）": "±10ppm",
+                    "25℃老化（ppm）": "±1ppm",
+                    "泛音阶次": "基频（Fundamental）",
                     "型号粒度": "官方逐料号",
                 }
             ]
@@ -70,7 +74,10 @@ class MultiBrandTimingIntegrationTests(unittest.TestCase):
         prepared = cm.prepare_search_dataframe(
             cm.normalize_imported_component_dataframe(rows)
         )
-        spec = cm.parse_timing_spec_query("晶振 16MHz 3225 10pF ±10ppm")
+        spec = cm.parse_timing_spec_query(
+            "晶振 16MHz 3225 10pF ±10ppm "
+            "-40~85℃ 温度特性±10ppm 老化±1ppm 基频"
+        )
 
         with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):
             matched = cm.match_other_passive_spec(prepared, spec)

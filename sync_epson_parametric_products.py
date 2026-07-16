@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import os
 import re
 import sys
@@ -28,6 +29,11 @@ DEFAULT_OUTPUT = (
     CRYSTAL_DIR / "Epson官方产品编号.csv"
     if CRYSTAL_DIR is not None
     else ROOT / "Epson官方产品编号.csv"
+)
+MULTIBRAND_TIMING_SOURCE = (
+    CRYSTAL_DIR / "多品牌官方晶振资料.csv"
+    if CRYSTAL_DIR is not None
+    else None
 )
 
 BRAND = "爱普生Epson"
@@ -222,6 +228,83 @@ def normalize_frequency_tolerance(value: Any) -> str:
     return decimal_text(match.group(1)) if match else ""
 
 
+def normalize_ppm_spec(value: Any) -> str:
+    text = html.unescape(clean_text(value)).replace("−", "-").replace("＋", "+")
+    text = re.sub(r"\s+", " ", text).strip()
+    if text == "":
+        return ""
+    upper = text.upper()
+    if "INCLUDED IN" in upper:
+        years = re.search(r"(\d+)\s*YEARS?", upper)
+        if "FIRST YEAR" in upper:
+            return "包含在总频差内（首年）"
+        if years:
+            return f"包含在总频差内（{years.group(1)}年）"
+        return "包含在总频差内"
+    if upper == "TBD":
+        return "TBD"
+    numbers = []
+    for match in re.finditer(r"[+\-]?\+?\d+(?:\.\d+)?", text):
+        try:
+            numbers.append(abs(Decimal(match.group(0).replace("++", "+"))))
+        except (InvalidOperation, ValueError):
+            continue
+    if not numbers:
+        return text
+    maximum = max(numbers)
+    return f"±{decimal_text(maximum)}ppm"
+
+
+def normalize_turnover_temperature(value: Any) -> str:
+    text = html.unescape(clean_text(value))
+    if text == "":
+        return ""
+    text = text.replace("°C", "℃").replace("degC", "℃").replace("+/-", "±")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def normalize_parabolic_coefficient(value: Any) -> str:
+    number = decimal_text(value)
+    return f"{number}ppm/℃²" if number else ""
+
+
+def normalize_overtone_order(value: Any) -> str:
+    text = html.unescape(clean_text(value)).strip()
+    if text == "":
+        return ""
+    upper = text.upper()
+    if "FUNDAMENTAL" in upper:
+        return "基频（Fundamental）"
+    if re.search(r"\b3(?:RD)?\b", upper) and "OVERTONE" in upper:
+        return "三次泛音（3rd Overtone）"
+    if "OVERTONE" in upper:
+        return text
+    return text
+
+
+def frequency_temperature_characteristic(product: dict[str, Any]) -> str:
+    raw = (
+        product.get("frequencyTolTempRange")
+        or product.get("frequencyTolOpTemp")
+    )
+    normalized = normalize_frequency_tolerance(raw)
+    return f"±{normalized}ppm" if normalized else ""
+
+
+def aging_text(product: dict[str, Any]) -> str:
+    return normalize_ppm_spec(product.get("frequencyAging") or product.get("25CAging"))
+
+
+def automotive_grade_text(product: dict[str, Any]) -> str:
+    grades = []
+    if clean_text(product.get("aecq100")).lower() == "yes":
+        grades.append("AEC-Q100")
+    if clean_text(product.get("aecq200")).lower() == "yes":
+        grades.append("AEC-Q200")
+    return "/".join(grades)
+
+
 def package_code(length: Any, width: Any) -> str:
     try:
         length_code = int(round(float(clean_text(length)) * 10))
@@ -247,6 +330,8 @@ def temperature_text(product: dict[str, Any]) -> str:
         or product.get("operatingTemp")
     )
     if direct:
+        direct = html.unescape(direct).replace("−", "-").replace("＋", "+")
+        direct = direct.replace("++", "+")
         direct = re.sub(r"\s+to\s+", "~", direct, flags=re.I).replace(" ", "")
         return direct if "°C" in direct else f"{direct}°C"
     low = decimal_text(product.get("operatingTempMin"))
@@ -313,6 +398,11 @@ def build_summary(
     tolerance: str,
     voltage: str,
 ) -> str:
+    temp_characteristic = frequency_temperature_characteristic(product)
+    aging = aging_text(product)
+    turnover = normalize_turnover_temperature(product.get("turnoverTemp"))
+    parabolic = normalize_parabolic_coefficient(product.get("parabolicCoef"))
+    overtone = normalize_overtone_order(product.get("overtoneOrder"))
     parts = [
         f"Epson官方PN {clean_text(product.get('pn'))}",
         clean_text(source_spec.get("category")),
@@ -325,6 +415,11 @@ def build_summary(
         if clean_text(product.get("loadCapPf") or product.get("loadCap"))
         else "",
         temperature_text(product),
+        f"温度特性{temp_characteristic}" if temp_characteristic else "",
+        f"25℃老化{aging}" if aging else "",
+        f"拐点温度{turnover}" if turnover else "",
+        f"抛物线系数{parabolic}" if parabolic else "",
+        overtone,
         clean_text(product.get("description")),
     ]
     return "；".join(part for part in parts if clean_text(part))
@@ -370,6 +465,12 @@ def build_product_row(
 
     series_desc = f"Epson {model} {clean_text(source_spec.get('category'))}系列"
     special_use = special_use_text(product, source_spec)
+    temp_characteristic = frequency_temperature_characteristic(product)
+    aging = aging_text(product)
+    turnover = normalize_turnover_temperature(product.get("turnoverTemp"))
+    parabolic = normalize_parabolic_coefficient(product.get("parabolicCoef"))
+    overtone = normalize_overtone_order(product.get("overtoneOrder"))
+    aec_grade = automotive_grade_text(product)
     return {
         "品牌": BRAND,
         "型号": pn,
@@ -411,6 +512,13 @@ def build_product_row(
         "负载电容（pF）": load_cap,
         "驱动电平": drive,
         "尺寸来源": "Epson官方参数选型JSON",
+        "型号粒度": "官方逐料号",
+        "频率温度特性（ppm）": temp_characteristic,
+        "25℃老化（ppm）": aging,
+        "拐点温度": turnover,
+        "抛物线系数（ppm/℃²）": parabolic,
+        "泛音阶次": overtone,
+        "AEC等级": aec_grade,
     }
 
 
@@ -485,20 +593,59 @@ def write_csv_atomically(frame: pd.DataFrame, output_path: Path) -> None:
         temp_path.unlink(missing_ok=True)
 
 
-def refresh_runtime_caches(frame: pd.DataFrame, source_path: Path) -> dict[str, int]:
+def prepare_runtime_cache_frame(
+    frame: pd.DataFrame,
+    source_path: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
     normalized = cm.normalize_imported_component_dataframe(frame, source_path=str(source_path))
     normalized = cm.deduplicate_component_rows(normalized)
-    prepared = cm.prepare_search_dataframe(normalized)
+    cache_frames = [normalized]
+    companion_rows = 0
+    if (
+        MULTIBRAND_TIMING_SOURCE is not None
+        and MULTIBRAND_TIMING_SOURCE.exists()
+        and MULTIBRAND_TIMING_SOURCE.resolve() != source_path.resolve()
+    ):
+        companion_frame = pd.read_csv(
+            MULTIBRAND_TIMING_SOURCE,
+            dtype=str,
+            keep_default_na=False,
+        )
+        companion_normalized = cm.normalize_imported_component_dataframe(
+            companion_frame,
+            source_path=str(MULTIBRAND_TIMING_SOURCE),
+        )
+        companion_normalized = cm.deduplicate_component_rows(companion_normalized)
+        companion_rows = int(len(companion_normalized))
+        cache_frames.append(companion_normalized)
+    combined = pd.concat(cache_frames, ignore_index=True, sort=False)
+    combined = cm.deduplicate_component_rows(combined)
+    prepared = cm.prepare_search_dataframe(combined)
+    return normalized, prepared, companion_rows
+
+
+def refresh_runtime_caches(frame: pd.DataFrame, source_path: Path) -> dict[str, int]:
+    normalized, prepared, companion_rows = prepare_runtime_cache_frame(
+        frame,
+        source_path,
+    )
     if prepared.empty:
         raise RuntimeError("Epson rows produced an empty prepared cache frame")
-    replaced = replace_prepared_cache_rows(prepared)
     counts = refresh_search_sidecar_rows(prepared)
+    try:
+        replaced = replace_prepared_cache_rows(prepared)
+    except PermissionError:
+        # A running Streamlit process can keep the parquet file open on Windows.
+        # The search sidecar is already refreshed and serves timing queries.
+        replaced = -1
     return {
         "source_rows": int(len(frame)),
         "normalized_rows": int(len(normalized)),
+        "companion_rows": companion_rows,
         "prepared_rows": int(len(prepared)),
         "prepared_rows_replaced": int(replaced),
         "search_core_rows": int(counts.get(cm.COMPONENTS_SEARCH_CORE_TABLE, 0)),
+        "search_value_rows": int(counts.get(cm.COMPONENTS_SEARCH_VALUE_TABLE, 0)),
     }
 
 
