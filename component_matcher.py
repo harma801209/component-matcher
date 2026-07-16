@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 91
+QUERY_RESULT_CACHE_VERSION = 92
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-03T09:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-16T18:10:00+08:00"
 
 
 def startup_trace(message):
@@ -16352,14 +16352,28 @@ def find_b_value_in_text(text):
     return normalize_b_value_text(match.group(1))
 
 
+def normalize_b_value_condition(value):
+    upper = clean_text(value).upper().replace("β", "B")
+    if upper == "":
+        return ""
+    match = re.search(r"(25|50)\s*(?:℃|°C)?\s*/\s*(50|85|100)\s*(?:℃|°C)?", upper, flags=re.I)
+    if match is None:
+        return clean_text(value)
+    return f"{match.group(1)}/{match.group(2)}℃"
+
+
 def find_b_value_condition_in_text(text):
     upper = clean_text(text).upper().replace("β", "B")
     if upper == "":
         return ""
-    match = re.search(r"(25/50|25/85|50/85|25℃/50℃|25℃/85℃)", upper, flags=re.I)
+    match = re.search(
+        r"((?:25|50)\s*(?:℃|°C)?\s*/\s*(?:50|85|100)\s*(?:℃|°C)?)",
+        upper,
+        flags=re.I,
+    )
     if not match:
         return ""
-    return clean_text(match.group(1)).replace("℃", "℃")
+    return normalize_b_value_condition(match.group(1))
 
 
 def find_circuit_count_in_text(text):
@@ -17773,11 +17787,19 @@ def parse_thermistor_spec_query(line):
     size = find_embedded_size(raw)
     tol = find_tolerance_in_text(raw)
     resistance_ohm = find_resistance_in_text(raw)
+    resistance_value, resistance_unit = ohm_to_library_value_unit(resistance_ohm)
+    b_value = find_b_value_in_text(raw)
+    b_condition = find_b_value_condition_in_text(raw)
+    b_tolerance = thermistor_b_tolerance_from_record({"规格摘要": raw})
+    power = find_power_in_text(raw)
 
     param_count = sum([
         1 if size else 0,
         1 if resistance_ohm is not None else 0,
         1 if tol else 0,
+        1 if b_value else 0,
+        1 if b_tolerance else 0,
+        1 if power else 0,
     ])
     if param_count == 0:
         return None
@@ -17785,6 +17807,9 @@ def parse_thermistor_spec_query(line):
     summary = build_other_component_summary([
         format_resistance_display(resistance_ohm) if resistance_ohm is not None else "",
         clean_tol_for_display(tol) if tol else "",
+        f"B{b_condition}={b_value}" if b_value and b_condition else (f"B={b_value}" if b_value else ""),
+        clean_tol_for_display(b_tolerance) if b_tolerance else "",
+        format_power_display(power),
         size,
     ])
     return {
@@ -17794,10 +17819,18 @@ def parse_thermistor_spec_query(line):
         "材质（介质）": "",
         "容值_pf": None,
         "容值误差": tol,
+        "阻值@25C": resistance_value,
+        "阻值单位": resistance_unit,
+        "阻值误差": tol,
+        "B值": b_value,
+        "B值误差": b_tolerance,
+        "B值条件": b_condition,
+        "功率": format_power_display(power),
         "耐压（V）": "",
         "器件类型": "热敏电阻",
         "规格摘要": summary,
         "_resistance_ohm": resistance_ohm,
+        "_power": power,
         "_core_param_count": param_count,
         "_param_count": param_count,
     }
@@ -18477,6 +18510,7 @@ def get_component_display_schema(spec_or_type):
             ("B值", "B值"),
             ("B值误差", "B值误差"),
             ("B值条件", "B值条件"),
+            ("功率", "最大功率"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
             ("生产状态", "生产状态"),
@@ -18933,7 +18967,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "阻值误差": clean_tol_for_display(spec.get("阻值误差", "")),
         "B值": normalize_b_value_text(spec.get("B值", "")),
         "B值误差": clean_tol_for_display(thermistor_b_tolerance_from_record(spec)),
-        "B值条件": clean_text(spec.get("B值条件", "")),
+        "B值条件": normalize_b_value_condition(spec.get("B值条件", "")),
         "共模阻抗": clean_text(spec.get("共模阻抗", "")),
         "阻抗单位": normalize_library_value_unit(spec.get("阻抗单位", "")),
         "额定电流": format_current_display(spec.get("额定电流", "")),
@@ -20974,6 +21008,58 @@ def thermistor_b_tolerance_from_record(record):
         if model.startswith(prefix):
             return tolerance
     return ""
+
+
+def find_thermistor_max_power_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    normalized = raw.replace("毫瓦", "mW").replace("瓦", "W")
+    match = re.search(
+        r"(?:MAX(?:IMUM)?\s*(?:RATED\s*)?POWER|POWER\s*MAX|最大(?:耗散)?功率|额定功率)"
+        r"\s*[:=：]?\s*(\d+(?:\.\d+)?)\s*(mW|W)\b",
+        normalized,
+        flags=re.I,
+    )
+    if match is None:
+        return ""
+    return format_power_display(f"{match.group(1)}{match.group(2)}")
+
+
+JOYIN_NTC_MAX_POWER_BY_SIZE = {
+    "0201": "100mW",
+    "0402": "170mW",
+    "0603": "210mW",
+}
+
+
+def joyin_ntc_max_power_from_model(model):
+    match = JOYIN_NTC_MODEL_DETAIL_PATTERN.fullmatch(clean_model(model))
+    if match is None:
+        return ""
+    size_inch = JOYIN_NTC_SIZE_PROFILES.get(match.group("size").upper(), ("", "", "", "", ""))[0]
+    return JOYIN_NTC_MAX_POWER_BY_SIZE.get(size_inch, "")
+
+
+def thermistor_max_power_text_from_record(record):
+    if not hasattr(record, "get"):
+        return ""
+    for key in ("最大功率", "额定功率"):
+        power_text = format_power_display(record.get(key, ""))
+        if parse_power_to_watts(power_text) is not None:
+            return power_text
+    context = " ".join(
+        clean_text(record.get(col, ""))
+        for col in ("规格摘要", "备注1", "备注2", "备注3")
+    )
+    context_power = find_thermistor_max_power_in_text(context)
+    if context_power != "":
+        return context_power
+    if clean_text(record.get("_power_source", "")) == "thermistor_max_power":
+        power_text = format_power_display(record.get("功率", "") or record.get("_power", ""))
+        if parse_power_to_watts(power_text) is not None:
+            return power_text
+    return joyin_ntc_max_power_from_model(record.get("型号", ""))
 
 
 def joyin_ntc_target_class_from_spec(spec):
@@ -24770,8 +24856,8 @@ LIBRARY_COMMON_COLUMNS = [
     "长度（mm）", "宽度（mm）", "高度（mm）",
     "官网链接", "数据来源", "数据状态", "校验时间", "校验备注",
     "直径（mm）", "脚距（mm）", "极性", "ESR", "纹波电流",
-    "寿命（h）", "工作温度",
-    "阻值@25C", "阻值单位", "阻值误差", "B值", "B值条件",
+    "寿命（h）", "工作温度", "功率",
+    "阻值@25C", "阻值单位", "阻值误差", "B值", "B值误差", "B值条件",
     "压敏电压", "钳位电压",
     "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
     "电感值", "电感单位", "电感误差", "饱和电流", "屏蔽类型", "阻抗@100MHz",
@@ -27525,6 +27611,28 @@ def prepare_search_dataframe(df):
             if len(context_power) > 0:
                 work.loc[context_power.index, "_power"] = context_power
                 context_power_idx = context_power.index
+    thermistor_power_idx = pd.Index([])
+    thermistor_mask = work["_component_type"].astype(str).apply(normalize_component_type).eq("热敏电阻")
+    if thermistor_mask.any():
+        if "B值误差" not in work.columns:
+            work["B值误差"] = ""
+        thermistor_b_tolerance = work.loc[thermistor_mask].apply(
+            thermistor_b_tolerance_from_record,
+            axis=1,
+        ).astype(str).apply(clean_tol_for_match)
+        work.loc[thermistor_b_tolerance.index, "B值误差"] = thermistor_b_tolerance
+        if "B值条件" in work.columns:
+            work.loc[thermistor_mask, "B值条件"] = work.loc[thermistor_mask, "B值条件"].apply(
+                normalize_b_value_condition
+            )
+        thermistor_power = work.loc[thermistor_mask].apply(
+            thermistor_max_power_text_from_record,
+            axis=1,
+        ).astype(str).apply(clean_text)
+        thermistor_power = thermistor_power[thermistor_power.ne("")]
+        if len(thermistor_power) > 0:
+            work.loc[thermistor_power.index, "_power"] = thermistor_power
+            thermistor_power_idx = thermistor_power.index
     if "_power_watt" not in work.columns:
         work["_power_watt"] = work["_power"].apply(parse_power_to_watts) if "_power" in work.columns else pd.Series([None] * len(work), index=work.index, dtype="object")
     else:
@@ -27532,12 +27640,16 @@ def prepare_search_dataframe(df):
         refill_power_watt_mask = work["_power"].astype("string").fillna("").str.strip().ne("") & work["_power_watt"].isna()
         if refill_power_watt_mask.any():
             work.loc[refill_power_watt_mask, "_power_watt"] = work.loc[refill_power_watt_mask, "_power"].apply(parse_power_to_watts)
+    if len(thermistor_power_idx) > 0:
+        work.loc[thermistor_power_idx, "_power_watt"] = work.loc[thermistor_power_idx, "_power"].apply(parse_power_to_watts)
     if "_power_source" not in work.columns:
         work["_power_source"] = pd.Series([""] * len(work), index=work.index, dtype="object")
     else:
         work["_power_source"] = work["_power_source"].astype("string").fillna("").astype("object")
     if len(context_power_idx) > 0:
         work.loc[context_power_idx, "_power_source"] = "context"
+    if len(thermistor_power_idx) > 0:
+        work.loc[thermistor_power_idx, "_power_source"] = "thermistor_max_power"
     explicit_power_mask = work["_power"].astype("string").fillna("").str.strip().ne("")
     if explicit_power_mask.any():
         blank_power_source_mask = work["_power_source"].astype("string").fillna("").str.strip().eq("")
@@ -27859,7 +27971,7 @@ RESISTOR_POWER_BY_BRAND_MODEL_PATTERN = {
     ],
 }
 
-TRUSTED_RESISTOR_POWER_SOURCES = {"text", "numeric", "context"}
+TRUSTED_RESISTOR_POWER_SOURCES = {"text", "numeric", "context", "thermistor_max_power"}
 
 
 def infer_series_specific_resistor_power_text_and_source(record):
@@ -27978,8 +28090,13 @@ def infer_display_fallback_fields_from_record(record):
     size_code = clean_size(record.get("尺寸（inch）", "")) or infer_resistor_size_from_model(record.get("型号", ""))
     result = {}
 
-    power_text = infer_resistor_power_text_from_record(record) if component_type in RESISTOR_COMPONENT_TYPES else clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
-    if power_text == "":
+    if component_type == "热敏电阻":
+        power_text = thermistor_max_power_text_from_record(record)
+    elif component_type in RESISTOR_COMPONENT_TYPES:
+        power_text = infer_resistor_power_text_from_record(record)
+    else:
+        power_text = clean_text(record.get("功率", "")) or clean_text(record.get("_power", ""))
+    if power_text == "" and component_type != "热敏电阻":
         power_text = find_power_in_text(row_text)
     if power_text != "":
         result["功率"] = format_power_display(power_text)
@@ -28079,7 +28196,8 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "安装方式": normalize_mounting_style(detail_row.get("_mount_style", "")),
         "特殊用途": normalize_special_use(detail_row.get("_special_use_norm", "")),
         "B值": normalize_b_value_text(detail_row.get("B值", "")),
-        "B值条件": clean_text(detail_row.get("B值条件", "")),
+        "B值误差": clean_tol_for_match(detail_row.get("B值误差", "")),
+        "B值条件": normalize_b_value_condition(detail_row.get("B值条件", "")),
         "_mlcc_series_class": clean_text(detail_row.get("_mlcc_series_class", core_row.get("_mlcc_series_class", ""))),
         "脚距": clean_text(detail_row.get("_pitch", "")),
         "安规": clean_text(detail_row.get("_safety_class", "")),
@@ -28122,6 +28240,13 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         elif component_type in INDUCTOR_COMPONENT_TYPES:
             record["电感值"] = value_text
             record["电感单位"] = unit_text
+
+    power_watt = pd.to_numeric(pd.Series([detail_row.get("_power_watt", None)]), errors="coerce").iloc[0]
+    if pd.notna(power_watt) and component_type != "热敏电阻":
+        power_text = format_power_display(f"{float(power_watt)}W")
+        record["功率"] = power_text
+        record["_power"] = power_text
+        record["_power_watt"] = float(power_watt)
 
     if include_model_rule:
         parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
@@ -29412,7 +29537,7 @@ def fetch_search_candidate_pairs(spec):
             params.append(tol)
         power = clean_text(spec.get("_power", ""))
         power_watt = parse_power_to_watts(power) if power != "" else None
-        if power_watt is not None:
+        if power_watt is not None and target_type in RESISTOR_COMPONENT_TYPES:
             required_search_columns.add("_power_watt")
             # Resistor power is a BOM-selected rating, not a default
             # high-replaces-low field. Keep only exact wattage matches.
@@ -29979,7 +30104,7 @@ def match_other_passive_spec(df, spec):
             same_tol = tolerance_equal_series(work, spec_tol)
             if same_tol.any():
                 work = work[same_tol]
-        if spec_power_watt is not None and "_power_watt" in work.columns:
+        if component_type in RESISTOR_COMPONENT_TYPES and spec_power_watt is not None and "_power_watt" in work.columns:
             power_values = pd.to_numeric(work["_power_watt"], errors="coerce")
             same_power = power_values.notna() & ((power_values - spec_power_watt).abs() < 1e-9)
             work = work[same_power]
@@ -30359,7 +30484,7 @@ def reverse_spec(df, model, cache_signature=None):
             "阻值误差": clean_tol_for_match(row.get("阻值误差", "")),
             "B值": normalize_b_value_text(row.get("B值", "")),
             "B值误差": thermistor_b_tolerance_from_record(row),
-            "B值条件": clean_text(row.get("B值条件", "")),
+            "B值条件": normalize_b_value_condition(row.get("B值条件", "")),
             "共模阻抗": clean_text(row.get("共模阻抗", "")),
             "阻抗单位": normalize_library_value_unit(row.get("阻抗单位", "")),
             "回路数": clean_text(row.get("回路数", "")),
@@ -30374,7 +30499,13 @@ def reverse_spec(df, model, cache_signature=None):
             "尺寸（mm）": clean_text(row.get("尺寸（mm）", "")),
             "规格摘要": clean_text(row.get("规格摘要", "")),
             "_resistance_ohm": resistance_ohm,
-            "_power": find_power_in_text(row_text) if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES) else "",
+            "_power": (
+                thermistor_max_power_text_from_record(row)
+                if component_type == "热敏电阻"
+                else find_power_in_text(row_text)
+                if component_type in (RESISTOR_COMPONENT_TYPES | VARISTOR_COMPONENT_TYPES)
+                else ""
+            ),
             "_body_size": extract_body_size_from_text(row_text) if component_type in {"铝电解电容", "薄膜电容", "引线型陶瓷电容"} else clean_text(row.get("尺寸（mm）", "")),
             "_pitch": extract_pitch_from_text(row_text) if component_type in ({"铝电解电容", "薄膜电容", "引线型陶瓷电容"} | VARISTOR_COMPONENT_TYPES) else "",
             "_safety_class": find_safety_class(row_text) if component_type == "薄膜电容" else "",
@@ -31959,6 +32090,9 @@ def classify_match_level(row, spec):
 
     if target_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
         is_thermistor = target_type == "热敏电阻"
+        if is_thermistor:
+            row_tol_raw = clean_tol_for_match(row.get("阻值误差", "")) or row_tol_raw
+            spec_tol = clean_tol_for_match(spec.get("阻值误差", "")) or spec_tol
         row_res = row.get("_res_ohm", None)
         try:
             row_res_value = float(row_res) if row_res is not None and not pd.isna(row_res) else None
@@ -31969,16 +32103,28 @@ def classify_match_level(row, spec):
             spec_res_value = float(spec_res) if spec_res is not None else None
         except Exception:
             spec_res_value = None
-        row_power_watt = parse_power_to_watts(infer_resistor_power_text_from_record(row))
+        row_power_text = (
+            thermistor_max_power_text_from_record(row)
+            if is_thermistor
+            else infer_resistor_power_text_from_record(row)
+        )
+        row_power_watt = parse_power_to_watts(row_power_text)
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
         power_matches = (
             spec_power_watt is None or
-            (row_power_watt is not None and abs(row_power_watt - spec_power_watt) <= 1e-9)
+            (
+                row_power_watt is not None
+                and (
+                    row_power_watt >= spec_power_watt - 1e-9
+                    if is_thermistor
+                    else abs(row_power_watt - spec_power_watt) <= 1e-9
+                )
+            )
         )
         row_b_value = normalize_b_value_text(row.get("B值", ""))
         spec_b_value = normalize_b_value_text(spec.get("B值", ""))
-        row_b_condition = clean_text(row.get("B值条件", ""))
-        spec_b_condition = clean_text(spec.get("B值条件", ""))
+        row_b_condition = normalize_b_value_condition(row.get("B值条件", ""))
+        spec_b_condition = normalize_b_value_condition(spec.get("B值条件", ""))
         row_b_tolerance = thermistor_b_tolerance_from_record(row)
         spec_b_tolerance = thermistor_b_tolerance_from_record(spec)
         b_value_matches = (not is_thermistor or spec_b_value == "" or row_b_value == spec_b_value)
@@ -31995,7 +32141,15 @@ def classify_match_level(row, spec):
             spec_size != "" and
             spec_res_value is not None and
             spec_tol != "" and
-            (is_thermistor or spec_power_watt is not None)
+            (
+                (
+                    spec_b_value != ""
+                    and spec_b_condition != ""
+                    and spec_b_tolerance != ""
+                )
+                if is_thermistor
+                else spec_power_watt is not None
+            )
         )
 
         same_core = True
@@ -32029,7 +32183,13 @@ def classify_match_level(row, spec):
         if query_complete and same_core:
             tol_ok = tolerance_allows(row_tol_raw, spec_tol)
             strictly_better = tolerance_strictly_better(row_tol_raw, spec_tol)
-            if tol_ok and power_matches and strictly_better:
+            power_strictly_better = (
+                is_thermistor
+                and spec_power_watt is not None
+                and row_power_watt is not None
+                and row_power_watt > spec_power_watt + 1e-9
+            )
+            if tol_ok and power_matches and b_matches and thermistor_series_matches and (strictly_better or power_strictly_better):
                 return "高代低", 3
 
         return "需确认替代", 4
@@ -32328,6 +32488,7 @@ def collect_recommendation_conflicts(row, spec):
         return conflicts
 
     if target_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
+        is_thermistor = target_type == "热敏电阻"
         spec_res = safe_numeric_value(spec.get("_resistance_ohm", None))
         row_res = get_row_resistance_ohm(row)
         if spec_res is not None and row_res is not None and abs(spec_res - row_res) > 1e-6:
@@ -32335,18 +32496,47 @@ def collect_recommendation_conflicts(row, spec):
                 f"阻值不一致：需求{format_resistance_for_summary(spec_res)}，候选{format_resistance_for_summary(row_res)}"
             )
 
-        spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
-        row_tol = clean_tol_for_match(row.get("容值误差", ""))
+        spec_tol = clean_tol_for_match(spec.get("阻值误差", "")) or clean_tol_for_match(spec.get("容值误差", ""))
+        row_tol = clean_tol_for_match(row.get("阻值误差", "")) or clean_tol_for_match(row.get("容值误差", ""))
         if spec_tol != "" and row_tol != "" and not tolerance_allows(row_tol, spec_tol):
             conflicts.append(f"精度不足：需求±{spec_tol}%，候选±{row_tol}%")
 
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
-        row_power_text = infer_resistor_power_text_from_record(row)
+        row_power_text = (
+            thermistor_max_power_text_from_record(row)
+            if is_thermistor
+            else infer_resistor_power_text_from_record(row)
+        )
         row_power_watt = parse_power_to_watts(row_power_text)
-        if spec_power_watt is not None and row_power_watt is not None and abs(row_power_watt - spec_power_watt) > 1e-9:
-            conflicts.append(
-                f"功率不一致：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
-            )
+        if spec_power_watt is not None and row_power_watt is not None:
+            if is_thermistor and row_power_watt < spec_power_watt - 1e-9:
+                conflicts.append(
+                    f"最大功率不足：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
+                )
+            elif not is_thermistor and abs(row_power_watt - spec_power_watt) > 1e-9:
+                conflicts.append(
+                    f"功率不一致：需求{format_power_display(spec.get('_power', ''))}，候选{format_power_display(row_power_text)}"
+                )
+
+        if is_thermistor:
+            spec_b_value = normalize_b_value_text(spec.get("B值", ""))
+            row_b_value = normalize_b_value_text(row.get("B值", ""))
+            if spec_b_value != "" and row_b_value != "" and row_b_value != spec_b_value:
+                conflicts.append(f"B值不一致：需求{spec_b_value}，候选{row_b_value}")
+
+            spec_b_condition = normalize_b_value_condition(spec.get("B值条件", ""))
+            row_b_condition = normalize_b_value_condition(row.get("B值条件", ""))
+            if spec_b_condition != "" and row_b_condition != "" and row_b_condition != spec_b_condition:
+                conflicts.append(f"B值条件不一致：需求{spec_b_condition}，候选{row_b_condition}")
+
+            spec_b_tolerance = thermistor_b_tolerance_from_record(spec)
+            row_b_tolerance = thermistor_b_tolerance_from_record(row)
+            if (
+                spec_b_tolerance != ""
+                and row_b_tolerance != ""
+                and not tolerance_equal(row_b_tolerance, spec_b_tolerance)
+            ):
+                conflicts.append(f"B值误差不一致：需求±{spec_b_tolerance}%，候选±{row_b_tolerance}%")
         return conflicts
 
     spec_pf = spec.get("容值_pf", None)
@@ -32408,6 +32598,21 @@ def collect_recommendation_warnings(row, spec):
             row_power_text = infer_resistor_power_text_from_record(row)
             if parse_power_to_watts(row_power_text) is None:
                 warnings_list.append("候选缺少功率数据，需查规格书确认")
+
+    if target_type == "热敏电阻":
+        missing_query_fields = []
+        if normalize_b_value_text(spec.get("B值", "")) == "":
+            missing_query_fields.append("B值")
+        if normalize_b_value_condition(spec.get("B值条件", "")) == "":
+            missing_query_fields.append("B值条件")
+        if thermistor_b_tolerance_from_record(spec) == "":
+            missing_query_fields.append("B值误差")
+        if missing_query_fields:
+            warnings_list.append(f"输入缺少{'、'.join(missing_query_fields)}，不能判定完全匹配")
+        if parse_power_to_watts(spec.get("_power", "")) is not None:
+            row_power_text = thermistor_max_power_text_from_record(row)
+            if parse_power_to_watts(row_power_text) is None:
+                warnings_list.append("候选缺少最大功率数据，需查规格书确认")
 
     if target_type in SEMICONDUCTOR_COMPONENT_TYPES:
         if bool(spec.get("_partial_part", False)):
@@ -32638,14 +32843,14 @@ def apply_match_levels_and_sort(df, spec):
         work["_automotive_rank"] = 0
     if target_type == "热敏电阻":
         spec_b_value = normalize_b_value_text(spec.get("B值", ""))
-        spec_b_condition = clean_text(spec.get("B值条件", ""))
+        spec_b_condition = normalize_b_value_condition(spec.get("B值条件", ""))
         spec_b_tolerance = thermistor_b_tolerance_from_record(spec)
 
         def thermistor_b_rank(row):
             rank = 0
             if spec_b_value != "" and normalize_b_value_text(row.get("B值", "")) != spec_b_value:
                 rank += 1
-            if spec_b_condition != "" and clean_text(row.get("B值条件", "")) != spec_b_condition:
+            if spec_b_condition != "" and normalize_b_value_condition(row.get("B值条件", "")) != spec_b_condition:
                 rank += 1
             if spec_b_tolerance != "":
                 row_b_tolerance = thermistor_b_tolerance_from_record(row)

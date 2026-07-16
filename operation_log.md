@@ -3522,3 +3522,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Active single-item costs are loaded before the current whole list for the same brand/model. Uploading or switching a whole list does not remove them; disabling a single-item record restores the whole-list price.
 - Reworked the backend cost page into `单笔成本` and `整份清单` tabs. The single-item tab supports create, record selection, field preload, update, disable, re-enable, status count, and history display. The original upload, activation, preview, and list-history workflow remains in the second tab.
 - Focused regressions pass for search enrichment, MOQ source, full BOM matching/export, and remote snapshot restoration. An isolated Playwright session confirmed the rendered form, successful create message, record selector, edit preload, disable button, and whole-list tab. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T16:24:17+08:00`.
+
+### 2026-07-16 [NTC matching] Require B parameters and verify maximum power
+
+- Reproduced `Thermistor NTC 10K OHM 240mW 1% 0402 SMD`: the parser recognized size/R25/tolerance but omitted power, while matching treated blank B parameters as complete and generic note parsing read `delta=1.7mW/C` as rated power.
+- Added NTC query parsing for power, B value, B condition, and B tolerance. `完全匹配` now requires all B fields; specified maximum power must be met. Labeled `Max Power` notes are authoritative, with a Joyin 0201/0402/0603 model-size fallback that avoids a public search-index rebuild.
+- The reported Joyin 0402 candidates now show `170mW`, are graded `需确认替代`, and return a `240mW` versus `170mW` power conflict. Complete B25/50 3370K testing keeps only the F-code model exact.
+- Bumped `QUERY_RESULT_CACHE_VERSION` to `92` and `PUBLIC_CODE_STAMP` to `2026-07-16T18:10:00+08:00`. The 23-test release safety gate passed using isolated databases; member, cost-list, and no-match runtime fingerprints were unchanged.
