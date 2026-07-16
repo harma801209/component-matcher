@@ -1170,6 +1170,106 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(entry["moq"], "5000")
         self.assertEqual(entry["lead_time"], "4W")
 
+    def test_05b_manual_cost_overrides_lists_and_can_be_disabled(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        original_timestamp = app["current_timestamp_text"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "manual-cost-test.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            app["current_timestamp_text"] = lambda: "2026-07-16 09:00:00"
+            ok, message, manual_id = app["save_manual_cost_price_item"](
+                brand="富捷",
+                model="FRC0603F1002TS",
+                cost="1.25",
+                moq="6000PCS",
+                lead_time="2W",
+                spec_text="0603 10K 1% 1/10W",
+                note="原厂单独询价",
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(app["count_manual_cost_price_items"](True), 1)
+            manual_only = app["lookup_active_cost_price_for_row"](
+                {"品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS"}
+            )
+            self.assertEqual(manual_only["cost"], "1.25")
+            self.assertEqual(manual_only["cost_source"], "单笔成本")
+
+            list_frame = pd.DataFrame(
+                [
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": "FRC0603F1002TS",
+                        "规格参数": "0603 10K 1% 1/10W",
+                        "成本": "2.00",
+                        "MOQ": "5000PCS",
+                        "L&T": "5W",
+                    }
+                ]
+            )
+            app["current_timestamp_text"] = lambda: "2026-07-16 10:00:00"
+            ok, message, list_id = app["import_cost_price_list_from_upload"](
+                UploadedBytes("manual-fallback.xlsx", dataframe_to_xlsx_bytes(list_frame)),
+                "regression",
+            )
+            self.assertTrue(ok, message)
+            self.assertIsNotNone(list_id)
+            still_manual = app["lookup_active_cost_price_for_row"](
+                {"品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS"}
+            )
+            self.assertEqual(still_manual["cost"], "1.25")
+
+            app["current_timestamp_text"] = lambda: "2026-07-16 11:00:00"
+            ok, message, updated_id = app["save_manual_cost_price_item"](
+                brand="FOJAN",
+                model="FRC0603F1002TS",
+                cost="1.30",
+                moq="7000PCS",
+                lead_time="3W",
+                spec_text="0603 10K 1% 1/10W",
+                note="第二次询价",
+                updated_by="regression",
+                item_id=manual_id,
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(updated_id, manual_id)
+            self.assertEqual(len(app["list_manual_cost_price_items"](None, 10)), 1)
+            enriched = app["enrich_component_cost_columns"](
+                pd.DataFrame([{"品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS"}])
+            ).iloc[0]
+            self.assertEqual(enriched["成本"], "1.30")
+            self.assertEqual(enriched["MOQ"], "7000PCS")
+            self.assertEqual(enriched["MOQ来源"], "单笔成本")
+
+            ok, message = app["set_manual_cost_price_item_active"](
+                manual_id,
+                False,
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
+            fallback = app["lookup_active_cost_price_for_row"](
+                {"品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS"}
+            )
+            self.assertEqual(app["normalize_cost_value_for_compare"](fallback["cost"]), "2")
+            self.assertEqual(fallback["cost_source"], "当前启用成本清单")
+
+            ok, message = app["set_manual_cost_price_item_active"](
+                manual_id,
+                True,
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
+            restored_manual = app["lookup_active_cost_price_for_row"](
+                {"品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS"}
+            )
+            self.assertEqual(restored_manual["cost"], "1.30")
+            self.assertEqual(restored_manual["cost_updated_at"], "2026-07-16 11:00:00")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["current_timestamp_text"] = original_timestamp
+            app["clear_cost_price_lookup_cache"]()
+
     def test_06_bom_full_read_export_and_display_columns(self):
         app = self.app
         bom = pd.DataFrame(
@@ -1383,6 +1483,28 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(result.iloc[0]["自有成本"], "0.123")
             self.assertEqual(result.iloc[0]["自有MOQ"], "10000PCS")
             self.assertEqual(result.iloc[0]["自有L&T"], "6W")
+            ok, message, _ = app["save_manual_cost_price_item"](
+                brand="村田",
+                model="GRM155R71C224KA12D",
+                cost="0.111",
+                moq="12000PCS",
+                lead_time="2W",
+                note="原厂单独报价",
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
+            result = app["bom_dataframe_from_upload"](
+                None,
+                pd.DataFrame([{"型号": "GRM155R71C224KA12D"}]),
+                {"model": "型号", "spec": None, "name": None, "quantity": None},
+                export_settings={
+                    "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                    "brands": ["村田Murata"],
+                },
+            )
+            self.assertEqual(result.iloc[0]["自有成本"], "0.111")
+            self.assertEqual(result.iloc[0]["自有MOQ"], "12000PCS")
+            self.assertEqual(result.iloc[0]["自有L&T"], "2W")
             source_df = pd.DataFrame([{"型号": "GRM155R71C224KA12D"}])
             source_upload = UploadedBytes("selected-brand.xlsx", dataframe_to_xlsx_bytes(source_df))
             source_workbook = app["read_uploaded_bom_workbook"](source_upload)
@@ -1408,7 +1530,7 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(values["匹配状态"], "可推荐")
             self.assertEqual(values["匹配品牌"], "村田Murata")
             self.assertEqual(values["匹配型号"], "GRM155R71C224KA12D")
-            self.assertEqual(str(values["匹配成本"]), "0.123")
+            self.assertEqual(str(values["匹配成本"]), "0.111")
             exported_workbook.close()
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
@@ -2085,6 +2207,16 @@ class SystemRegressionTests(unittest.TestCase):
                 "regression",
             )
             self.assertTrue(ok, message)
+            ok, message, manual_id = app["save_manual_cost_price_item"](
+                brand="FOJAN(富捷)",
+                model="FRC0603F1002TS",
+                cost="1.23",
+                moq="6000PCS",
+                lead_time="2W",
+                note="runtime snapshot regression",
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
             self.assertEqual(snapshots["cost-price"]["version"], 0)
             os.environ["RUNTIME_STORE_REMOTE_API_URL"] = f"http://127.0.0.1:{server.server_port}/api/runtime-store/snapshot"
             os.environ["RUNTIME_STORE_REMOTE_API_SECRET"] = api_secret
@@ -2097,6 +2229,9 @@ class SystemRegressionTests(unittest.TestCase):
             restored_cost = app["get_active_cost_price_list"]()
             self.assertIsNotNone(restored_cost)
             self.assertEqual(restored_cost["row_count"], 5)
+            restored_manual = app["list_manual_cost_price_items"](active_only=True, limit=10)
+            self.assertEqual([row["id"] for row in restored_manual], [manual_id])
+            self.assertEqual(restored_manual[0]["cost"], "1.23")
 
             ok, message, report_id = app["submit_no_match_report"]("REMOTE-UNMATCHED-PART", reason="regression")
             self.assertTrue(ok, message)

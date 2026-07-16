@@ -3515,3 +3515,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Replaced iframe-relative table caps with fixed 440px normal-result and 560px BOM-result caps. Normal search tables expose about eight rows before scrolling, while exact-part cards use a lower bounded initial height.
 - The iframe now reports the actual bottom edge of rendered body content to Streamlit after table sizing, load, resize, and details toggles.
 - Focused regression and Python compilation pass. A headless Chromium layout check measured a 460px content card in a 900px viewport, confirming the host can remove the remaining 440px blank allocation. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:38:33+08:00`; no database is modified.
+
+### 2026-07-16 [cost maintenance] Add exact-model single-item costs
+
+- Added an additive `cost_price_manual_items` table inside the existing protected cost database. It stores canonical brand/model, cost, MOQ, L&T, specification, quote note, operator, quote-update time, status, and audit timestamps without changing or deleting whole-list records.
+- Active single-item costs are loaded before the current whole list for the same brand/model. Uploading or switching a whole list does not remove them; disabling a single-item record restores the whole-list price.
+- Reworked the backend cost page into `单笔成本` and `整份清单` tabs. The single-item tab supports create, record selection, field preload, update, disable, re-enable, status count, and history display. The original upload, activation, preview, and list-history workflow remains in the second tab.
+- Focused regressions pass for search enrichment, MOQ source, full BOM matching/export, and remote snapshot restoration. An isolated Playwright session confirmed the rendered form, successful create message, record selector, edit preload, disable button, and whole-list tab. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T16:24:17+08:00`.

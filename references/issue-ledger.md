@@ -766,3 +766,10 @@
 - Root cause: The table height cap used `52vh` inside a Streamlit iframe, where viewport units refer to the iframe itself. The iframe then reported `documentElement.scrollHeight`, which is never smaller than its current viewport, so an oversized initial iframe could not shrink to the actual result-card height.
 - Fix: Use fixed content caps for normal and BOM result tables, show about eight normal result rows before internal scrolling, and report the bottom edge of actual body content to Streamlit instead of the iframe viewport height. Exact-part match cards use the same bounded-height behavior.
 - Verification: The focused regression confirms no `52vh` or viewport `scrollHeight` sizing remains. A headless browser check with 20 rows measured a 440px scrollable table and a 460px result card inside a 900px viewport, allowing the host iframe to collapse to the real content boundary.
+
+## 2026-07-16 - Cost maintenance supported only whole-list replacement
+
+- Gap: A manufacturer could quote one model separately, but the backend accepted only complete Excel/CSV cost lists. Adding one quote required rebuilding and re-uploading the whole list, and switching lists could discard an ad hoc change.
+- Design: Add an independent exact-model cost layer keyed by canonical brand and model. Active single-item records take priority over the current whole list, remain available when the whole list changes, and fall back to the current list when disabled.
+- Fix: Added additive `cost_price_manual_items` storage with create/update/disable history, operator and quote notes; added a `单笔成本` admin tab; included single-item records in remote cost snapshots, search enrichment, BOM matching, and Excel export. Records are disabled rather than physically deleted.
+- Verification: Isolated database tests cover use without a whole list, override priority, list replacement, disable fallback, re-enable, BOM export, and remote snapshot restoration. A browser workflow confirmed create, edit preload, disable control, and the unchanged whole-list upload tab.

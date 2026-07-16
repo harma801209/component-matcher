@@ -3907,15 +3907,45 @@ def init_cost_price_db():
                 FOREIGN KEY(list_id) REFERENCES cost_price_lists(id)
             );
 
+            CREATE TABLE IF NOT EXISTS cost_price_manual_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brand TEXT NOT NULL DEFAULT '',
+                brand_key TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                model_clean TEXT NOT NULL DEFAULT '',
+                spec_text TEXT NOT NULL DEFAULT '',
+                cost TEXT NOT NULL DEFAULT '',
+                moq TEXT NOT NULL DEFAULT '',
+                lead_time TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                active INTEGER NOT NULL DEFAULT 1,
+                cost_updated_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
+                updated_by TEXT NOT NULL DEFAULT ''
+            );
+
             CREATE INDEX IF NOT EXISTS idx_cost_price_lists_active
             ON cost_price_lists(active, uploaded_at);
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_items_model
             ON cost_price_items(model_clean, list_id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_price_manual_brand_model
+            ON cost_price_manual_items(brand_key, model_clean);
+
+            CREATE INDEX IF NOT EXISTS idx_cost_price_manual_active_updated
+            ON cost_price_manual_items(active, updated_at, id);
             """
         )
         try:
             conn.execute("ALTER TABLE cost_price_items ADD COLUMN cost_updated_at TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        try:
+            conn.execute("ALTER TABLE cost_price_manual_items ADD COLUMN cost_updated_at TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -3970,6 +4000,27 @@ def normalize_cost_price_spec_key(value):
     if text == "":
         return ""
     return re.sub(r"[\s\u3000;；,，/\\|_\-]+", "", text)
+
+
+def canonical_cost_price_brand_label(value):
+    brand = clean_brand(value)
+    if brand == "":
+        return ""
+    brand_upper = brand.upper()
+    for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
+        canonical_upper = clean_text(canonical).upper()
+        if brand_upper == canonical_upper:
+            return canonical
+        for alias in aliases:
+            alias_upper = clean_text(alias).upper()
+            if alias_upper and (alias_upper in brand_upper or brand_upper in alias_upper):
+                return canonical
+    return brand
+
+
+def normalize_cost_price_brand_key(value):
+    brand = canonical_cost_price_brand_label(value).upper()
+    return re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", brand)
 
 
 def cost_price_item_change_key(item):
@@ -4143,6 +4194,234 @@ def cost_price_items_preview_dataframe(items):
             for row in items
         ]
     )
+
+
+def list_manual_cost_price_items(active_only=None, limit=500):
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    params = []
+    where_sql = ""
+    if active_only is not None:
+        where_sql = "WHERE active=?"
+        params.append(1 if bool(active_only) else 0)
+    params.append(max(1, int(limit or 500)))
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT
+                id, brand, model, model_clean, spec_text, cost, moq, lead_time,
+                note, active, cost_updated_at, created_at, created_by, updated_at, updated_by
+            FROM cost_price_manual_items
+            {where_sql}
+            ORDER BY active DESC, updated_at DESC, id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_manual_cost_price_items(active_only=True):
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    params = ()
+    where_sql = ""
+    if active_only is not None:
+        where_sql = "WHERE active=?"
+        params = (1 if bool(active_only) else 0,)
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM cost_price_manual_items {where_sql}",
+            params,
+        ).fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def manual_cost_price_items_dataframe(items):
+    if not items:
+        return pd.DataFrame(
+            columns=["状态", "品牌", "型号", "成本", "更新时间", "MOQ", "L&T", "规格参数", "询价备注", "操作人"]
+        )
+    return pd.DataFrame(
+        [
+            {
+                "状态": "使用中" if int(row.get("active", 0) or 0) == 1 else "已停用",
+                "品牌": row.get("brand", ""),
+                "型号": row.get("model", ""),
+                "成本": row.get("cost", ""),
+                "更新时间": row.get("cost_updated_at", "") or row.get("updated_at", ""),
+                "MOQ": row.get("moq", ""),
+                "L&T": row.get("lead_time", ""),
+                "规格参数": row.get("spec_text", ""),
+                "询价备注": row.get("note", ""),
+                "操作人": row.get("updated_by", "") or row.get("created_by", ""),
+            }
+            for row in items
+        ]
+    )
+
+
+def save_manual_cost_price_item(
+    brand,
+    model,
+    cost,
+    moq="",
+    lead_time="",
+    spec_text="",
+    note="",
+    updated_by="",
+    item_id=None,
+):
+    refresh_runtime_store_remote_snapshot("cost-price", force=True)
+    init_cost_price_db()
+    brand = canonical_cost_price_brand_label(brand)
+    model = normalize_fojan_frc_model_display(model, brand)
+    model = clean_text(model)
+    model_clean = clean_model(model)
+    brand_key = normalize_cost_price_brand_key(brand)
+    cost = clean_text(cost)
+    if brand == "":
+        return False, "请填写品牌。", None
+    if model_clean == "":
+        return False, "请填写准确型号/料号。", None
+    if cost == "":
+        return False, "请填写成本。", None
+    now_text = current_timestamp_text()
+    updated_by = clean_text(updated_by)
+    try:
+        parsed_item_id = int(item_id) if item_id not in (None, "") else None
+    except Exception:
+        return False, "单笔成本记录 ID 无效。", None
+    try:
+        with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+            conn.execute("PRAGMA busy_timeout = 30000")
+            existing = None
+            if parsed_item_id is not None:
+                conn.row_factory = sqlite3.Row
+                existing = conn.execute(
+                    "SELECT * FROM cost_price_manual_items WHERE id=?",
+                    (parsed_item_id,),
+                ).fetchone()
+                if existing is None:
+                    return False, "要修改的单笔成本记录不存在。", None
+                conflict = conn.execute(
+                    """
+                    SELECT id
+                    FROM cost_price_manual_items
+                    WHERE brand_key=? AND model_clean=? AND id<>?
+                    LIMIT 1
+                    """,
+                    (brand_key, model_clean, parsed_item_id),
+                ).fetchone()
+                if conflict is not None:
+                    return False, "相同品牌和型号的单笔成本已经存在，请选择原记录修改。", None
+            else:
+                conn.row_factory = sqlite3.Row
+                existing = conn.execute(
+                    """
+                    SELECT *
+                    FROM cost_price_manual_items
+                    WHERE brand_key=? AND model_clean=?
+                    LIMIT 1
+                    """,
+                    (brand_key, model_clean),
+                ).fetchone()
+                if existing is not None:
+                    parsed_item_id = int(existing["id"])
+
+            if parsed_item_id is not None:
+                conn.execute(
+                    """
+                    UPDATE cost_price_manual_items
+                    SET brand=?, brand_key=?, model=?, model_clean=?, spec_text=?,
+                        cost=?, moq=?, lead_time=?, note=?, active=1,
+                        cost_updated_at=?, updated_at=?, updated_by=?
+                    WHERE id=?
+                    """,
+                    (
+                        brand,
+                        brand_key,
+                        model,
+                        model_clean,
+                        clean_text(spec_text),
+                        cost,
+                        clean_text(moq),
+                        clean_text(lead_time),
+                        clean_text(note),
+                        now_text,
+                        now_text,
+                        updated_by,
+                        parsed_item_id,
+                    ),
+                )
+                record_id = parsed_item_id
+                action = "更新"
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO cost_price_manual_items (
+                        brand, brand_key, model, model_clean, spec_text, cost, moq,
+                        lead_time, note, active, cost_updated_at, created_at, created_by,
+                        updated_at, updated_by
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        brand,
+                        brand_key,
+                        model,
+                        model_clean,
+                        clean_text(spec_text),
+                        cost,
+                        clean_text(moq),
+                        clean_text(lead_time),
+                        clean_text(note),
+                        now_text,
+                        now_text,
+                        updated_by,
+                        now_text,
+                        updated_by,
+                    ),
+                )
+                record_id = int(cur.lastrowid)
+                action = "新增"
+            conn.commit()
+    except sqlite3.IntegrityError:
+        return False, "相同品牌和型号的单笔成本已经存在。", None
+    clear_cost_price_lookup_cache()
+    synced = flush_runtime_store_remote_snapshot("cost-price")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    return True, f"已{action}单笔成本：{brand} / {model}{suffix}。", record_id
+
+
+def set_manual_cost_price_item_active(item_id, active, updated_by=""):
+    refresh_runtime_store_remote_snapshot("cost-price", force=True)
+    init_cost_price_db()
+    try:
+        item_id = int(item_id)
+    except Exception:
+        return False, "单笔成本记录 ID 无效。"
+    active_value = 1 if bool(active) else 0
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        cur = conn.execute(
+            """
+            UPDATE cost_price_manual_items
+            SET active=?, updated_at=?, updated_by=?
+            WHERE id=?
+            """,
+            (active_value, current_timestamp_text(), clean_text(updated_by), item_id),
+        )
+        conn.commit()
+    if cur.rowcount <= 0:
+        return False, "单笔成本记录不存在。"
+    clear_cost_price_lookup_cache()
+    synced = flush_runtime_store_remote_snapshot("cost-price")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    action = "启用" if active_value == 1 else "停用"
+    return True, f"已{action}单笔成本记录{suffix}。"
 
 
 def build_fojan_cost_price_items_from_workbook(uploaded_file):
@@ -4345,16 +4624,31 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
 
 def get_cost_price_lookup_signature():
     active = get_active_cost_price_list()
-    if not active:
+    init_cost_price_db()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        manual_row = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(updated_at), '')
+            FROM cost_price_manual_items
+            WHERE active=1
+            """
+        ).fetchone()
+    manual_count = int(manual_row[0] or 0) if manual_row else 0
+    manual_max_id = int(manual_row[1] or 0) if manual_row else 0
+    manual_updated_at = clean_text(manual_row[2]) if manual_row else ""
+    if not active and manual_count <= 0:
         return None
     try:
         mtime = os.path.getmtime(COST_PRICE_DB_PATH)
     except Exception:
         mtime = 0
     return (
-        int(active.get("id", 0) or 0),
-        int(active.get("row_count", 0) or 0),
-        clean_text(active.get("uploaded_at", "")),
+        int((active or {}).get("id", 0) or 0),
+        int((active or {}).get("row_count", 0) or 0),
+        clean_text((active or {}).get("uploaded_at", "")),
+        manual_count,
+        manual_max_id,
+        manual_updated_at,
         mtime,
     )
 
@@ -4366,22 +4660,40 @@ def load_active_cost_price_lookup():
     if _COST_PRICE_LOOKUP_CACHE.get("signature") == signature and isinstance(_COST_PRICE_LOOKUP_CACHE.get("lookup"), dict):
         return _COST_PRICE_LOOKUP_CACHE["lookup"]
     active = get_active_cost_price_list()
-    if not active:
-        return {}
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+        rows = []
+        if active:
+            rows = conn.execute(
+                """
+                SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time, raw_json
+                FROM cost_price_items
+                WHERE list_id=?
+                ORDER BY id ASC
+                """,
+                (int(active.get("id", 0)),),
+            ).fetchall()
+        manual_rows = conn.execute(
             """
-            SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time, raw_json
-            FROM cost_price_items
-            WHERE list_id=?
-            ORDER BY id ASC
-            """,
-            (int(active.get("id", 0)),),
+            SELECT
+                brand, model, model_clean, spec_text, cost,
+                cost_updated_at, moq, lead_time
+            FROM cost_price_manual_items
+            WHERE active=1
+            ORDER BY updated_at DESC, id DESC
+            """
         ).fetchall()
     lookup = {}
+    for row in manual_rows:
+        item = dict(row)
+        item["cost_source"] = "单笔成本"
+        item["raw_json"] = ""
+        model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
+        if model_clean != "":
+            lookup.setdefault(model_clean, []).append(item)
     for row in rows:
         item = dict(row)
+        item["cost_source"] = "当前启用成本清单"
         model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
         if model_clean != "":
             lookup.setdefault(model_clean, []).append(item)
@@ -4463,12 +4775,13 @@ def enrich_component_cost_columns(df):
     for idx, row in out.iterrows():
         price = lookup_active_cost_price_for_row(row, lookup=lookup) if lookup else {}
         manufacturer_packaging = lookup_manufacturer_packaging(row)
+        price_source = clean_text(price.get("cost_source", "")) or "当前启用成本清单"
         updates = {
             "成本": clean_text(price.get("cost", "")),
             "更新时间": clean_text(price.get("cost_updated_at", "")),
             "MOQ": clean_text(price.get("moq", "")) or clean_text(manufacturer_packaging.get("MOQ", "")),
             "MOQ来源": (
-                "当前启用成本清单"
+                price_source
                 if clean_text(price.get("moq", "")) != ""
                 else clean_text(manufacturer_packaging.get("MOQ来源", ""))
             ),
@@ -4534,39 +4847,124 @@ def no_match_report_summary_dataframe(reports):
     return pd.DataFrame(rows)
 
 
-def render_cost_price_admin_page():
-    render_admin_section_header(
-        "成本清单更新",
-        "上传各品牌元器件成本清单后，系统会把当前启用清单用于匹配结果和 BOM 导出中的成本、MOQ、L&T 字段。",
-        "成本维护",
+def render_manual_cost_price_admin_section(updated_by):
+    manual_items = list_manual_cost_price_items(active_only=None, limit=500)
+    new_option = "新增单笔成本"
+    option_rows = {}
+    options = [new_option]
+    for row in manual_items:
+        status = "使用中" if int(row.get("active", 0) or 0) == 1 else "已停用"
+        label = f"#{row.get('id')} · {status} · {row.get('brand')} · {row.get('model')}"
+        options.append(label)
+        option_rows[label] = row
+    selector_key = "cost_price_manual_record_selector"
+    if clean_text(st.session_state.get(selector_key, "")) not in options:
+        st.session_state[selector_key] = new_option
+    selected_label = st.selectbox(
+        "单笔成本记录",
+        options,
+        key=selector_key,
     )
-    active = get_active_cost_price_list()
-    lists = list_cost_price_lists()
-    render_admin_metric_cards(
-        [
-            {
-                "label": "当前清单",
-                "value": clean_text(active.get("file_name", "")) if active else "未上传",
-                "note": active.get("uploaded_at", "") if active else "暂无成本数据",
-                "tone": "green" if active else "neutral",
-            },
-            {
-                "label": "当前行数",
-                "value": active.get("row_count", 0) if active else 0,
-                "note": "当前用于匹配",
-                "tone": "neutral",
-            },
-            {
-                "label": "历史清单",
-                "value": len(lists),
-                "note": "可切换启用",
-                "tone": "blue",
-            },
-        ]
-    )
+    selected = option_rows.get(selected_label)
+    selected_id = int(selected.get("id", 0) or 0) if selected else None
 
-    member = current_member()
-    uploaded_by = clean_text((member or {}).get("username", "")) or clean_text(get_no_match_admin_credentials()[0])
+    with st.form(
+        f"cost_price_manual_form_{selected_id or 'new'}",
+        clear_on_submit=selected is None,
+    ):
+        first_row = st.columns([0.9, 1.35, 0.75], gap="small")
+        brand = first_row[0].text_input(
+            "品牌",
+            value=clean_text((selected or {}).get("brand", "")),
+            placeholder="例如 FOJAN(富捷)",
+        )
+        model = first_row[1].text_input(
+            "型号/料号",
+            value=clean_text((selected or {}).get("model", "")),
+            placeholder="请输入完整原厂型号",
+        )
+        cost = first_row[2].text_input(
+            "成本",
+            value=clean_text((selected or {}).get("cost", "")),
+            placeholder="例如 1.70",
+        )
+        second_row = st.columns([0.7, 0.7, 1.6], gap="small")
+        moq = second_row[0].text_input(
+            "MOQ",
+            value=clean_text((selected or {}).get("moq", "")),
+            placeholder="例如 5000PCS",
+        )
+        lead_time = second_row[1].text_input(
+            "L&T/交期",
+            value=clean_text((selected or {}).get("lead_time", "")),
+            placeholder="例如 4W",
+        )
+        spec_text = second_row[2].text_input(
+            "规格参数",
+            value=clean_text((selected or {}).get("spec_text", "")),
+            placeholder="可选",
+        )
+        note = st.text_area(
+            "询价备注",
+            value=clean_text((selected or {}).get("note", "")),
+            height=88,
+            placeholder="可记录询价日期、供应商或报价条件",
+        )
+        submitted = st.form_submit_button(
+            "保存修改" if selected else "新增单笔成本",
+            use_container_width=True,
+        )
+    if submitted:
+        ok, message, _ = save_manual_cost_price_item(
+            brand=brand,
+            model=model,
+            cost=cost,
+            moq=moq,
+            lead_time=lead_time,
+            spec_text=spec_text,
+            note=note,
+            updated_by=updated_by,
+            item_id=selected_id,
+        )
+        if ok:
+            st.session_state["cost_price_admin_flash"] = message
+            st.session_state.pop(selector_key, None)
+            st.rerun()
+        else:
+            st.warning(message)
+
+    if selected:
+        active = int(selected.get("active", 0) or 0) == 1
+        action_label = "停用此单笔成本" if active else "重新启用此单笔成本"
+        if st.button(
+            action_label,
+            key=f"toggle_manual_cost_price_{selected_id}_{int(active)}",
+            use_container_width=True,
+        ):
+            ok, message = set_manual_cost_price_item_active(
+                selected_id,
+                not active,
+                updated_by=updated_by,
+            )
+            if ok:
+                st.session_state["cost_price_admin_flash"] = message
+                st.session_state.pop(selector_key, None)
+                st.rerun()
+            else:
+                st.warning(message)
+
+    st.subheader("单笔成本记录")
+    if manual_items:
+        st.dataframe(
+            manual_cost_price_items_dataframe(manual_items),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        render_admin_empty_state("还没有单笔成本", "新增后会优先用于相同品牌和型号的搜索及 BOM 匹配。")
+
+
+def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     with st.container(border=True):
         st.subheader("上传新成本清单")
         st.caption("支持 Excel/CSV。系统会自动识别 品牌、型号/料号、规格参数、成本、MOQ、L&T/交期 等列；上传成功后自动设为当前使用清单。")
@@ -4578,7 +4976,7 @@ def render_cost_price_admin_page():
         if st.button("上传并启用", key="cost_price_admin_upload_submit", use_container_width=True):
             ok, message, _ = import_cost_price_list_from_upload(uploaded_file, uploaded_by=uploaded_by)
             if ok:
-                st.success(message)
+                st.session_state["cost_price_admin_flash"] = message
                 st.rerun()
             else:
                 st.warning(message)
@@ -4601,7 +4999,7 @@ def render_cost_price_admin_page():
                     if st.button("设为当前使用清单", key=f"activate_cost_price_list_{row.get('id')}", use_container_width=True):
                         ok, message = set_cost_price_list_active(row.get("id"))
                         if ok:
-                            st.success(message)
+                            st.session_state["cost_price_admin_flash"] = message
                             st.rerun()
                         else:
                             st.warning(message)
@@ -4611,6 +5009,56 @@ def render_cost_price_admin_page():
                     st.dataframe(cost_price_items_preview_dataframe(preview_items), use_container_width=True, hide_index=True)
     else:
         render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
+
+
+def render_cost_price_admin_page():
+    render_admin_section_header(
+        "成本清单更新",
+        "维护单笔原厂报价或上传整份成本清单；匹配结果和 BOM 导出会读取成本、MOQ 与 L&T。",
+        "成本维护",
+    )
+    active = get_active_cost_price_list()
+    lists = list_cost_price_lists()
+    manual_active_count = count_manual_cost_price_items(active_only=True)
+    render_admin_metric_cards(
+        [
+            {
+                "label": "当前清单",
+                "value": clean_text(active.get("file_name", "")) if active else "未上传",
+                "note": active.get("uploaded_at", "") if active else "暂无成本数据",
+                "tone": "green" if active else "neutral",
+            },
+            {
+                "label": "当前行数",
+                "value": active.get("row_count", 0) if active else 0,
+                "note": "当前用于匹配",
+                "tone": "neutral",
+            },
+            {
+                "label": "单笔成本",
+                "value": manual_active_count,
+                "note": "优先精确匹配",
+                "tone": "green" if manual_active_count else "neutral",
+            },
+            {
+                "label": "历史清单",
+                "value": len(lists),
+                "note": "可切换启用",
+                "tone": "blue",
+            },
+        ]
+    )
+
+    flash_message = clean_text(st.session_state.pop("cost_price_admin_flash", ""))
+    if flash_message:
+        st.success(flash_message)
+    member = current_member()
+    updated_by = clean_text((member or {}).get("username", "")) or clean_text(get_no_match_admin_credentials()[0])
+    manual_tab, list_tab = st.tabs(["单笔成本", "整份清单"])
+    with manual_tab:
+        render_manual_cost_price_admin_section(updated_by)
+    with list_tab:
+        render_uploaded_cost_price_admin_section(lists, updated_by)
 
 
 def read_sqlite_table_count_for_runtime(path, table_name):
@@ -4698,6 +5146,7 @@ def build_runtime_status_snapshot():
         "component_rows": read_sqlite_table_count_for_runtime(DB_PATH, "components"),
         "member_rows": read_sqlite_table_count_for_runtime(MEMBER_AUTH_DB_PATH, "members"),
         "cost_list_rows": read_sqlite_table_count_for_runtime(COST_PRICE_DB_PATH, "cost_price_lists"),
+        "manual_cost_rows": read_sqlite_table_count_for_runtime(COST_PRICE_DB_PATH, "cost_price_manual_items"),
         "no_match_rows": read_sqlite_table_count_for_runtime(NO_MATCH_REPORT_DB_PATH, "no_match_reports"),
         "member_remote_version": int(member_state.get("version") or 0),
         "member_remote_synced_at": clean_text(member_state.get("synced_at", "")) or "-",
@@ -4761,7 +5210,14 @@ def render_runtime_status_admin_page():
         {"项目": "主器件库", "状态": "正常" if snapshot["component_rows"] > 0 else "待检查", "说明": f"{snapshot['component_rows']:,} 条"},
         {"项目": "发布数据包", "状态": "正常" if snapshot["bundle_member_count"] > 0 else "待检查", "说明": f"{snapshot['bundle_member_count']} 个文件 · {snapshot['bundle_signature']}"},
         {"项目": "会员资料", "状态": "正常", "说明": f"{snapshot['member_rows']:,} 个账号 · 远端版本 {snapshot['member_remote_version']} · {snapshot['member_remote_synced_at']}"},
-        {"项目": "成本清单", "状态": "正常", "说明": f"{snapshot['cost_list_rows']:,} 份 · 远端版本 {snapshot['cost_remote_version']} · {snapshot['cost_remote_synced_at']}"},
+        {
+            "项目": "成本资料",
+            "状态": "正常",
+            "说明": (
+                f"{snapshot['cost_list_rows']:,} 份清单 · {snapshot['manual_cost_rows']:,} 条单笔成本"
+                f" · 远端版本 {snapshot['cost_remote_version']} · {snapshot['cost_remote_synced_at']}"
+            ),
+        },
         {"项目": "未匹配记录", "状态": "正常", "说明": f"{snapshot['no_match_rows']:,} 条 · 远端版本 {snapshot['no_match_remote_version']} · {snapshot['no_match_remote_synced_at']}"},
     ]
     st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
