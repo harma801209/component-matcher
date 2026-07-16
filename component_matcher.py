@@ -6342,12 +6342,12 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 }
 .result-table-wrap {
     overflow: auto;
-    max-height: min(560px, 52vh);
+    max-height: 440px;
     margin-bottom: 0;
     position: relative;
 }
 .bom-result-table-wrap {
-    max-height: min(560px, 52vh);
+    max-height: 560px;
     overflow: auto;
     margin-bottom: 10px;
     position: relative;
@@ -6365,8 +6365,13 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 }
 .result-section-card .result-table-wrap,
 .result-section-card .bom-result-table-wrap {
-    max-height: min(560px, 52vh);
     margin-bottom: 0;
+}
+.result-section-card .result-table-wrap {
+    max-height: 440px;
+}
+.result-section-card .bom-result-table-wrap {
+    max-height: 560px;
 }
 .bom-download-footer-outside {
     display: flex;
@@ -30558,17 +30563,17 @@ def estimate_model_list_width(values, min_width=90, char_width=7.4, max_width=15
 def estimate_result_table_iframe_height(row_count, show_official_status=True, compact=False):
     row_count = max(0, int(row_count or 0))
     use_compact = compact or row_count <= 12
-    visible_rows = min(max(row_count, 1), 10)
+    visible_rows = min(max(row_count, 1), 8)
     if use_compact:
-        base = 80 if show_official_status else 72
-        per_row = 48
-        min_height = 160
-        max_height = 560
+        base = 76 if show_official_status else 68
+        per_row = 46
+        min_height = 150
+        max_height = 450
     else:
         base = 92 if show_official_status else 84
-        per_row = 42
-        min_height = 180
-        max_height = 600
+        per_row = 44
+        min_height = 170
+        max_height = 460
     height = base + visible_rows * per_row
     return max(min_height, min(max_height, height))
 
@@ -30606,9 +30611,9 @@ def estimate_match_card_iframe_height(part_row_count, result_row_count):
     part_row_count = max(0, int(part_row_count or 0))
     result_row_count = max(0, int(result_row_count or 0))
     part_visible_rows = max(1, min(part_row_count, 2))
-    result_visible_rows = max(1, min(result_row_count, 10))
+    result_visible_rows = max(1, min(result_row_count, 8))
     # Keep the part-info table compact while letting the result table expose about
-    # ten visible rows before scrolling internally, then reserve extra space for
+    # eight visible rows before scrolling internally, then reserve extra space for
     # a visible rounded footer so the single-model bubble closes cleanly.
     part_height = 124 + (part_visible_rows - 1) * 34
     footer_height = 28
@@ -30618,7 +30623,7 @@ def estimate_match_card_iframe_height(part_row_count, result_row_count):
         return max(178, min(210, compact_total))
     result_height = 118 + result_visible_rows * 34
     total = part_height + result_height + footer_height + chrome_height
-    return max(576, min(676, total))
+    return max(420, min(620, total))
 
 
 def paginate_result_dataframe(df, table_key, page_size=12):
@@ -30669,13 +30674,13 @@ html, body {{
 }}
 .result-table-wrap {{
     overflow: auto;
-    max-height: min(560px, 52vh);
+    max-height: 440px;
     margin-bottom: 0;
     position: relative;
 }}
 .bom-result-table-wrap {{
     overflow: auto;
-    max-height: min(560px, 52vh);
+    max-height: 560px;
     margin-bottom: 0;
     position: relative;
 }}
@@ -30692,8 +30697,13 @@ html, body {{
 }}
 .result-section-card .result-table-wrap,
 .result-section-card .bom-result-table-wrap {{
-    max-height: min(560px, 52vh);
     margin-bottom: 0;
+}}
+.result-section-card .result-table-wrap {{
+    max-height: 440px;
+}}
+.result-section-card .bom-result-table-wrap {{
+    max-height: 560px;
 }}
 .result-table {{
     width: max-content;
@@ -31094,11 +31104,25 @@ html, body {{
             }});
         }}
 
+        function measureFrameContentHeight() {{
+            var maxBottom = 0;
+            Array.from(document.body.children).forEach(function(child) {{
+                var tagName = (child.tagName || '').toUpperCase();
+                if (tagName === 'STYLE' || tagName === 'SCRIPT') {{
+                    return;
+                }}
+                var rect = child.getBoundingClientRect();
+                if (rect && rect.height > 0) {{
+                    maxBottom = Math.max(maxBottom, rect.bottom);
+                }}
+            }});
+            return Math.max(0, Math.ceil(maxBottom + 2));
+        }}
+
         function reportFrameHeight() {{
             try {{
                 if (window.Streamlit && typeof window.Streamlit.setFrameHeight === 'function') {{
-                    var height = Math.max(0, Math.ceil(document.documentElement.scrollHeight || document.body.scrollHeight || 0));
-                    window.Streamlit.setFrameHeight(height);
+                    window.Streamlit.setFrameHeight(measureFrameContentHeight());
                 }}
             }} catch (err) {{
                 // Keep the iframe usable even if the host API is unavailable.
@@ -31148,6 +31172,7 @@ html, body {{
         window.setTimeout(reportFrameHeight, 0);
         window.setTimeout(reportFrameHeight, 120);
         window.addEventListener('resize', reportFrameHeight);
+        document.addEventListener('toggle', reportFrameHeight, true);
 
         var initialTotal = cols.reduce(function(sum, item, index) {{
             return sum + toNumber(item.style.width || headers[index].getBoundingClientRect().width);
@@ -31160,8 +31185,23 @@ html, body {{
     document.querySelectorAll('table.result-table').forEach(initTable);
     window.addEventListener('load', function() {{
         window.setTimeout(function() {{
-            if (window.Streamlit && typeof window.Streamlit.setFrameHeight === 'function') {{
-                window.Streamlit.setFrameHeight(Math.max(0, Math.ceil(document.documentElement.scrollHeight || document.body.scrollHeight || 0)));
+            try {{
+                if (window.Streamlit && typeof window.Streamlit.setFrameHeight === 'function') {{
+                    var maxBottom = 0;
+                    Array.from(document.body.children).forEach(function(child) {{
+                        var tagName = (child.tagName || '').toUpperCase();
+                        if (tagName === 'STYLE' || tagName === 'SCRIPT') {{
+                            return;
+                        }}
+                        var rect = child.getBoundingClientRect();
+                        if (rect && rect.height > 0) {{
+                            maxBottom = Math.max(maxBottom, rect.bottom);
+                        }}
+                    }});
+                    window.Streamlit.setFrameHeight(Math.max(0, Math.ceil(maxBottom + 2)));
+                }}
+            }} catch (err) {{
+                // Keep the iframe usable even if the host API is unavailable.
             }}
         }}, 80);
     }});

@@ -3508,3 +3508,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Audited all FRC rows in `components.db` and the search sidecar. Only two canonical duplicate groups exist: `FRC0402F1001` and `FRC0402J563`.
 - Added a final canonical brand/model deduplication after display normalization in both search-result rendering paths. The existing matching-layer deduplication remains, so stale or later-transformed rows cannot reappear as identical display entries.
 - Exact query checks now show `FRC0402F1001TS` once, `FRC0402J563 TS` once, and zero duplicate display keys for representative 0603 and 0805 specifications. Raised the query-result cache version to `91` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:09:00+08:00`. No database is modified.
+
+### 2026-07-16 [result layout] Remove oversized blank space below search tables
+
+- Reproduced the layout mechanism: normal result tables scrolled internally, but their iframe height was derived from `52vh` and `documentElement.scrollHeight`, so a tall initial iframe could not shrink after rendering.
+- Replaced iframe-relative table caps with fixed 440px normal-result and 560px BOM-result caps. Normal search tables expose about eight rows before scrolling, while exact-part cards use a lower bounded initial height.
+- The iframe now reports the actual bottom edge of rendered body content to Streamlit after table sizing, load, resize, and details toggles.
+- Focused regression and Python compilation pass. A headless Chromium layout check measured a 460px content card in a 900px viewport, confirming the host can remove the remaining 440px blank allocation. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:38:33+08:00`; no database is modified.

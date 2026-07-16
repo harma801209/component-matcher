@@ -463,6 +463,29 @@ class SystemRegressionTests(unittest.TestCase):
             else:
                 os.environ["COMPONENT_MATCHER_RELEASE_STAMP"] = original_release
 
+    def test_02e_result_iframe_shrinks_to_actual_content(self):
+        app = self.app
+        estimate = app["estimate_result_table_iframe_height"]
+        self.assertEqual(estimate(0), 150)
+        self.assertEqual(estimate(8), 444)
+        self.assertEqual(estimate(12), 444)
+        self.assertEqual(estimate(100), 444)
+        self.assertLessEqual(estimate(100), 460)
+
+        match_estimate = app["estimate_match_card_iframe_height"]
+        self.assertEqual(match_estimate(1, 1), 420)
+        self.assertEqual(match_estimate(1, 100), 570)
+
+        iframe_html = app["build_result_table_iframe_html"](
+            '<div class="result-section-card"><div class="result-table-wrap">'
+            '<table class="result-table"><tbody><tr><td>row</td></tr></tbody></table>'
+            "</div></div>"
+        )
+        self.assertIn("measureFrameContentHeight", iframe_html)
+        self.assertIn("max-height: 440px", iframe_html)
+        self.assertNotIn("52vh", iframe_html)
+        self.assertNotIn("document.documentElement.scrollHeight", iframe_html)
+
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
         milliohm = app["parse_resistor_spec_query"]("1206 0.01R 1% 1/4W")

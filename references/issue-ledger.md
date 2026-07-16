@@ -759,3 +759,10 @@
 - Root cause: The library contains both legacy `FRC0402F1001RS` and standard `FRC0402F1001TS` rows. An older formal runtime normalized both labels to the standard `TS` form after result matching, making two distinct source rows look identical.
 - Fix: Keep canonical FOJAN deduplication in the matching layer and repeat the same canonical brand/model deduplication immediately before both search-result tables are rendered. Raise the query cache version so existing sessions cannot reuse stale duplicate results.
 - Verification: A full FRC library audit found only two canonical legacy pairs (`FRC0402F1001` and `FRC0402J563`); both now render once. Additional `0603 / 10KΩ / ±1%` and `0805 / 330Ω / ±5%` checks report zero duplicate display keys.
+
+## 2026-07-16 - Search-result iframe left a large blank area above the footer
+
+- Bug: After the last visible search-result row, the page could retain several hundred pixels of empty space before the footer even though the table already used its own internal scrollbar.
+- Root cause: The table height cap used `52vh` inside a Streamlit iframe, where viewport units refer to the iframe itself. The iframe then reported `documentElement.scrollHeight`, which is never smaller than its current viewport, so an oversized initial iframe could not shrink to the actual result-card height.
+- Fix: Use fixed content caps for normal and BOM result tables, show about eight normal result rows before internal scrolling, and report the bottom edge of actual body content to Streamlit instead of the iframe viewport height. Exact-part match cards use the same bounded-height behavior.
+- Verification: The focused regression confirms no `52vh` or viewport `scrollHeight` sizing remains. A headless browser check with 20 rows measured a 440px scrollable table and a 460px result card inside a 900px viewport, allowing the host iframe to collapse to the real content boundary.
