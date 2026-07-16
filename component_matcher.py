@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 90
+QUERY_RESULT_CACHE_VERSION = 91
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -36725,6 +36725,7 @@ if search_requested:
                         allow_online_lookup=allow_online_lookup,
                     )
                     show_df = format_display_df(show_df)
+                    show_df = deduplicate_component_matches(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
                     if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                         show_df = show_df.drop(columns=["特殊用途"])
@@ -36844,6 +36845,7 @@ if search_requested:
                     allow_online_lookup=allow_online_lookup,
                 )
                 show_df = format_display_df(show_df)
+                show_df = deduplicate_component_matches(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)
                 if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                     show_df = show_df.drop(columns=["特殊用途"])

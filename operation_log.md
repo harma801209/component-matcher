@@ -3501,3 +3501,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Extended FOJAN query-time compliance enrichment from FRC to FRL for `无卤`, retaining the existing FRL `低阻值` classification. Canonical brand/model deduplication now collapses obsolete `RS` and standard `TS` variants that would render as the same FOJAN model.
 - Added Cybermax prefix classification so `CMBH...` is parsed as a ferrite bead and `CMLH...` as a power inductor; the supplied power-inductor description now returns inductor alternatives, while the ferrite-bead description correctly reports no matching library candidate instead of showing resistor results.
 - Focused regressions passed for resistor matching and other-passive routing. Raised the query-result cache version to `90` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T14:26:10+08:00`. No member, cost-list, no-match, component database, or public bundle is modified.
+
+### 2026-07-16 [search display] Deduplicate canonical FOJAN models before rendering
+
+- Reproduced the reported `0402 / 1/16W / 1KΩ / ±1%` query. The source library contains legacy `FRC0402F1001RS` plus standard `FRC0402F1001TS`; both normalize to the same displayed model.
+- Audited all FRC rows in `components.db` and the search sidecar. Only two canonical duplicate groups exist: `FRC0402F1001` and `FRC0402J563`.
+- Added a final canonical brand/model deduplication after display normalization in both search-result rendering paths. The existing matching-layer deduplication remains, so stale or later-transformed rows cannot reappear as identical display entries.
+- Exact query checks now show `FRC0402F1001TS` once, `FRC0402J563 TS` once, and zero duplicate display keys for representative 0603 and 0805 specifications. Raised the query-result cache version to `91` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:09:00+08:00`. No database is modified.

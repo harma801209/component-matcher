@@ -809,11 +809,16 @@ class SystemRegressionTests(unittest.TestCase):
                     [
                         {"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001TS", "器件类型": "厚膜电阻"},
                         {"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001RS", "器件类型": "贴片电阻"},
+                        {"品牌": "FOJAN(富捷)", "型号": "FRC0402J563 TS", "器件类型": "厚膜电阻"},
+                        {"品牌": "FOJAN(富捷)", "型号": "FRC0402J563RS", "器件类型": "贴片电阻"},
                     ]
                 )
             )
-            self.assertEqual(len(duplicate_matches), 1)
-            self.assertEqual(duplicate_matches.iloc[0]["型号"], "FRC0402F1001TS")
+            self.assertEqual(len(duplicate_matches), 2)
+            self.assertEqual(
+                duplicate_matches["型号"].tolist(),
+                ["FRC0402F1001TS", "FRC0402J563 TS"],
+            )
 
             cross_brand_candidates = pd.DataFrame(
                 [

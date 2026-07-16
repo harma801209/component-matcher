@@ -752,3 +752,10 @@
 - Root cause: Embedded source-model decoding replaced the explicitly entered tolerance with an incorrect model-derived value. FRL rows retained `低阻值` as their only special-use token, so the strict `无卤` requirement rejected them even though the FOJAN FRL specification is halogen-free. Equivalent FOJAN rows from multiple component-type sources could also survive as duplicate display results.
 - Fix: Preserve explicit query size, value, tolerance, power, voltage, and special-use fields when an embedded source model is resolved; treat strong embedded part tokens as source metadata rather than brand filters; merge `无卤` into FOJAN FRC/FRL query candidates; and deduplicate results by canonical brand/model. Cybermax `CMBH` and `CMLH` prefixes now route to ferrite-bead and power-inductor parsing instead of resistor parsing.
 - Verification: Batch replay returns a FOJAN model for all 22 resistor descriptions in the supplied image, including `FRL1206FR050TS`; direct brand-only searches remain restricted. Focused regressions cover explicit-parameter precedence, FRL halogen-free matching, canonical deduplication, and Cybermax family classification.
+
+## 2026-07-16 - Legacy FOJAN suffix rows duplicated after display normalization
+
+- Bug: Searching `0402 / 1/16W / 1KΩ / ±1%` could display `FRC0402F1001TS` twice.
+- Root cause: The library contains both legacy `FRC0402F1001RS` and standard `FRC0402F1001TS` rows. An older formal runtime normalized both labels to the standard `TS` form after result matching, making two distinct source rows look identical.
+- Fix: Keep canonical FOJAN deduplication in the matching layer and repeat the same canonical brand/model deduplication immediately before both search-result tables are rendered. Raise the query cache version so existing sessions cannot reuse stale duplicate results.
+- Verification: A full FRC library audit found only two canonical legacy pairs (`FRC0402F1001` and `FRC0402J563`); both now render once. Additional `0603 / 10KΩ / ±1%` and `0805 / 330Ω / ±5%` checks report zero duplicate display keys.
