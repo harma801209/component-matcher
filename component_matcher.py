@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 88
+QUERY_RESULT_CACHE_VERSION = 89
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -10296,6 +10296,30 @@ def resistor_series_desc_should_replace(current_value, canonical_value):
     return generated_resistor_series_description(current)
 
 
+FOJAN_FRC_DISPLAY_MODEL_PATTERN = re.compile(
+    r"^(?P<prefix>FRC(?:0201|0402|0603|0805|1206|1210|1812|2010|2512))"
+    r"(?P<tolerance>[FJP])(?P<value>[0-9R]+)(?P<suffix>TS|RS)$"
+)
+
+
+def normalize_fojan_frc_model_display(model, brand=""):
+    raw = clean_text(model)
+    brand_text = clean_brand(brand)
+    if brand_text != "" and "FOJAN" not in brand_text.upper() and "富捷" not in brand_text:
+        return raw
+    compact = clean_model(raw)
+    match = FOJAN_FRC_DISPLAY_MODEL_PATTERN.fullmatch(compact)
+    if match is None:
+        return raw
+    tolerance_code = match.group("tolerance")
+    value_code = match.group("value")
+    expected_length = 4 if tolerance_code == "F" else 3
+    if len(value_code) != expected_length:
+        return raw
+    canonical = f"{match.group('prefix')}{tolerance_code}{value_code}"
+    return f"{canonical} TS" if tolerance_code == "J" else f"{canonical}TS"
+
+
 def normalize_fojan_resistor_series_display_fields(df):
     if df is None or df.empty:
         return df
@@ -10313,8 +10337,11 @@ def normalize_fojan_resistor_series_display_fields(df):
     if not target_mask.any():
         return out
     for idx, row in out.loc[target_mask].iterrows():
+        canonical_model = normalize_fojan_frc_model_display(row.get("型号", ""), row.get("品牌", ""))
+        if canonical_model != "":
+            out.at[idx, "型号"] = canonical_model
         profile = lookup_official_resistor_series_profile_by_model(
-            row.get("型号", ""),
+            canonical_model or row.get("型号", ""),
             row.get("品牌", ""),
         )
         series = clean_text(profile.get("系列", ""))
@@ -28194,6 +28221,11 @@ def parse_valid_fojan_resistor_model(model):
     series = match.group("series")
     tolerance_code = match.group("tolerance")
     value_code = match.group("value")
+    expected_code_length = 4 if tolerance_code == "F" else 3 if series == "FRC" else 4
+    if tolerance_code == "P":
+        expected_code_length = 3
+    if len(value_code) != expected_code_length:
+        return None
     if tolerance_code == "P":
         if series != "FRC" or value_code != "000":
             return None
@@ -33991,6 +34023,7 @@ def build_bom_result_row(df, line, export_settings=None):
         return row
 
     matched = matched.copy()
+    matched = normalize_fojan_resistor_series_display_fields(matched)
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
     recommendation = build_procurement_recommendation(matched, spec)
@@ -34131,10 +34164,17 @@ def build_bom_upload_result_row(
     matched = best.get("matched")
     if isinstance(matched, pd.DataFrame) and not matched.empty:
         matched = matched.copy()
+        matched = normalize_fojan_resistor_series_display_fields(matched)
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
         recommendation = best.get("recommendation") or build_procurement_recommendation(matched, spec)
         display_match = recommendation.get("row")
+        if display_match is not None:
+            display_match = display_match.copy()
+            display_match["型号"] = normalize_fojan_frc_model_display(
+                display_match.get("型号", ""),
+                display_match.get("品牌", ""),
+            )
         detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
         result_row["状态"] = recommendation.get("status", result_row["状态"])

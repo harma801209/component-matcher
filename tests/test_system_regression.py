@@ -790,6 +790,60 @@ class SystemRegressionTests(unittest.TestCase):
                 suffix_matches["型号"].tolist(),
                 ["FRC0402F1001TS", "FRC0402F1001RS"],
             )
+            self.assertEqual(
+                app["normalize_fojan_frc_model_display"]("FRC0201F1003 TS", "FOJAN(富捷)"),
+                "FRC0201F1003TS",
+            )
+            self.assertEqual(
+                app["normalize_fojan_frc_model_display"]("FRC0402F1001RS", "FOJAN(富捷)"),
+                "FRC0402F1001TS",
+            )
+            self.assertEqual(
+                app["normalize_fojan_frc_model_display"]("FRC0402J102TS", "FOJAN(富捷)"),
+                "FRC0402J102 TS",
+            )
+            self.assertEqual(
+                app["normalize_fojan_frc_model_display"]("FRC0402F1003 TS", "OtherBrand"),
+                "FRC0402F1003 TS",
+            )
+            self.assertIsNone(app["parse_valid_fojan_resistor_model"]("FRC0402F103TS"))
+
+            normalized_suffix = app["normalize_fojan_resistor_series_display_fields"](
+                app["ensure_component_display_columns"](
+                    pd.DataFrame(
+                        [
+                            {
+                                "品牌": "FOJAN(富捷)",
+                                "型号": "FRC0201F1003 TS",
+                                "器件类型": "厚膜电阻",
+                            },
+                            {
+                                "品牌": "FOJAN(富捷)",
+                                "型号": "FRC0402F1001RS",
+                                "器件类型": "厚膜电阻",
+                            },
+                            {
+                                "品牌": "FOJAN(富捷)",
+                                "型号": "FRC0402J102TS",
+                                "器件类型": "厚膜电阻",
+                            },
+                        ]
+                    )
+                )
+            )
+            self.assertEqual(
+                normalized_suffix["型号"].tolist(),
+                ["FRC0201F1003TS", "FRC0402F1001TS", "FRC0402J102 TS"],
+            )
+            rs_only_export_slots = app["build_bom_own_brand_export_slots"](
+                prepared_suffix[prepared_suffix["型号"].eq("FRC0402F1001RS")].copy(),
+                spec=app["parse_resistor_spec_query"]("0402 1K 1% 1/16W"),
+                export_settings={
+                    "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                    "brands": ["富捷"],
+                },
+            )
+            self.assertEqual(rs_only_export_slots["自有型号"], "FRC0402F1001TS")
 
             mode, rohm_spec = app["detect_query_mode_and_spec"](
                 pd.DataFrame(), "贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM"

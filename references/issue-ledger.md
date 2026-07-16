@@ -738,3 +738,10 @@
 - Root cause: The brand token beside an exact source part number was reused as an explicit output-brand filter. The candidate scope was reduced to Fenghua before cross-brand matching, so the valid FOJAN row never reached grading.
 - Fix: Exact-part and embedded-model-token lookups now retain the detected brand as the source brand but clear the requested-brand output filter. Direct specification searches such as `富捷 0603 10K 1%` remain restricted to the requested brand.
 - Verification: Exact real-data replay returns `FOJAN(富捷) / FRC0603F1002TS / 完全匹配`; focused regression also confirms that explicit specification brand filters remain active.
+
+## 2026-07-16 - BOM output exposed nonstandard FOJAN FRC suffix formatting
+
+- Bug: BOM matching displayed and exported F-tolerance models such as `FRC0201F1003 TS` with a space before `TS`; one library row also produced `FRC0402F1001RS` instead of the standard `FRC0402F1001TS`.
+- Root cause: Matching compared compact model keys but preserved the original library display string in recommendation and BOM export fields. Six F-tolerance source rows contained a space, and one F plus one J row used the obsolete `RS` suffix.
+- Fix: Canonicalize FOJAN FRC output by tolerance family without altering the source BOM or runtime database: F uses a four-character value code immediately followed by `TS`, J uses a three-character value code followed by ` TS`, and P remains compact. Obsolete FRC `RS` display suffixes are emitted as `TS`; model validation now enforces the correct code length.
+- Verification: Full replay of all 37 rows in `星际需求0715.xlsx` with the selected FOJAN brand returns a nonblank FOJAN model for every row and zero format anomalies. The two reported cases now output `FRC0402F1001TS` and `FRC0201F1003TS`.

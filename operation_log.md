@@ -3486,3 +3486,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Removed only the requested-brand filter from exact-part and embedded-model-token lookup specifications. The detected Fenghua brand remains attached as the source brand, while direct brand-qualified specification searches keep their existing brand restriction.
 - Added a regression that exercises the exact Fenghua-to-FOJAN case and retains the existing direct FOJAN brand-filter checks.
 - Raised the query-result cache version to `88` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T11:33:57+08:00`. No runtime or component database is modified.
+
+### 2026-07-16 [BOM resistor output] Canonicalize FOJAN FRC model formatting
+
+- Audited `星际需求0715.xlsx` and the FOJAN FRC rows in `components.db`: six F-tolerance rows contained an incorrect space before `TS`; one F and one J row used the obsolete `RS` suffix.
+- Added output-only canonical formatting shared by search tables, BOM recommendation rows, selected-brand slots, and downloaded Excel fields. F models use four value-code characters plus compact `TS`; J models retain the official space before `TS`; P models remain compact. The original BOM columns and runtime databases are not rewritten.
+- Tightened FOJAN FRC/FRL model validation to enforce tolerance-specific value-code lengths and added regression coverage for spaced F models, obsolete `RS`, J spacing, non-FOJAN isolation, and selected-brand BOM export.
+- Full real-file replay with `指定品牌=富捷` processed all 37 rows, produced 37 FOJAN models, and reported zero suffix/spacing anomalies. Raised the query-result cache version to `89` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T13:56:34+08:00`.
