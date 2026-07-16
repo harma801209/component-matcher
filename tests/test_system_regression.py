@@ -719,6 +719,102 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertFalse(part_lookup_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
             self.assertEqual(part_lookup_spec["品牌"], "风华Fenghua")
 
+            embedded_part_spec = app["clear_query_brand_filter_for_embedded_part_metadata"](
+                brand_filtered_part_spec,
+                fenghua_query,
+            )
+            self.assertFalse(embedded_part_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
+            direct_brand_spec = app["apply_query_brand_hint_to_spec"](
+                app["parse_resistor_spec_query"]("0603 10K 1%"),
+                "FENGHUA 0603 10K 1%",
+            )
+            direct_brand_spec = app["clear_query_brand_filter_for_embedded_part_metadata"](
+                direct_brand_spec,
+                "FENGHUA 0603 10K 1%",
+            )
+            self.assertTrue(direct_brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+
+            explicit_part_cases = [
+                (
+                    "1KΩ;50V;±1%;1/16W;0402;FENGHUA;RC-02K1001FT;无卤",
+                    "RC-02K1001FT",
+                    "FRC0402F1001TS",
+                ),
+                (
+                    "10KΩ;/;±5%;1/16W;0402;FENGHUA;RC-02K103JT;无卤",
+                    "RC-02K103JT",
+                    "FRC0402J103TS",
+                ),
+                (
+                    "510Ω;±5%;1/16W;0402;FENGHUA;RC-02K511JT;无卤",
+                    "RC-02K511JT",
+                    "FRC0402J511TS",
+                ),
+            ]
+            for query, source_model, expected_fojan_model in explicit_part_cases:
+                explicit_spec = app["parse_resistor_spec_query"](query)
+                decoded_part_spec = dict(explicit_spec)
+                decoded_part_spec.update(
+                    {
+                        "品牌": "风华Fenghua",
+                        "型号": source_model,
+                        "容值误差": "0.25",
+                    }
+                )
+                merged_part_spec = app["merge_explicit_query_spec_into_part_spec"](
+                    decoded_part_spec,
+                    explicit_spec,
+                )
+                self.assertEqual(
+                    app["build_fojan_resistor_model_from_spec"](merged_part_spec),
+                    expected_fojan_model,
+                    query,
+                )
+
+            low_ohm_candidate = app["finalize_search_candidate_frames"](
+                [
+                    pd.DataFrame(
+                        [
+                            {
+                                "品牌": "FOJAN(富捷)",
+                                "型号": "FRL1206FR050TS",
+                                "器件类型": "厚膜电阻",
+                                "尺寸（inch）": "1206",
+                                "材质（介质）": "",
+                                "耐压（V）": "",
+                                "容值_pf": None,
+                                "容值": "0.05",
+                                "容值单位": "Ω",
+                                "容值误差": "1",
+                                "功率": "1/4W",
+                                "_resistance_ohm": 0.05,
+                                "特殊用途": "",
+                            }
+                        ]
+                    )
+                ]
+            )
+            self.assertEqual(low_ohm_candidate.iloc[0]["特殊用途"], "无卤")
+            low_ohm_matches = app["run_query_match"](
+                app["prepare_search_dataframe"](
+                    app["ensure_component_display_columns"](low_ohm_candidate)
+                ),
+                "贴片电阻",
+                app["parse_resistor_spec_query"]("1206 0.05Ω 1% 1/4W 无卤"),
+            )
+            self.assertEqual(low_ohm_matches["型号"].tolist(), ["FRL1206FR050TS"])
+
+            duplicate_matches = app["deduplicate_component_matches"](
+                pd.DataFrame(
+                    [
+                        {"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001TS", "器件类型": "厚膜电阻"},
+                        {"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001RS", "器件类型": "贴片电阻"},
+                    ]
+                )
+            )
+            self.assertEqual(len(duplicate_matches), 1)
+            self.assertEqual(duplicate_matches.iloc[0]["型号"], "FRC0402F1001TS")
+
             cross_brand_candidates = pd.DataFrame(
                 [
                     {
@@ -1613,6 +1709,22 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_10_other_passive_specs_do_not_fall_back_to_wrong_models(self):
         app = self.app
+
+        bead_query = "L2.0*W1.25*H0.9;2.0A;300Ω;±25%;CYBERMAX;CMBH2012S301NSP;SMD;0805;CAV"
+        bead_mode, bead_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), bead_query)
+        self.assertEqual(bead_mode, "磁珠")
+        self.assertEqual(bead_spec["器件类型"], "磁珠")
+        self.assertEqual(bead_spec["容值"], "300")
+        self.assertEqual(bead_spec["容值单位"], "Ω")
+
+        inductor_query = "1000uH;±20%;180mA;6Ω max;L7.3*W7.3*H4.5;CYBERMAX;CMLH0704S102MTT;CAV"
+        inductor_mode, inductor_spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(), inductor_query
+        )
+        self.assertEqual(inductor_mode, "功率电感")
+        self.assertEqual(inductor_spec["器件类型"], "功率电感")
+        self.assertEqual(inductor_spec["容值"], "1000")
+        self.assertEqual(inductor_spec["容值单位"], "UH")
 
         def match(rows, spec):
             frame = pd.DataFrame(rows)

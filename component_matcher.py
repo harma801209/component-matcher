@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 89
+QUERY_RESULT_CACHE_VERSION = 90
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -6798,6 +6798,73 @@ def clear_query_brand_filter_for_part_lookup(spec):
     merged = dict(spec)
     merged.pop(BRAND_QUERY_FILTER_FLAG, None)
     merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
+    return merged
+
+
+def query_has_embedded_source_part_metadata(query_text):
+    for token in extract_model_like_tokens(query_text):
+        compact = clean_model(token)
+        if len(compact) < 8:
+            continue
+        if re.fullmatch(r"[RCL]_[0-9]{4}", compact):
+            continue
+        if len(re.findall(r"[A-Z]", compact)) < 2:
+            continue
+        if len(re.findall(r"[0-9]", compact)) < 3:
+            continue
+        return True
+    return False
+
+
+def clear_query_brand_filter_for_embedded_part_metadata(spec, query_text):
+    if spec is None or not query_has_embedded_source_part_metadata(query_text):
+        return spec
+    return clear_query_brand_filter_for_part_lookup(spec)
+
+
+def merge_explicit_query_spec_into_part_spec(part_spec, query_spec):
+    if part_spec is None:
+        return part_spec
+    if not isinstance(query_spec, dict):
+        return part_spec
+    merged = dict(part_spec)
+    explicit_fields = (
+        "尺寸（inch）",
+        "材质（介质）",
+        "容值_pf",
+        "容值",
+        "容值单位",
+        "容值误差",
+        "耐压（V）",
+        "特殊用途",
+        "_resistance_ohm",
+        "_power",
+        "_body_size",
+        "_pitch",
+        "_safety_class",
+    )
+    for field in explicit_fields:
+        value = query_spec.get(field, None)
+        if value is None:
+            continue
+        try:
+            if pd.isna(value):
+                continue
+        except Exception:
+            pass
+        if clean_text(value) == "":
+            continue
+        merged[field] = value
+    if clean_text(merged.get("器件类型", "")) == "" and clean_text(query_spec.get("器件类型", "")) != "":
+        merged["器件类型"] = query_spec["器件类型"]
+    for count_field in ("_core_param_count", "_param_count"):
+        try:
+            merged[count_field] = max(
+                int(merged.get(count_field, 0) or 0),
+                int(query_spec.get(count_field, 0) or 0),
+            )
+        except Exception:
+            pass
     return merged
 
 
@@ -16522,6 +16589,11 @@ def detect_inductor_subtype_hint(text):
     upper = clean_text(text).upper()
     if upper == "":
         return ""
+    model_tokens = [clean_model(token) for token in extract_model_like_tokens(text)]
+    if any(token.startswith("CMBH") for token in model_tokens):
+        return "磁珠"
+    if any(token.startswith("CMLH") for token in model_tokens):
+        return "功率电感"
     if matches_component_alias(text, "射频电感"):
         return "射频电感"
     if matches_component_alias(text, "共模电感"):
@@ -21953,6 +22025,23 @@ def special_use_matches(candidate, target):
     return bool(candidate_tokens & target_tokens)
 
 
+def deduplicate_component_matches(frame):
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame
+    if "品牌" not in frame.columns or "型号" not in frame.columns:
+        return frame
+    out = frame.copy()
+    out["_result_brand_key"] = out["品牌"].astype(str).map(clean_brand).str.upper()
+    out["_result_model_key"] = out.apply(
+        lambda row: clean_model(
+            normalize_fojan_frc_model_display(row.get("型号", ""), row.get("品牌", ""))
+        ),
+        axis=1,
+    )
+    out = out.drop_duplicates(subset=["_result_brand_key", "_result_model_key"], keep="first")
+    return out.drop(columns=["_result_brand_key", "_result_model_key"], errors="ignore")
+
+
 def build_component_spec_detail_from_row(row, component_type_hint=""):
     if row is None:
         return ""
@@ -22161,6 +22250,7 @@ def match_by_partial_spec(df, spec):
     if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)) and not source_is_fojan_resistor:
         out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
+    out = deduplicate_component_matches(out)
 
     drop_cols = [
         c for c in [
@@ -28659,9 +28749,10 @@ def enrich_fojan_frc_official_query_fields(df):
     brand_mask = out["品牌"].astype(str).map(
         lambda value: "FOJAN" in clean_brand(value).upper() or "富捷" in clean_brand(value)
     )
-    model_mask = out["型号"].astype(str).map(clean_model).str.upper().str.startswith("FRC")
-    target_mask = brand_mask & model_mask
-    if not target_mask.any():
+    model_values = out["型号"].astype(str).map(clean_model).str.upper()
+    frc_mask = brand_mask & model_values.str.startswith("FRC")
+    fojan_general_resistor_mask = brand_mask & model_values.str.startswith(("FRC", "FRL"))
+    if not fojan_general_resistor_mask.any():
         return out
 
     size_values = out["尺寸（inch）"].astype(str).map(clean_size) if "尺寸（inch）" in out.columns else pd.Series("", index=out.index)
@@ -28670,20 +28761,25 @@ def enrich_fojan_frc_official_query_fields(df):
         if column not in out.columns:
             out[column] = ""
         blank_mask = out[column].astype(str).map(clean_text).eq("")
-        fill_mask = target_mask & blank_mask & official_voltage.ne("")
+        fill_mask = frc_mask & blank_mask & official_voltage.ne("")
         out.loc[fill_mask, column] = official_voltage.loc[fill_mask]
     if "_volt_num" not in out.columns:
         out["_volt_num"] = pd.NA
     numeric_voltage = pd.to_numeric(official_voltage, errors="coerce")
     blank_numeric = pd.to_numeric(out["_volt_num"], errors="coerce").isna()
-    fill_numeric = target_mask & blank_numeric & numeric_voltage.notna()
+    fill_numeric = frc_mask & blank_numeric & numeric_voltage.notna()
     out.loc[fill_numeric, "_volt_num"] = numeric_voltage.loc[fill_numeric]
 
     for column in ["特殊用途", "_special_use_norm"]:
         if column not in out.columns:
             out[column] = ""
-        blank_mask = out[column].astype(str).map(clean_text).eq("")
-        out.loc[target_mask & blank_mask, column] = "无卤"
+        out.loc[fojan_general_resistor_mask, column] = out.loc[
+            fojan_general_resistor_mask, column
+        ].map(
+            lambda value: "/".join(
+                dict.fromkeys(special_use_tokens(value) + ["无卤"])
+            )
+        )
     return out
 
 
@@ -35343,6 +35439,8 @@ def resolve_search_query_dataframe_and_spec(
     detect_df = prefetched_exact_rows if isinstance(prefetched_exact_rows, pd.DataFrame) and not prefetched_exact_rows.empty else None
     mode, spec = detect_query_mode_and_spec(detect_df, line)
     spec = merge_query_text_hints_into_spec(spec, line)
+    spec = clear_query_brand_filter_for_embedded_part_metadata(spec, line)
+    explicit_query_spec = dict(spec) if isinstance(spec, dict) else spec
     if mode == "料号":
         spec = clear_query_brand_filter_for_part_lookup(spec)
     query_df = None
@@ -35374,6 +35472,7 @@ def resolve_search_query_dataframe_and_spec(
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
             token_spec = merge_query_text_hints_into_spec(token_spec, line)
+            token_spec = merge_explicit_query_spec_into_part_spec(token_spec, explicit_query_spec)
             if token_mode == "料号":
                 token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
             if token_mode != "无法识别" and token_spec is not None:
@@ -35470,6 +35569,7 @@ def resolve_search_query_dataframe_and_spec(
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
             token_spec = merge_query_text_hints_into_spec(token_spec, line)
+            token_spec = merge_explicit_query_spec_into_part_spec(token_spec, explicit_query_spec)
             if token_mode == "料号":
                 token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
             if token_mode != "无法识别" and token_spec is not None:
