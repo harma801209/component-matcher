@@ -773,3 +773,10 @@
 - Design: Add an independent exact-model cost layer keyed by canonical brand and model. Active single-item records take priority over the current whole list, remain available when the whole list changes, and fall back to the current list when disabled.
 - Fix: Added additive `cost_price_manual_items` storage with create/update/disable history, operator and quote notes; added a `单笔成本` admin tab; included single-item records in remote cost snapshots, search enrichment, BOM matching, and Excel export. Records are disabled rather than physically deleted.
 - Verification: Isolated database tests cover use without a whole list, override priority, list replacement, disable fallback, re-enable, BOM export, and remote snapshot restoration. A browser workflow confirmed create, edit preload, disable control, and the unchanged whole-list upload tab.
+
+## 2026-07-16 - Incomplete NTC specifications were labeled as complete matches
+
+- Bug: `Thermistor NTC 10K OHM 240mW 1% 0402 SMD` marked many Joyin models as `完全匹配` even though the query omitted B value, B condition, and B tolerance. Candidate power was also misread from the `1.7mW/℃` dissipation constant instead of the official `Max Power=170mW`.
+- Root cause: Thermistor completeness required only size, R25, and R25 tolerance; blank B fields passed matching checks. Generic power extraction accepted the first mW token in the source notes.
+- Fix: Require size, R25, R25 tolerance, B value, B condition, and B tolerance before an NTC candidate can be `完全匹配`. Parse only labeled thermistor maximum power, use the official Joyin size rule as a low-memory public fallback, and treat a lower maximum power as a conflict.
+- Verification: The reported query keeps the candidates visible but marks all Joyin 0402 rows `需确认替代` and reports `240mW` required versus `170mW` available. A complete `B25/50=3370K ±1%` query marks only the F-code Joyin model complete; G/H/J remain confirmation-required. The 23-test release safety gate passed with protected runtime-data fingerprints unchanged.

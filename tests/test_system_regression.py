@@ -2498,6 +2498,8 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_15_joyin_ntc_b_tolerance_is_decoded_and_ranked(self):
         app = self.app
+        app["DB_PATH"] = self.original_paths["DB_PATH"]
+        app["SEARCH_DB_PATH"] = self.original_paths["SEARCH_DB_PATH"]
         expected_b_tolerances = {
             "JSNZ104F425FABXG": "1",
             "JSNZ104F425GABXG": "2",
@@ -2563,6 +2565,81 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(actual_levels["JSNZ104F425FABXG"], "完全匹配")
             for model in ("JSNZ104F425GABXG", "JSNZ104F425HABXG", "JSNZ104F425JABXG"):
                 self.assertEqual(actual_levels[model], "需确认替代")
+
+        reported_query = "Thermistor NTC 10K OHM 240mW 1% 0402 SMD"
+        mode, reported_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), reported_query)
+        self.assertEqual(mode, "热敏电阻")
+        self.assertEqual(reported_spec["尺寸（inch）"], "0402")
+        self.assertEqual(reported_spec["阻值@25C"], "10")
+        self.assertEqual(reported_spec["阻值单位"], "KΩ")
+        self.assertEqual(reported_spec["阻值误差"], "1")
+        self.assertEqual(reported_spec["功率"], "240mW")
+        self.assertEqual(reported_spec["B值"], "")
+        self.assertEqual(reported_spec["B值误差"], "")
+        self.assertEqual(reported_spec["B值条件"], "")
+
+        joyin_0402_source = app["load_component_rows_by_clean_model"]("JSNA103F337FABXG")
+        self.assertFalse(joyin_0402_source.empty)
+        self.assertEqual(
+            app["thermistor_max_power_text_from_record"](joyin_0402_source.iloc[0]),
+            "170mW",
+        )
+
+        reported_rows = app["load_search_dataframe_for_query"](
+            mode,
+            reported_spec,
+            reported_query,
+        )
+        reported_matches = app["run_query_match"](reported_rows, mode, reported_spec)
+        reported_joyin = reported_matches[
+            reported_matches["品牌"].astype(str).str.contains("久尹|JOYIN", case=False, regex=True)
+        ]
+        self.assertFalse(reported_joyin.empty)
+        self.assertNotIn("完全匹配", set(reported_joyin["推荐等级"]))
+        self.assertEqual(set(reported_joyin["_power"]), {"170mW"})
+        reported_status, reported_reason = app["classify_recommendation_status"](
+            reported_joyin.iloc[0],
+            reported_spec,
+        )
+        self.assertEqual(reported_status, "参数冲突")
+        self.assertIn("最大功率不足", reported_reason)
+
+        reported_display = app["select_component_display_columns"](
+            reported_joyin.head(1),
+            reported_spec,
+            prefix_columns=["品牌", "型号", "推荐等级"],
+        )
+        self.assertIn("功率", reported_display.columns)
+        self.assertEqual(reported_display.iloc[0]["功率"], "170mW")
+
+        complete_query = "Thermistor NTC 10K OHM 170mW 1% 0402 SMD B25/50=3370K ±1%"
+        complete_mode, complete_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), complete_query)
+        self.assertEqual(complete_mode, "热敏电阻")
+        self.assertEqual(complete_spec["B值"], "3370K")
+        self.assertEqual(complete_spec["B值误差"], "1")
+        self.assertEqual(complete_spec["B值条件"], "25/50℃")
+        complete_rows = app["load_search_dataframe_for_query"](
+            complete_mode,
+            complete_spec,
+            complete_query,
+        )
+        complete_matches = app["run_query_match"](complete_rows, complete_mode, complete_spec)
+        complete_joyin = complete_matches[
+            complete_matches["型号"].map(app["clean_model"]).isin(
+                {
+                    "JSNA103F337FABXG",
+                    "JSNA103F337GABXG",
+                    "JSNA103F337HABXG",
+                    "JSNA103F337JABXG",
+                }
+            )
+        ]
+        complete_levels = dict(
+            zip(complete_joyin["型号"].map(app["clean_model"]), complete_joyin["推荐等级"])
+        )
+        self.assertEqual(complete_levels["JSNA103F337FABXG"], "完全匹配")
+        for model in ("JSNA103F337GABXG", "JSNA103F337HABXG", "JSNA103F337JABXG"):
+            self.assertEqual(complete_levels[model], "需确认替代")
 
 
 if __name__ == "__main__":
