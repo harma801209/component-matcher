@@ -3537,3 +3537,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fixed a mixed-source lookup defect where any old `components.db` hit prevented missing product-number rows from being loaded from the public search sidecar. Database and sidecar candidates are now always merged and deduplicated.
 - Real-cache checks return Epson exact PNs for `32.768kHz / 3215 / 7pF / ±20ppm`, five Epson alternatives for `25MHz / 3225 / 3.3V / CMOS / ±50ppm`, and Epson alternatives from an Abracon exact-model query. Legacy `20PPM` rows remain compatible with normalized `20` queries.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `93` and `PUBLIC_CODE_STAMP` to `2026-07-16T22:31:00+08:00`. The 23-test release safety gate passed with isolated databases and unchanged protected runtime fingerprints.
+
+### 2026-07-17 [timing library] Add official multi-brand crystal and oscillator coverage
+
+- Added a repeatable official-data synchronizer for Abracon, Kyocera, NDK, KDS, TXC, Murata, and SiTime timing products. The generated source contains 29,075 rows across 13 normalized brand labels: 7,736 crystal units and 21,339 oscillators.
+- Preserved source precision instead of presenting every row as an exact part number: 23,726 official part numbers, 4,011 NDK model/frequency/specification combinations, 968 official templates, 266 official series ranges, and 104 configurable series. Non-exact rows are displayed as `需确认配置`.
+- Extended the public search sidecar with timing frequency ranges/options, tolerance/voltage/load options, storage temperature, frequency-temperature characteristic, overtone, AEC grade, package quantity, official specification number, long-term stability, and phase noise.
+- Updated timing result tables to display those fields and normalized legacy Epson/Kyocera/KDS/Murata/NDK/TXC/Abracon/SiTime brand aliases. Rich official rows now replace duplicate legacy seed rows for the same product number.
+- Real-cache checks return Kyocera, Abracon, Fox, NDK, Epson, and other valid brands for representative crystal and oscillator specifications. Focused Epson and multi-brand timing tests pass.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `94` and `PUBLIC_CODE_STAMP` to `2026-07-17T00:22:00+08:00`. Protected member, cost-list, and no-match databases are not modified by the synchronizer.
