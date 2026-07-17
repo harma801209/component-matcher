@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 96
+QUERY_RESULT_CACHE_VERSION = 97
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-17T20:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-17T23:10:00+08:00"
 
 
 def startup_trace(message):
@@ -7401,6 +7401,7 @@ BRAND_DISPLAY_ALIAS_TEXT_COLUMNS = {
     "其他品牌型号",
     "前5个其他品牌型号",
     "推荐理由",
+    "待确认参数",
     "匹配参数明细",
     "规格参数明细",
 }
@@ -7460,6 +7461,19 @@ def extract_model_like_tokens(text):
     ):
         tokens.append(whole)
         seen.add(whole)
+    # Some BOMs join an Epson series name and its official product number with
+    # an underscore, for example SG2520HGN_X1G0058910005.  Keep the compound
+    # token for an exact lookup, but also expose each model-like segment so the
+    # official product number can still resolve.
+    if not has_separators:
+        for segment in re.split(r"[_:]+", raw):
+            compact = clean_model(segment.strip(".,;:|()[]{}'\"`´‘’“”＇＂"))
+            if compact == "" or compact in seen or len(compact) < 6:
+                continue
+            if not (re.search(r"[A-Z]", compact) and re.search(r"\d", compact)):
+                continue
+            tokens.append(compact)
+            seen.add(compact)
     for token in re.findall(r"[A-Z0-9][A-Z0-9._/+\\-]{4,}", raw):
         compact = clean_model(token.strip(".,;:|()[]{}'\"`´‘’“”＇＂"))
         if compact == "" or compact in seen or len(compact) < 6:
@@ -7474,7 +7488,16 @@ def load_component_rows_by_query_model_tokens(query_text):
     tokens = extract_model_like_tokens(query_text)
     if not tokens:
         return pd.DataFrame(), [], ""
-    for token in tokens:
+    whole = clean_model(query_text)
+    ordered_tokens = sorted(
+        tokens,
+        key=lambda token: (
+            0 if token == whole else 1,
+            0 if len(token) >= 12 and sum(char.isdigit() for char in token) >= 6 else 1,
+            -len(token),
+        ),
+    )
+    for token in ordered_tokens:
         rows = load_component_rows_by_clean_models_map([token], use_database=False).get(clean_model(token), pd.DataFrame())
         if isinstance(rows, pd.DataFrame) and not rows.empty:
             return rows, tokens, token
@@ -20010,6 +20033,7 @@ def build_component_column_config(columns, spec_or_type=None):
         "其他品牌型号": "large",
         "规格参数明细": "large",
         "匹配参数明细": "large",
+        "待确认参数": "large",
         "长度（mm）": "small",
         "宽度（mm）": "small",
         "高度（mm）": "small",
@@ -21111,6 +21135,19 @@ def timing_detail_candidate_state(row, spec):
 
 
 def timing_query_has_complete_details(spec, component_type):
+    if component_type == "实时时钟模块":
+        return all(
+            clean_text(value) != ""
+            for value in [
+                spec.get("封装代码", "") or spec.get("尺寸（mm）", ""),
+                spec.get("接口类型", ""),
+                spec.get("耐压（V）", "") or spec.get("电源电压", ""),
+                spec.get("计时电压（V）", ""),
+                spec.get("备用电流（µA）", ""),
+                spec.get("工作温度", ""),
+                spec.get("频率温度特性（ppm）", "") or spec.get("容值误差", ""),
+            ]
+        )
     work_temp = clean_text(spec.get("工作温度", ""))
     aging = clean_text(spec.get("25℃老化（ppm）", ""))
     if work_temp == "" or aging == "":
@@ -24218,6 +24255,7 @@ def build_bom_display_df(result_df):
         "BOM数量",
         "匹配参数明细",
         "首选推荐等级",
+        "待确认参数",
         "推荐品牌",
         "推荐型号",
         "推荐品牌1",
@@ -31219,7 +31257,11 @@ def reverse_spec(df, model, cache_signature=None):
             "输出类型": clean_text(row.get("输出类型", "")),
             "占空比": clean_text(row.get("占空比", "")),
             "负载电容（pF）": clean_text(row.get("负载电容（pF）", "")),
+            "ESR": clean_text(row.get("ESR", "")),
             "驱动电平": clean_text(row.get("驱动电平", "")),
+            "长期稳定度": clean_text(row.get("长期稳定度", "")),
+            "相位噪声": clean_text(row.get("相位噪声", "")),
+            "相位抖动": clean_text(row.get("相位抖动", "")),
         }
         if parsed_rule is not None and parsed_rule_matches_record_family(component_type, parsed_rule):
             row_is_jianghai = (
@@ -31402,7 +31444,7 @@ def format_display_df(show_df):
         "信昌料号","华科料号","前5个其他品牌型号","其他品牌型号",
         "器件类别","系列","系列说明","尺寸（inch）","封装代码","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","直径（mm）",
         "材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途",
-        "备注1","备注2","备注3","规格参数明细","匹配参数明细",
+        "备注1","备注2","备注3","规格参数明细","匹配参数明细","待确认参数",
         "成本","MOQ",
         "功率","脚距","安规","规格","压敏电压","生产状态","极性","ESR","纹波电流",
         "阻值@25C","阻值单位","阻值误差","B值","B值误差","B值条件",
@@ -31804,9 +31846,9 @@ def estimate_result_table_column_width(col, values, header_label):
         width = max(width, 112)
     if col_text in {clean_text("尺寸（inch）"), clean_text("容值"), clean_text("容值误差"), clean_text("耐压（V）")}:
         width = max(width, 92)
-    if col_text in {clean_text("BOM规格"), clean_text("BOM品名"), clean_text("其他品牌型号"), clean_text("关键规格"), clean_text("差异说明"), clean_text("解析输入"), clean_text("规格参数明细"), clean_text("匹配参数明细")}:
+    if col_text in {clean_text("BOM规格"), clean_text("BOM品名"), clean_text("其他品牌型号"), clean_text("关键规格"), clean_text("差异说明"), clean_text("解析输入"), clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("待确认参数")}:
         width = max(width, 160)
-    if col_text in {clean_text("规格参数明细"), clean_text("匹配参数明细")}:
+    if col_text in {clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("待确认参数")}:
         width = max(width, 200)
     return max(78, min(width, 320))
 
@@ -33345,6 +33387,154 @@ def collect_recommendation_warnings(row, spec):
     return warnings_list
 
 
+MATCH_CONFIRMATION_COLUMN = "待确认参数"
+PARTIAL_MATCH_LEVELS = {"部分参数匹配", "需确认配置", "需确认替代"}
+
+
+def first_confirmation_value(record, fields):
+    for field in fields:
+        value = clean_text(record.get(field, ""))
+        if value != "":
+            return value
+    return ""
+
+
+def timing_confirmation_field_groups(component_type, spec):
+    common = [
+        ("封装尺寸", ("尺寸（inch）", "封装代码", "尺寸（mm）")),
+        ("频率", ("容值", "输出频率", "频率")),
+        ("频率误差", ("容值误差", "频差（ppm）")),
+        ("工作温度", ("工作温度",)),
+    ]
+    if component_type == "实时时钟模块":
+        return common + [
+            ("接口类型", ("接口类型",)),
+            ("接口/电源电压", ("耐压（V）", "电源电压")),
+            ("计时电压", ("计时电压（V）",)),
+            ("备用电流", ("备用电流（µA）",)),
+        ]
+    if component_type == "振荡器":
+        return common + [
+            ("电源电压", ("耐压（V）", "电源电压")),
+            ("输出类型", ("输出类型",)),
+            ("占空比", ("占空比",)),
+            ("老化", ("25℃老化（ppm）", "长期稳定度")),
+            ("相位噪声/抖动", ("相位噪声", "相位抖动")),
+        ]
+
+    fields = common + [
+        ("负载电容(CL)", ("负载电容（pF）",)),
+        ("ESR", ("ESR",)),
+        ("驱动电平", ("驱动电平",)),
+        ("老化", ("25℃老化（ppm）", "长期稳定度")),
+        ("泛音阶次", ("泛音阶次",)),
+    ]
+    unit = clean_text(spec.get("容值单位", "")).upper()
+    try:
+        frequency = float(clean_text(spec.get("容值", "")))
+    except Exception:
+        frequency = None
+    if unit == "KHZ" and frequency is not None and frequency <= 100:
+        fields.extend(
+            [
+                ("拐点温度", ("拐点温度",)),
+                ("抛物线系数", ("抛物线系数（ppm/℃²）",)),
+            ]
+        )
+    else:
+        fields.append(("频率温度特性", ("频率温度特性（ppm）",)))
+    return fields
+
+
+def timing_match_confirmation_detail(row, spec, component_type):
+    source_missing = []
+    candidate_missing = []
+    customer_confirm = []
+    for label, fields in timing_confirmation_field_groups(component_type, spec):
+        source_value = first_confirmation_value(spec, fields)
+        candidate_value = first_confirmation_value(row, fields)
+        if source_value == "":
+            source_missing.append(label)
+            customer_confirm.append(label)
+        if candidate_value == "":
+            candidate_missing.append(label)
+
+    differences = collect_recommendation_conflicts(row, spec)
+    if component_type == "晶振":
+        source_esr_text = re.sub(r"(?i)(MAX|TYP|MIN).*$", "", clean_text(spec.get("ESR", ""))).strip()
+        candidate_esr_text = re.sub(r"(?i)(MAX|TYP|MIN).*$", "", clean_text(row.get("ESR", ""))).strip()
+        source_esr = parse_resistive_measurement_to_ohms(source_esr_text, default_unit="Ω")
+        candidate_esr = parse_resistive_measurement_to_ohms(candidate_esr_text, default_unit="Ω")
+        if source_esr is not None and candidate_esr is not None and candidate_esr > source_esr + 1e-9:
+            differences.append(
+                f"候选ESR {clean_text(row.get('ESR', ''))}高于原型号{clean_text(spec.get('ESR', ''))}"
+            )
+        engineering_confirm = ["焊盘/高度", "振荡电路负阻裕量"]
+        if "ESR" in candidate_missing or "驱动电平" in candidate_missing:
+            engineering_confirm.append("ESR与驱动电平")
+    elif component_type == "振荡器":
+        engineering_confirm = [
+            "输出摆幅与终端负载",
+            "OE/ST功能及脚位",
+            "上升/下降时间",
+            "相位抖动/相位噪声",
+        ]
+    else:
+        engineering_confirm = [
+            "封装焊盘与脚位",
+            "I²C地址及寄存器兼容性",
+            "闹钟/定时器/CLKOUT功能",
+            "上电与备份切换行为",
+        ]
+
+    parts = []
+    if source_missing:
+        parts.append("原型号资料缺少：" + "、".join(dict.fromkeys(source_missing)))
+    if candidate_missing:
+        parts.append("候选资料缺少：" + "、".join(dict.fromkeys(candidate_missing)))
+    if differences:
+        parts.append("已知差异：" + "；".join(dict.fromkeys(differences)))
+    confirmation_items = list(dict.fromkeys(customer_confirm + engineering_confirm))
+    if confirmation_items:
+        parts.append("需向客户/工程确认：" + "、".join(confirmation_items))
+    return "；".join(parts)
+
+
+def build_match_confirmation_detail(row, spec):
+    if row is None or spec is None:
+        return ""
+    level = get_match_level_for_recommendation(row, spec)
+    if level not in PARTIAL_MATCH_LEVELS:
+        return ""
+    component_type = infer_spec_component_type(spec)
+    if component_type in TIMING_COMPONENT_TYPES:
+        detail = timing_match_confirmation_detail(row, spec, component_type)
+        if detail != "":
+            return detail
+
+    conflicts = collect_recommendation_conflicts(row, spec)
+    warnings_list = collect_recommendation_warnings(row, spec)
+    parts = []
+    if conflicts:
+        parts.append("已知差异：" + "；".join(dict.fromkeys(conflicts)))
+    if warnings_list:
+        parts.append("缺失参数：" + "；".join(dict.fromkeys(warnings_list)))
+    if not parts:
+        parts.append("需向客户/工程确认：完整规格书、封装尺寸、工作条件及应用兼容性")
+    return "；".join(parts)
+
+
+def add_match_confirmation_column(frame, spec):
+    if frame is None or frame.empty:
+        return frame
+    out = frame.copy()
+    out[MATCH_CONFIRMATION_COLUMN] = out.apply(
+        lambda row: build_match_confirmation_detail(row, spec),
+        axis=1,
+    )
+    return out
+
+
 def get_match_level_for_recommendation(row, spec):
     level = clean_text(row.get("推荐等级", ""))
     if level != "":
@@ -33662,7 +33852,27 @@ def detect_query_mode_and_spec(df, line):
                 return semiconductor_hint, spec
         return "暂不支持", build_unsupported_semiconductor_spec(line, semiconductor_hint)
 
+    if "_" in clean_text(line) and looks_like_compact_part_query(line):
+        compound_rows, _, matched_token = load_component_rows_by_query_model_tokens(line)
+        if (
+            isinstance(compound_rows, pd.DataFrame)
+            and not compound_rows.empty
+            and matched_token != ""
+            and clean_model(matched_token) != clean_model(line)
+        ):
+            compound_spec = reverse_spec(compound_rows, matched_token)
+            if compound_spec is not None:
+                compound_spec["_compound_query"] = clean_text(line)
+                compound_spec["_compound_model_token"] = matched_token
+                return "料号", compound_spec
+
     if looks_like_compact_part_query(line):
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            exact_row = lookup_model_reverse_row(df, line)
+            if exact_row is not None:
+                exact_spec = reverse_spec(df, line)
+                if exact_spec is not None:
+                    return "料号", exact_spec
         parsed_part = parse_model_rule(line)
         if parsed_part is not None and count_core_params(parsed_part) >= 3:
             return "料号", parsed_part
@@ -35488,6 +35698,7 @@ def build_bom_result_row(df, line, export_settings=None):
         "匹配数量": 0,
         "前5个其他品牌型号": "",
         "推荐理由": "",
+        "待确认参数": "",
         "状态": ""
     }
     row.update(empty_bom_own_brand_export_slots())
@@ -35542,6 +35753,7 @@ def build_bom_result_row(df, line, export_settings=None):
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
         row["推荐型号"] = clean_text(display_match.get("型号", ""))
+        row["待确认参数"] = build_match_confirmation_detail(display_match, spec)
     row.update(build_bom_own_brand_export_slots(matched, spec=spec, export_settings=export_settings))
     row.update(
         build_bom_preferred_brand_slots(
@@ -35613,6 +35825,7 @@ def build_bom_upload_result_row(
         "备注2": "",
         "备注3": "",
         "推荐理由": "",
+        "待确认参数": "",
         "状态": "解析失败",
     }
     result_row.update(empty_bom_own_brand_export_slots())
@@ -35692,6 +35905,7 @@ def build_bom_upload_result_row(
         result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
         result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
         result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
+        result_row["待确认参数"] = build_match_confirmation_detail(display_match, spec) if display_match is not None else ""
         result_row.update(
             build_bom_preferred_brand_slots(
                 matched,
@@ -36292,6 +36506,7 @@ def build_bom_own_brand_append_columns(result_df, row_count):
 
     status_values = []
     note_values = []
+    confirmation_values = []
     for row_idx in range(max_len):
         if row_idx < len(result_work):
             row = result_work.iloc[row_idx]
@@ -36302,13 +36517,16 @@ def build_bom_own_brand_append_columns(result_df, row_count):
                     ["推荐理由", "失败原因", "差异说明", "解析说明"],
                 )
             )
+            confirmation_values.append(clean_text(row.get("待确认参数", "")))
         else:
             status_values.append("")
             note_values.append("")
+            confirmation_values.append("")
 
     append_columns = [
         {"header": "匹配状态", "values": status_values},
         {"header": "匹配说明", "values": note_values},
+        {"header": "待确认参数", "values": confirmation_values},
     ]
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
@@ -38130,11 +38348,12 @@ if search_requested:
                     matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                     matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                     matched = ensure_component_display_columns(matched)
+                    matched = add_match_confirmation_column(matched, spec)
                     allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                     show_df = select_component_display_columns(
                         matched,
                         spec,
-                        prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
+                        prefix_columns=["推荐等级", "待确认参数", "品牌", "型号", "器件类别", "系列"],
                         suffix_columns=["备注1", "备注2", "备注3"],
                         allow_online_lookup=allow_online_lookup,
                     )
@@ -38250,11 +38469,12 @@ if search_requested:
                 matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                 matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                 matched = ensure_component_display_columns(matched)
+                matched = add_match_confirmation_column(matched, spec)
                 allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                 show_df = select_component_display_columns(
                     matched,
                     spec,
-                    prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
+                    prefix_columns=["推荐等级", "待确认参数", "品牌", "型号", "器件类别", "系列"],
                     suffix_columns=["备注1", "备注2", "备注3"],
                     allow_online_lookup=allow_online_lookup,
                 )

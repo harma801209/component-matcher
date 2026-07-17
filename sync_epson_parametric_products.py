@@ -210,6 +210,8 @@ RX8025T_DISTRIBUTOR_URL = (
     "https://www.lcsc.com/product-detail/"
     "Real-time-Clocks-RTC_Seiko-Epson-RX8025T-UC_C53691.html"
 )
+TSX3225_LEGACY_REFERENCE_URL = "https://jlcpcb.com/partdetail/SeikoEpson-X1E0000210139/C91750"
+TSX3225_LEGACY_MODELS = ("X1E0000210139", "X1E000021013900")
 RX8025T_VARIANTS = (
     {
         "model": "RX8025T-UB",
@@ -669,6 +671,124 @@ def build_rx8025t_variant_rows(checked_at: str) -> list[dict[str, Any]]:
     return rows
 
 
+def build_tsx3225_legacy_alias_rows(
+    checked_at: str,
+    existing_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing_models = {
+        clean_text(row.get("型号")).upper()
+        for row in existing_rows
+        if clean_text(row.get("型号"))
+    }
+    rows = []
+    for model in TSX3225_LEGACY_MODELS:
+        if model.upper() in existing_models:
+            continue
+        rows.append(
+            {
+                "品牌": BRAND,
+                "型号": model,
+                "系列": "TSX-3225",
+                "尺寸（inch）": "3225",
+                "材质（介质）": "Quartz",
+                "容值": "25",
+                "容值单位": "MHz",
+                "容值误差": "10",
+                "耐压（V）": "",
+                "特殊用途": "",
+                "备注1": "TSX-3225 25.000000 MHz 12.0 +10.0-10.0；历史/包装料号",
+                "备注2": TSX3225_LEGACY_REFERENCE_URL,
+                "备注3": f"{JSON_BASE_URL}xtal_mhz.json",
+                "器件类型": "晶振",
+                "安装方式": "贴片",
+                "封装代码": "3225",
+                "尺寸（mm）": "3.2 x 2.5 x 0.6",
+                "规格摘要": (
+                    f"Epson {model}；TSX-3225；25MHz；3225；±10ppm；"
+                    "12pF；40Ω Max；-40~+85°C；基频；200µW Max"
+                ),
+                "生产状态": "渠道可购，Epson当前参数选型未列出该历史料号",
+                "长度（mm）": "3.2",
+                "宽度（mm）": "2.5",
+                "高度（mm）": "0.6",
+                "官网链接": "https://www.epsondevice.com/crystal/en/products/crystal-unit/tsx3225.html",
+                "数据来源": TSX3225_LEGACY_REFERENCE_URL,
+                "数据状态": "渠道确认的Epson历史/包装料号",
+                "校验时间": checked_at,
+                "校验备注": (
+                    "X1E0000210139为渠道列示制造商料号；X1E000021013900为完整包装/供应链编号；"
+                    "关键电气参数与Epson TSX-3225官方系列资料交叉核对"
+                ),
+                "ESR": "40Ω Max",
+                "工作温度": "-40~+85°C",
+                "系列说明": "Epson TSX-3225 MHz石英晶体单元系列",
+                "输出频率": "",
+                "频率": "25",
+                "频率单位": "MHz",
+                "频差（ppm）": "±10ppm",
+                "电源电压": "",
+                "输出类型": "",
+                "占空比": "",
+                "负载电容（pF）": "12",
+                "驱动电平": "200µW Max",
+                "尺寸来源": "Epson TSX-3225官方系列资料",
+                "型号粒度": "渠道确认精确型号/包装别名",
+                "频率温度特性（ppm）": "±10ppm",
+                "25℃老化（ppm）": "±1ppm",
+                "拐点温度": "",
+                "抛物线系数（ppm/℃²）": "",
+                "泛音阶次": "基频（Fundamental）",
+                "AEC等级": "",
+                "官方规格编号": "X1E0000210139",
+                "接口类型": "",
+                "计时电压（V）": "",
+                "备用电流（µA）": "",
+                "月偏差（s）": "",
+            }
+        )
+    return rows
+
+
+def build_fc2012an_series_alias_rows(
+    checked_at: str,
+    existing_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if any(clean_text(row.get("型号")).upper() == "FC2012AN" for row in existing_rows):
+        return []
+    official_rows = [
+        row
+        for row in existing_rows
+        if clean_text(row.get("系列")).upper() == "FC2012AN"
+        and clean_text(row.get("器件类型")) == "晶振"
+    ]
+    if not official_rows:
+        return []
+    alias = dict(official_rows[0])
+    alias.update(
+        {
+            "型号": "FC2012AN",
+            "负载电容（pF）": "",
+            "ESR": "60kΩ Max",
+            "驱动电平": "0.5µW Max",
+            "25℃老化（ppm）": "±3ppm",
+            "拐点温度": "+25℃ ±5℃",
+            "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+            "泛音阶次": "基频（Fundamental）",
+            "备注1": "FC2012AN官方系列型号；具体负载电容与产品编号需确认",
+            "规格摘要": (
+                "Epson FC2012AN；32.768kHz；2012；±20ppm；-40~+105°C；"
+                "ESR 60kΩ Max；0.5µW Max；基频；负载电容需指定"
+            ),
+            "数据状态": "Epson官方系列级参数",
+            "校验时间": checked_at,
+            "校验备注": "系列公共参数来自Epson官方FC2012AN资料；具体负载电容和下单PN需确认",
+            "型号粒度": "官方系列型号/具体PN需确认",
+            "官方规格编号": "",
+        }
+    )
+    return [alias]
+
+
 def build_http_session() -> requests.Session:
     retry = Retry(
         total=6,
@@ -714,6 +834,12 @@ def fetch_official_rows(timeout: int = 45) -> tuple[pd.DataFrame, dict[str, int]
         supplemental_rows = build_rx8025t_variant_rows(checked_at)
         counts["rx8025t_channel_variants"] = len(supplemental_rows)
         rows.extend(supplemental_rows)
+        legacy_rows = build_tsx3225_legacy_alias_rows(checked_at, rows)
+        counts["tsx3225_legacy_aliases"] = len(legacy_rows)
+        rows.extend(legacy_rows)
+        fc2012an_aliases = build_fc2012an_series_alias_rows(checked_at, rows)
+        counts["fc2012an_series_aliases"] = len(fc2012an_aliases)
+        rows.extend(fc2012an_aliases)
     finally:
         session.close()
 

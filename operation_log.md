@@ -3562,3 +3562,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Exact-model lookup now checks the fast SQLite sidecar before scanning the 1.5GB component database. Reverse lookup retains RTC and detailed crystal/oscillator fields instead of dropping them.
 - The Epson source now has 6,158 rows. Both runtime caches contain `RX8025T-UC`; real lookup returns one Epson RTC row, and exact recognition takes 0.032 seconds after candidate loading with I²C, 1.8~5.5V timekeeping voltage, and 0.8µA typical backup current present.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `96` and `PUBLIC_CODE_STAMP` to `2026-07-17T20:30:00+08:00`. All 16 Epson integration tests pass; the complete 23-test release safety gate passes with isolated databases and unchanged protected member, cost-list, and no-match fingerprints.
+
+### 2026-07-18 [timing matching] Explain partial Epson cross-brand alternatives
+
+- Added exact recognition for Epson `X1E0000210139` / `X1E000021013900`, the official `FC2012AN` series alias, and compound series-plus-product-number inputs such as `SG2520HGN_X1G0058910005`.
+- Exact database timing records now take priority over generic model-rule decoding, preserving ESR, drive level, aging, turnover temperature, parabolic coefficient, overtone, long-term stability, and phase-noise data when available.
+- Added `待确认参数` to normal result tables, BOM result views, and downloaded BOM Excel. Partial crystal, oscillator, and RTC rows distinguish source-data gaps, candidate-data gaps, known differences, and the exact customer/engineering checks still required.
+- Cross-brand replay: RX8025T-UC/UB have no safe non-Epson RTC substitute; FC2012AN has seven NDK/TXC partial candidates; X1E000021013900 has no compatible non-Epson row because available candidates conflict on temperature/ppm/ESR; SG2520HGN_X1G0058910005 has eight Abracon partial HCSL candidates requiring output/pin/jitter confirmation.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `97` and `PUBLIC_CODE_STAMP` to `2026-07-17T23:10:00+08:00`. The Epson source adds only three rows; existing validation timestamps are preserved and protected runtime databases are not rewritten.

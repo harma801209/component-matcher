@@ -173,6 +173,250 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         self.assertEqual(aliases[0]["官方规格编号"], "")
         self.assertIn("具体PN需确认", aliases[0]["型号粒度"])
 
+    def test_tsx3225_legacy_and_packaging_aliases_are_searchable_rows(self):
+        rows = epson_sync.build_tsx3225_legacy_alias_rows(
+            "2026-07-17 22:00:00",
+            existing_rows=[],
+        )
+
+        self.assertEqual(
+            {row["型号"] for row in rows},
+            {"X1E0000210139", "X1E000021013900"},
+        )
+        for row in rows:
+            self.assertEqual(row["系列"], "TSX-3225")
+            self.assertEqual(row["器件类型"], "晶振")
+            self.assertEqual(row["尺寸（inch）"], "3225")
+            self.assertEqual(row["容值"], "25")
+            self.assertEqual(row["容值误差"], "10")
+            self.assertEqual(row["负载电容（pF）"], "12")
+            self.assertEqual(row["工作温度"], "-40~+85°C")
+            self.assertIn("历史/包装料号", row["数据状态"])
+
+    def test_compound_epson_series_and_product_number_exposes_exact_token(self):
+        tokens = cm.extract_model_like_tokens("SG2520HGN_X1G0058910005")
+
+        self.assertEqual(tokens[0], "SG2520HGN_X1G0058910005")
+        self.assertIn("SG2520HGN", tokens)
+        self.assertIn("X1G0058910005", tokens)
+
+    def test_compound_epson_query_prefers_official_product_number_over_series(self):
+        exact_row = cm.prepare_search_dataframe(cm.normalize_imported_component_dataframe(pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1G0058910005",
+                    "系列": "SG2520HGN",
+                    "器件类型": "振荡器",
+                    "尺寸（inch）": "2520",
+                    "容值": "100",
+                    "容值单位": "MHz",
+                    "容值误差": "25",
+                    "输出类型": "HCSL",
+                }
+            ]
+        )))
+        with mock.patch.object(
+            cm,
+            "load_component_rows_by_query_model_tokens",
+            return_value=(exact_row, ["SG2520HGN", "X1G0058910005"], "X1G0058910005"),
+        ):
+            mode, spec = cm.detect_query_mode_and_spec(
+                pd.DataFrame(),
+                "SG2520HGN_X1G0058910005",
+            )
+
+        self.assertEqual(mode, "料号")
+        self.assertEqual(spec["型号"], "X1G0058910005")
+        self.assertEqual(spec["容值"], "100")
+        self.assertEqual(spec["输出类型"], "HCSL")
+
+    def test_structured_bom_text_with_package_underscore_remains_a_spec_query(self):
+        query = "1u,10V Capacitor C_0402 TCC0402X5R105K100AT"
+
+        mode, spec = cm.detect_query_mode_and_spec(pd.DataFrame(), query)
+
+        self.assertEqual(mode, "规格")
+        self.assertEqual(spec["尺寸（inch）"], "0402")
+        self.assertEqual(spec["容值_pf"], 1_000_000.0)
+        self.assertEqual(cm.clean_voltage(spec["耐压（V）"]), "10")
+
+    def test_fc2012an_series_alias_keeps_official_common_details(self):
+        product_row = {
+            "品牌": "爱普生Epson",
+            "型号": "X1A0001710001",
+            "系列": "FC2012AN",
+            "器件类型": "晶振",
+            "尺寸（inch）": "2012",
+            "容值": "32.768",
+            "容值单位": "kHz",
+            "容值误差": "20",
+            "负载电容（pF）": "12.5",
+            "工作温度": "-40~+105°C",
+            "ESR": "60kΩ Max",
+            "驱动电平": "0.5µW Max",
+            "25℃老化（ppm）": "±3ppm",
+            "拐点温度": "+25℃ ±5℃",
+            "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+            "泛音阶次": "基频（Fundamental）",
+        }
+        aliases = epson_sync.build_fc2012an_series_alias_rows(
+            "2026-07-17 23:00:00",
+            [product_row],
+        )
+
+        self.assertEqual(len(aliases), 1)
+        alias = aliases[0]
+        self.assertEqual(alias["型号"], "FC2012AN")
+        self.assertEqual(alias["负载电容（pF）"], "")
+        self.assertEqual(alias["ESR"], "60kΩ Max")
+        self.assertEqual(alias["25℃老化（ppm）"], "±3ppm")
+        self.assertEqual(alias["泛音阶次"], "基频（Fundamental）")
+        self.assertIn("具体PN需确认", alias["型号粒度"])
+
+    def test_exact_timing_database_row_precedes_generic_model_rule(self):
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "品牌": "爱普生Epson",
+                            "型号": "FC2012AN",
+                            "系列": "FC2012AN",
+                            "器件类型": "晶振",
+                            "尺寸（inch）": "2012",
+                            "容值": "32.768",
+                            "容值单位": "kHz",
+                            "容值误差": "20",
+                            "工作温度": "-40~+105°C",
+                            "ESR": "60kΩ Max",
+                            "驱动电平": "0.5µW Max",
+                            "泛音阶次": "基频（Fundamental）",
+                        }
+                    ]
+                )
+            )
+        )
+
+        mode, spec = cm.detect_query_mode_and_spec(prepared, "FC2012AN")
+
+        self.assertEqual(mode, "料号")
+        self.assertEqual(spec["ESR"], "60kΩ Max")
+        self.assertEqual(spec["驱动电平"], "0.5µW Max")
+        self.assertEqual(spec["泛音阶次"], "基频（Fundamental）")
+
+    def test_partial_crystal_match_lists_missing_and_different_parameters(self):
+        spec = {
+            "型号": "FC2012AN",
+            "器件类型": "晶振",
+            "尺寸（inch）": "2012",
+            "容值": "32.768",
+            "容值单位": "kHz",
+            "容值误差": "20",
+            "工作温度": "-40~+105°C",
+            "ESR": "60kΩ Max",
+            "驱动电平": "0.5µW Max",
+            "25℃老化（ppm）": "±3ppm",
+            "拐点温度": "+25℃ ±5℃",
+            "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+            "泛音阶次": "基频（Fundamental）",
+        }
+        candidate = pd.Series(
+            {
+                "推荐等级": "部分参数匹配",
+                "品牌": "NDK",
+                "型号": "NX2012SA",
+                "尺寸（inch）": "2012",
+                "容值": "32.768",
+                "容值单位": "kHz",
+                "容值误差": "20",
+                "工作温度": "-40~+105°C",
+                "负载电容（pF）": "12.5",
+                "ESR": "80kΩ Max",
+            }
+        )
+
+        detail = cm.build_match_confirmation_detail(candidate, spec)
+
+        self.assertIn("原型号资料缺少：负载电容(CL)", detail)
+        self.assertIn("候选资料缺少", detail)
+        self.assertIn("候选ESR 80kΩ Max高于原型号60kΩ Max", detail)
+        self.assertIn("振荡电路负阻裕量", detail)
+
+    def test_partial_hcsl_oscillator_match_calls_out_jitter_and_pin_checks(self):
+        spec = {
+            "型号": "X1G0058910005",
+            "器件类型": "振荡器",
+            "尺寸（inch）": "2520",
+            "容值": "100",
+            "容值单位": "MHz",
+            "容值误差": "25",
+            "耐压（V）": "3.135~3.465",
+            "工作温度": "-40~+85°C",
+            "输出类型": "HCSL",
+            "占空比": "45~55%",
+            "25℃老化（ppm）": "包含在总频差内（10年）",
+        }
+        candidate = pd.Series(
+            {
+                "推荐等级": "部分参数匹配",
+                "品牌": "Abracon",
+                "型号": "AK2AAIGHDF1-100.0000T",
+                "尺寸（inch）": "2520",
+                "容值": "100",
+                "容值单位": "MHz",
+                "容值误差": "25",
+                "电源电压": "3.3",
+                "工作温度": "-40~+85°C",
+                "输出类型": "HCSL",
+                "占空比": "45~55%",
+            }
+        )
+
+        detail = cm.build_match_confirmation_detail(candidate, spec)
+
+        self.assertIn("候选资料缺少：老化、相位噪声/抖动", detail)
+        self.assertIn("输出摆幅与终端负载", detail)
+        self.assertIn("OE/ST功能及脚位", detail)
+        self.assertIn("相位抖动/相位噪声", detail)
+
+    def test_bom_export_includes_detailed_confirmation_column(self):
+        upload_df = pd.DataFrame({"原型号": ["FC2012AN", "RX8025T-UC"]})
+        result_df = pd.DataFrame(
+            {
+                "状态": ["需确认", "无匹配"],
+                "推荐理由": ["存在部分参数匹配", "暂无跨品牌候选"],
+                "待确认参数": [
+                    "原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+                    "需向客户/工程确认：封装与引脚定义、I²C地址与寄存器兼容性",
+                ],
+            }
+        )
+
+        export_df = cm.build_bom_matched_export_df(upload_df, result_df)
+
+        self.assertIn("待确认参数", export_df.columns)
+        self.assertEqual(export_df.loc[0, "待确认参数"], result_df.loc[0, "待确认参数"])
+        self.assertEqual(export_df.loc[1, "待确认参数"], result_df.loc[1, "待确认参数"])
+
+    def test_rtc_query_completeness_requires_interface_and_backup_details(self):
+        incomplete = {
+            "器件类型": "实时时钟模块",
+            "封装代码": "SOP-14-208mil",
+            "接口类型": "I²C",
+            "工作温度": "-40~+85°C",
+            "容值误差": "5",
+        }
+        complete = {
+            **incomplete,
+            "耐压（V）": "2.2~5.5",
+            "计时电压（V）": "1.8~5.5",
+            "备用电流（µA）": "0.8 Typ.",
+        }
+
+        self.assertFalse(cm.timing_query_has_complete_details(incomplete, "实时时钟模块"))
+        self.assertTrue(cm.timing_query_has_complete_details(complete, "实时时钟模块"))
+
     def test_runtime_cache_preparation_keeps_multibrand_timing_rows(self):
         epson_frame = pd.DataFrame(
             [
