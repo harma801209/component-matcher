@@ -3554,3 +3554,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - A complete oscillator search now requires operating temperature and aging. A complete MHz crystal search additionally requires temperature characteristic and overtone; a complete low-frequency kHz crystal search requires turnover temperature and parabolic coefficient.
 - Epson cache refresh now merges the multi-brand official timing CSV before rebuilding runtime caches, preserving Abracon, Kyocera, NDK, KDS, TXC, Murata, SiTime, and other official timing rows.
 - Focused integration tests pass, and real-cache replays verify full Epson crystal/oscillator matches plus sparse-query downgrading. Raised `QUERY_RESULT_CACHE_VERSION` to `95` and `PUBLIC_CODE_STAMP` to `2026-07-17T01:18:00+08:00`.
+
+### 2026-07-17 [Epson RTC matching] Recognize RX8025T-UC and import RTC data
+
+- Reproduced `RX8025T-UC` returning `无法识别输入内容`. The part is an Epson RTC module with a built-in 32.768kHz compensated crystal, while the previous Epson synchronizer covered only crystal units and oscillators.
+- Added Epson's official 66-row RTC feed, official product-number records, confirmation-required series aliases, and source-labeled China-market `RX8025T-UB/UC` exact rows. Added a dedicated `实时时钟模块（RTC Module）` display with interface, timekeeping voltage, backup current, monthly deviation, package, temperature, and source status.
+- Exact-model lookup now checks the fast SQLite sidecar before scanning the 1.5GB component database. Reverse lookup retains RTC and detailed crystal/oscillator fields instead of dropping them.
+- The Epson source now has 6,158 rows. Both runtime caches contain `RX8025T-UC`; real lookup returns one Epson RTC row, and exact recognition takes 0.032 seconds after candidate loading with I²C, 1.8~5.5V timekeeping voltage, and 0.8µA typical backup current present.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `96` and `PUBLIC_CODE_STAMP` to `2026-07-17T20:30:00+08:00`. All 16 Epson integration tests pass; the complete 23-test release safety gate passes with isolated databases and unchanged protected member, cost-list, and no-match fingerprints.
