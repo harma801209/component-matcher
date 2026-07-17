@@ -195,7 +195,33 @@ SOURCE_SPECS = {
         "pdf_dir": "td_vcxo_vcso_mhz",
         "special": "压控",
     },
+    "rtc.json": {
+        "component_type": "实时时钟模块",
+        "category": "RTC实时时钟模块",
+        "frequency_unit": "kHz",
+        "fixed_frequency": "32.768",
+        "pdf_dir": "",
+        "special": "内置32.768kHz晶体",
+    },
 }
+
+RX8025T_REFERENCE_URL = "https://www.nscn.cn/tech/rx8025t-ub-uc.html"
+RX8025T_DISTRIBUTOR_URL = (
+    "https://www.lcsc.com/product-detail/"
+    "Real-time-Clocks-RTC_Seiko-Epson-RX8025T-UC_C53691.html"
+)
+RX8025T_VARIANTS = (
+    {
+        "model": "RX8025T-UB",
+        "temperature": "-40~+85°C",
+        "grade": "工业级/内置DTCXO",
+    },
+    {
+        "model": "RX8025T-UC",
+        "temperature": "-30~+70°C",
+        "grade": "商业级/内置DTCXO",
+    },
+)
 
 
 def clean_text(value: Any) -> str:
@@ -287,6 +313,7 @@ def frequency_temperature_characteristic(product: dict[str, Any]) -> str:
     raw = (
         product.get("frequencyTolTempRange")
         or product.get("frequencyTolOpTemp")
+        or product.get("frequncyTol")
     )
     normalized = normalize_frequency_tolerance(raw)
     return f"±{normalized}ppm" if normalized else ""
@@ -328,6 +355,7 @@ def temperature_text(product: dict[str, Any]) -> str:
         product.get("operatingTempRange")
         or product.get("tempRange")
         or product.get("operatingTemp")
+        or product.get("operTemperature")
     )
     if direct:
         direct = html.unescape(direct).replace("−", "-").replace("＋", "+")
@@ -342,6 +370,9 @@ def temperature_text(product: dict[str, Any]) -> str:
 
 
 def voltage_text(product: dict[str, Any]) -> str:
+    direct = clean_text(product.get("operVoltage"))
+    if direct:
+        return re.sub(r"\s+to\s+", "~", direct, flags=re.I).replace(" ", "")
     low = decimal_text(product.get("supplyVoltageMin"))
     typical = decimal_text(product.get("supplyVoltageTyp"))
     high = decimal_text(product.get("supplyVoltageMax"))
@@ -374,7 +405,12 @@ def special_use_text(product: dict[str, Any], source_spec: dict[str, Any]) -> st
 
 def product_page_url(component_type: str, model: str) -> str:
     slug = re.sub(r"[^a-z0-9]", "", model.lower())
-    family = "crystal-unit" if component_type == "晶振" else "crystal-oscillator"
+    if component_type == "晶振":
+        family = "crystal-unit"
+    elif component_type == "实时时钟模块":
+        family = "rtc"
+    else:
+        family = "crystal-oscillator"
     return f"{PRODUCT_BASE_URL}{family}/{slug}.html"
 
 
@@ -384,6 +420,8 @@ def datasheet_url(product: dict[str, Any], source_spec: dict[str, Any]) -> str:
     model = clean_text(product.get("model"))
     pn = clean_text(product.get("pn"))
     pdf_dir = clean_text(source_spec.get("pdf_dir"))
+    if pdf_dir == "":
+        return ""
     if source_spec.get("series_pdf"):
         filename = f"{model}_en.pdf"
     else:
@@ -414,6 +452,16 @@ def build_summary(
         f"负载电容{clean_text(product.get('loadCapPf') or product.get('loadCap'))}pF"
         if clean_text(product.get("loadCapPf") or product.get("loadCap"))
         else "",
+        f"接口{clean_text(product.get('interface'))}" if clean_text(product.get("interface")) else "",
+        f"计时电压{clean_text(product.get('clockVoltage'))}V"
+        if clean_text(product.get("clockVoltage"))
+        else "",
+        f"备用电流{clean_text(product.get('backUpCurrent'))}µA"
+        if clean_text(product.get("backUpCurrent"))
+        else "",
+        f"月偏差{clean_text(product.get('monthlyDeviation_sec'))}s"
+        if clean_text(product.get("monthlyDeviation_sec"))
+        else "",
         temperature_text(product),
         f"温度特性{temp_characteristic}" if temp_characteristic else "",
         f"25℃老化{aging}" if aging else "",
@@ -434,17 +482,26 @@ def build_product_row(
     component_type = clean_text(source_spec["component_type"])
     model = clean_text(product.get("model"))
     pn = clean_text(product.get("pn"))
-    frequency = decimal_text(
-        product.get("frequencyMin"),
+    fixed_frequency = clean_text(source_spec.get("fixed_frequency"))
+    frequency = fixed_frequency or decimal_text(
+        product.get(clean_text(source_spec.get("frequency_field")) or "frequencyMin"),
         multiplier=clean_text(source_spec.get("frequency_multiplier")) or "1",
     )
     tolerance = (
         normalize_frequency_tolerance(product.get("frequencyTol25C"))
         if component_type == "晶振"
-        else oscillator_tolerance(product, source_name)
+        else (
+            normalize_frequency_tolerance(product.get("frequncyTol"))
+            if component_type == "实时时钟模块"
+            else oscillator_tolerance(product, source_name)
+        )
     )
-    voltage = voltage_text(product) if component_type == "振荡器" else ""
-    size_code = package_code(product.get("dimensionL"), product.get("dimensionW"))
+    voltage = voltage_text(product) if component_type in {"振荡器", "实时时钟模块"} else ""
+    size_code = (
+        ""
+        if component_type == "实时时钟模块"
+        else package_code(product.get("dimensionL"), product.get("dimensionW"))
+    )
     size_mm = dimension_text(product)
     source_url = f"{JSON_BASE_URL}{source_name}"
     load_cap = clean_text(product.get("loadCapPf") or product.get("loadCap"))
@@ -476,7 +533,11 @@ def build_product_row(
         "型号": pn,
         "系列": model,
         "尺寸（inch）": size_code,
-        "材质（介质）": "Quartz" if component_type == "晶振" else "",
+        "材质（介质）": (
+            "Quartz"
+            if component_type == "晶振"
+            else ("内置石英晶体/RTC IC" if component_type == "实时时钟模块" else "")
+        ),
         "容值": frequency,
         "容值单位": clean_text(source_spec.get("frequency_unit")),
         "容值误差": tolerance,
@@ -487,7 +548,7 @@ def build_product_row(
         "备注3": source_url,
         "器件类型": component_type,
         "安装方式": "贴片",
-        "封装代码": size_code,
+        "封装代码": clean_text(product.get("pkgType")) if component_type == "实时时钟模块" else size_code,
         "尺寸（mm）": size_mm,
         "规格摘要": build_summary(product, source_spec, frequency, tolerance, voltage),
         "生产状态": "官网选型器可选",
@@ -502,7 +563,7 @@ def build_product_row(
         "ESR": esr,
         "工作温度": temperature_text(product),
         "系列说明": series_desc,
-        "输出频率": frequency if component_type == "振荡器" else "",
+        "输出频率": frequency if component_type in {"振荡器", "实时时钟模块"} else "",
         "频率": frequency if component_type == "晶振" else "",
         "频率单位": clean_text(source_spec.get("frequency_unit")),
         "频差（ppm）": f"±{tolerance}ppm" if tolerance else "",
@@ -519,7 +580,93 @@ def build_product_row(
         "抛物线系数（ppm/℃²）": parabolic,
         "泛音阶次": overtone,
         "AEC等级": aec_grade,
+        "官方规格编号": pn,
+        "接口类型": clean_text(product.get("interface")),
+        "计时电压（V）": re.sub(
+            r"\s+to\s+",
+            "~",
+            clean_text(product.get("clockVoltage")),
+            flags=re.I,
+        ).replace(" ", ""),
+        "备用电流（µA）": clean_text(product.get("backUpCurrent")),
+        "月偏差（s）": clean_text(product.get("monthlyDeviation_sec")),
     }
+
+
+def build_rtc_series_alias_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    aliases: list[dict[str, Any]] = []
+    seen_models: set[str] = set()
+    for row in rows:
+        if clean_text(row.get("器件类型")) != "实时时钟模块":
+            continue
+        model = clean_text(row.get("系列"))
+        if model == "" or model in seen_models:
+            continue
+        seen_models.add(model)
+        alias = dict(row)
+        alias["型号"] = model
+        alias["型号粒度"] = "官方系列型号/具体PN需确认"
+        alias["官方规格编号"] = ""
+        alias["数据状态"] = "Epson官方系列级参数"
+        alias["校验备注"] = "系列型号来自Epson官方RTC参数选型JSON；下单前需确认完整产品编号"
+        aliases.append(alias)
+    return aliases
+
+
+def build_rx8025t_variant_rows(checked_at: str) -> list[dict[str, Any]]:
+    rows = []
+    for variant in RX8025T_VARIANTS:
+        model = clean_text(variant["model"])
+        temperature = clean_text(variant["temperature"])
+        grade = clean_text(variant["grade"])
+        rows.append(
+            {
+                "品牌": BRAND,
+                "型号": model,
+                "系列": "RX8025T",
+                "尺寸（inch）": "",
+                "材质（介质）": "内置32.768kHz DTCXO/RTC IC",
+                "容值": "32.768",
+                "容值单位": "kHz",
+                "容值误差": "5",
+                "耐压（V）": "2.2~5.5",
+                "特殊用途": grade,
+                "备注1": "I²C实时时钟模块；内置32.768kHz数字温度补偿晶体振荡器",
+                "备注2": RX8025T_DISTRIBUTOR_URL if model.endswith("-UC") else "",
+                "备注3": RX8025T_REFERENCE_URL,
+                "器件类型": "实时时钟模块",
+                "安装方式": "贴片",
+                "封装代码": "SOP-14-208mil",
+                "尺寸（mm）": "",
+                "规格摘要": (
+                    f"Epson {model}；RTC实时时钟模块；32.768kHz；"
+                    f"频率温度特性±5ppm；{temperature}；I²C；"
+                    "接口电压2.2~5.5V；计时电压1.8~5.5V；备用电流0.8µA典型"
+                ),
+                "生产状态": "渠道可购，Epson全球参数选型未列出",
+                "官网链接": RX8025T_REFERENCE_URL,
+                "数据来源": RX8025T_REFERENCE_URL,
+                "数据状态": "爱普生授权代理与经销渠道型号资料确认",
+                "校验时间": checked_at,
+                "校验备注": "中国市场型号；参数与型号由爱普生授权代理资料和经销渠道MPN交叉确认",
+                "工作温度": temperature,
+                "系列说明": "Epson RX8025T 内置DTCXO的I²C实时时钟模块",
+                "输出频率": "32.768",
+                "频率单位": "kHz",
+                "频差（ppm）": "±5ppm",
+                "电源电压": "2.2~5.5",
+                "负载电容（pF）": "",
+                "尺寸来源": "渠道资料SOP-14-208mil",
+                "型号粒度": "渠道确认精确型号",
+                "频率温度特性（ppm）": "±5ppm",
+                "AEC等级": "",
+                "接口类型": "I²C",
+                "计时电压（V）": "1.8~5.5",
+                "备用电流（µA）": "0.8 Typ.",
+                "月偏差（s）": "",
+            }
+        )
+    return rows
 
 
 def build_http_session() -> requests.Session:
@@ -563,6 +710,10 @@ def fetch_official_rows(timeout: int = 45) -> tuple[pd.DataFrame, dict[str, int]
                 if clean_text(product.get("pn")) == "" or clean_text(product.get("model")) == "":
                     continue
                 rows.append(build_product_row(product, source_name, source_spec, checked_at))
+        rows.extend(build_rtc_series_alias_rows(rows))
+        supplemental_rows = build_rx8025t_variant_rows(checked_at)
+        counts["rx8025t_channel_variants"] = len(supplemental_rows)
+        rows.extend(supplemental_rows)
     finally:
         session.close()
 
@@ -655,7 +806,7 @@ def main() -> int:
     except Exception:
         pass
     parser = argparse.ArgumentParser(
-        description="Synchronize Epson official crystal and oscillator product numbers."
+        description="Synchronize Epson official crystal, oscillator, and RTC product numbers."
     )
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--timeout", type=int, default=45)
@@ -676,6 +827,7 @@ def main() -> int:
     print(f"official_rows={len(frame)}")
     print(f"crystal_rows={(frame['器件类型'] == '晶振').sum()}")
     print(f"oscillator_rows={(frame['器件类型'] == '振荡器').sum()}")
+    print(f"rtc_rows={(frame['器件类型'] == '实时时钟模块').sum()}")
     print("source_counts=" + ",".join(f"{key}:{value}" for key, value in source_counts.items()))
 
     if args.apply_cache:

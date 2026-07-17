@@ -84,6 +84,95 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         self.assertEqual(row["泛音阶次"], "基频（Fundamental）")
         self.assertEqual(row["工作温度"], "-20~+85°C")
 
+    def test_build_rtc_product_row_maps_official_fields(self):
+        product = {
+            "pn": "Q418025510002",
+            "model": "RX-8025SA",
+            "description": "Real time clock module",
+            "dimensionL": "10.1",
+            "dimensionW": "5.0",
+            "dimensionH": "1.3",
+            "interface": "I2C-Bus",
+            "frequncyTol": "+/-5",
+            "operTemperature": "-40 to +85",
+            "backUpCurrent": "0.48",
+            "clockVoltage": "1.15 to 5.5",
+            "operVoltage": "1.7 to 5.5",
+            "frequencyOutput": "32768",
+            "pkgType": "SOP 14-pin",
+            "monthlyDeviation_sec": "13",
+        }
+        row = epson_sync.build_product_row(
+            product,
+            "rtc.json",
+            epson_sync.SOURCE_SPECS["rtc.json"],
+            "2026-07-17 12:00:00",
+        )
+
+        self.assertEqual(row["型号"], "Q418025510002")
+        self.assertEqual(row["系列"], "RX-8025SA")
+        self.assertEqual(row["器件类型"], "实时时钟模块")
+        self.assertEqual(row["容值"], "32.768")
+        self.assertEqual(row["容值单位"], "kHz")
+        self.assertEqual(row["容值误差"], "5")
+        self.assertEqual(row["工作温度"], "-40~+85°C")
+        self.assertEqual(row["接口类型"], "I2C-Bus")
+        self.assertEqual(row["计时电压（V）"], "1.15~5.5")
+        self.assertEqual(row["备用电流（µA）"], "0.48")
+        self.assertEqual(row["月偏差（s）"], "13")
+        self.assertEqual(row["封装代码"], "SOP 14-pin")
+
+    def test_rx8025t_uc_channel_model_is_an_exact_rtc_row(self):
+        rows = epson_sync.build_rx8025t_variant_rows("2026-07-17 12:00:00")
+        uc = next(row for row in rows if row["型号"] == "RX8025T-UC")
+
+        self.assertEqual(uc["器件类型"], "实时时钟模块")
+        self.assertEqual(uc["容值"], "32.768")
+        self.assertEqual(uc["容值单位"], "kHz")
+        self.assertEqual(uc["容值误差"], "5")
+        self.assertEqual(uc["工作温度"], "-30~+70°C")
+        self.assertEqual(uc["接口类型"], "I²C")
+        self.assertEqual(uc["计时电压（V）"], "1.8~5.5")
+        self.assertEqual(uc["型号粒度"], "渠道确认精确型号")
+        self.assertIn("全球参数选型未列出", uc["生产状态"])
+
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(pd.DataFrame(rows))
+        )
+        mode, spec = cm.detect_query_mode_and_spec(prepared, "RX8025T-UC")
+
+        self.assertEqual(mode, "料号")
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec["型号"], "RX8025T-UC")
+        self.assertEqual(spec["器件类型"], "实时时钟模块")
+        self.assertEqual(spec["接口类型"], "I²C")
+        self.assertEqual(spec["计时电压（V）"], "1.8~5.5")
+        self.assertEqual(spec["备用电流（µA）"], "0.8 Typ.")
+
+    def test_rtc_series_alias_requires_full_product_number_confirmation(self):
+        product = {
+            "pn": "Q418025510002",
+            "model": "RX-8025SA",
+            "interface": "I2C-Bus",
+            "frequncyTol": "+/-5",
+            "operTemperature": "-40 to +85",
+            "clockVoltage": "1.15 to 5.5",
+            "operVoltage": "1.7 to 5.5",
+            "pkgType": "SOP 14-pin",
+        }
+        official_row = epson_sync.build_product_row(
+            product,
+            "rtc.json",
+            epson_sync.SOURCE_SPECS["rtc.json"],
+            "2026-07-17 12:00:00",
+        )
+        aliases = epson_sync.build_rtc_series_alias_rows([official_row])
+
+        self.assertEqual(len(aliases), 1)
+        self.assertEqual(aliases[0]["型号"], "RX-8025SA")
+        self.assertEqual(aliases[0]["官方规格编号"], "")
+        self.assertIn("具体PN需确认", aliases[0]["型号粒度"])
+
     def test_runtime_cache_preparation_keeps_multibrand_timing_rows(self):
         epson_frame = pd.DataFrame(
             [
@@ -352,6 +441,41 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
             set(merged["型号"].tolist()),
             {"FC135R", "Q13FC13500002"},
         )
+
+    def test_exact_model_lookup_uses_search_index_before_large_database(self):
+        indexed_row = {
+            "品牌": "爱普生Epson",
+            "型号": "RX8025T-UC",
+            "器件类型": "实时时钟模块",
+            "_component_type": "实时时钟模块",
+            "容值": "32.768",
+            "容值单位": "kHz",
+        }
+        connection = mock.MagicMock()
+        connection.execute.return_value.fetchall.return_value = [
+            ("RX8025T-UC", "爱普生Epson", "RX8025T-UC")
+        ]
+
+        with (
+            mock.patch.object(cm, "open_search_db_connection", return_value=connection),
+            mock.patch.object(cm, "search_index_can_serve_queries", return_value=True),
+            mock.patch.object(
+                cm,
+                "load_search_sidecar_rows_by_brand_model_pairs",
+                return_value=cm.prepare_search_dataframe(
+                    cm.normalize_imported_component_dataframe(pd.DataFrame([indexed_row]))
+                ),
+            ),
+            mock.patch.object(
+                cm,
+                "load_component_rows_by_clean_models_from_database",
+            ) as database_lookup,
+        ):
+            result = cm.load_component_rows_by_clean_model("RX8025T-UC")
+
+        database_lookup.assert_not_called()
+        self.assertEqual(result["型号"].tolist(), ["RX8025T-UC"])
+        self.assertEqual(result["器件类型"].tolist(), ["实时时钟模块"])
 
 
 if __name__ == "__main__":
