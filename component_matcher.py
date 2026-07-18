@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 99
+QUERY_RESULT_CACHE_VERSION = 100
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-18T14:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-18T20:20:00+08:00"
 
 
 def startup_trace(message):
@@ -23505,8 +23505,19 @@ BOM_OWN_BRAND_EXPORT_BASE_COLUMNS = (
     "成本更新时间",
     "匹配MOQ",
     "匹配L&T",
+    "匹配说明",
+    "匹配备注",
 )
-BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = ("自有品牌", "自有型号", "自有成本", "自有更新时间", "自有MOQ", "自有L&T")
+BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES = (
+    "自有品牌",
+    "自有型号",
+    "自有成本",
+    "自有更新时间",
+    "自有MOQ",
+    "自有L&T",
+    "自有匹配说明",
+    "自有匹配备注",
+)
 BOM_OWN_BRAND_EXPORT_MAX_SLOTS = max(
     len(BOM_OWN_BRAND_CAPACITOR_ALIAS_GROUPS),
     len(BOM_OWN_BRAND_RESISTOR_ALIAS_GROUPS),
@@ -23846,12 +23857,34 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
             break
 
     for idx, item in enumerate(selected[: int(limit or 0)], start=1):
+        candidate_row = item.get("_row")
+        candidate_reason = first_clean_row_value(
+            candidate_row,
+            ["匹配说明", "推荐理由", "差异说明", "解析说明"],
+        )
+        confirmation_detail = ""
+        if candidate_row is not None and spec is not None:
+            try:
+                _, classified_reason = classify_recommendation_status(candidate_row, spec)
+                candidate_reason = clean_text(classified_reason) or candidate_reason
+            except Exception:
+                pass
+            try:
+                confirmation_detail = build_match_confirmation_detail(candidate_row, spec)
+            except Exception:
+                confirmation_detail = ""
+        candidate_remark = merge_match_confirmation_into_remark1(
+            candidate_row.get("备注1", "") if candidate_row is not None else "",
+            confirmation_detail,
+        )
         slots[bom_own_brand_internal_column("自有品牌", idx)] = item.get("品牌", "")
         slots[bom_own_brand_internal_column("自有型号", idx)] = item.get("型号", "")
         slots[bom_own_brand_internal_column("自有成本", idx)] = item.get("成本", "")
         slots[bom_own_brand_internal_column("自有更新时间", idx)] = item.get("更新时间", "")
         slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
         slots[bom_own_brand_internal_column("自有L&T", idx)] = item.get("L&T", "")
+        slots[bom_own_brand_internal_column("自有匹配说明", idx)] = candidate_reason
+        slots[bom_own_brand_internal_column("自有匹配备注", idx)] = candidate_remark
     return slots
 
 
@@ -36563,28 +36596,15 @@ def build_bom_own_brand_append_columns(result_df, row_count):
             max_slot = idx
 
     status_values = []
-    note_values = []
-    remark1_values = []
     for row_idx in range(max_len):
         if row_idx < len(result_work):
             row = result_work.iloc[row_idx]
             status_values.append(clean_text(row.get("状态", "")) or clean_text(row.get("解析状态", "")))
-            note_values.append(
-                first_clean_row_value(
-                    row,
-                    ["推荐理由", "失败原因", "差异说明", "解析说明"],
-                )
-            )
-            remark1_values.append(clean_text(row.get("备注1", "")))
         else:
             status_values.append("")
-            note_values.append("")
-            remark1_values.append("")
 
     append_columns = [
         {"header": "匹配状态", "values": status_values},
-        {"header": "匹配说明", "values": note_values},
-        {"header": "备注1", "values": remark1_values},
     ]
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
@@ -36592,9 +36612,19 @@ def build_bom_own_brand_append_columns(result_df, row_count):
             values = []
             for row_idx in range(max_len):
                 if row_idx < len(result_work) and source_col in result_work.columns:
-                    values.append(clean_text(result_work.iloc[row_idx].get(source_col, "")))
+                    value = clean_text(result_work.iloc[row_idx].get(source_col, ""))
                 else:
-                    values.append("")
+                    value = ""
+                if value == "" and idx == 1 and row_idx < len(result_work):
+                    row = result_work.iloc[row_idx]
+                    if internal_prefix == "自有匹配说明":
+                        value = first_clean_row_value(
+                            row,
+                            ["推荐理由", "失败原因", "差异说明", "解析说明"],
+                        )
+                    elif internal_prefix == "自有匹配备注":
+                        value = clean_text(row.get("备注1", ""))
+                values.append(value)
             append_columns.append(
                 {
                     "header": bom_slot_name(header_base, idx),
@@ -36885,6 +36915,8 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
             export_letter = get_column_letter(export_col_idx)
             if "型号" in base_name:
                 sheet.column_dimensions[export_letter].width = 32
+            elif "说明" in base_name or "备注" in base_name:
+                sheet.column_dimensions[export_letter].width = 40
             else:
                 sheet.column_dimensions[export_letter].width = 18
             for excel_row in range(2, len(export_df) + 2):

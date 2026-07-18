@@ -3584,3 +3584,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added dedicated normal and compact BOM preview wrappers at 440px and 260px. The initial iframe estimator now reserves the table header, visible rows, card edge, and scrollbar, while short previews can still shrink through the existing actual-content reporter.
 - A focused system regression and a 1540px Playwright render pass; the 20-row preview closes at 450px inside a 460px host estimate with no clipped lower edge.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `99` and `PUBLIC_CODE_STAMP` to `2026-07-18T14:20:00+08:00`. No runtime database or matching rule is changed.
+
+### 2026-07-18 [BOM export] Bind explanations and remarks to each matched brand
+
+- Moved match explanations and generated confirmation remarks from row-level export fields into the selected candidate slots.
+- BOM preview and downloaded Excel now emit each candidate as one contiguous group: `匹配品牌`, `匹配型号`, cost fields, `匹配说明`, and `匹配备注`, followed by the numbered group for the next brand.
+- Candidate remarks are generated from that exact candidate's `备注1` plus its own missing/conflicting parameter checks. The uploaded BOM's original `备注1` column is preserved and is no longer overwritten by a candidate note.
+- Added regression coverage for two brands with different notes, active-cost workbook export, and legacy row fallback. Raised `QUERY_RESULT_CACHE_VERSION` to `100` and `PUBLIC_CODE_STAMP` to `2026-07-18T20:20:00+08:00`.
