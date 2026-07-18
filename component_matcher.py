@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 100
+QUERY_RESULT_CACHE_VERSION = 101
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-18T20:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-18T23:04:42+08:00"
 
 
 def startup_trace(message):
@@ -23057,6 +23057,21 @@ def extract_mounting_style_from_text(text):
 SPECIAL_USE_RULES = [
     ("车规", [r"AEC[- ]?Q200", r"AUTOMOTIVE", r"车规"]),
     ("抗硫化", [r"抗硫", r"ANTI[- ]?SULFUR", r"SULFUR"]),
+    ("高功率", [r"高功率", r"大功率", r"超高功率", r"三倍功率", r"HIGH\s*POWER", r"ULTRA\s*HIGH\s*POWER", r"TRIPLE\s*POWER"]),
+    ("高压", [r"高耐压", r"高压", r"HIGH\s*VOLTAGE"]),
+    ("抗浪涌", [r"抗浪涌", r"抗突波", r"抗脉冲", r"SURGE", r"PULSE"]),
+    ("电流检测", [r"电流检测", r"电流采样", r"大电流", r"分流器", r"CURRENT\s*SENS(?:E|ING)", r"SHUNT"]),
+    ("低阻值", [r"低阻值", r"低阻", r"LOW\s*OHM", r"LOW\s*RESISTANCE"]),
+    ("高阻值", [r"高阻值", r"高阻", r"HIGH\s*OHM", r"HIGH\s*RESISTANCE"]),
+    ("高精度", [r"高精度", r"高精密", r"PRECISION"]),
+    ("低温漂", [r"低温漂", r"低温度系数", r"低\s*T\.?C\.?R", r"LOW\s*T\.?C\.?R"]),
+    ("宽端子", [r"宽端子", r"宽电极", r"WIDE\s*TERMINAL"]),
+    ("排阻", [r"排阻", r"电阻阵列", r"电阻网络", r"RESISTOR\s*(?:ARRAY|NETWORK)"]),
+    ("四端子", [r"四端子", r"四引脚", r"4[- ]?(?:TERMINAL|WIRE)", r"FOUR[- ]?(?:TERMINAL|WIRE)"]),
+    ("无磁", [r"无磁", r"NON[- ]?MAGNETIC"]),
+    ("无铅", [r"无铅", r"LEAD[- ]?FREE"]),
+    ("防静电", [r"防静电", r"抗静电", r"ANTI[- ]?STATIC", r"\bESD\b"]),
+    ("阻燃熔断", [r"阻燃", r"熔断", r"保险电阻", r"FLAMEPROOF", r"FUSIBLE"]),
     ("无卤", [r"无卤", r"無鹵", r"HALOGEN[- ]?FREE"]),
     ("消费", [r"CONSUMER", r"NOTEBOOK", r"CPU", r"消费"]),
     ("工业", [r"INDUSTRIAL", r"工业"]),
@@ -23173,7 +23188,7 @@ def special_use_matches(candidate, target):
     candidate_tokens = set(special_use_tokens(candidate))
     if not candidate_tokens:
         return False
-    return bool(candidate_tokens & target_tokens)
+    return target_tokens.issubset(candidate_tokens)
 
 
 def deduplicate_component_matches(frame):
@@ -23297,10 +23312,10 @@ def match_by_partial_spec(df, spec):
             if base.empty:
                 return pd.DataFrame()
         if provided_special_use != "":
-            if "_special_use_norm" in base.columns:
-                special_values = base["_special_use_norm"].astype(str)
-            elif "特殊用途" in base.columns:
+            if "特殊用途" in base.columns:
                 special_values = base["特殊用途"].astype(str)
+            elif "_special_use_norm" in base.columns:
+                special_values = base["_special_use_norm"].astype(str)
             else:
                 return pd.DataFrame()
             special_mask = special_values.map(
@@ -30587,6 +30602,19 @@ def scope_search_dataframe(df, spec):
             if not mask.any():
                 return base.iloc[0:0]
 
+        if target_type in RESISTOR_COMPONENT_TYPES:
+            spec_special = normalize_special_use(spec.get("特殊用途", ""))
+            if spec_special != "":
+                if "特殊用途" in base.columns:
+                    special_values = base["特殊用途"].astype(str)
+                elif "_special_use_norm" in base.columns:
+                    special_values = base["_special_use_norm"].astype(str)
+                else:
+                    return base.iloc[0:0]
+                mask &= special_values.apply(lambda value: special_use_matches(value, spec_special))
+                if not mask.any():
+                    return base.iloc[0:0]
+
     return base if bool(mask.all()) else base[mask]
 
 
@@ -30849,6 +30877,7 @@ def match_other_passive_spec(df, spec):
         work = base.copy()
         spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        spec_special = normalize_special_use(spec.get("特殊用途", ""))
         if spec_tol != "":
             same_tol = tolerance_equal_series(work, spec_tol)
             if same_tol.any():
@@ -30857,6 +30886,14 @@ def match_other_passive_spec(df, spec):
             power_values = pd.to_numeric(work["_power_watt"], errors="coerce")
             same_power = power_values.notna() & ((power_values - spec_power_watt).abs() < 1e-9)
             work = work[same_power]
+        if component_type in RESISTOR_COMPONENT_TYPES and spec_special != "":
+            if "特殊用途" in work.columns:
+                special_values = work["特殊用途"].astype(str)
+            elif "_special_use_norm" in work.columns:
+                special_values = work["_special_use_norm"].astype(str)
+            else:
+                return pd.DataFrame()
+            work = work[special_values.apply(lambda value: special_use_matches(value, spec_special))]
         if work.empty:
             return pd.DataFrame()
         return apply_match_levels_and_sort(work, spec)

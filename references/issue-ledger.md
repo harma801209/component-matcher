@@ -839,3 +839,10 @@
 - Root cause: Candidate export slots contained brand, model, cost, update time, MOQ, and lead time only. Recommendation text and confirmation details were appended before all candidate slots from the row-level recommendation.
 - Fix: Generate explanation and confirmation remark from each selected candidate row, store them in that candidate's export slot, and output each complete group in this order: brand, model, cost, update time, MOQ, lead time, explanation, remark. Customer-provided source `备注1` remains unchanged; candidate notes use `匹配备注`, `匹配备注2`, and later numbered columns.
 - Verification: Focused DataFrame and styled-workbook tests cover two brands with different explanations and remarks, group adjacency, source-note preservation, and the downloaded Excel column order.
+
+## 2026-07-18 - Special resistor requirements returned ordinary or partially qualified series
+
+- Bug: Searches for automotive, anti-sulfur, high-voltage, high-power, surge, and combined special resistor requirements either mixed in ordinary thick-film models or appeared to have very little series coverage.
+- Root cause: The library already held hundreds of thousands of special resistor rows, but the shared special-use parser recognized only a narrow subset. Exact resistor matching filtered size/value/tolerance/power without enforcing special use, and combined requirements used any-token intersection instead of requiring all requested tags.
+- Fix: Normalize the full resistor requirement vocabulary, apply special use as a hard constraint in scoped, exact, and partial matching, and require the requested tag set to be a subset of each candidate's tags. Add 48 officially identified FOJAN series profiles without synthesizing unverified part-number ranges.
+- Verification: A focused regression covers parsing, combined-tag semantics, ordinary-row rejection, and representative FOJAN profiles. Real-library replays found valid automotive, anti-sulfur, high-voltage, high-power, surge, and automotive-plus-anti-sulfur alternatives with no tag violations. No runtime database or cache file was changed.

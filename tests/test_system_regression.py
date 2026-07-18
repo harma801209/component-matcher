@@ -1097,6 +1097,92 @@ class SystemRegressionTests(unittest.TestCase):
         direct_spec_info = app["build_spec_info_df"](direct_spec)
         self.assertEqual(app["clean_text"](direct_spec_info.iloc[0]["系列"]), "")
 
+        special_queries = {
+            "0603 10K 1% 车规": "车规",
+            "0603 10K 1% 抗硫化": "抗硫化",
+            "1206 1M 1% 高耐压": "高压",
+            "1206 10K 1% 0.5W 高功率": "高功率",
+            "0603 10K 1% 抗浪涌": "抗浪涌",
+            "2512 0.01R 1% 电流检测": "电流检测",
+        }
+        for query, expected_special in special_queries.items():
+            parsed_special = app["parse_resistor_spec_query"](query)
+            parsed_special = app["merge_query_text_hints_into_spec"](parsed_special, query)
+            self.assertIn(
+                expected_special,
+                app["special_use_tokens"](parsed_special["特殊用途"]),
+                query,
+            )
+
+        self.assertTrue(app["special_use_matches"]("车规 | 抗硫化", "车规/抗硫化"))
+        self.assertFalse(app["special_use_matches"]("车规", "车规/抗硫化"))
+        self.assertFalse(app["special_use_matches"]("抗硫化", "车规/抗硫化"))
+
+        official_special_series = {
+            "FPR0603F1002TS": ("FPR", {"车规", "高功率", "抗硫化"}),
+            "FQV1206F1004TS": ("FQV", {"车规", "高压", "抗硫化"}),
+            "FTH0603F1002TS": ("FTH", {"高精度", "低温漂"}),
+            "FQA0603F1002TS": ("FQA", {"车规", "排阻"}),
+            "FWPK2512FR001TS": ("FWPK", {"四端子", "高功率", "电流检测"}),
+            "FUS2512FR001TS": ("FUS", {"车规", "高功率", "电流检测"}),
+        }
+        for model, (series, required_tags) in official_special_series.items():
+            profile = app["lookup_official_resistor_series_profile_by_model"](
+                model,
+                "FOJAN(富捷)",
+            )
+            self.assertEqual(profile["系列"], series, model)
+            actual_tags = {
+                token.strip()
+                for token in profile["特殊用途"].split("|")
+                if token.strip()
+            }
+            self.assertTrue(required_tags.issubset(actual_tags), model)
+
+        special_candidates = pd.DataFrame(
+            [
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": model,
+                    "器件类型": "厚膜电阻",
+                    "系列": series,
+                    "尺寸（inch）": "0603",
+                    "材质（介质）": "",
+                    "耐压（V）": "",
+                    "容值_pf": None,
+                    "容值": "10",
+                    "容值单位": "KΩ",
+                    "容值误差": "1",
+                    "功率": "1/10W",
+                    "特殊用途": special_use,
+                }
+                for model, series, special_use in [
+                    ("FRC0603F1002TS", "FRC", ""),
+                    ("FRQ0603F1002TS", "FRQ", "车规"),
+                    ("FRR0603F1002TS", "FRR", "抗硫化"),
+                    ("FPR0603F1002TS", "FPR", "车规 | 抗硫化 | 高功率"),
+                ]
+            ]
+        )
+        prepared_special = app["prepare_search_dataframe"](
+            app["ensure_component_display_columns"](special_candidates)
+        )
+        original_fetch = app["fetch_search_candidate_pairs"]
+        app["fetch_search_candidate_pairs"] = lambda _spec: None
+        try:
+            combined_query = "0603 10K 1% 1/10W 车规 抗硫化"
+            combined_spec = app["merge_query_text_hints_into_spec"](
+                app["parse_resistor_spec_query"](combined_query),
+                combined_query,
+            )
+            combined_matches = app["match_other_passive_spec"](
+                prepared_special,
+                combined_spec,
+            )
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertEqual(combined_matches["型号"].tolist(), ["FPR0603F1002TS"])
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")

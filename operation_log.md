@@ -3591,3 +3591,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - BOM preview and downloaded Excel now emit each candidate as one contiguous group: `匹配品牌`, `匹配型号`, cost fields, `匹配说明`, and `匹配备注`, followed by the numbered group for the next brand.
 - Candidate remarks are generated from that exact candidate's `备注1` plus its own missing/conflicting parameter checks. The uploaded BOM's original `备注1` column is preserved and is no longer overwritten by a candidate note.
 - Added regression coverage for two brands with different notes, active-cost workbook export, and legacy row fallback. Raised `QUERY_RESULT_CACHE_VERSION` to `100` and `PUBLIC_CODE_STAMP` to `2026-07-18T20:20:00+08:00`.
+
+### 2026-07-18 [resistor matching] Enforce and expand special resistor series
+
+- Audited the 1.48-million-row resistor library. Existing data already includes large automotive, anti-sulfur, high-voltage, high-power, surge, industrial, low-ohm, and current-sense families; the main defect was that only automotive and anti-sulfur terms were normalized consistently, and exact resistor matching did not enforce them.
+- Expanded resistor requirement parsing for high power, high voltage, surge/pulse, current sense, low/high ohm, precision, low TCR, wide terminal, resistor array, four-terminal, non-magnetic, lead-free, ESD, and fusible/flameproof requirements.
+- Special requirements are now hard constraints. Combined requests such as `车规 + 抗硫化` require every requested tag instead of accepting a candidate that satisfies only one.
+- Added 48 FOJAN official series profiles, bringing the covered FOJAN resistor taxonomy to 63 series across thick film, thin film, automotive, anti-sulfur, high-voltage, high-power, wide-terminal, resistor-array, and alloy/current-sense families. Only official detail pages or official catalog titles were used; unverified resistance/power ranges were not invented.
+- Real-library replay returned 23 automotive, 15 anti-sulfur, 17 high-voltage, 12 high-power, 17 surge, and 7 combined automotive-plus-anti-sulfur matches, with zero candidates violating the requested special-use tags.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `101` and `PUBLIC_CODE_STAMP` to `2026-07-18T23:04:42+08:00`. The implementation does not modify member, cost-list, no-match, component, prepared-cache, or search-sidecar databases.
