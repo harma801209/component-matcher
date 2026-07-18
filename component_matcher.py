@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 98
+QUERY_RESULT_CACHE_VERSION = 99
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-18T10:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-18T14:20:00+08:00"
 
 
 def startup_trace(message):
@@ -6816,6 +6816,15 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     margin-bottom: 10px;
     position: relative;
 }
+.bom-preview-table-wrap {
+    max-height: 440px;
+    overflow: auto;
+    margin-bottom: 0;
+    position: relative;
+}
+.bom-preview-table-wrap-compact {
+    max-height: 260px;
+}
 .result-section-card {
     display: flex;
     flex-direction: column;
@@ -6828,7 +6837,8 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     box-sizing: border-box;
 }
 .result-section-card .result-table-wrap,
-.result-section-card .bom-result-table-wrap {
+.result-section-card .bom-result-table-wrap,
+.result-section-card .bom-preview-table-wrap {
     margin-bottom: 0;
 }
 .result-section-card .result-table-wrap {
@@ -6836,6 +6846,12 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 }
 .result-section-card .bom-result-table-wrap {
     max-height: 560px;
+}
+.result-section-card .bom-preview-table-wrap {
+    max-height: 440px;
+}
+.result-section-card .bom-preview-table-wrap-compact {
+    max-height: 260px;
 }
 .bom-download-footer-outside {
     display: flex;
@@ -31924,17 +31940,17 @@ def estimate_bom_preview_iframe_height(row_count, compact=False):
     row_count = max(0, int(row_count or 0))
     if compact:
         visible_rows = min(max(row_count, 1), 4)
-        base = 78
-        per_row = 42
-        min_height = 170
-        max_height = 246
+        base = 88
+        per_row = 48
+        min_height = 180
+        max_height = 280
         height = base + visible_rows * per_row
         return max(min_height, min(max_height, height))
-    visible_rows = min(max(row_count, 1), 5)
-    base = 86
-    per_row = 42
+    visible_rows = min(max(row_count, 1), 7)
+    base = 96
+    per_row = 52
     min_height = 220
-    max_height = 320
+    max_height = 460
     height = base + visible_rows * per_row
     return max(min_height, min(max_height, height))
 
@@ -32016,6 +32032,15 @@ html, body {{
     margin-bottom: 0;
     position: relative;
 }}
+.bom-preview-table-wrap {{
+    overflow: auto;
+    max-height: 440px;
+    margin-bottom: 0;
+    position: relative;
+}}
+.bom-preview-table-wrap-compact {{
+    max-height: 260px;
+}}
 .result-section-card {{
     display: flex;
     flex-direction: column;
@@ -32028,7 +32053,8 @@ html, body {{
     box-sizing: border-box;
 }}
 .result-section-card .result-table-wrap,
-.result-section-card .bom-result-table-wrap {{
+.result-section-card .bom-result-table-wrap,
+.result-section-card .bom-preview-table-wrap {{
     margin-bottom: 0;
 }}
 .result-section-card .result-table-wrap {{
@@ -32036,6 +32062,12 @@ html, body {{
 }}
 .result-section-card .bom-result-table-wrap {{
     max-height: 560px;
+}}
+.result-section-card .bom-preview-table-wrap {{
+    max-height: 440px;
+}}
+.result-section-card .bom-preview-table-wrap-compact {{
+    max-height: 260px;
 }}
 .result-table {{
     width: max-content;
@@ -37672,7 +37704,11 @@ def render_bom_upload_page():
                 is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
                 preview_html = render_static_preview_table(
                     preview_df,
-                    wrapper_class="bom-result-table-wrap",
+                    wrapper_class=(
+                        "bom-preview-table-wrap bom-preview-table-wrap-compact"
+                        if is_ocr_preview
+                        else "bom-preview-table-wrap"
+                    ),
                 )
                 if preview_html:
                     components.html(

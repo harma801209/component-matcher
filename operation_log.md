@@ -3577,3 +3577,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Existing component notes and customer-provided `备注1` values are preserved and followed by the generated confirmation detail. Repeated rendering does not append the same detail again.
 - Styled workbook export now writes into an existing `备注1` column when present; otherwise it appends one `备注1` column. Flat DataFrame/CSV-style export follows the same behavior.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `98` and `PUBLIC_CODE_STAMP` to `2026-07-18T10:30:00+08:00`. Focused timing and export regression coverage now totals 28 passing tests; no protected database is modified.
+
+### 2026-07-18 [BOM layout] Keep preview bottom visible after iframe shrink
+
+- Reproduced the clipped BOM original-content preview: its internal table wrapper could grow to 560px while the initial host iframe was capped at 320px.
+- Added dedicated normal and compact BOM preview wrappers at 440px and 260px. The initial iframe estimator now reserves the table header, visible rows, card edge, and scrollbar, while short previews can still shrink through the existing actual-content reporter.
+- A focused system regression and a 1540px Playwright render pass; the 20-row preview closes at 450px inside a 460px host estimate with no clipped lower edge.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `99` and `PUBLIC_CODE_STAMP` to `2026-07-18T14:20:00+08:00`. No runtime database or matching rule is changed.
