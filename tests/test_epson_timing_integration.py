@@ -381,7 +381,7 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         self.assertIn("OE/ST功能及脚位", detail)
         self.assertIn("相位抖动/相位噪声", detail)
 
-    def test_bom_export_merges_confirmation_detail_into_remark1(self):
+    def test_bom_export_keeps_candidate_notes_with_their_brand_slots(self):
         upload_df = pd.DataFrame(
             {
                 "原型号": ["FC2012AN", "RX8025T-UC"],
@@ -393,8 +393,15 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
                 "状态": ["需确认", "无匹配"],
                 "推荐理由": ["存在部分参数匹配", "暂无跨品牌候选"],
                 "备注1": [
-                    "候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+                    "旧版首选候选备注",
                     "需向客户/工程确认：封装与引脚定义、I²C地址与寄存器兼容性",
+                ],
+                "自有品牌": ["NDK", ""],
+                "自有型号": ["NX2012SA", ""],
+                "自有匹配说明": ["只匹配了已识别参数，缺失参数需人工确认", ""],
+                "自有匹配备注": [
+                    "候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+                    "",
                 ],
             }
         )
@@ -402,11 +409,14 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         export_df = cm.build_bom_matched_export_df(upload_df, result_df)
 
         self.assertNotIn("待确认参数", export_df.columns)
+        self.assertEqual(export_df.loc[0, "备注1"], "客户原备注")
         self.assertEqual(
-            export_df.loc[0, "备注1"],
-            "客户原备注；候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+            export_df.loc[0, "匹配备注"],
+            "候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
         )
-        self.assertEqual(export_df.loc[1, "备注1"], result_df.loc[1, "备注1"])
+        self.assertEqual(export_df.loc[1, "备注1"], "")
+        self.assertEqual(export_df.loc[1, "匹配说明"], "暂无跨品牌候选")
+        self.assertEqual(export_df.loc[1, "匹配备注"], result_df.loc[1, "备注1"])
 
     def test_search_results_append_confirmation_to_existing_remark1_once(self):
         spec = {

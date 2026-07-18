@@ -832,3 +832,10 @@
 - Root cause: The preview reused the BOM result wrapper's 560px internal cap, while its host iframe estimator allowed at most 320px. When browser-side height reporting did not expand the iframe in time, the larger inner wrapper was clipped.
 - Fix: Give BOM previews a dedicated 440px scroll wrapper and a 260px compact OCR wrapper. Raise the initial iframe estimate to include the header, visible rows, card border, and scrollbar while retaining actual-content shrink reporting for short tables.
 - Verification: The focused iframe regression passes. A 1540px-wide browser render with 20 rows measured the preview wrapper at 440px, its card bottom at 450px, and the host estimate at 460px, leaving the complete lower boundary visible without restoring a large blank section.
+
+## 2026-07-18 - BOM candidate explanations were detached from their matched brands
+
+- Bug: A BOM row could export multiple matched brands and models, but `匹配说明` and `备注1` were stored once at row level. The second and later candidates therefore had no identifiable explanation or remark, and the shared text could describe only the primary recommendation.
+- Root cause: Candidate export slots contained brand, model, cost, update time, MOQ, and lead time only. Recommendation text and confirmation details were appended before all candidate slots from the row-level recommendation.
+- Fix: Generate explanation and confirmation remark from each selected candidate row, store them in that candidate's export slot, and output each complete group in this order: brand, model, cost, update time, MOQ, lead time, explanation, remark. Customer-provided source `备注1` remains unchanged; candidate notes use `匹配备注`, `匹配备注2`, and later numbered columns.
+- Verification: Focused DataFrame and styled-workbook tests cover two brands with different explanations and remarks, group adjacency, source-note preservation, and the downloaded Excel column order.

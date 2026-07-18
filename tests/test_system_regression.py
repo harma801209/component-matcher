@@ -1300,18 +1300,22 @@ class SystemRegressionTests(unittest.TestCase):
         result = pd.DataFrame(
             [
                 {
-                    "自有品牌1": "厚声UNI-ROYAL",
-                    "自有型号1": "0603WAF1002T5E",
-                    "自有成本1": "0.02",
-                    "自有更新时间1": "2026-06-28",
-                    "自有MOQ1": "5000",
-                    "自有L&T1": "4W",
+                    "自有品牌": "厚声UNI-ROYAL",
+                    "自有型号": "0603WAF1002T5E",
+                    "自有成本": "0.02",
+                    "自有更新时间": "2026-06-28",
+                    "自有MOQ": "5000",
+                    "自有L&T": "4W",
+                    "自有匹配说明": "厚声关键规格完全一致",
+                    "自有匹配备注": "厚声包装需确认",
                     "自有品牌2": "FOJAN(富捷)",
                     "自有型号2": "FRC0603F1002 TS",
                     "自有成本2": "0.018",
                     "自有更新时间2": "2026-06-27",
                     "自有MOQ2": "5000",
                     "自有L&T2": "5W",
+                    "自有匹配说明2": "富捷关键规格完全一致",
+                    "自有匹配备注2": "富捷交期需确认",
                     "BOM行号": 1,
                     "BOM型号": "X",
                     "BOM规格": "0603 10K",
@@ -1328,9 +1332,12 @@ class SystemRegressionTests(unittest.TestCase):
         )
         export = app["build_bom_matched_export_df"](bom, result)
         self.assertEqual(export.iloc[0]["匹配状态"], "可推荐")
-        self.assertEqual(export.iloc[0]["匹配说明"], "x")
+        self.assertEqual(export.iloc[0]["匹配说明"], "厚声关键规格完全一致")
+        self.assertEqual(export.iloc[0]["匹配备注"], "厚声包装需确认")
+        self.assertEqual(export.iloc[0]["匹配说明2"], "富捷关键规格完全一致")
+        self.assertEqual(export.iloc[0]["匹配备注2"], "富捷交期需确认")
         self.assertEqual(
-            list(export.columns[-12:]),
+            list(export.columns[-16:]),
             [
                 "匹配品牌",
                 "匹配型号",
@@ -1338,12 +1345,16 @@ class SystemRegressionTests(unittest.TestCase):
                 "成本更新时间",
                 "匹配MOQ",
                 "匹配L&T",
+                "匹配说明",
+                "匹配备注",
                 "匹配品牌2",
                 "匹配型号2",
                 "匹配成本2",
                 "成本更新时间2",
                 "匹配MOQ2",
                 "匹配L&T2",
+                "匹配说明2",
+                "匹配备注2",
             ],
         )
         candidates = pd.DataFrame(
@@ -1362,6 +1373,7 @@ class SystemRegressionTests(unittest.TestCase):
                     "推荐等级": "完全匹配",
                     "成本": "0.018",
                     "MOQ": "5000PCS",
+                    "备注1": "华科候选备注",
                 },
                 {
                     "品牌": "信昌PDC",
@@ -1369,6 +1381,7 @@ class SystemRegressionTests(unittest.TestCase):
                     "器件类型": "MLCC",
                     "推荐等级": "完全匹配",
                     "成本": "0.020",
+                    "备注1": "信昌候选备注",
                 },
             ]
         )
@@ -1381,6 +1394,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(custom_slots["自有品牌"], "华新科Walsin")
         self.assertEqual(custom_slots["自有型号"], "0402B103K500CT-B")
         self.assertEqual(custom_slots["自有成本"], "0.018")
+        self.assertEqual(custom_slots["自有匹配说明"], "关键规格完全一致")
         self.assertEqual(custom_slots["自有品牌2"], "")
 
         auto_slots = app["build_bom_own_brand_export_slots"](
@@ -1390,6 +1404,10 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertEqual(auto_slots["自有品牌"], "华科")
         self.assertEqual(auto_slots["自有品牌2"], "信昌")
+        self.assertEqual(auto_slots["自有匹配备注"], "华科候选备注")
+        self.assertEqual(auto_slots["自有匹配备注2"], "信昌候选备注")
+        self.assertNotEqual(auto_slots["自有匹配说明"], "")
+        self.assertNotEqual(auto_slots["自有匹配说明2"], "")
         self.assertIn("芯声微HRE", app["bom_export_brand_options"]())
 
         generic_slots = app["build_bom_own_brand_export_slots"](
@@ -1545,6 +1563,21 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(values["匹配品牌"], "村田Murata")
             self.assertEqual(values["匹配型号"], "GRM155R71C224KA12D")
             self.assertEqual(str(values["匹配成本"]), "0.111")
+            first_brand_col = headers.index("匹配品牌")
+            self.assertEqual(
+                headers[first_brand_col : first_brand_col + 8],
+                [
+                    "匹配品牌",
+                    "匹配型号",
+                    "匹配成本",
+                    "成本更新时间",
+                    "匹配MOQ",
+                    "匹配L&T",
+                    "匹配说明",
+                    "匹配备注",
+                ],
+            )
+            self.assertNotEqual(values["匹配说明"], "")
             exported_workbook.close()
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
