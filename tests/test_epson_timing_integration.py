@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 import pandas as pd
+from openpyxl import Workbook
 
 import component_matcher as cm
 import sync_epson_parametric_products as epson_sync
@@ -380,14 +381,19 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         self.assertIn("OE/ST功能及脚位", detail)
         self.assertIn("相位抖动/相位噪声", detail)
 
-    def test_bom_export_includes_detailed_confirmation_column(self):
-        upload_df = pd.DataFrame({"原型号": ["FC2012AN", "RX8025T-UC"]})
+    def test_bom_export_merges_confirmation_detail_into_remark1(self):
+        upload_df = pd.DataFrame(
+            {
+                "原型号": ["FC2012AN", "RX8025T-UC"],
+                "备注1": ["客户原备注", ""],
+            }
+        )
         result_df = pd.DataFrame(
             {
                 "状态": ["需确认", "无匹配"],
                 "推荐理由": ["存在部分参数匹配", "暂无跨品牌候选"],
-                "待确认参数": [
-                    "原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+                "备注1": [
+                    "候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
                     "需向客户/工程确认：封装与引脚定义、I²C地址与寄存器兼容性",
                 ],
             }
@@ -395,9 +401,58 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
 
         export_df = cm.build_bom_matched_export_df(upload_df, result_df)
 
-        self.assertIn("待确认参数", export_df.columns)
-        self.assertEqual(export_df.loc[0, "待确认参数"], result_df.loc[0, "待确认参数"])
-        self.assertEqual(export_df.loc[1, "待确认参数"], result_df.loc[1, "待确认参数"])
+        self.assertNotIn("待确认参数", export_df.columns)
+        self.assertEqual(
+            export_df.loc[0, "备注1"],
+            "客户原备注；候选原备注；原型号资料缺少：负载电容(CL)；需向客户/工程确认：振荡电路负阻裕量",
+        )
+        self.assertEqual(export_df.loc[1, "备注1"], result_df.loc[1, "备注1"])
+
+    def test_search_results_append_confirmation_to_existing_remark1_once(self):
+        spec = {
+            "型号": "FC2012AN",
+            "器件类型": "晶体单元",
+            "尺寸（inch）": "2012",
+            "容值": "32.768",
+            "容值单位": "kHz",
+            "容值误差": "20",
+            "负载电容（pF）": "12.5",
+        }
+        frame = pd.DataFrame(
+            [
+                {
+                    "推荐等级": "部分参数匹配",
+                    "品牌": "NDK",
+                    "型号": "NX2012SA",
+                    "备注1": "候选原备注",
+                }
+            ]
+        )
+
+        first = cm.add_match_confirmation_to_remark1(frame, spec)
+        second = cm.add_match_confirmation_to_remark1(first, spec)
+
+        self.assertNotIn("待确认参数", first.columns)
+        self.assertTrue(first.loc[0, "备注1"].startswith("候选原备注；"))
+        self.assertEqual(second.loc[0, "备注1"], first.loc[0, "备注1"])
+
+    def test_workbook_export_reuses_existing_remark1_column(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(["原型号", "备注1"])
+        worksheet.append(["FC2012AN", "客户原备注"])
+        source_df = pd.DataFrame({"原型号": ["FC2012AN"], "备注1": ["客户原备注"]})
+        append_columns = [
+            {"header": "匹配状态", "values": ["需确认"]},
+            {"header": "备注1", "values": ["需向客户确认负载电容(CL)"]},
+        ]
+
+        cm.append_export_columns_to_worksheet(worksheet, source_df, append_columns)
+
+        headers = [worksheet.cell(row=1, column=index).value for index in range(1, worksheet.max_column + 1)]
+        self.assertEqual(headers.count("备注1"), 1)
+        self.assertEqual(worksheet["B2"].value, "客户原备注；需向客户确认负载电容(CL)")
+        self.assertEqual(worksheet["C1"].value, "匹配状态")
 
     def test_rtc_query_completeness_requires_interface_and_backup_details(self):
         incomplete = {
