@@ -476,6 +476,12 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(match_estimate(1, 1), 420)
         self.assertEqual(match_estimate(1, 100), 570)
 
+        preview_estimate = app["estimate_bom_preview_iframe_height"]
+        self.assertEqual(preview_estimate(0), 220)
+        self.assertEqual(preview_estimate(5), 356)
+        self.assertEqual(preview_estimate(100), 460)
+        self.assertEqual(preview_estimate(100, compact=True), 280)
+
         iframe_html = app["build_result_table_iframe_html"](
             '<div class="result-section-card"><div class="result-table-wrap">'
             '<table class="result-table"><tbody><tr><td>row</td></tr></tbody></table>'
@@ -483,8 +489,16 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertIn("measureFrameContentHeight", iframe_html)
         self.assertIn("max-height: 440px", iframe_html)
+        self.assertIn(".bom-preview-table-wrap", iframe_html)
+        self.assertIn(".bom-preview-table-wrap-compact", iframe_html)
         self.assertNotIn("52vh", iframe_html)
         self.assertNotIn("document.documentElement.scrollHeight", iframe_html)
+
+        preview_html = app["render_static_preview_table"](
+            pd.DataFrame({"规格": [f"row-{index}" for index in range(20)]}),
+            wrapper_class="bom-preview-table-wrap",
+        )
+        self.assertIn('class="bom-preview-table-wrap"', preview_html)
 
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app

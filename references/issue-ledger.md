@@ -825,3 +825,10 @@
 - Root cause: The timing confirmation generator wrote to a new result-only field instead of the established component remark field. BOM export appended that field without checking whether the uploaded workbook already contained `备注1`.
 - Fix: Merge generated confirmation details into `备注1`, preserve and append to existing candidate or customer remarks, suppress duplicate text on repeated rendering, and remove the standalone field from search, BOM preview, and Excel export. Existing workbook `备注1` cells are updated in place rather than duplicated.
 - Verification: 28 focused timing/BOM tests pass, including existing-note preservation, idempotent search rendering, DataFrame export, and styled workbook export with a single `备注1` column.
+
+## 2026-07-18 - BOM preview height reduction clipped the table bottom
+
+- Bug: After reducing result-page blank space, the BOM original-content preview could be cut off at its lower iframe boundary, hiding the final visible row and the bottom scrolling area.
+- Root cause: The preview reused the BOM result wrapper's 560px internal cap, while its host iframe estimator allowed at most 320px. When browser-side height reporting did not expand the iframe in time, the larger inner wrapper was clipped.
+- Fix: Give BOM previews a dedicated 440px scroll wrapper and a 260px compact OCR wrapper. Raise the initial iframe estimate to include the header, visible rows, card border, and scrollbar while retaining actual-content shrink reporting for short tables.
+- Verification: The focused iframe regression passes. A 1540px-wide browser render with 20 rows measured the preview wrapper at 440px, its card bottom at 450px, and the host estimate at 460px, leaving the complete lower boundary visible without restoring a large blank section.
