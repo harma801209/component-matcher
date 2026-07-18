@@ -155,7 +155,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 97
+QUERY_RESULT_CACHE_VERSION = 98
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +180,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-17T23:10:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-18T10:30:00+08:00"
 
 
 def startup_trace(message):
@@ -7401,7 +7401,7 @@ BRAND_DISPLAY_ALIAS_TEXT_COLUMNS = {
     "其他品牌型号",
     "前5个其他品牌型号",
     "推荐理由",
-    "待确认参数",
+    "备注1",
     "匹配参数明细",
     "规格参数明细",
 }
@@ -20033,7 +20033,6 @@ def build_component_column_config(columns, spec_or_type=None):
         "其他品牌型号": "large",
         "规格参数明细": "large",
         "匹配参数明细": "large",
-        "待确认参数": "large",
         "长度（mm）": "small",
         "宽度（mm）": "small",
         "高度（mm）": "small",
@@ -24255,7 +24254,6 @@ def build_bom_display_df(result_df):
         "BOM数量",
         "匹配参数明细",
         "首选推荐等级",
-        "待确认参数",
         "推荐品牌",
         "推荐型号",
         "推荐品牌1",
@@ -24266,6 +24264,9 @@ def build_bom_display_df(result_df):
         "推荐型号3",
         "其他品牌型号",
         "状态",
+        "备注1",
+        "备注2",
+        "备注3",
     ]
     existing_columns = [col for col in preferred_columns if col in display_df.columns]
     if not existing_columns:
@@ -31444,7 +31445,7 @@ def format_display_df(show_df):
         "信昌料号","华科料号","前5个其他品牌型号","其他品牌型号",
         "器件类别","系列","系列说明","尺寸（inch）","封装代码","尺寸(mm)","长度（mm）","宽度（mm）","高度（mm）","直径（mm）",
         "材质（介质）","容值","容值单位","工作温度","寿命（h）","安装方式","特殊用途",
-        "备注1","备注2","备注3","规格参数明细","匹配参数明细","待确认参数",
+        "备注1","备注2","备注3","规格参数明细","匹配参数明细",
         "成本","MOQ",
         "功率","脚距","安规","规格","压敏电压","生产状态","极性","ESR","纹波电流",
         "阻值@25C","阻值单位","阻值误差","B值","B值误差","B值条件",
@@ -31846,9 +31847,9 @@ def estimate_result_table_column_width(col, values, header_label):
         width = max(width, 112)
     if col_text in {clean_text("尺寸（inch）"), clean_text("容值"), clean_text("容值误差"), clean_text("耐压（V）")}:
         width = max(width, 92)
-    if col_text in {clean_text("BOM规格"), clean_text("BOM品名"), clean_text("其他品牌型号"), clean_text("关键规格"), clean_text("差异说明"), clean_text("解析输入"), clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("待确认参数")}:
+    if col_text in {clean_text("BOM规格"), clean_text("BOM品名"), clean_text("其他品牌型号"), clean_text("关键规格"), clean_text("差异说明"), clean_text("解析输入"), clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("备注1")}:
         width = max(width, 160)
-    if col_text in {clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("待确认参数")}:
+    if col_text in {clean_text("规格参数明细"), clean_text("匹配参数明细"), clean_text("备注1")}:
         width = max(width, 200)
     return max(78, min(width, 320))
 
@@ -33387,7 +33388,7 @@ def collect_recommendation_warnings(row, spec):
     return warnings_list
 
 
-MATCH_CONFIRMATION_COLUMN = "待确认参数"
+MATCH_CONFIRMATION_REMARK_COLUMN = "备注1"
 PARTIAL_MATCH_LEVELS = {"部分参数匹配", "需确认配置", "需确认替代"}
 
 
@@ -33524,14 +33525,30 @@ def build_match_confirmation_detail(row, spec):
     return "；".join(parts)
 
 
-def add_match_confirmation_column(frame, spec):
+def merge_match_confirmation_into_remark1(existing_remark, confirmation_detail):
+    existing = clean_text(existing_remark)
+    detail = clean_text(confirmation_detail)
+    if detail == "":
+        return existing
+    if existing == "":
+        return detail
+    if detail in existing:
+        return existing
+    return f"{existing}；{detail}"
+
+
+def add_match_confirmation_to_remark1(frame, spec):
     if frame is None or frame.empty:
         return frame
     out = frame.copy()
-    out[MATCH_CONFIRMATION_COLUMN] = out.apply(
-        lambda row: build_match_confirmation_detail(row, spec),
+    out[MATCH_CONFIRMATION_REMARK_COLUMN] = out.apply(
+        lambda row: merge_match_confirmation_into_remark1(
+            row.get(MATCH_CONFIRMATION_REMARK_COLUMN, ""),
+            build_match_confirmation_detail(row, spec),
+        ),
         axis=1,
     )
+    out = out.drop(columns=["待确认参数"], errors="ignore")
     return out
 
 
@@ -35698,7 +35715,9 @@ def build_bom_result_row(df, line, export_settings=None):
         "匹配数量": 0,
         "前5个其他品牌型号": "",
         "推荐理由": "",
-        "待确认参数": "",
+        "备注1": "",
+        "备注2": "",
+        "备注3": "",
         "状态": ""
     }
     row.update(empty_bom_own_brand_export_slots())
@@ -35753,7 +35772,12 @@ def build_bom_result_row(df, line, export_settings=None):
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
         row["推荐型号"] = clean_text(display_match.get("型号", ""))
-        row["待确认参数"] = build_match_confirmation_detail(display_match, spec)
+        row["备注1"] = merge_match_confirmation_into_remark1(
+            display_match.get("备注1", ""),
+            build_match_confirmation_detail(display_match, spec),
+        )
+        row["备注2"] = clean_text(display_match.get("备注2", ""))
+        row["备注3"] = clean_text(display_match.get("备注3", ""))
     row.update(build_bom_own_brand_export_slots(matched, spec=spec, export_settings=export_settings))
     row.update(
         build_bom_preferred_brand_slots(
@@ -35825,7 +35849,6 @@ def build_bom_upload_result_row(
         "备注2": "",
         "备注3": "",
         "推荐理由": "",
-        "待确认参数": "",
         "状态": "解析失败",
     }
     result_row.update(empty_bom_own_brand_export_slots())
@@ -35905,7 +35928,7 @@ def build_bom_upload_result_row(
         result_row["首选推荐等级"] = clean_text(display_match.get("推荐等级", "")) if display_match is not None else best.get("top_match_level", "")
         result_row["推荐品牌"] = clean_text(display_match.get("品牌", "")) if display_match is not None else ""
         result_row["推荐型号"] = clean_text(display_match.get("型号", "")) if display_match is not None else ""
-        result_row["待确认参数"] = build_match_confirmation_detail(display_match, spec) if display_match is not None else ""
+        confirmation_detail = build_match_confirmation_detail(display_match, spec) if display_match is not None else ""
         result_row.update(
             build_bom_preferred_brand_slots(
                 matched,
@@ -35932,7 +35955,10 @@ def build_bom_upload_result_row(
         if clean_text(result_row["耐压（V）"]) != "" and voltage_display(detail_match.get("耐压（V）", "")) == clean_text(result_row["耐压（V）"]):
             hit_columns.append("耐压（V）")
         result_row["匹配命中列"] = "|".join(hit_columns)
-        result_row["备注1"] = clean_text(detail_match.get("备注1", ""))
+        result_row["备注1"] = merge_match_confirmation_into_remark1(
+            detail_match.get("备注1", ""),
+            confirmation_detail,
+        )
         result_row["备注2"] = clean_text(detail_match.get("备注2", ""))
         result_row["备注3"] = clean_text(detail_match.get("备注3", ""))
 
@@ -36506,7 +36532,7 @@ def build_bom_own_brand_append_columns(result_df, row_count):
 
     status_values = []
     note_values = []
-    confirmation_values = []
+    remark1_values = []
     for row_idx in range(max_len):
         if row_idx < len(result_work):
             row = result_work.iloc[row_idx]
@@ -36517,16 +36543,16 @@ def build_bom_own_brand_append_columns(result_df, row_count):
                     ["推荐理由", "失败原因", "差异说明", "解析说明"],
                 )
             )
-            confirmation_values.append(clean_text(row.get("待确认参数", "")))
+            remark1_values.append(clean_text(row.get("备注1", "")))
         else:
             status_values.append("")
             note_values.append("")
-            confirmation_values.append("")
+            remark1_values.append("")
 
     append_columns = [
         {"header": "匹配状态", "values": status_values},
         {"header": "匹配说明", "values": note_values},
-        {"header": "待确认参数", "values": confirmation_values},
+        {"header": "备注1", "values": remark1_values},
     ]
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
@@ -36553,11 +36579,20 @@ def build_bom_matched_export_df(upload_df, result_df):
     export_df = upload_df.copy().reset_index(drop=True)
     max_len = len(export_df)
     append_columns = build_bom_own_brand_append_columns(result_df, max_len)
-    append_df = pd.DataFrame(
-        {item["header"]: item.get("values", [""] * max_len) for item in append_columns},
-        index=export_df.index,
-    )
-    return pd.concat([export_df, append_df], axis=1)
+    for item in append_columns:
+        header = clean_text(item.get("header", ""))
+        values = list(item.get("values", [""] * max_len) or [""] * max_len)
+        if len(values) < max_len:
+            values.extend([""] * (max_len - len(values)))
+        values = values[:max_len]
+        if header == "备注1" and header in export_df.columns:
+            export_df[header] = [
+                merge_match_confirmation_into_remark1(existing, detail)
+                for existing, detail in zip(export_df[header].tolist(), values)
+            ]
+            continue
+        append_unique_export_column(export_df, header, values)
+    return export_df
 
 
 def copy_excel_cell_style(src_cell, dst_cell):
@@ -36614,13 +36649,30 @@ def append_export_columns_to_worksheet(ws, source_df, append_columns):
     header_template_col = max(1, min(base_col, int(ws.max_column or base_col)))
     max_value_len = max([len(item.get("values", []) or []) for item in append_columns] + [0])
     max_rows = max_value_len + 1
+    source_column_index = {
+        clean_text(column_name): index + 1
+        for index, column_name in enumerate(source_columns)
+        if clean_text(column_name) != ""
+    }
+    append_offset = 0
 
-    for offset, item in enumerate(append_columns, start=1):
+    for item in append_columns:
         column_name = clean_text(item.get("header", ""))
         if column_name == "":
             continue
         values = list(item.get("values", []) or [])
-        target_col = base_col + offset
+        existing_target_col = source_column_index.get(column_name) if column_name == "备注1" else None
+        if existing_target_col is not None:
+            for row_idx in range(2, max_rows + 1):
+                value_index = row_idx - 2
+                detail = values[value_index] if value_index < len(values) else ""
+                cell = ws.cell(row=row_idx, column=existing_target_col)
+                cell.value = merge_match_confirmation_into_remark1(cell.value, detail)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+            continue
+
+        append_offset += 1
+        target_col = base_col + append_offset
         header_cell = ws.cell(row=1, column=target_col)
         header_cell.value = column_name
         copy_excel_cell_style(ws.cell(row=1, column=header_template_col), header_cell)
@@ -38348,12 +38400,12 @@ if search_requested:
                     matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                     matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                     matched = ensure_component_display_columns(matched)
-                    matched = add_match_confirmation_column(matched, spec)
+                    matched = add_match_confirmation_to_remark1(matched, spec)
                     allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                     show_df = select_component_display_columns(
                         matched,
                         spec,
-                        prefix_columns=["推荐等级", "待确认参数", "品牌", "型号", "器件类别", "系列"],
+                        prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                         suffix_columns=["备注1", "备注2", "备注3"],
                         allow_online_lookup=allow_online_lookup,
                     )
@@ -38469,12 +38521,12 @@ if search_requested:
                 matched["容值误差"] = matched["容值误差"].apply(clean_tol_for_match)
                 matched["耐压（V）"] = matched["耐压（V）"].apply(clean_voltage)
                 matched = ensure_component_display_columns(matched)
-                matched = add_match_confirmation_column(matched, spec)
+                matched = add_match_confirmation_to_remark1(matched, spec)
                 allow_online_lookup = infer_spec_component_type(spec) == "MLCC" and len(matched) <= 20
                 show_df = select_component_display_columns(
                     matched,
                     spec,
-                    prefix_columns=["推荐等级", "待确认参数", "品牌", "型号", "器件类别", "系列"],
+                    prefix_columns=["推荐等级", "品牌", "型号", "器件类别", "系列"],
                     suffix_columns=["备注1", "备注2", "备注3"],
                     allow_online_lookup=allow_online_lookup,
                 )

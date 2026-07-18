@@ -3570,3 +3570,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added `待确认参数` to normal result tables, BOM result views, and downloaded BOM Excel. Partial crystal, oscillator, and RTC rows distinguish source-data gaps, candidate-data gaps, known differences, and the exact customer/engineering checks still required.
 - Cross-brand replay: RX8025T-UC/UB have no safe non-Epson RTC substitute; FC2012AN has seven NDK/TXC partial candidates; X1E000021013900 has no compatible non-Epson row because available candidates conflict on temperature/ppm/ESR; SG2520HGN_X1G0058910005 has eight Abracon partial HCSL candidates requiring output/pin/jitter confirmation.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `97` and `PUBLIC_CODE_STAMP` to `2026-07-17T23:10:00+08:00`. The Epson source adds only three rows; existing validation timestamps are preserved and protected runtime databases are not rewritten.
+
+### 2026-07-18 [result layout] Move confirmation details into remark one
+
+- Removed the standalone `待确认参数` result column and merged its generated content into `备注1` for normal search results, BOM previews, and BOM Excel downloads.
+- Existing component notes and customer-provided `备注1` values are preserved and followed by the generated confirmation detail. Repeated rendering does not append the same detail again.
+- Styled workbook export now writes into an existing `备注1` column when present; otherwise it appends one `备注1` column. Flat DataFrame/CSV-style export follows the same behavior.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `98` and `PUBLIC_CODE_STAMP` to `2026-07-18T10:30:00+08:00`. Focused timing and export regression coverage now totals 28 passing tests; no protected database is modified.
