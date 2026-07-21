@@ -138,6 +138,8 @@ MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
 MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
 MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
 MEMBER_PENDING_SEARCH_QUERY_KEY = "_member_pending_search_query"
+MEMBER_PENDING_SEARCH_BRAND_MODE_KEY = "_member_pending_search_brand_mode"
+MEMBER_PENDING_SEARCH_BRANDS_KEY = "_member_pending_search_brands"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 BOM_POST_LOGIN_RESUME_STAGE_KEY = "_bom_post_login_resume_stage"
@@ -156,7 +158,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 103
+QUERY_RESULT_CACHE_VERSION = 104
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -181,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T03:33:32+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T04:10:17+08:00"
 
 
 def startup_trace(message):
@@ -3127,6 +3129,8 @@ def logout_member():
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_BRAND_MODE_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_BRANDS_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
@@ -3640,10 +3644,14 @@ def require_member_login_for_action(action_text):
     return False
 
 
-def remember_pending_member_search(query_text):
+def remember_pending_member_search(query_text, brand_mode="", selected_brands=None):
     query_text = clean_text(query_text)
     if query_text:
         st.session_state[MEMBER_PENDING_SEARCH_QUERY_KEY] = query_text
+        st.session_state[MEMBER_PENDING_SEARCH_BRAND_MODE_KEY] = clean_text(brand_mode)
+        st.session_state[MEMBER_PENDING_SEARCH_BRANDS_KEY] = [
+            clean_brand(value) for value in (selected_brands or []) if clean_brand(value)
+        ]
 
 
 def resumable_member_search_query():
@@ -3653,8 +3661,22 @@ def resumable_member_search_query():
     return ""
 
 
+def resumable_member_search_brand_settings():
+    if not current_member() or not clean_text(st.session_state.get(MEMBER_PENDING_SEARCH_QUERY_KEY, "")):
+        return "", []
+    mode = clean_text(st.session_state.get(MEMBER_PENDING_SEARCH_BRAND_MODE_KEY, ""))
+    brands = [
+        clean_brand(value)
+        for value in (st.session_state.get(MEMBER_PENDING_SEARCH_BRANDS_KEY, []) or [])
+        if clean_brand(value)
+    ]
+    return mode, brands
+
+
 def clear_pending_member_search():
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_BRAND_MODE_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_BRANDS_KEY, None)
 
 
 def render_no_match_report_button(
@@ -7249,6 +7271,9 @@ BRAND_QUERY_FILTER_FLAG = "_brand_filter"
 BRAND_QUERY_FILTER_ALIASES_KEY = "_brand_filter_aliases"
 BRAND_QUERY_EXPLICIT_LIST_FLAG = "_brand_filter_explicit_list"
 BRAND_QUERY_EXCLUDE_SOURCE_FLAG = "_brand_filter_exclude_source"
+SEARCH_BRAND_MODE_AUTO = "自动匹配其他品牌"
+SEARCH_BRAND_MODE_CUSTOM = "指定品牌"
+SEARCH_BRAND_MAX_SELECTIONS = 5
 
 
 def brand_query_aliases_for_label(label):
@@ -7291,7 +7316,7 @@ def extract_explicit_requested_brands_from_query(query_text):
     raw = clean_text(query_text)
     if raw == "":
         return ()
-    match = re.search(r"品牌\s*[:：]\s*([^;；\r\n]+)$", raw, flags=re.I)
+    match = re.search(r"(?:指定|目标|输出)品牌\s*[:：]\s*([^;；\r\n]+)$", raw, flags=re.I)
     if match is None:
         return ()
     labels = []
@@ -7302,26 +7327,71 @@ def extract_explicit_requested_brands_from_query(query_text):
     return tuple(dict.fromkeys(labels))
 
 
+def strip_explicit_requested_brand_clause(query_text):
+    return re.sub(
+        r"(?:指定|目标|输出)品牌\s*[:：]\s*[^;；\r\n]+$",
+        " ",
+        clean_text(query_text),
+        flags=re.I,
+    ).strip()
+
+
 def apply_query_brand_hint_to_spec(spec, query_text):
     if spec is None:
         return spec
     explicit_brands = extract_explicit_requested_brands_from_query(query_text)
-    implicit_brand = extract_requested_brand_from_query(query_text)
-    requested_brands = explicit_brands or ((implicit_brand,) if implicit_brand != "" else ())
-    if not requested_brands:
+    source_brand = extract_requested_brand_from_query(
+        strip_explicit_requested_brand_clause(query_text)
+    )
+    if not explicit_brands and source_brand == "":
         return spec
     merged = dict(spec)
-    if clean_brand(merged.get("品牌", "")) == "" or not query_has_embedded_source_part_metadata(query_text):
-        merged["品牌"] = requested_brands[0]
-    aliases = []
-    for requested_brand in requested_brands:
-        aliases.extend(brand_query_aliases_for_label(requested_brand))
-    merged[BRAND_QUERY_FILTER_FLAG] = True
-    merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
+    if source_brand != "" and clean_brand(merged.get("品牌", "")) == "":
+        merged["品牌"] = source_brand
     if explicit_brands:
+        aliases = []
+        for requested_brand in explicit_brands:
+            aliases.extend(brand_query_aliases_for_label(requested_brand))
+        merged[BRAND_QUERY_FILTER_FLAG] = True
+        merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
         merged[BRAND_QUERY_EXPLICIT_LIST_FLAG] = True
-        if query_has_embedded_source_part_metadata(query_text):
-            merged[BRAND_QUERY_EXCLUDE_SOURCE_FLAG] = True
+    return merged
+
+
+def apply_search_brand_scope_to_spec(spec, query_text, brand_mode="", selected_brands=None):
+    if spec is None:
+        return spec
+    merged = apply_query_brand_hint_to_spec(spec, query_text)
+    mode = clean_text(brand_mode)
+    selected = []
+    for value in selected_brands or []:
+        canonical = canonical_brand_query_label(value) or clean_brand(value)
+        if canonical != "" and canonical not in selected:
+            selected.append(canonical)
+        if len(selected) >= SEARCH_BRAND_MAX_SELECTIONS:
+            break
+
+    if mode == SEARCH_BRAND_MODE_CUSTOM:
+        merged = dict(merged)
+        merged.pop(BRAND_QUERY_FILTER_FLAG, None)
+        merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
+        merged.pop(BRAND_QUERY_EXPLICIT_LIST_FLAG, None)
+        merged.pop(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, None)
+        if selected:
+            aliases = []
+            for brand in selected:
+                aliases.extend(brand_query_aliases_for_label(brand))
+            merged[BRAND_QUERY_FILTER_FLAG] = True
+            merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
+            merged[BRAND_QUERY_EXPLICIT_LIST_FLAG] = True
+        return merged
+
+    if mode == SEARCH_BRAND_MODE_AUTO and not extract_explicit_requested_brands_from_query(query_text):
+        merged = dict(merged)
+        merged.pop(BRAND_QUERY_FILTER_FLAG, None)
+        merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
+        merged.pop(BRAND_QUERY_EXPLICIT_LIST_FLAG, None)
+        merged.pop(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, None)
     return merged
 
 
@@ -37647,6 +37717,8 @@ def resolve_search_query_dataframe_and_spec(
     progress_callback=None,
     exact_part_rows=None,
     query_frame_cache=None,
+    brand_mode="",
+    selected_brands=None,
 ):
     def emit(stage_step, stage_text, note="", source_label="", source_tone="", candidate_rows=None):
         if progress_callback is None:
@@ -37689,9 +37761,10 @@ def resolve_search_query_dataframe_and_spec(
     mode, spec = detect_query_mode_and_spec(detect_df, line)
     spec = merge_query_text_hints_into_spec(spec, line)
     spec = clear_query_brand_filter_for_embedded_part_metadata(spec, line)
-    explicit_query_spec = dict(spec) if isinstance(spec, dict) else spec
     if mode == "料号":
         spec = clear_query_brand_filter_for_part_lookup(spec)
+    spec = apply_search_brand_scope_to_spec(spec, line, brand_mode, selected_brands)
+    explicit_query_spec = dict(spec) if isinstance(spec, dict) else spec
     query_df = None
     candidate_rows = 0
     query_frame_cache_key = ""
@@ -37724,6 +37797,9 @@ def resolve_search_query_dataframe_and_spec(
             token_spec = merge_explicit_query_spec_into_part_spec(token_spec, explicit_query_spec)
             if token_mode == "料号":
                 token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
+            token_spec = apply_search_brand_scope_to_spec(
+                token_spec, line, brand_mode, selected_brands
+            )
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,
@@ -37821,6 +37897,9 @@ def resolve_search_query_dataframe_and_spec(
             token_spec = merge_explicit_query_spec_into_part_spec(token_spec, explicit_query_spec)
             if token_mode == "料号":
                 token_spec = clear_query_brand_filter_for_part_lookup(token_spec)
+            token_spec = apply_search_brand_scope_to_spec(
+                token_spec, line, brand_mode, selected_brands
+            )
             if token_mode != "无法识别" and token_spec is not None:
                 emit(
                     2,
@@ -37854,6 +37933,12 @@ def resolve_search_query_dataframe_and_spec(
         if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
             exact_mode, exact_spec = detect_query_mode_and_spec(exact_df, line)
             if exact_mode != "无法识别" and exact_spec is not None:
+                exact_spec = merge_query_text_hints_into_spec(exact_spec, line)
+                if exact_mode == "料号":
+                    exact_spec = clear_query_brand_filter_for_part_lookup(exact_spec)
+                exact_spec = apply_search_brand_scope_to_spec(
+                    exact_spec, line, brand_mode, selected_brands
+                )
                 candidate_rows = len(exact_df)
                 emit(
                     2,
@@ -37925,6 +38010,10 @@ def resolve_search_query_dataframe_and_spec(
             candidate_rows=candidate_rows,
         )
         mode, spec = detect_query_mode_and_spec(query_df, line)
+        spec = merge_query_text_hints_into_spec(spec, line)
+        if mode == "料号":
+            spec = clear_query_brand_filter_for_part_lookup(spec)
+        spec = apply_search_brand_scope_to_spec(spec, line, brand_mode, selected_brands)
     return {
         "query_df": query_df,
         "mode": mode,
@@ -38628,6 +38717,44 @@ if is_bom_page_requested():
     startup_trace("after_footer")
     st.stop()
 
+pending_search_after_login = resumable_member_search_query()
+pending_brand_mode, pending_search_brands = resumable_member_search_brand_settings()
+search_brand_mode_key = "search_brand_mode"
+search_selected_brands_key = "search_selected_brands"
+if pending_search_after_login and pending_brand_mode in {SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM}:
+    st.session_state[search_brand_mode_key] = pending_brand_mode
+    st.session_state[search_selected_brands_key] = pending_search_brands
+if clean_text(st.session_state.get(search_brand_mode_key, "")) not in {
+    SEARCH_BRAND_MODE_AUTO,
+    SEARCH_BRAND_MODE_CUSTOM,
+}:
+    st.session_state[search_brand_mode_key] = SEARCH_BRAND_MODE_AUTO
+
+if hasattr(st, "segmented_control"):
+    search_brand_mode = st.segmented_control(
+        "匹配品牌范围",
+        [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
+        key=search_brand_mode_key,
+        selection_mode="single",
+        width="stretch",
+    )
+else:
+    search_brand_mode = st.radio(
+        "匹配品牌范围",
+        [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
+        key=search_brand_mode_key,
+        horizontal=True,
+    )
+selected_search_brands = []
+if search_brand_mode == SEARCH_BRAND_MODE_CUSTOM:
+    selected_search_brands = st.multiselect(
+        "选择匹配品牌",
+        bom_export_brand_options(),
+        key=search_selected_brands_key,
+        max_selections=SEARCH_BRAND_MAX_SELECTIONS,
+        placeholder="选择 1-5 个品牌",
+    )
+
 search_text_area_kwargs = {
     "label": "查询输入",
     "placeholder": "请输入料号，可多行输入",
@@ -38637,11 +38764,13 @@ search_text_area_kwargs = {
 if "search_query_input" not in st.session_state:
     search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
 query_input = st.text_area(**search_text_area_kwargs)
-search_clicked = st.button("搜索")
+search_clicked = st.button(
+    "搜索",
+    disabled=search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands,
+)
 restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
 if restore_search_after_report and not query_input.strip():
     query_input = clean_text(st.session_state.get("_last_search_query_input", ""))
-pending_search_after_login = resumable_member_search_query()
 if pending_search_after_login:
     query_input = pending_search_after_login
 search_requested = bool(
@@ -38657,7 +38786,7 @@ if pending_member_action and not current_member() and not search_requested:
 
 if search_requested:
     if not current_member():
-        remember_pending_member_search(query_input)
+        remember_pending_member_search(query_input, search_brand_mode, selected_search_brands)
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
     if not query_input.strip():
@@ -38818,6 +38947,8 @@ if search_requested:
                     progress_callback=update_line_progress,
                     exact_part_rows=prefetched_exact_rows,
                     query_frame_cache=query_frame_cache,
+                    brand_mode=search_brand_mode,
+                    selected_brands=selected_search_brands,
                 )
                 resolved_line_cache[line_cache_key] = resolved
             query_df = resolved.get("query_df")

@@ -312,13 +312,23 @@ class SystemRegressionTests(unittest.TestCase):
         try:
             app["st"] = fake_st
             app["current_member"] = lambda: None
-            app["remember_pending_member_search"](" 0402 1% 10K ")
+            app["remember_pending_member_search"](
+                " 0402 1% 10K ",
+                app["SEARCH_BRAND_MODE_CUSTOM"],
+                ["FOJAN(富捷)", "华新科Walsin"],
+            )
             self.assertEqual(app["resumable_member_search_query"](), "")
+            self.assertEqual(app["resumable_member_search_brand_settings"](), ("", []))
 
             app["current_member"] = lambda: {"id": 7}
             self.assertEqual(app["resumable_member_search_query"](), "0402 1% 10K")
+            self.assertEqual(
+                app["resumable_member_search_brand_settings"](),
+                (app["SEARCH_BRAND_MODE_CUSTOM"], ["FOJAN(富捷)", "华新科Walsin"]),
+            )
             app["clear_pending_member_search"]()
             self.assertEqual(app["resumable_member_search_query"](), "")
+            self.assertEqual(app["resumable_member_search_brand_settings"](), ("", []))
         finally:
             app["st"] = original_st
             app["current_member"] = original_current_member
@@ -742,16 +752,30 @@ class SystemRegressionTests(unittest.TestCase):
                 mode, brand_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
                 self.assertEqual(mode, "贴片电阻", query)
                 self.assertEqual(brand_spec["品牌"], "FOJAN(富捷)", query)
-                self.assertTrue(brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"]), query)
+                self.assertFalse(brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False), query)
                 matched_brand = app["run_query_match"](prepared_brand, mode, brand_spec)
-                self.assertEqual(set(matched_brand["品牌"]), {"FOJAN(富捷)"}, query)
-                self.assertEqual(set(matched_brand["型号"]), {"FRC0402F1002TS"}, query)
+                self.assertEqual(
+                    set(matched_brand["品牌"]),
+                    {"FOJAN(富捷)", "华新科Walsin"},
+                    query,
+                )
+                custom_brand_spec = app["apply_search_brand_scope_to_spec"](
+                    brand_spec,
+                    query,
+                    app["SEARCH_BRAND_MODE_CUSTOM"],
+                    ["FOJAN(富捷)"],
+                )
+                matched_custom_brand = app["run_query_match"](
+                    prepared_brand, mode, custom_brand_spec
+                )
+                self.assertEqual(set(matched_custom_brand["品牌"]), {"FOJAN(富捷)"}, query)
+                self.assertEqual(set(matched_custom_brand["型号"]), {"FRC0402F1002TS"}, query)
 
             fenghua_query = "10KΩ;75V;±1%;1/10W;0603;FENGHUA;RS-03K1002FT;无卤"
             fenghua_spec = app["parse_resistor_spec_query"]("0603 10K 1% 1/10W 75V 无卤")
             fenghua_spec.update({"品牌": "风华Fenghua", "型号": "RS-03K1002FT"})
             brand_filtered_part_spec = app["apply_query_brand_hint_to_spec"](fenghua_spec, fenghua_query)
-            self.assertTrue(brand_filtered_part_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+            self.assertFalse(brand_filtered_part_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
             part_lookup_spec = app["clear_query_brand_filter_for_part_lookup"](brand_filtered_part_spec)
             self.assertFalse(part_lookup_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
             self.assertEqual(part_lookup_spec["品牌"], "风华Fenghua")
@@ -769,7 +793,7 @@ class SystemRegressionTests(unittest.TestCase):
                 direct_brand_spec,
                 "FENGHUA 0603 10K 1%",
             )
-            self.assertTrue(direct_brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+            self.assertFalse(direct_brand_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
 
             explicit_part_cases = [
                 (
@@ -988,7 +1012,7 @@ class SystemRegressionTests(unittest.TestCase):
             )
             self.assertEqual(mode, "厚膜电阻")
             self.assertEqual(rohm_spec["品牌"], "ROHM")
-            self.assertTrue(rohm_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+            self.assertFalse(rohm_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
         finally:
             app["fetch_search_candidate_pairs"] = original_fetch
 
@@ -1297,12 +1321,8 @@ class SystemRegressionTests(unittest.TestCase):
         spec = app["merge_query_text_hints_into_spec"](spec, query)
         spec = app["clear_query_brand_filter_for_embedded_part_metadata"](spec, query)
 
-        self.assertTrue(spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
-        self.assertTrue(spec.get(app["BRAND_QUERY_EXPLICIT_LIST_FLAG"]))
-        self.assertTrue(spec.get(app["BRAND_QUERY_EXCLUDE_SOURCE_FLAG"]))
-        aliases = set(app["requested_brand_aliases_from_spec"](spec))
-        for expected_alias in ("厚声", "翔胜", "华科", "国巨"):
-            self.assertIn(expected_alias, aliases)
+        self.assertFalse(spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
+        self.assertEqual(spec.get("品牌"), "厚声UNI-ROYAL")
 
         candidate_rows = []
         for brand, model, special_use in (
@@ -1341,7 +1361,7 @@ class SystemRegressionTests(unittest.TestCase):
 
         self.assertEqual(
             set(matched["品牌"]),
-            {"VO(翔胜)", "华新科Walsin", "国巨YAGEO"},
+            {"VO(翔胜)", "华新科Walsin", "国巨YAGEO", "FOJAN(富捷)"},
         )
         levels = dict(zip(matched["型号"], matched["推荐等级"]))
         self.assertEqual(levels["WR08X3902FTL"], "完全匹配")
@@ -1352,6 +1372,29 @@ class SystemRegressionTests(unittest.TestCase):
             spec,
         )
         self.assertTrue(any("无卤" in warning for warning in warnings_list))
+
+        custom_spec = app["apply_search_brand_scope_to_spec"](
+            spec,
+            query,
+            app["SEARCH_BRAND_MODE_CUSTOM"],
+            ["华新科Walsin", "国巨YAGEO"],
+        )
+        self.assertTrue(custom_spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+        try:
+            app["fetch_search_candidate_pairs"] = lambda _spec: None
+            custom_matched = app["run_query_match"](prepared, "料号", custom_spec)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertEqual(set(custom_matched["品牌"]), {"华新科Walsin", "国巨YAGEO"})
+
+        directive_query = "0805 39K 1% 1/8W 无卤 指定品牌:翔胜/国巨"
+        directive_spec = app["merge_query_text_hints_into_spec"](
+            app["parse_resistor_spec_query"]("0805 39K 1% 1/8W 无卤"),
+            directive_query,
+        )
+        directive_aliases = set(app["requested_brand_aliases_from_spec"](directive_spec))
+        self.assertIn("翔胜", directive_aliases)
+        self.assertIn("国巨", directive_aliases)
 
         mlcc_query = "220pF ±10% 50V X7R 0603 0603B221K500CTSB 无卤品牌:华科/国巨/三环/风华"
         mlcc_spec = app["parse_spec_query"]("0603 X7R 220pF 10% 50V 无卤")

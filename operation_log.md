@@ -3612,6 +3612,13 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 ### 2026-07-22 [common-part matching] Keep requested cross-brand alternatives
 
 - Reproduced the 12 reported common resistor/MLCC inputs against the real search library. Electrical alternatives existed, but a slash-separated `品牌:` list was reduced incorrectly and candidates without explicit `无卤` metadata were removed before grading.
-- Added explicit multi-brand union filtering, the `翔胜` to `VO(翔胜)` alias, and source-brand exclusion for embedded original models. `无卤` and `无铅` now remain visible as `需确认替代` when candidate compliance evidence is missing; automotive, anti-sulfur, high-voltage, industrial, soft-termination, resonant, and other functional requirements remain hard constraints.
+- Added multi-brand parsing, the `翔胜` to `VO(翔胜)` alias, and separate source/target brand handling. Automatic mode keeps copied brand lists as source metadata; explicit target-brand mode applies the union filter. `无卤` and `无铅` remain visible as `需确认替代` when candidate compliance evidence is missing; automotive, anti-sulfur, high-voltage, industrial, soft-termination, resonant, and other functional requirements remain hard constraints.
 - All 11 resistor inputs now return requested-brand alternatives from Walsin, Yageo, and/or VO. The `0603 X7R 220pF` input returns Yageo and CCTC alternatives. Missing compliance evidence is called out for original-datasheet confirmation instead of being presented as a complete match.
 - Focused resistor/MLCC regressions pass, and the complete 24-test release safety gate passes with isolated databases and unchanged protected runtime data. Advanced `QUERY_RESULT_CACHE_VERSION` to `103` and both public release stamps to `2026-07-22T03:33:32+08:00`.
+
+### 2026-07-22 [search intent] Separate source brands from requested output brands
+
+- Added a manual-search brand-scope control with `自动匹配其他品牌` as the default and `指定品牌` as the explicit whitelist mode. Custom mode supports 1-5 brands and blocks search until at least one is selected.
+- Brand names copied from customer BOM text are source metadata in automatic mode and no longer shrink the candidate pool. Explicit `指定品牌:` / `目标品牌:` / `输出品牌:` clauses remain line-level target filters.
+- Pending member-login searches now preserve the query, brand mode, and selected brands together. Focused matching tests and an isolated local browser check pass; the browser test used temporary member, cost-list, and no-match databases.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `104` and advanced both public stamps to `2026-07-22T04:10:17+08:00`.
