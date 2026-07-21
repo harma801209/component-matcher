@@ -3608,3 +3608,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Switching output mode or selected brands no longer clears results or reruns the workbook. Existing results are replaced only after the user explicitly starts a new run.
 - Isolated browser verification used temporary member, cost-list, and no-match databases. Desktop and 390px mobile views show a 0% waiting state with no overflow, no automatic task, no default custom brand, and a disabled custom start button until a brand is selected.
 - Advanced `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-07-22T01:51:09+08:00`; protected production databases were not used by the browser test.
+
+### 2026-07-22 [common-part matching] Keep requested cross-brand alternatives
+
+- Reproduced the 12 reported common resistor/MLCC inputs against the real search library. Electrical alternatives existed, but a slash-separated `品牌:` list was reduced incorrectly and candidates without explicit `无卤` metadata were removed before grading.
+- Added explicit multi-brand union filtering, the `翔胜` to `VO(翔胜)` alias, and source-brand exclusion for embedded original models. `无卤` and `无铅` now remain visible as `需确认替代` when candidate compliance evidence is missing; automotive, anti-sulfur, high-voltage, industrial, soft-termination, resonant, and other functional requirements remain hard constraints.
+- All 11 resistor inputs now return requested-brand alternatives from Walsin, Yageo, and/or VO. The `0603 X7R 220pF` input returns Yageo and CCTC alternatives. Missing compliance evidence is called out for original-datasheet confirmation instead of being presented as a complete match.
+- Focused resistor/MLCC regressions pass, and the complete 24-test release safety gate passes with isolated databases and unchanged protected runtime data. Advanced `QUERY_RESULT_CACHE_VERSION` to `103` and both public release stamps to `2026-07-22T03:33:32+08:00`.

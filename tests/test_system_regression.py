@@ -1289,6 +1289,118 @@ class SystemRegressionTests(unittest.TestCase):
             ["FRC0603F1002TS"],
         )
 
+    def test_03b_common_parts_keep_cross_brand_candidates_with_compliance_confirmation(self):
+        app = self.app
+        query = "39KΩ ±1% 0805 1/8W 0805W8F3902T5E 无卤 品牌:厚声/翔胜/华科/国巨"
+        spec = app["parse_resistor_spec_query"]("0805 39K 1% 1/8W 无卤")
+        spec.update({"品牌": "厚声UNI-ROYAL", "型号": "0805W8F3902T5E"})
+        spec = app["merge_query_text_hints_into_spec"](spec, query)
+        spec = app["clear_query_brand_filter_for_embedded_part_metadata"](spec, query)
+
+        self.assertTrue(spec.get(app["BRAND_QUERY_FILTER_FLAG"]))
+        self.assertTrue(spec.get(app["BRAND_QUERY_EXPLICIT_LIST_FLAG"]))
+        self.assertTrue(spec.get(app["BRAND_QUERY_EXCLUDE_SOURCE_FLAG"]))
+        aliases = set(app["requested_brand_aliases_from_spec"](spec))
+        for expected_alias in ("厚声", "翔胜", "华科", "国巨"):
+            self.assertIn(expected_alias, aliases)
+
+        candidate_rows = []
+        for brand, model, special_use in (
+            ("厚声UNI-ROYAL", "0805W8F3902T5E", "无卤"),
+            ("VO(翔胜)", "SCR0805F39K", ""),
+            ("华新科Walsin", "WR08X3902FTL", "无卤"),
+            ("国巨YAGEO", "RC0805FR-0739KL", ""),
+            ("FOJAN(富捷)", "FRC0805F3902TS", "无卤"),
+        ):
+            candidate_rows.append(
+                {
+                    "品牌": brand,
+                    "型号": model,
+                    "器件类型": "厚膜电阻",
+                    "尺寸（inch）": "0805",
+                    "材质（介质）": "",
+                    "耐压（V）": "",
+                    "容值_pf": None,
+                    "容值": "39",
+                    "容值单位": "KΩ",
+                    "容值误差": "1",
+                    "功率": "1/8W",
+                    "_resistance_ohm": 39000.0,
+                    "特殊用途": special_use,
+                }
+            )
+        prepared = app["prepare_search_dataframe"](
+            app["ensure_component_display_columns"](pd.DataFrame(candidate_rows))
+        )
+        original_fetch = app["fetch_search_candidate_pairs"]
+        app["fetch_search_candidate_pairs"] = lambda _spec: None
+        try:
+            matched = app["run_query_match"](prepared, "料号", spec)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+
+        self.assertEqual(
+            set(matched["品牌"]),
+            {"VO(翔胜)", "华新科Walsin", "国巨YAGEO"},
+        )
+        levels = dict(zip(matched["型号"], matched["推荐等级"]))
+        self.assertEqual(levels["WR08X3902FTL"], "完全匹配")
+        self.assertEqual(levels["SCR0805F39K"], "需确认替代")
+        self.assertEqual(levels["RC0805FR-0739KL"], "需确认替代")
+        warnings_list = app["collect_recommendation_warnings"](
+            matched.loc[matched["型号"].eq("RC0805FR-0739KL")].iloc[0],
+            spec,
+        )
+        self.assertTrue(any("无卤" in warning for warning in warnings_list))
+
+        mlcc_query = "220pF ±10% 50V X7R 0603 0603B221K500CTSB 无卤品牌:华科/国巨/三环/风华"
+        mlcc_spec = app["parse_spec_query"]("0603 X7R 220pF 10% 50V 无卤")
+        mlcc_spec.update({"品牌": "华新科Walsin", "型号": "0603B221K500CTSB"})
+        mlcc_spec = app["merge_query_text_hints_into_spec"](mlcc_spec, mlcc_query)
+        mlcc_spec = app["clear_query_brand_filter_for_embedded_part_metadata"](mlcc_spec, mlcc_query)
+        mlcc_rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "华新科Walsin",
+                    "型号": "0603B221K500CTSB",
+                    "器件类型": "MLCC",
+                    "尺寸（inch）": "0603",
+                    "材质（介质）": "X7R",
+                    "容值_pf": 220.0,
+                    "容值误差": "10",
+                    "耐压（V）": "50",
+                    "特殊用途": "无卤",
+                },
+                {
+                    "品牌": "国巨YAGEO",
+                    "型号": "CC0603KRX7R9BB221",
+                    "器件类型": "MLCC",
+                    "尺寸（inch）": "0603",
+                    "材质（介质）": "X7R",
+                    "容值_pf": 220.0,
+                    "容值误差": "10",
+                    "耐压（V）": "50",
+                    "特殊用途": "",
+                },
+            ]
+        )
+        prepared_mlcc = app["prepare_search_dataframe"](
+            app["ensure_component_display_columns"](mlcc_rows)
+        )
+        app["fetch_search_candidate_pairs"] = lambda _spec: None
+        try:
+            mlcc_matched = app["run_query_match"](prepared_mlcc, "料号", mlcc_spec)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertEqual(mlcc_matched["型号"].tolist(), ["CC0603KRX7R9BB221"])
+        self.assertEqual(mlcc_matched.iloc[0]["推荐等级"], "需确认替代")
+        self.assertTrue(
+            any(
+                "无卤" in warning
+                for warning in app["collect_recommendation_warnings"](mlcc_matched.iloc[0], mlcc_spec)
+            )
+        )
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")

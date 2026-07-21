@@ -156,7 +156,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 102
+QUERY_RESULT_CACHE_VERSION = 103
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -181,7 +181,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T01:51:09+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T03:33:32+08:00"
 
 
 def startup_trace(message):
@@ -7215,6 +7215,7 @@ def clean_brand(x):
 BRAND_QUERY_ALIAS_GROUPS = (
     ("FOJAN(富捷)", ("富捷", "FOJAN")),
     ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL")),
+    ("VO(翔胜)", ("翔胜", "翔勝", "VO")),
     ("华新科Walsin", ("华新科", "華新科", "华科", "華科", "WALSIN")),
     ("信昌PDC", ("信昌", "信昌电陶", "信昌電陶", "PDC", "PSA", "PROSPERITY")),
     ("芯声微HRE", ("芯声微", "芯聲微", "HRE")),
@@ -7246,6 +7247,8 @@ BRAND_QUERY_ALIAS_GROUPS = (
 )
 BRAND_QUERY_FILTER_FLAG = "_brand_filter"
 BRAND_QUERY_FILTER_ALIASES_KEY = "_brand_filter_aliases"
+BRAND_QUERY_EXPLICIT_LIST_FLAG = "_brand_filter_explicit_list"
+BRAND_QUERY_EXCLUDE_SOURCE_FLAG = "_brand_filter_exclude_source"
 
 
 def brand_query_aliases_for_label(label):
@@ -7272,16 +7275,53 @@ def extract_requested_brand_from_query(query_text):
     return ""
 
 
+def canonical_brand_query_label(label):
+    label_text = clean_brand(label)
+    if label_text == "":
+        return ""
+    label_upper = label_text.upper()
+    for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
+        canonical_upper = clean_text(canonical).upper()
+        if label_upper == canonical_upper or brand_alias_matches(label_text, aliases):
+            return canonical
+    return ""
+
+
+def extract_explicit_requested_brands_from_query(query_text):
+    raw = clean_text(query_text)
+    if raw == "":
+        return ()
+    match = re.search(r"品牌\s*[:：]\s*([^;；\r\n]+)$", raw, flags=re.I)
+    if match is None:
+        return ()
+    labels = []
+    for part in re.split(r"[/／、,，|]+", match.group(1)):
+        canonical = canonical_brand_query_label(part.strip())
+        if canonical != "":
+            labels.append(canonical)
+    return tuple(dict.fromkeys(labels))
+
+
 def apply_query_brand_hint_to_spec(spec, query_text):
     if spec is None:
         return spec
-    requested_brand = extract_requested_brand_from_query(query_text)
-    if requested_brand == "":
+    explicit_brands = extract_explicit_requested_brands_from_query(query_text)
+    implicit_brand = extract_requested_brand_from_query(query_text)
+    requested_brands = explicit_brands or ((implicit_brand,) if implicit_brand != "" else ())
+    if not requested_brands:
         return spec
     merged = dict(spec)
-    merged["品牌"] = requested_brand
+    if clean_brand(merged.get("品牌", "")) == "" or not query_has_embedded_source_part_metadata(query_text):
+        merged["品牌"] = requested_brands[0]
+    aliases = []
+    for requested_brand in requested_brands:
+        aliases.extend(brand_query_aliases_for_label(requested_brand))
     merged[BRAND_QUERY_FILTER_FLAG] = True
-    merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(brand_query_aliases_for_label(requested_brand))
+    merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
+    if explicit_brands:
+        merged[BRAND_QUERY_EXPLICIT_LIST_FLAG] = True
+        if query_has_embedded_source_part_metadata(query_text):
+            merged[BRAND_QUERY_EXCLUDE_SOURCE_FLAG] = True
     return merged
 
 
@@ -7289,8 +7329,11 @@ def clear_query_brand_filter_for_part_lookup(spec):
     if spec is None:
         return spec
     merged = dict(spec)
+    if bool(merged.get(BRAND_QUERY_EXPLICIT_LIST_FLAG, False)):
+        return merged
     merged.pop(BRAND_QUERY_FILTER_FLAG, None)
     merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
+    merged.pop(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, None)
     return merged
 
 
@@ -7311,6 +7354,8 @@ def query_has_embedded_source_part_metadata(query_text):
 
 def clear_query_brand_filter_for_embedded_part_metadata(spec, query_text):
     if spec is None or not query_has_embedded_source_part_metadata(query_text):
+        return spec
+    if bool(spec.get(BRAND_QUERY_EXPLICIT_LIST_FLAG, False)):
         return spec
     return clear_query_brand_filter_for_part_lookup(spec)
 
@@ -7358,6 +7403,14 @@ def merge_explicit_query_spec_into_part_spec(part_spec, query_spec):
             )
         except Exception:
             pass
+    for filter_field in (
+        BRAND_QUERY_FILTER_FLAG,
+        BRAND_QUERY_FILTER_ALIASES_KEY,
+        BRAND_QUERY_EXPLICIT_LIST_FLAG,
+        BRAND_QUERY_EXCLUDE_SOURCE_FLAG,
+    ):
+        if filter_field in query_spec:
+            merged[filter_field] = query_spec[filter_field]
     return merged
 
 
@@ -23178,6 +23231,28 @@ def normalize_special_use(value):
     return "/".join(tokens)
 
 
+SOFT_COMPLIANCE_SPECIAL_USE_TOKENS = {"无卤", "无铅"}
+
+
+def special_use_allows_unconfirmed_compliance(candidate, target):
+    target_tokens = set(special_use_tokens(target))
+    if not target_tokens:
+        return True
+    hard_tokens = target_tokens - SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
+    if not hard_tokens:
+        return True
+    candidate_tokens = set(special_use_tokens(candidate))
+    return hard_tokens.issubset(candidate_tokens)
+
+
+def missing_soft_compliance_tokens(candidate, target):
+    target_tokens = set(special_use_tokens(target)) & SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
+    if not target_tokens:
+        return []
+    candidate_tokens = set(special_use_tokens(candidate))
+    return sorted(target_tokens - candidate_tokens)
+
+
 def extract_special_use_from_text(text):
     raw = clean_text(text)
     if raw == "":
@@ -23391,7 +23466,7 @@ def match_by_partial_spec(df, spec):
             else:
                 return pd.DataFrame()
             special_mask = special_values.map(
-                lambda value: special_use_matches(value, provided_special_use)
+                lambda value: special_use_allows_unconfirmed_compliance(value, provided_special_use)
             )
             base = base[special_mask]
             if base.empty:
@@ -23487,7 +23562,10 @@ def match_by_partial_spec(df, spec):
         target_type in RESISTOR_COMPONENT_TYPES
         and ("FOJAN" in source_brand.upper() or "富捷" in source_brand)
     )
-    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)) and not source_is_fojan_resistor:
+    should_exclude_source_brand = bool(spec.get(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, False)) or (
+        not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)) and not source_is_fojan_resistor
+    )
+    if should_exclude_source_brand:
         out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
     out = deduplicate_component_matches(out)
@@ -28005,6 +28083,8 @@ def serialize_spec_for_cache(spec):
         "_partial_query",
         BRAND_QUERY_FILTER_FLAG,
         BRAND_QUERY_FILTER_ALIASES_KEY,
+        BRAND_QUERY_EXPLICIT_LIST_FLAG,
+        BRAND_QUERY_EXCLUDE_SOURCE_FLAG,
         "规格摘要",
     ]
     parts = []
@@ -30971,7 +31051,7 @@ def scope_search_dataframe(df, spec):
                     special_values = base["_special_use_norm"].astype(str)
                 else:
                     return base.iloc[0:0]
-                mask &= special_values.apply(lambda value: special_use_matches(value, spec_special))
+                mask &= special_values.apply(lambda value: special_use_allows_unconfirmed_compliance(value, spec_special))
                 if not mask.any():
                     return base.iloc[0:0]
 
@@ -31253,7 +31333,7 @@ def match_other_passive_spec(df, spec):
                 special_values = work["_special_use_norm"].astype(str)
             else:
                 return pd.DataFrame()
-            work = work[special_values.apply(lambda value: special_use_matches(value, spec_special))]
+            work = work[special_values.apply(lambda value: special_use_allows_unconfirmed_compliance(value, spec_special))]
         if work.empty:
             return pd.DataFrame()
         return apply_match_levels_and_sort(work, spec)
@@ -31839,7 +31919,7 @@ def match_by_spec(df, spec):
         mask &= work["_volt_num"].notna() & (spec_volt_num is not None) & work["_volt_num"].ge(spec_volt_num)
 
     out = work[mask].copy()
-    if not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+    if bool(spec.get(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, False)) or not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
         out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
     return out.drop(columns=[c for c in ["_size", "_mat", "_tol", "_volt", "_pf", "_tol_kind", "_tol_num", "_volt_num", "_component_type", "_res_ohm"] if c in out.columns])
@@ -33354,6 +33434,11 @@ def classify_match_level(row, spec):
         )
         b_matches = b_value_matches and b_condition_matches and b_tolerance_matches
         thermistor_series_matches = (not is_thermistor or joyin_ntc_series_matches_target(row, spec))
+        spec_special_use = normalize_special_use(spec.get("特殊用途", ""))
+        special_use_confirmed = (
+            spec_special_use == ""
+            or special_use_matches(row.get("特殊用途", ""), spec_special_use)
+        )
 
         query_complete = (
             spec_size != "" and
@@ -33389,13 +33474,15 @@ def classify_match_level(row, spec):
             exact = False
         if not thermistor_series_matches:
             exact = False
+        if not special_use_confirmed:
+            exact = False
 
         if query_complete and exact:
             return "完全匹配", 1
 
         if not query_complete and same_core:
             tol_ok_partial = (spec_tol == "" or (row_tol_raw != "" and tolerance_equal(row_tol_raw, spec_tol)))
-            if tol_ok_partial and power_matches and b_matches and thermistor_series_matches:
+            if tol_ok_partial and power_matches and b_matches and thermistor_series_matches and special_use_confirmed:
                 return "部分参数匹配", 2
 
         if query_complete and same_core:
@@ -33407,7 +33494,7 @@ def classify_match_level(row, spec):
                 and row_power_watt is not None
                 and row_power_watt > spec_power_watt + 1e-9
             )
-            if tol_ok and power_matches and b_matches and thermistor_series_matches and (strictly_better or power_strictly_better):
+            if tol_ok and power_matches and b_matches and thermistor_series_matches and special_use_confirmed and (strictly_better or power_strictly_better):
                 return "高代低", 3
 
         return "需确认替代", 4
@@ -33787,6 +33874,14 @@ def collect_recommendation_warnings(row, spec):
         return []
     warnings_list = []
     target_type = infer_spec_component_type(spec)
+    missing_compliance = missing_soft_compliance_tokens(
+        row.get("特殊用途", ""),
+        spec.get("特殊用途", ""),
+    )
+    if missing_compliance:
+        warnings_list.append(
+            f"候选缺少{'、'.join(missing_compliance)}合规资料，需查原厂规格书确认"
+        )
 
     if target_type in INDUCTOR_COMPONENT_TYPES:
         spec_current_amps = parse_current_to_amps(spec.get("额定电流", "")) or parse_current_to_amps(spec.get("_current", ""))
@@ -34133,6 +34228,7 @@ def apply_match_levels_and_sort(df, spec):
         spec_tol = clean_tol_for_match(spec.get("容值误差", ""))
         spec_volt = clean_voltage(spec.get("耐压（V）", ""))
         spec_pf = spec.get("容值_pf", None)
+        spec_special_use = normalize_special_use(spec.get("特殊用途", ""))
         spec_mlcc_class = infer_mlcc_series_class_from_spec(spec)
 
         row_size_raw = work["_size"] if "_size" in work.columns else work["尺寸（inch）"].astype(str).apply(clean_size)
@@ -34141,6 +34237,13 @@ def apply_match_levels_and_sort(df, spec):
         row_volt_raw = work["_volt"] if "_volt" in work.columns else work["耐压（V）"].astype(str).apply(clean_voltage)
         row_pf = work["_pf"] if "_pf" in work.columns else pd.to_numeric(work["容值_pf"], errors="coerce")
         row_mlcc_class = work["_mlcc_series_class"] if "_mlcc_series_class" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
+        if spec_special_use != "":
+            row_special_use = work["特殊用途"].astype(str) if "特殊用途" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
+            special_use_confirmed = row_special_use.apply(
+                lambda value: special_use_matches(value, spec_special_use)
+            )
+        else:
+            special_use_confirmed = pd.Series(True, index=work.index)
 
         level_series = pd.Series("需确认替代", index=work.index, dtype="object")
         rank_series = pd.Series(4, index=work.index, dtype="int64")
@@ -34167,6 +34270,7 @@ def apply_match_levels_and_sort(df, spec):
                 exact_mask &= row_mat_raw.ne("")
                 exact_mask &= row_tol_raw.ne("") & tolerance_equal_series(work, spec_tol)
                 exact_mask &= row_volt_raw.ne("") & row_volt_raw.eq(spec_volt)
+                exact_mask &= special_use_confirmed
                 level_series.loc[exact_mask] = "完全匹配"
                 rank_series.loc[exact_mask] = 1
 
