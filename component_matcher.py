@@ -158,7 +158,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 104
+QUERY_RESULT_CACHE_VERSION = 105
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T04:10:17+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T05:15:52+08:00"
 
 
 def startup_trace(message):
@@ -24140,6 +24140,57 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
     return slots
 
 
+def bom_export_slots_have_model(export_slots, limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS):
+    slots = export_slots if isinstance(export_slots, dict) else {}
+    return any(
+        clean_text(slots.get(bom_own_brand_internal_column("自有型号", idx), "")) != ""
+        for idx in range(1, int(limit or 0) + 1)
+    )
+
+
+def bom_output_no_match_reason(export_settings=None):
+    settings = normalize_bom_export_settings(export_settings)
+    if settings["mode"] == BOM_EXPORT_MODE_CUSTOM:
+        brand_text = "、".join(settings["brands"]) or "指定品牌"
+        return f"指定品牌（{brand_text}）未找到符合规格的型号；可能原厂无对应型号或当前数据库资料不足"
+    return "当前输出品牌范围内未找到符合规格的型号；可能品牌无对应型号或当前数据库资料不足"
+
+
+def reconcile_bom_output_status(result_row, export_slots, export_settings=None):
+    if not isinstance(result_row, dict):
+        return result_row
+    status = clean_text(result_row.get("状态", ""))
+    if status in {"解析失败", "已跳过", "无法识别", "规格不足"}:
+        return result_row
+
+    if bom_export_slots_have_model(export_slots):
+        if status == "无匹配":
+            result_row["状态"] = "可推荐"
+            result_row["推荐理由"] = "已匹配原 BOM 型号及当前成本资料"
+        return result_row
+
+    settings = normalize_bom_export_settings(export_settings)
+    if settings["mode"] != BOM_EXPORT_MODE_CUSTOM and status == "无匹配":
+        return result_row
+
+    reason = bom_output_no_match_reason(settings)
+    result_row["状态"] = "无匹配"
+    result_row["匹配数量"] = 0
+    result_row["首选推荐等级"] = ""
+    result_row["推荐品牌"] = ""
+    result_row["推荐型号"] = ""
+    result_row["推荐理由"] = reason
+    result_row["差异说明"] = reason
+    result_row["前5个其他品牌型号"] = ""
+    result_row["备注1"] = ""
+    result_row["备注2"] = ""
+    result_row["备注3"] = ""
+    for idx in range(1, BOM_PREFERRED_BRAND_SLOTS + 1):
+        result_row[f"品牌{idx}"] = ""
+        result_row[f"型号{idx}"] = ""
+    return result_row
+
+
 def build_bom_export_candidate_frame(matched, query_df=None, spec=None, mode="", exact_model=""):
     frames = []
     exact_model = clean_model(exact_model) or (
@@ -35881,6 +35932,8 @@ def guess_bom_column(upload_df, role, used_columns=None):
                     if re.fullmatch(r"[A-Z0-9._/\-]+", compact or "") and re.search(r"[A-Z]", compact or "") and re.search(r"\d", compact or ""):
                         model_ratio += 1
                 score += int((model_ratio / len(sample)) * 18)
+                non_empty_count = int(upload_df[col].apply(clean_text).ne("").sum())
+                score += int((non_empty_count / max(1, len(upload_df))) * 30)
 
         if score > best_score or (score == best_score and best_col is not None and pos < list(upload_df.columns).index(best_col)):
             best_col = col
@@ -36414,7 +36467,8 @@ def build_bom_result_row(df, line, export_settings=None):
         )
         row["备注2"] = clean_text(display_match.get("备注2", ""))
         row["备注3"] = clean_text(display_match.get("备注3", ""))
-    row.update(build_bom_own_brand_export_slots(matched, spec=spec, export_settings=export_settings))
+    export_slots = build_bom_own_brand_export_slots(matched, spec=spec, export_settings=export_settings)
+    row.update(export_slots)
     row.update(
         build_bom_preferred_brand_slots(
             matched,
@@ -36428,6 +36482,7 @@ def build_bom_result_row(df, line, export_settings=None):
     )
     row["状态"] = recommendation.get("status", "需确认")
     row["推荐理由"] = recommendation.get("reason", "")
+    reconcile_bom_output_status(row, export_slots, export_settings=export_settings)
     return row
 
 def build_bom_upload_result_row(
@@ -36611,9 +36666,7 @@ def build_bom_upload_result_row(
         export_settings=export_settings,
     )
     result_row.update(export_slots)
-    if clean_text(export_slots.get("自有型号", "")) != "" and result_row["状态"] == "无匹配":
-        result_row["状态"] = "可推荐"
-        result_row["推荐理由"] = "已匹配原 BOM 型号及当前成本资料"
+    reconcile_bom_output_status(result_row, export_slots, export_settings=export_settings)
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(

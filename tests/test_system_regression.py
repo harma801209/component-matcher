@@ -1757,6 +1757,51 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotEqual(auto_slots["自有匹配说明2"], "")
         self.assertIn("芯声微HRE", app["bom_export_brand_options"]())
 
+        mapping = app["guess_bom_column_mapping"](
+            pd.DataFrame(
+                {
+                    "品名": ["贴片电容"] * 4,
+                    "规格": ["10nF;50V;±10%;0603;X7R"] * 4,
+                    "国巨型号": ["CC0603KRX7R9BB103"] * 4,
+                    "PDC料号": ["FN18X103K500PXG", "", "", ""],
+                }
+            )
+        )
+        self.assertEqual(mapping["model"], "国巨型号")
+        self.assertEqual(mapping["spec"], "规格")
+
+        blank_custom_slots = app["empty_bom_own_brand_export_slots"]()
+        false_positive_row = {
+            "状态": "可推荐",
+            "解析状态": "解析成功",
+            "匹配数量": 6,
+            "首选推荐等级": "完全匹配",
+            "推荐品牌": "国巨YAGEO",
+            "推荐型号": "CC0603KRX7R9BB103",
+            "推荐理由": "关键规格完全一致",
+            "差异说明": "使用规格列解析，首选结果可推荐",
+            "前5个其他品牌型号": "国巨YAGEO:CC0603KRX7R9BB103",
+            "备注1": "国巨候选备注",
+            "备注2": "通用候选备注",
+            "品牌1": "国巨",
+            "型号1": "CC0603KRX7R9BB103",
+        }
+        app["reconcile_bom_output_status"](
+            false_positive_row,
+            blank_custom_slots,
+            export_settings={"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["信昌PDC"]},
+        )
+        self.assertEqual(false_positive_row["状态"], "无匹配")
+        self.assertEqual(false_positive_row["匹配数量"], 0)
+        self.assertEqual(false_positive_row["推荐品牌"], "")
+        self.assertEqual(false_positive_row["推荐型号"], "")
+        self.assertEqual(false_positive_row["品牌1"], "")
+        self.assertEqual(false_positive_row["型号1"], "")
+        self.assertEqual(false_positive_row["备注1"], "")
+        self.assertEqual(false_positive_row["备注2"], "")
+        self.assertIn("指定品牌（信昌PDC）", false_positive_row["推荐理由"])
+        self.assertIn("原厂无对应型号或当前数据库资料不足", false_positive_row["差异说明"])
+
         generic_slots = app["build_bom_own_brand_export_slots"](
             pd.DataFrame(
                 [

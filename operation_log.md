@@ -3622,3 +3622,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Brand names copied from customer BOM text are source metadata in automatic mode and no longer shrink the candidate pool. Explicit `指定品牌:` / `目标品牌:` / `输出品牌:` clauses remain line-level target filters.
 - Pending member-login searches now preserve the query, brand mode, and selected brands together. Focused matching tests and an isolated local browser check pass; the browser test used temporary member, cost-list, and no-match databases.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `104` and advanced both public stamps to `2026-07-22T04:10:17+08:00`.
+
+### 2026-07-22 [BOM accuracy] Reject blank selected-brand recommendations
+
+- Reproduced the reported false-positive BOM output with `PDC匹配国巨——电容.xlsx`: status came from all-brand candidates while the selected PDC export slot could be empty.
+- Added a final output invariant: recommendation-like states require a nonblank selected-brand model. Empty selected-brand output becomes `无匹配`, generic candidate brand/model/remarks are cleared, and the explanation distinguishes no manufacturer equivalent from missing database coverage.
+- Fixed automatic BOM column mapping to consider full-column completeness. The reported workbook now selects `国巨型号` instead of the partially populated `PDC料号`; all 250 source rows parse as MLCC with no false diode row.
+- Real-file sample replay covers populated and blank PDC rows plus high-voltage/automotive specifications: 9 recommended, 4 no-match, 0 blank-model false positives, and 0 parse failures. Focused unit tests pass with isolated runtime databases.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `105` and advanced `PUBLIC_CODE_STAMP` / `PUBLIC_RELEASE_STAMP` to `2026-07-22T05:15:52+08:00`. No protected runtime database or component data file was modified.
