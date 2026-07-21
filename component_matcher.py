@@ -46,6 +46,7 @@ from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
 from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
+from fojan_resistor_catalog import get_fojan_special_resistor_series
 
 
 def quiet_nonessential_console_noise():
@@ -155,7 +156,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 101
+QUERY_RESULT_CACHE_VERSION = 102
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -180,7 +181,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-18T23:04:42+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T01:51:09+08:00"
 
 
 def startup_trace(message):
@@ -10266,17 +10267,44 @@ def parse_pdc_fmf_alloy_resistor_model(model, brand="", component_type=""):
 
 
 FOJAN_ALLOY_MODEL_PATTERN = re.compile(
-    r"^(?P<series>FRM|FPM)(?P<size_code>12|25)(?P<power>[123]W)"
-    r"(?P<tol>[FGJ])(?P<res>R\d{3,4})T(?P<suffix>ML|M|N|K)$"
+    r"^(?P<series>FMB|FRM|FPM)(?P<size_code>06|08|12|20|25)"
+    r"(?P<power>02|05|07|15|[123]W)"
+    r"(?P<tol>[DFGJ])(?P<res>R\d{3,4})T(?P<suffix>ML|M|N|K)$"
 )
-FOJAN_ALLOY_TOLERANCE_CODE_MAP = {"F": "1", "G": "2", "J": "5"}
+FOJAN_ALLOY_TOLERANCE_CODE_MAP = {"D": "0.5", "F": "1", "G": "2", "J": "5"}
+FOJAN_ALLOY_SIZE_CODE_TO_INCH = {
+    "06": "0603",
+    "08": "0805",
+    "12": "1206",
+    "20": "2010",
+    "25": "2512",
+}
+FOJAN_ALLOY_SIZE_INCH_TO_CODE = {
+    value: key for key, value in FOJAN_ALLOY_SIZE_CODE_TO_INCH.items()
+}
+FOJAN_ALLOY_POWER_CODE_TO_DISPLAY = {
+    "02": "0.25W",
+    "05": "0.5W",
+    "07": "0.75W",
+    "15": "1.5W",
+    "1W": "1W",
+    "2W": "2W",
+    "3W": "3W",
+}
+FOJAN_ALLOY_POWER_DISPLAY_TO_CODE = {
+    value: key for key, value in FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.items()
+}
+FOJAN_FMB_DATASHEET_SOURCE = (
+    "FMB Series Thin-film Chip Resistance Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
 FOJAN_FPM_DATASHEET_SOURCE = (
     "FPM Series Low Resistance High Power Alloy Resistor Product Specifications "
     "FJ-JS-3001-V1.0/2025.09.24"
 )
 FOJAN_FRM_1206_EVIDENCE_SOURCE = (
-    "FOJAN/JLCPCB FRM121WFR010TM and FRM121WFR050TM product pages; "
-    "local official-view catalog rows"
+    "FRM Series Low Resistance Alloy Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
 )
 
 
@@ -10315,6 +10343,15 @@ def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
     suffix = clean_text(suffix).upper()
     if mohm is None:
         return False
+    if series == "FMB":
+        official_power = {
+            "0603": "0.25W",
+            "0805": "0.5W",
+            "1206": "0.5W",
+            "2010": "0.75W",
+            "2512": "1W",
+        }.get(size, "")
+        return suffix == "M" and power == format_power_display(official_power) and 10.0 <= mohm <= 91.0
     if series == "FPM":
         if size != "2512" or power != "3W":
             return False
@@ -10324,10 +10361,16 @@ def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
             return 1.0 <= mohm <= 100.0
         return False
     if series == "FRM":
+        if size == "0805" and power == format_power_display("0.5W"):
+            return 1.0 <= mohm <= 2.0 if suffix == "ML" else 3.0 <= mohm <= 25.0 if suffix == "M" else False
+        if size == "1206" and power == format_power_display("0.5W"):
+            return suffix == "M" and 101.0 <= mohm <= 200.0
         if size == "1206" and power == "1W":
-            return 1.0 <= mohm <= 250.0
-        if size == "2512" and power in {"2W", "3W"}:
-            return 1.0 <= mohm <= 680.0
+            return mohm == 1.0 if suffix == "ML" else 1.0 <= mohm <= 100.0 if suffix == "M" else False
+        if size == "2010" and power == format_power_display("1.5W"):
+            return 1.0 <= mohm <= 3.0 if suffix == "ML" else 1.0 <= mohm <= 100.0 if suffix == "M" else False
+        if size == "2512" and power == "2W":
+            return 0.5 <= mohm <= 4.0 if suffix == "ML" else 1.0 <= mohm <= 680.0 if suffix == "M" else False
     return False
 
 
@@ -10338,12 +10381,23 @@ def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
         return None
     value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
     dimensions = {
+        "0603": ("1.60", "0.90", ""),
+        "0805": ("2.00", "1.30", ""),
         "1206": ("3.20", "1.60", ""),
+        "2010": ("5.00", "2.60", ""),
         "2512": ("6.40", "3.20", ""),
     }.get(size, ("", "", ""))
     special_parts = ["电流检测", "分流器", "低阻", "合金"]
-    series_desc = "低阻值高功率合金电阻" if series == "FPM" else "合金低阻贴片电阻"
-    data_source = FOJAN_FPM_DATASHEET_SOURCE if series == "FPM" else FOJAN_FRM_1206_EVIDENCE_SOURCE
+    if series == "FPM":
+        series_desc = "低阻值高功率合金电阻"
+        data_source = FOJAN_FPM_DATASHEET_SOURCE
+    elif series == "FMB":
+        series_desc = "薄膜合金贴片电阻"
+        data_source = FOJAN_FMB_DATASHEET_SOURCE
+        special_parts.extend(["低温漂", "薄膜"])
+    else:
+        series_desc = "合金低阻贴片电阻"
+        data_source = FOJAN_FRM_1206_EVIDENCE_SOURCE
     if suffix == "ML":
         special_parts.append("大电极")
         series_desc += "（大电极）"
@@ -10391,14 +10445,15 @@ def parse_fojan_alloy_resistor_model(model, brand="", component_type=""):
     match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
     if match is None:
         return None
-    size = {"12": "1206", "25": "2512"}.get(match.group("size_code"), "")
+    size = FOJAN_ALLOY_SIZE_CODE_TO_INCH.get(match.group("size_code"), "")
+    power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(match.group("power"), "")
     tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
-    if size == "" or tol == "":
+    if size == "" or power == "" or tol == "":
         return None
     parsed = fojan_alloy_model_fields(
         match.group("series"),
         size,
-        match.group("power"),
+        power,
         tol,
         match.group("res"),
         match.group("suffix"),
@@ -10594,6 +10649,7 @@ def parse_resistor_model_rule(model, brand="", component_type=""):
         parse_murata_mhr_resistor_model,
         parse_milliohm_holr_alloy_resistor_model,
         parse_fojan_alloy_resistor_model,
+        parse_fojan_catalog_resistor_model,
         parse_bourns_crf0805_current_sense_model,
         parse_pdc_fmf_alloy_resistor_model,
         parse_ralec_lr_alloy_resistor_model,
@@ -17828,10 +17884,25 @@ def parse_resistor_spec_query(line):
         return None
     invalid_size_token = find_invalid_leading_zero_size_token(tokens, component_type)
     size = find_embedded_size(raw)
+    if size == "":
+        array_size_match = re.search(
+            r"(?<![A-Z0-9])(022R|024R|042R|044R|062R|064R)(?![A-Z0-9])",
+            normalized,
+        )
+        if array_size_match is not None:
+            size = array_size_match.group(1)
     tol = find_tolerance_in_text(raw)
-    resistance_ohm = find_resistance_in_text(raw)
+    resistance_source = raw
+    if size in {"022R", "024R", "042R", "044R", "062R", "064R"}:
+        resistance_source = re.sub(
+            rf"(?<![A-Z0-9]){re.escape(size)}(?![A-Z0-9])",
+            " ",
+            raw,
+            flags=re.I,
+        )
+    resistance_ohm = find_resistance_in_text(resistance_source)
     if resistance_ohm is None:
-        resistance_ohm = find_leading_unlabeled_resistance_in_resistor_text(raw)
+        resistance_ohm = find_leading_unlabeled_resistance_in_resistor_text(resistance_source)
     power = find_power_in_text(raw)
     if component_type_hint == "" and resistance_ohm is not None:
         compact_raw = clean_model(raw)
@@ -21301,6 +21372,7 @@ def parse_timing_spec_query(line):
         "品牌": "",
         "型号": raw,
         "器件类型": component_type,
+        "特殊用途": special_use,
         "尺寸（inch）": size,
         "材质（介质）": "",
         "容值": value,
@@ -23634,13 +23706,30 @@ def normalize_bom_export_settings(export_settings=None):
     return {"mode": mode, "brands": brands}
 
 
-def should_start_bom_matching(stored_signature, current_signature, export_mode, custom_start_clicked=False):
+def bom_output_selection_ready(export_mode, selected_brands=None):
+    mode = clean_text(export_mode)
+    if mode == BOM_EXPORT_MODE_AUTO:
+        return True
+    if mode == BOM_EXPORT_MODE_CUSTOM:
+        return bool(normalize_bom_export_settings({"mode": mode, "brands": selected_brands}).get("brands"))
+    return False
+
+
+def should_start_bom_matching(
+    stored_signature,
+    current_signature,
+    export_mode,
+    start_clicked=False,
+    custom_start_clicked=None,
+):
     current_signature = clean_text(current_signature)
     if current_signature == "":
         return False
-    if clean_text(export_mode) == BOM_EXPORT_MODE_CUSTOM:
-        return bool(custom_start_clicked)
-    return clean_text(stored_signature) != current_signature
+    if clean_text(export_mode) not in {BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM}:
+        return False
+    if custom_start_clicked is not None:
+        start_clicked = custom_start_clicked
+    return bool(start_clicked)
 
 
 def bom_export_brand_groups(component_type, export_settings=None):
@@ -28496,10 +28585,21 @@ def compatible_component_types_for_search(target_type):
 def filter_base_by_candidate_pairs(base, candidate_pairs):
     if base is None or base.empty:
         return base
+    generated = base.iloc[0:0]
+    if "_model_rule_authority" in base.columns:
+        generated_authorities = {
+            "fojan_frc_generated_rule",
+            "fojan_alloy_resistor_model",
+            "fojan_official_special_resistor_catalog",
+        }
+        generated_mask = base["_model_rule_authority"].astype(str).isin(generated_authorities)
+        generated = base[generated_mask]
+        base = base[~generated_mask]
     if not candidate_pairs:
-        return base.iloc[0:0]
+        return generated
     pair_df = pd.DataFrame(candidate_pairs, columns=["品牌", "型号"]).drop_duplicates()
-    return base.merge(pair_df, on=["品牌", "型号"], how="inner")
+    indexed = base.merge(pair_df, on=["品牌", "型号"], how="inner")
+    return concat_component_frames([generated, indexed])
 
 
 def chunk_items(items, chunk_size):
@@ -29609,8 +29709,22 @@ def load_component_rows_by_clean_models_map(models, use_database=True):
 
 FOJAN_RESISTOR_MODEL_PATTERN = re.compile(
     r"^(?P<series>FRC|FRL)(?P<size>0201|0402|0603|0805|1206|1210|1812|2010|2512)"
-    r"(?P<tolerance>[PFJ])(?P<value>[0-9R]+)TS$"
+    r"(?P<tolerance>[PABCDFGJ])(?P<value>[0-9R]+)TS$"
 )
+FOJAN_SPECIAL_RESISTOR_CATALOG = get_fojan_special_resistor_series()
+FOJAN_TOLERANCE_CODE_TO_PERCENT = {
+    "T": "0.01",
+    "A": "0.05",
+    "B": "0.1",
+    "C": "0.25",
+    "D": "0.5",
+    "F": "1",
+    "G": "2",
+    "J": "5",
+}
+FOJAN_TOLERANCE_PERCENT_TO_CODE = {
+    value: key for key, value in FOJAN_TOLERANCE_CODE_TO_PERCENT.items()
+}
 FOJAN_E24_BASE_VALUES = (
     10, 11, 12, 13, 15, 16, 18, 20, 22, 24, 27, 30,
     33, 36, 39, 43, 47, 51, 56, 62, 68, 75, 82, 91,
@@ -29629,7 +29743,7 @@ def fojan_resistance_is_standard(resistance_ohm, tolerance):
     tolerance = clean_tol_for_match(tolerance)
     exponent = math.floor(math.log10(value))
     normalized = value / (10 ** exponent)
-    if tolerance == "1":
+    if tolerance in {"0.01", "0.05", "0.1", "0.25", "0.5", "1", "2"}:
         base = int(round(normalized * 100))
         allowed = set(RESISTOR_EIA96_VALUES) | {item * 10 for item in FOJAN_E24_BASE_VALUES}
         reconstructed = (base / 100.0) * (10 ** exponent)
@@ -29650,7 +29764,7 @@ def parse_valid_fojan_resistor_model(model):
     series = match.group("series")
     tolerance_code = match.group("tolerance")
     value_code = match.group("value")
-    expected_code_length = 4 if tolerance_code == "F" else 3 if series == "FRC" else 4
+    expected_code_length = 4 if tolerance_code not in {"J", "P"} else 3 if series == "FRC" and "R" not in value_code else 4
     if tolerance_code == "P":
         expected_code_length = 3
     if len(value_code) != expected_code_length:
@@ -29661,7 +29775,9 @@ def parse_valid_fojan_resistor_model(model):
         resistance_ohm = 0.0
         tolerance = "5"
     else:
-        tolerance = "1" if tolerance_code == "F" else "5"
+        tolerance = FOJAN_TOLERANCE_CODE_TO_PERCENT.get(tolerance_code, "")
+        if tolerance == "":
+            return None
         resistance_ohm = parse_resistor_value_code(value_code)
         if resistance_ohm is None:
             return None
@@ -29694,8 +29810,8 @@ def format_fojan_resistor_value_code(resistance_ohm, tolerance):
         return ("F", "0000") if tolerance == "1" else ("P", "000") if tolerance == "5" else ("", "")
     if not fojan_resistance_is_standard(value, tolerance):
         return "", ""
-    digits = 3 if tolerance == "1" else 2
-    tolerance_code = "F" if tolerance == "1" else "J" if tolerance == "5" else ""
+    digits = 2 if tolerance == "5" else 3
+    tolerance_code = FOJAN_TOLERANCE_PERCENT_TO_CODE.get(tolerance, "")
     if tolerance_code == "":
         return "", ""
     if value < 1:
@@ -29709,6 +29825,207 @@ def format_fojan_resistor_value_code(resistance_ohm, tolerance):
         return tolerance_code, text.replace(".", "R")
     significant = int(round(value / (10 ** exponent)))
     return tolerance_code, f"{significant:0{digits}d}{exponent}"
+
+
+def format_fojan_catalog_resistor_value_code(resistance_ohm, tolerance):
+    try:
+        value = float(resistance_ohm)
+    except Exception:
+        return "", ""
+    tolerance = clean_tol_for_match(tolerance)
+    tolerance_code = FOJAN_TOLERANCE_PERCENT_TO_CODE.get(tolerance, "")
+    if tolerance_code == "" or value <= 0 or not math.isfinite(value):
+        return "", ""
+    if value < 1:
+        milli_ohm = value * 1000.0
+        rounded_milli_ohm = round(milli_ohm)
+        if not math.isclose(milli_ohm, rounded_milli_ohm, rel_tol=1e-9, abs_tol=1e-9):
+            return "", ""
+        if not (1 <= rounded_milli_ohm <= 999):
+            return "", ""
+        return tolerance_code, f"R{int(rounded_milli_ohm):03d}"
+    if not fojan_resistance_is_standard(value, tolerance):
+        return "", ""
+    digits = 2 if tolerance == "5" else 3
+    exponent = math.floor(math.log10(value)) - (digits - 1)
+    if exponent < 0:
+        text = f"{value:.{-exponent}f}"
+        return tolerance_code, text.replace(".", "R")
+    significant = int(round(value / (10 ** exponent)))
+    return tolerance_code, f"{significant:0{digits}d}{exponent}"
+
+
+def format_fojan_e24_three_digit_value_code(resistance_ohm, tolerance):
+    try:
+        value = float(resistance_ohm)
+    except Exception:
+        return "", ""
+    tolerance = clean_tol_for_match(tolerance)
+    tolerance_code = FOJAN_TOLERANCE_PERCENT_TO_CODE.get(tolerance, "")
+    if tolerance_code == "" or value <= 0 or not math.isfinite(value):
+        return "", ""
+    exponent = math.floor(math.log10(value)) - 1
+    if exponent < 0:
+        text = f"{value:.{-exponent}f}"
+        return tolerance_code, text.replace(".", "R")
+    significant = int(round(value / (10 ** exponent)))
+    if significant not in FOJAN_E24_BASE_VALUES:
+        return "", ""
+    return tolerance_code, f"{significant:02d}{exponent}"
+
+
+def fojan_catalog_profile_allows(profile, size, resistance_ohm, tolerance, power=""):
+    if not isinstance(profile, dict):
+        return False
+    size_rule = profile.get("sizes", {}).get(clean_size(size))
+    if not isinstance(size_rule, dict):
+        return False
+    tolerance = clean_tol_for_match(tolerance)
+    if tolerance not in {clean_tol_for_match(value) for value in profile.get("tolerances", ())}:
+        return False
+    try:
+        resistance_value = float(resistance_ohm)
+    except Exception:
+        return False
+    if not math.isfinite(resistance_value):
+        return False
+    minimum = float(size_rule.get("min_ohm", 0.0))
+    maximum = float(size_rule.get("max_ohm", 0.0))
+    epsilon = max(1e-12, abs(resistance_value) * 1e-9)
+    if resistance_value + epsilon < minimum or resistance_value - epsilon > maximum:
+        return False
+    requested_power = format_power_display(power)
+    official_power = format_power_display(size_rule.get("power", ""))
+    if requested_power != "" and requested_power != official_power:
+        return False
+    return True
+
+
+def build_fojan_catalog_model(series, profile, size, resistance_ohm, tolerance, suffix="TS"):
+    if not fojan_catalog_profile_allows(profile, size, resistance_ohm, tolerance):
+        return ""
+    if clean_text(profile.get("value_encoding", "")) == "e24_3digit":
+        tolerance_code, value_code = format_fojan_e24_three_digit_value_code(resistance_ohm, tolerance)
+    else:
+        tolerance_code, value_code = format_fojan_catalog_resistor_value_code(resistance_ohm, tolerance)
+    if tolerance_code == "" or value_code == "":
+        return ""
+    size_code = profile.get("model_size_by_size", {}).get(clean_size(size), clean_size(size))
+    model_prefix = clean_text(profile.get("model_prefix", "")) or clean_text(series)
+    suffix_text = clean_model(suffix).upper()
+    if suffix_text not in {clean_model(item).upper() for item in profile.get("suffixes", ("TS",))}:
+        return ""
+    return f"{model_prefix}{size_code}{tolerance_code}{value_code}{suffix_text}"
+
+
+def parse_fojan_catalog_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model).upper()
+    brand_text = clean_brand(brand)
+    if compact == "" or (brand_text != "" and not ("FOJAN" in brand_text.upper() or "富捷" in brand_text)):
+        return None
+    ordered_profiles = sorted(
+        FOJAN_SPECIAL_RESISTOR_CATALOG.items(),
+        key=lambda item: max(len(clean_model(suffix)) for suffix in item[1].get("suffixes", ("TS",))),
+        reverse=True,
+    )
+    for series, profile in ordered_profiles:
+        model_prefix = clean_text(profile.get("model_prefix", "")) or series
+        model_size_by_size = profile.get("model_size_by_size", {})
+        for display_size, size_rule in profile.get("sizes", {}).items():
+            model_size = model_size_by_size.get(display_size, display_size)
+            for suffix in profile.get("suffixes", ("TS",)):
+                pattern = re.compile(
+                    rf"^{re.escape(model_prefix)}{re.escape(model_size)}(?P<tol>[TABCDFGJ])(?P<value>[0-9R]+){re.escape(suffix)}$"
+                )
+                match = pattern.fullmatch(compact)
+                if match is None:
+                    continue
+                tolerance = FOJAN_TOLERANCE_CODE_TO_PERCENT.get(match.group("tol"), "")
+                resistance_ohm = parse_resistor_value_code(match.group("value"))
+                if resistance_ohm is None or not fojan_catalog_profile_allows(
+                    profile,
+                    display_size,
+                    resistance_ohm,
+                    tolerance,
+                ):
+                    continue
+                value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+                return {
+                    "品牌": brand_text or "FOJAN(富捷)",
+                    "型号": compact,
+                    "器件类型": profile.get("component_type", "厚膜电阻"),
+                    "材质（介质）": clean_text(profile.get("material", "")),
+                    "系列": clean_text(profile.get("series_display", "")) or series,
+                    "系列说明": profile.get("description", ""),
+                    "特殊用途": profile.get("special_use", ""),
+                    "尺寸（inch）": display_size,
+                    "容值": value_text,
+                    "容值单位": unit_text,
+                    "容值_pf": float("nan"),
+                    "容值误差": tolerance,
+                    "阻值@25C": f"{float(resistance_ohm):g}",
+                    "阻值单位": "Ω",
+                    "阻值误差": tolerance,
+                    "功率": format_power_display(size_rule.get("power", "")),
+                    "耐压（V）": clean_voltage(size_rule.get("voltage", "")),
+                    "工作温度": "-55~155℃",
+                    "安装方式": "贴片",
+                    "封装代码": display_size,
+                    "数据来源": f"富捷官方规格书：{profile.get('source', '')}",
+                    "_resistance_ohm": float(resistance_ohm),
+                    "_power": format_power_display(size_rule.get("power", "")),
+                    "_model_rule_authority": "fojan_official_special_resistor_catalog",
+                    "_param_count": 6,
+                }
+    return None
+
+
+def build_fojan_special_resistor_candidates_from_spec(spec):
+    if not isinstance(spec, dict) or not fojan_brand_requested_or_unset(spec):
+        return pd.DataFrame()
+    component_type = infer_spec_component_type(spec)
+    if component_type == "合金电阻" or component_type not in RESISTOR_COMPONENT_TYPES:
+        return pd.DataFrame()
+    requested_tokens = set(special_use_tokens(spec.get("特殊用途", "")))
+    trigger_tokens = requested_tokens - {"无卤", "无铅"}
+    if not trigger_tokens:
+        return pd.DataFrame()
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    power = format_power_display(spec.get("_power", ""))
+    if size == "" or tolerance == "" or resistance_ohm is None:
+        return pd.DataFrame()
+
+    rows = []
+    for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items():
+        profile_tokens = set(special_use_tokens(profile.get("special_use", "")))
+        if not requested_tokens.issubset(profile_tokens):
+            continue
+        if not fojan_catalog_profile_allows(profile, size, resistance_ohm, tolerance, power=power):
+            continue
+        size_rule = profile.get("sizes", {}).get(size, {})
+        for suffix in profile.get("suffixes", ("TS",)):
+            model = build_fojan_catalog_model(
+                series,
+                profile,
+                size,
+                resistance_ohm,
+                tolerance,
+                suffix=suffix,
+            )
+            if model == "":
+                continue
+            parsed = parse_fojan_catalog_resistor_model(model, brand="FOJAN(富捷)")
+            if not isinstance(parsed, dict):
+                continue
+            parsed["功率"] = format_power_display(size_rule.get("power", ""))
+            parsed["耐压（V）"] = clean_voltage(size_rule.get("voltage", ""))
+            rows.append(parsed)
+    if not rows:
+        return pd.DataFrame()
+    frame = ensure_component_display_columns(pd.DataFrame(rows))
+    return prepare_search_dataframe(frame)
 
 
 def build_fojan_resistor_model_from_spec(spec):
@@ -29757,19 +30074,50 @@ def build_fojan_alloy_models_from_spec(spec):
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))
     resistance_ohm = spec.get("_resistance_ohm", None)
     power = format_power_display(spec.get("_power", ""))
-    tol_code = {"1": "F", "2": "G", "5": "J"}.get(tolerance, "")
+    tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
     value_code = fojan_alloy_value_code(resistance_ohm)
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
     if size == "" or tol_code == "" or value_code == "" or mohm is None:
         return []
     candidates = []
-    if size == "1206" and power in {"", "1W"} and 1.0 <= mohm <= 250.0:
-        candidates.append(f"FRM121W{tol_code}{value_code}TM")
-    if size == "2512" and power == "3W":
-        if 0.5 <= mohm <= 4.0:
-            candidates.append(f"FPM253W{tol_code}{value_code}TML")
-        if 1.0 <= mohm <= 100.0:
-            candidates.append(f"FPM253W{tol_code}{value_code}TM")
+    size_code = FOJAN_ALLOY_SIZE_INCH_TO_CODE.get(size, "")
+    profile_options = {
+        "0603": [("FMB", "0.25W", "M")],
+        "0805": [("FMB", "0.5W", "M"), ("FRM", "0.5W", "ML"), ("FRM", "0.5W", "M")],
+        "1206": [
+            ("FMB", "0.5W", "M"),
+            ("FRM", "0.5W", "M"),
+            ("FRM", "1W", "ML"),
+            ("FRM", "1W", "M"),
+        ],
+        "2010": [("FMB", "0.75W", "M"), ("FRM", "1.5W", "ML"), ("FRM", "1.5W", "M")],
+        "2512": [
+            ("FMB", "1W", "M"),
+            ("FRM", "2W", "ML"),
+            ("FRM", "2W", "M"),
+            ("FPM", "3W", "ML"),
+            ("FPM", "3W", "M"),
+        ],
+    }.get(size, [])
+    for series, official_power, suffix in profile_options:
+        if power not in {"", format_power_display(official_power)}:
+            continue
+        if tolerance == "0.5" and series == "FMB":
+            continue
+        if not fojan_alloy_code_is_in_series_range(
+            series,
+            size,
+            official_power,
+            mohm,
+            suffix,
+        ):
+            continue
+        power_code = FOJAN_ALLOY_POWER_DISPLAY_TO_CODE.get(official_power, "")
+        if size_code == "" or power_code == "":
+            continue
+        candidates.append(
+            f"{series}{size_code}{power_code}{tol_code}{value_code}T{suffix}"
+        )
     return list(dict.fromkeys(candidates))
 
 
@@ -29779,6 +30127,8 @@ def infer_rule_fallback_brand_from_model(model, brand=""):
         return resolved_brand
     compact = clean_model(model).upper()
     if parse_fojan_alloy_resistor_model(compact, brand="FOJAN(富捷)", component_type="合金电阻") is not None:
+        return "FOJAN(富捷)"
+    if parse_fojan_catalog_resistor_model(compact, brand="FOJAN(富捷)") is not None:
         return "FOJAN(富捷)"
     if parse_valid_fojan_resistor_model(compact) is not None:
         return "FOJAN(富捷)"
@@ -29793,6 +30143,7 @@ def build_rule_fallback_row_from_model(model, brand=""):
     if (
         resolved_brand == "FOJAN(富捷)"
         and parse_valid_fojan_resistor_model(model) is None
+        and parse_fojan_catalog_resistor_model(model, brand=resolved_brand) is None
         and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
     ):
         return pd.DataFrame()
@@ -29827,6 +30178,8 @@ def build_rule_fallback_row_from_model(model, brand=""):
     }
     fallback_defaults.update(parsed)
     parsed = fallback_defaults
+    if resolved_brand == "FOJAN(富捷)" and parse_valid_fojan_resistor_model(model) is not None:
+        parsed["_model_rule_authority"] = "fojan_frc_generated_rule"
     fallback = pd.DataFrame([parsed])
     try:
         fallback = prepare_search_dataframe(fallback)
@@ -29835,6 +30188,7 @@ def build_rule_fallback_row_from_model(model, brand=""):
     if (
         resolved_brand == "FOJAN(富捷)"
         and not fallback.empty
+        and parse_fojan_catalog_resistor_model(model, brand=resolved_brand) is None
         and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
     ):
         price = lookup_resistor_series_pricing(fallback.iloc[0].to_dict())
@@ -29845,15 +30199,21 @@ def build_rule_fallback_row_from_model(model, brand=""):
 
 def build_fojan_rule_candidate_from_spec(spec):
     frames = []
-    model = build_fojan_resistor_model_from_spec(spec)
-    if model != "":
-        frame = build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
-        if isinstance(frame, pd.DataFrame) and not frame.empty:
-            frames.append(frame)
+    requested_special = set(special_use_tokens((spec or {}).get("特殊用途", "")))
+    explicit_special = requested_special - {"无卤", "无铅"}
+    if not explicit_special:
+        model = build_fojan_resistor_model_from_spec(spec)
+        if model != "":
+            frame = build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
+            if isinstance(frame, pd.DataFrame) and not frame.empty:
+                frames.append(frame)
     for alloy_model in build_fojan_alloy_models_from_spec(spec):
         frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             frames.append(frame)
+    special_frame = build_fojan_special_resistor_candidates_from_spec(spec)
+    if isinstance(special_frame, pd.DataFrame) and not special_frame.empty:
+        frames.append(special_frame)
     return concat_component_frames(frames)
 
 
@@ -37636,8 +37996,6 @@ def render_bom_upload_page():
 
                 st.markdown('<div class="section-title">输出设置</div>', unsafe_allow_html=True)
                 export_mode_key = f"bom_export_mode_{workbook_signature}"
-                if export_mode_key not in st.session_state:
-                    st.session_state[export_mode_key] = BOM_EXPORT_MODE_AUTO
                 if hasattr(st, "segmented_control"):
                     bom_export_mode = st.segmented_control(
                         "输出品牌",
@@ -37645,20 +38003,19 @@ def render_bom_upload_page():
                         key=export_mode_key,
                         selection_mode="single",
                         width="stretch",
-                    ) or BOM_EXPORT_MODE_AUTO
+                    )
                 else:
                     bom_export_mode = st.radio(
                         "输出品牌",
                         [BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM],
                         key=export_mode_key,
                         horizontal=True,
+                        index=None,
                     )
                 selected_export_brands = []
-                custom_match_clicked = False
+                match_start_clicked = False
                 if bom_export_mode == BOM_EXPORT_MODE_CUSTOM:
                     custom_brand_key = f"bom_export_brands_{workbook_signature}"
-                    if custom_brand_key not in st.session_state:
-                        st.session_state[custom_brand_key] = ["信昌PDC"]
                     selected_export_brands = st.multiselect(
                         "选择输出品牌",
                         bom_export_brand_options(),
@@ -37668,17 +38025,29 @@ def render_bom_upload_page():
                     )
                     if not selected_export_brands:
                         st.warning("请至少选择一个输出品牌。")
-                        st.stop()
-                    custom_match_clicked = st.button(
+                    match_start_clicked = st.button(
                         "开始指定品牌匹配",
                         key=f"bom_custom_match_start_{workbook_signature}",
                         type="primary",
                         use_container_width=True,
+                        disabled=not selected_export_brands,
                     )
-                    st.caption("切换或调整品牌只更新设置；确认品牌后点击上方按钮才会开始匹配。")
-                bom_export_settings = normalize_bom_export_settings(
-                    {"mode": bom_export_mode, "brands": selected_export_brands}
-                )
+                elif bom_export_mode == BOM_EXPORT_MODE_AUTO:
+                    match_start_clicked = st.button(
+                        "开始主营品牌匹配",
+                        key=f"bom_auto_match_start_{workbook_signature}",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("请先选择“主营品牌自动匹配”或“指定品牌”，系统不会在上传后自动开始匹配。")
+                if bom_output_selection_ready(bom_export_mode, selected_export_brands):
+                    st.caption("输出方式只在点击开始匹配后生效；切换品牌不会自动重跑整份 BOM。")
+                    bom_export_settings = normalize_bom_export_settings(
+                        {"mode": bom_export_mode, "brands": selected_export_brands}
+                    )
+                else:
+                    bom_export_settings = {"mode": "", "brands": []}
 
                 cached_bom_result_df = pd.DataFrame()
                 cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
@@ -37733,11 +38102,11 @@ def render_bom_upload_page():
                         progress_placeholder,
                         {
                             "title": "BOM 文件读取完成",
-                            "subtitle": f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据，正在准备列识别",
+                            "subtitle": f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据，等待确认输出品牌",
                             "current_text": f"当前分页：{selected_sheet_name}",
                             "processed_rows": 0,
                             "total_rows": total_workbook_rows,
-                            "percent": 8.0,
+                            "percent": 0.0,
                             "done": False,
                             "elapsed_seconds": 0.0,
                             "chips": [
@@ -37819,6 +38188,8 @@ def render_bom_upload_page():
                 parse_columns = [selected_mapping.get(x) for x in ["model", "spec", "name"] if selected_mapping.get(x)]
                 if not parse_columns:
                     st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
+                elif not bom_output_selection_ready(bom_export_mode, selected_export_brands):
+                    st.info("BOM 已完成读取和列识别；选择输出品牌后再开始匹配。")
                 else:
                     current_bom_signature = build_bom_workbook_run_signature(
                         uploaded_file,
@@ -37830,14 +38201,13 @@ def render_bom_upload_page():
                         stored_bom_signature,
                         current_bom_signature,
                         bom_export_mode,
-                        custom_start_clicked=custom_match_clicked,
+                        start_clicked=match_start_clicked,
                     )
-                    force_custom_rerun = (
-                        bom_export_mode == BOM_EXPORT_MODE_CUSTOM
-                        and bool(custom_match_clicked)
+                    force_requested_rerun = (
+                        bool(match_start_clicked)
                         and stored_bom_signature == current_bom_signature
                     )
-                    if stored_bom_signature != current_bom_signature or force_custom_rerun:
+                    if start_bom_matching and (stored_bom_signature != current_bom_signature or force_requested_rerun):
                         st.session_state.pop("_bom_result_signature", None)
                         st.session_state.pop("_bom_result_df", None)
                         st.session_state.pop("_bom_export_bytes", None)
@@ -37849,7 +38219,7 @@ def render_bom_upload_page():
 
                     if stored_bom_signature != current_bom_signature:
                         if not start_bom_matching:
-                            st.info("指定品牌设置已更新。确认品牌后，请点击上方“开始指定品牌匹配”。")
+                            st.info("输出品牌设置已就绪，点击上方开始按钮后才会执行匹配。")
                         elif not ensure_component_data_ready("BOM 匹配"):
                             render_bom_progress_card(
                                 progress_placeholder,

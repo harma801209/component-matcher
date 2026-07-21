@@ -846,3 +846,10 @@
 - Root cause: The library already held hundreds of thousands of special resistor rows, but the shared special-use parser recognized only a narrow subset. Exact resistor matching filtered size/value/tolerance/power without enforcing special use, and combined requirements used any-token intersection instead of requiring all requested tags.
 - Fix: Normalize the full resistor requirement vocabulary, apply special use as a hard constraint in scoped, exact, and partial matching, and require the requested tag set to be a subset of each candidate's tags. Add 48 officially identified FOJAN series profiles without synthesizing unverified part-number ranges.
 - Verification: A focused regression covers parsing, combined-tag semantics, ordinary-row rejection, and representative FOJAN profiles. Real-library replays found valid automotive, anti-sulfur, high-voltage, high-power, surge, and automotive-plus-anti-sulfur alternatives with no tag violations. No runtime database or cache file was changed.
+
+## 2026-07-22 - BOM upload started the default match before output-brand confirmation
+
+- Bug: Uploading a BOM immediately started `主营品牌自动匹配`. Choosing `指定品牌` afterward required a second full workbook run; restoring an upload after member login triggered the same premature automatic run.
+- Root cause: `should_start_bom_matching` treated every new workbook/settings signature as an automatic-mode start signal. Only the custom-brand branch required a button click, and its multiselect also preselected a brand.
+- Fix: Treat a button click as the only valid match-start signal for both modes. Leave the mode unselected for a new workbook, require at least one custom brand, preserve existing results while settings are only being edited, and clear/replace them only after an explicit new start.
+- Verification: Unit coverage confirms automatic and custom modes stay idle without a click and can rerun only after a click. An isolated Playwright upload confirms the page remains at `BOM 文件读取完成` / 0%, automatic mode exposes a start button without running, and custom mode has no default brand and keeps its start button disabled until selection.

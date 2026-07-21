@@ -1183,6 +1183,112 @@ class SystemRegressionTests(unittest.TestCase):
             app["fetch_search_candidate_pairs"] = original_fetch
         self.assertEqual(combined_matches["型号"].tolist(), ["FPR0603F1002TS"])
 
+        official_matrix_cases = [
+            (
+                "0603 10K 1% 车规",
+                10,
+                {"FRQ0603F1002TS", "FRR0603F1002TS", "FPR0603F1002TS", "FQV0603F1002TS"},
+                {"FRC0603F1002TS"},
+            ),
+            (
+                "1206 10K 1% 1/2W 高功率",
+                5,
+                {"FRP1206F1002TS", "FPR1206F1002TS", "FPS1206F1002TS"},
+                {"FRC1206F1002TS"},
+            ),
+            (
+                "1206 100K 1% 500V 高压",
+                2,
+                {"FRV1206F1003TS", "FQV1206F1003TS"},
+                {"FRC1206F1003TS"},
+            ),
+            (
+                "0612 10K 1% 宽端子",
+                2,
+                {"FCW1206F1002TS", "FPW1206F1002TS"},
+                set(),
+            ),
+            (
+                "0805 0.33R 1% 车规 低阻 低TCR",
+                2,
+                {"FQL0805FR330TSL", "FQL0805FR330TSW"},
+                set(),
+            ),
+            (
+                "0612 1R 1% 1W 车规 低阻 宽端子",
+                1,
+                {"FQL091WF1R00TSR"},
+                set(),
+            ),
+            (
+                "064R 150R 5% 车规 排阻",
+                2,
+                {"FQA064RJ151TS", "FAR064RJ151TS"},
+                set(),
+            ),
+            (
+                "064R 150R 5% 车规 抗硫化 排阻",
+                1,
+                {"FAR064RJ151TS"},
+                {"FQA064RJ151TS"},
+            ),
+        ]
+        for query, minimum_count, required_models, forbidden_models in official_matrix_cases:
+            spec = app["merge_query_text_hints_into_spec"](
+                app["parse_resistor_spec_query"](query),
+                query,
+            )
+            self.assertIsNotNone(spec, query)
+            self.assertNotEqual(app["clean_text"](spec.get("特殊用途", "")), "", query)
+            candidate = app["build_fojan_rule_candidate_from_spec"](spec)
+            models = set(candidate["型号"].astype(str).map(app["clean_model"]))
+            self.assertGreaterEqual(len(models), minimum_count, query)
+            self.assertTrue(required_models.issubset(models), query)
+            self.assertTrue(models.isdisjoint(forbidden_models), query)
+
+        original_fetch = app["fetch_search_candidate_pairs"]
+        try:
+            app["fetch_search_candidate_pairs"] = lambda _spec: []
+            end_to_end_query = "1206 10K 1% 1/2W 高功率"
+            end_to_end_spec = app["merge_query_text_hints_into_spec"](
+                app["parse_resistor_spec_query"](end_to_end_query),
+                end_to_end_query,
+            )
+            end_to_end_frame = app["load_search_dataframe_for_query"](
+                "贴片电阻",
+                end_to_end_spec,
+                query_text=end_to_end_query,
+            )
+            end_to_end_matches = app["run_query_match"](
+                end_to_end_frame,
+                "贴片电阻",
+                end_to_end_spec,
+            )
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertIn(
+            "FRP1206F1002TS",
+            set(end_to_end_matches["型号"].astype(str).map(app["clean_model"])),
+        )
+
+        alloy_matrix_cases = {
+            "1206 50mR 1% 0.5W 合金电阻": {"FMB1205FR050TM"},
+            "2010 10mR 1% 1.5W 合金电阻": {"FRM2015FR010TM"},
+            "2512 1mR 0.5% 3W 合金电阻": {"FPM253WDR001TM", "FPM253WDR001TML"},
+        }
+        for query, expected_models in alloy_matrix_cases.items():
+            spec = app["parse_resistor_spec_query"](query)
+            candidate = app["build_fojan_rule_candidate_from_spec"](spec)
+            models = set(candidate["型号"].astype(str).map(app["clean_model"]))
+            self.assertEqual(models, expected_models, query)
+
+        ordinary_spec = app["parse_resistor_spec_query"]("0603 10K 1% 1/10W")
+        ordinary_candidate = app["build_fojan_rule_candidate_from_spec"](ordinary_spec)
+        self.assertEqual(
+            ordinary_candidate["型号"].astype(str).map(app["clean_model"]).tolist(),
+            ["FRC0603F1002TS"],
+        )
+
     def test_04_no_match_resolution_persists_and_searches(self):
         app = self.app
         app["NO_MATCH_REPORT_DB_PATH"] = os.path.join(self.temp_dir, "reports.sqlite")
@@ -1539,8 +1645,27 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_06b_bom_selected_brand_exports_active_cost(self):
         app = self.app
-        self.assertTrue(
+        self.assertFalse(
             app["should_start_bom_matching"]("old", "new", app["BOM_EXPORT_MODE_AUTO"])
+        )
+        self.assertTrue(
+            app["should_start_bom_matching"](
+                "old",
+                "new",
+                app["BOM_EXPORT_MODE_AUTO"],
+                start_clicked=True,
+            )
+        )
+        self.assertFalse(
+            app["should_start_bom_matching"]("same", "same", app["BOM_EXPORT_MODE_AUTO"])
+        )
+        self.assertTrue(
+            app["should_start_bom_matching"](
+                "same",
+                "same",
+                app["BOM_EXPORT_MODE_AUTO"],
+                start_clicked=True,
+            )
         )
         self.assertFalse(
             app["should_start_bom_matching"]("old", "new", app["BOM_EXPORT_MODE_CUSTOM"])
@@ -1551,6 +1676,19 @@ class SystemRegressionTests(unittest.TestCase):
                 "new",
                 app["BOM_EXPORT_MODE_CUSTOM"],
                 custom_start_clicked=True,
+            )
+        )
+        self.assertFalse(app["bom_output_selection_ready"]("", []))
+        self.assertTrue(
+            app["bom_output_selection_ready"](app["BOM_EXPORT_MODE_AUTO"], [])
+        )
+        self.assertFalse(
+            app["bom_output_selection_ready"](app["BOM_EXPORT_MODE_CUSTOM"], [])
+        )
+        self.assertTrue(
+            app["bom_output_selection_ready"](
+                app["BOM_EXPORT_MODE_CUSTOM"],
+                ["信昌PDC"],
             )
         )
         self.assertFalse(
@@ -2620,7 +2758,6 @@ class SystemRegressionTests(unittest.TestCase):
 
         for query in (
             "贴片合金电阻 0.3Ω ±1% 1206 1W",
-            "贴片合金电阻 2512 0.2R ±1%",
         ):
             mode, spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
             rows = app["load_search_dataframe_for_query"](mode, spec)
@@ -2628,6 +2765,16 @@ class SystemRegressionTests(unittest.TestCase):
                 continue
             fojan_rows = rows[rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)]
             self.assertTrue(fojan_rows.empty, query)
+
+        query = "贴片合金电阻 2512 0.2R ±1%"
+        mode, spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+        rows = app["load_search_dataframe_for_query"](mode, spec)
+        fojan_models = set(
+            rows[
+                rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)
+            ]["型号"].map(app["clean_model"])
+        )
+        self.assertIn("FRM252WFR200TM", fojan_models)
 
     def test_15_joyin_ntc_b_tolerance_is_decoded_and_ranked(self):
         app = self.app

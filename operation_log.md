@@ -3600,3 +3600,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added 48 FOJAN official series profiles, bringing the covered FOJAN resistor taxonomy to 63 series across thick film, thin film, automotive, anti-sulfur, high-voltage, high-power, wide-terminal, resistor-array, and alloy/current-sense families. Only official detail pages or official catalog titles were used; unverified resistance/power ranges were not invented.
 - Real-library replay returned 23 automotive, 15 anti-sulfur, 17 high-voltage, 12 high-power, 17 surge, and 7 combined automotive-plus-anti-sulfur matches, with zero candidates violating the requested special-use tags.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `101` and `PUBLIC_CODE_STAMP` to `2026-07-18T23:04:42+08:00`. The implementation does not modify member, cost-list, no-match, component, prepared-cache, or search-sidecar databases.
+
+### 2026-07-22 [BOM workflow] Require output-brand confirmation before matching
+
+- Reproduced the wasted double-run: a newly uploaded or post-login-restored BOM entered the automatic-brand match immediately because a changed workbook signature was treated as a start request.
+- Changed the flow to read/preview first and match only after an explicit mode confirmation. New uploads start with neither `主营品牌自动匹配` nor `指定品牌` selected; automatic mode has its own start button, and custom mode requires at least one selected brand before its start button is enabled.
+- Switching output mode or selected brands no longer clears results or reruns the workbook. Existing results are replaced only after the user explicitly starts a new run.
+- Isolated browser verification used temporary member, cost-list, and no-match databases. Desktop and 390px mobile views show a 0% waiting state with no overflow, no automatic task, no default custom brand, and a disabled custom start button until a brand is selected.
+- Advanced `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-07-22T01:51:09+08:00`; protected production databases were not used by the browser test.
