@@ -131,7 +131,7 @@ NO_MATCH_ADMIN_PASSWORD_ENV = "NO_MATCH_ADMIN_PASSWORD"
 NO_MATCH_ADMIN_DEFAULT_USERNAME = "terry46"
 NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
-MEMBER_AUTH_SESSION_TTL_SECONDS = 60 * 60
+MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T16:53:28+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T17:29:33+08:00"
 
 
 def startup_trace(message):

@@ -880,3 +880,10 @@
 - Root cause: the result wrapper used a fixed `max-height` unrelated to rendered row heights, while iframe auto-sizing reserved only two pixels below the card.
 - Fix: align each scroll viewport to the measured header plus complete visible rows and scrollbar height, clip content to the rounded card, and reserve 16 pixels below each iframe.
 - Regression: `test_02e_result_iframe_shrinks_to_actual_content` now checks the row-alignment and bottom-reserve script contract.
+
+## 2026-07-22 - Member login expired after one hour
+
+- Symptom: members had to sign in repeatedly during a normal working day.
+- Root cause: both the server-side session expiry and the formal public shell's browser-storage fallback were fixed at one hour.
+- Fix: set both layers to twelve hours. Valid sessions keep the existing sliding-renewal behavior when less than half of the lifetime remains.
+- Regression: isolated member-auth tests verify a new session and a renewed near-expiry session each retain approximately 43,200 seconds, and source tests pin the public-shell TTL to the same value.

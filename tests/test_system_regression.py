@@ -224,6 +224,12 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIsNotNone(member, message)
         token = member["_session_token"]
         with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+            initial_expires_at = conn.execute(
+                "SELECT expires_at_ts FROM member_sessions WHERE token=?", (token,)
+            ).fetchone()[0]
+        expected_ttl = app["MEMBER_AUTH_SESSION_TTL_SECONDS"]
+        self.assertGreaterEqual(initial_expires_at, int(time.time()) + expected_ttl - 10)
+        with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
             conn.execute(
                 "UPDATE member_sessions SET expires_at_ts=? WHERE token=?",
                 (int(time.time()) + 5, token),
@@ -234,7 +240,7 @@ class SystemRegressionTests(unittest.TestCase):
             expires_at = conn.execute(
                 "SELECT expires_at_ts FROM member_sessions WHERE token=?", (token,)
             ).fetchone()[0]
-        self.assertGreaterEqual(expires_at, int(time.time()) + 3590)
+        self.assertGreaterEqual(expires_at, int(time.time()) + expected_ttl - 10)
 
         ok, message = app["update_current_member_profile"](
             member["id"], "Case Renamed", "New Co", "new@example.com", "200"

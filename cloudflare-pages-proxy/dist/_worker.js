@@ -461,7 +461,7 @@ function buildEmbedShellResponse(request, incomingUrl) {
         const tokenKey = "fruition_member_token_v1";
         const expiresKey = "fruition_member_token_expires_v1";
         const bridgeChannelParam = "member_auth_bridge_channel";
-        const ttlMs = 60 * 60 * 1000;
+        const ttlMs = 12 * 60 * 60 * 1000;
         const now = Date.now();
         const tokenPattern = /^[A-Za-z0-9_-]{20,200}$/;
         const authBridgeChannel = crypto.randomUUID

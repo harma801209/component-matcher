@@ -3635,3 +3635,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Replaced fixed partial-row clipping with measured header/row/scrollbar viewport heights.
 - Added rounded-card overflow containment and a 16px iframe bottom reserve so consecutive search results remain visually separated.
 - Added regression assertions without touching member, cost-list, or no-match runtime databases.
+
+### 2026-07-22 [Member authentication] Keep login sessions for 12 hours
+
+- Increased the authoritative member-session TTL from one hour to twelve hours while preserving logout, account-status validation, and sliding renewal behavior.
+- Updated the formal Cloudflare shell's local-storage fallback to the same twelve-hour duration so browser persistence cannot expire before a valid server session.
+- Added isolated regression coverage for initial token expiry, near-expiry renewal, and the public-shell TTL contract. No protected runtime database was modified.

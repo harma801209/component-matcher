@@ -44,6 +44,10 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('outerUrl.searchParams.delete("member_token");', self.worker)
         self.assertIn('history.replaceState(null, "", outerUrl.pathname + outerUrl.search + outerUrl.hash);', self.worker)
 
+    def test_member_session_persists_for_twelve_hours(self):
+        self.assertIn("MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60", self.matcher)
+        self.assertIn("const ttlMs = 12 * 60 * 60 * 1000;", self.worker)
+
     def test_member_snapshot_api_keeps_version_history(self):
         self.assertIn("member_auth_snapshot_history", self.worker)
         self.assertIn('searchParams.get("version")', self.worker)
