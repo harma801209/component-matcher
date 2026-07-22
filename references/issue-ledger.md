@@ -874,3 +874,9 @@
 - Root cause: Recommendation status was calculated from the all-brand candidate frame before selected-brand export filtering, and it was never reconciled after the selected-brand slots were built. Model-column scoring compared only nonblank samples, so a sparse `料号` result column narrowly outranked a complete `型号` source column.
 - Fix: Reconcile status after export-slot generation and require at least one nonblank selected-brand model before retaining `可推荐`, `需确认`, or conflict output. Blank selected-brand results now become `无匹配`, clear generic recommendation data, and explain that the manufacturer may have no equivalent or the database may lack it. Model-column scoring now includes whole-column completeness.
 - Verification: The reported 250-row workbook now maps `国巨型号` as the source model and all 250 rows parse as MLCC rather than 249 MLCC plus one false diode. A 13-row real-file sample covering populated/blank PDC models and high-voltage/automotive rows returns nine recommendations and four no-matches with zero blank-model recommendations and zero parse failures. Focused regression coverage passes.
+## 2026-07-22 - Search result tables clipped the last visible row
+
+- Symptom: multi-line searches showed a partial final result row above the horizontal scrollbar, and the next result card started too close to the unfinished frame.
+- Root cause: the result wrapper used a fixed `max-height` unrelated to rendered row heights, while iframe auto-sizing reserved only two pixels below the card.
+- Fix: align each scroll viewport to the measured header plus complete visible rows and scrollbar height, clip content to the rounded card, and reserve 16 pixels below each iframe.
+- Regression: `test_02e_result_iframe_shrinks_to_actual_content` now checks the row-alignment and bottom-reserve script contract.

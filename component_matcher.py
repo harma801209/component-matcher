@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T05:15:52+08:00"
+PUBLIC_CODE_STAMP = "2026-07-22T16:53:28+08:00"
 
 
 def startup_trace(message):
@@ -32647,7 +32647,8 @@ def build_result_table_iframe_html(table_fragment, outer_footer_html=""):
 <style>
 html, body {{
     margin: 0;
-    padding: 0;
+    padding: 0 0 14px 0;
+    box-sizing: border-box;
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     background: #ffffff;
 }}
@@ -32682,6 +32683,7 @@ html, body {{
     background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
     box-sizing: border-box;
+    overflow: hidden;
 }}
 .result-section-card .result-table-wrap,
 .result-section-card .bom-result-table-wrap,
@@ -32923,6 +32925,8 @@ html, body {{
 {outer_footer_html}
 <script>
 (function() {{
+    var frameBottomReserve = 16;
+
     function toNumber(value) {{
         var n = parseFloat(value);
         return Number.isFinite(n) ? n : 0;
@@ -33111,11 +33115,41 @@ html, body {{
                     maxBottom = Math.max(maxBottom, rect.bottom);
                 }}
             }});
-            return Math.max(0, Math.ceil(maxBottom + 2));
+            return Math.max(0, Math.ceil(maxBottom + frameBottomReserve));
+        }}
+
+        function alignScrollableTableHeight() {{
+            var rows = Array.from(table.querySelectorAll('tbody tr'));
+            if (!rows.length) {{
+                return;
+            }}
+            var visibleRowLimit = 8;
+            if (wrapper.classList.contains('bom-result-table-wrap')) {{
+                visibleRowLimit = 10;
+            }} else if (wrapper.classList.contains('bom-preview-table-wrap-compact')) {{
+                visibleRowLimit = 4;
+            }} else if (wrapper.classList.contains('bom-preview-table-wrap')) {{
+                visibleRowLimit = 7;
+            }}
+            var visibleRows = rows.slice(0, visibleRowLimit);
+            var header = table.querySelector('thead');
+            var contentHeight = header ? header.getBoundingClientRect().height : 0;
+            visibleRows.forEach(function(row) {{
+                contentHeight += row.getBoundingClientRect().height;
+            }});
+            var horizontalScrollbarReserve = table.scrollWidth > wrapper.clientWidth + 1
+                ? Math.max(0, wrapper.offsetHeight - wrapper.clientHeight)
+                : 0;
+            // One pixel keeps the collapsed bottom border visible without exposing
+            // text from the next row beneath the horizontal scrollbar.
+            var targetHeight = Math.max(1, Math.ceil(contentHeight + horizontalScrollbarReserve + 1));
+            wrapper.style.maxHeight = targetHeight + 'px';
+            wrapper.style.height = rows.length > visibleRowLimit ? targetHeight + 'px' : 'auto';
         }}
 
         function reportFrameHeight() {{
             try {{
+                alignScrollableTableHeight();
                 if (window.Streamlit && typeof window.Streamlit.setFrameHeight === 'function') {{
                     window.Streamlit.setFrameHeight(measureFrameContentHeight());
                 }}
@@ -33193,7 +33227,7 @@ html, body {{
                             maxBottom = Math.max(maxBottom, rect.bottom);
                         }}
                     }});
-                    window.Streamlit.setFrameHeight(Math.max(0, Math.ceil(maxBottom + 2)));
+                    window.Streamlit.setFrameHeight(Math.max(0, Math.ceil(maxBottom + frameBottomReserve)));
                 }}
             }} catch (err) {{
                 // Keep the iframe usable even if the host API is unavailable.

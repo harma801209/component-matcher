@@ -3630,3 +3630,8 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fixed automatic BOM column mapping to consider full-column completeness. The reported workbook now selects `国巨型号` instead of the partially populated `PDC料号`; all 250 source rows parse as MLCC with no false diode row.
 - Real-file sample replay covers populated and blank PDC rows plus high-voltage/automotive specifications: 9 recommended, 4 no-match, 0 blank-model false positives, and 0 parse failures. Focused unit tests pass with isolated runtime databases.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `105` and advanced `PUBLIC_CODE_STAMP` / `PUBLIC_RELEASE_STAMP` to `2026-07-22T05:15:52+08:00`. No protected runtime database or component data file was modified.
+### 2026-07-22 [Search UI] Keep result rows and card bottoms visible
+
+- Replaced fixed partial-row clipping with measured header/row/scrollbar viewport heights.
+- Added rounded-card overflow containment and a 16px iframe bottom reserve so consecutive search results remain visually separated.
+- Added regression assertions without touching member, cost-list, or no-match runtime databases.

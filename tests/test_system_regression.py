@@ -498,6 +498,12 @@ class SystemRegressionTests(unittest.TestCase):
             "</div></div>"
         )
         self.assertIn("measureFrameContentHeight", iframe_html)
+        self.assertIn("alignScrollableTableHeight", iframe_html)
+        self.assertIn("visibleRowLimit = 8", iframe_html)
+        self.assertIn("horizontalScrollbarReserve", iframe_html)
+        self.assertIn("wrapper.offsetHeight - wrapper.clientHeight", iframe_html)
+        self.assertIn("frameBottomReserve = 16", iframe_html)
+        self.assertIn("overflow: hidden", iframe_html)
         self.assertIn("max-height: 440px", iframe_html)
         self.assertIn(".bom-preview-table-wrap", iframe_html)
         self.assertIn(".bom-preview-table-wrap-compact", iframe_html)
