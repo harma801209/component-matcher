@@ -3647,3 +3647,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Replaced the BOM result `st.download_button` with an `另存 BOM 匹配后 Excel` control that transfers the generated workbook to the formal top-level shell through the existing random bridge channel.
 - The formal shell now validates the channel, opens the Chromium system file picker, writes the workbook to the selected path, and treats user cancellation as cancellation rather than a second download.
 - Browsers without the File System Access API keep a normal-download fallback. Source, syntax, payload-escaping, and cross-origin user-activation tests pass without using production databases.
+
+### 2026-07-27 [Member authentication] Fix logout recovery and duplicate navigation
+
+- Made admin, member-center, BOM, and search routes mutually exclusive so a stale `bom=1` parameter cannot keep the BOM page active after entering the member center.
+- Member-center links now explicitly clear the BOM and admin route parameters. The right-side navigation therefore renders one `返回搜索` action instead of duplicate buttons.
+- Logout now clears Streamlit state, route parameters, pending work, and the browser-persistence marker before attempting remote session revocation. The browser bridge gives that clear marker priority over token recovery and notifies the formal shell to remove its saved token.
+- Remote session changes are flushed only after a confirmed synchronized member snapshot, preventing a failed remote refresh from publishing stale local member data. Focused regressions use temporary member, cost-list, and no-match databases.

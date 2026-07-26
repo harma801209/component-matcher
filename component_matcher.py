@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-26T20:44:43+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T01:17:18+08:00"
 
 
 def startup_trace(message):
@@ -1406,8 +1406,18 @@ def require_no_match_admin_login():
     return False
 
 
+def requested_page_mode():
+    if get_query_param_value("admin").lower() in {"1", "true", "yes", "on", "backend"}:
+        return "admin"
+    if get_query_param_value("member").lower() in {"1", "true", "yes", "on", "login", "center"}:
+        return "member"
+    if get_query_param_value("bom").lower() in {"1", "true", "yes", "on", "upload", "match"}:
+        return "bom"
+    return "search"
+
+
 def is_no_match_admin_page_requested():
-    return get_query_param_value("admin").lower() in {"1", "true", "yes", "on", "backend"}
+    return requested_page_mode() == "admin"
 
 
 def render_no_match_admin_entry_button():
@@ -2953,10 +2963,17 @@ def current_member():
 
 
 def render_member_auth_browser_persistence_bridge():
-    current_member()
-    token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
-    bridge_channel = clean_text(get_query_param_value(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM))
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
+    if clear_token:
+        st.session_state.pop("_member_auth_token", None)
+        st.session_state.pop("_member_display_name", None)
+        token = ""
+    else:
+        current_member()
+        token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
+            get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
+        )
+    bridge_channel = clean_text(get_query_param_value(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM))
     ttl_seconds = int(MEMBER_AUTH_SESSION_TTL_SECONDS)
     script = f"""
     <script>
@@ -3097,7 +3114,7 @@ def complete_member_login(member):
     if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
         st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE
     if is_member_page_requested():
-        update_query_params(member="", admin="")
+        update_query_params(member="", admin="", bom="")
 
 
 def set_current_member_from_admin_login(username, password):
@@ -3118,31 +3135,59 @@ def set_current_member_from_admin_login(username, password):
 
 def logout_member():
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
-    if token:
-        refresh_member_auth_remote_snapshot(force=True)
-        ensure_member_auth_schema()
-        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
-            conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
-            conn.commit()
-        flush_member_auth_remote_snapshot()
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
     st.session_state.pop("_member_auth_prompt_action", None)
+    st.session_state.pop("_no_match_admin_authenticated", None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_BRAND_MODE_KEY, None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_BRANDS_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
-    update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
+    update_query_params(
+        **{
+            MEMBER_AUTH_QUERY_PARAM: "",
+            "member": "",
+            "admin": "",
+            "bom": "",
+        }
+    )
+
+    if token == "":
+        return True
+
+    remote_status = "disabled"
+    try:
+        remote_status = refresh_member_auth_remote_snapshot(force=True)
+    except Exception:
+        remote_status = "disabled_or_unavailable"
+    remote_snapshot_ready = remote_status in {"disabled", "recent", "current", "restored"}
+
+    session_deleted = False
+    try:
+        ensure_member_auth_schema()
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
+            conn.commit()
+        session_deleted = True
+    except Exception:
+        session_deleted = False
+
+    if remote_snapshot_ready and session_deleted:
+        try:
+            flush_member_auth_remote_snapshot()
+        except Exception:
+            pass
+    return session_deleted
 
 
 def is_member_page_requested():
-    return get_query_param_value("member").lower() in {"1", "true", "yes", "on", "login", "center"}
+    return requested_page_mode() == "member"
 
 
 def is_bom_page_requested():
-    return get_query_param_value("bom").lower() in {"1", "true", "yes", "on", "upload", "match"}
+    return requested_page_mode() == "bom"
 
 
 def render_member_entry_button():
@@ -3151,15 +3196,15 @@ def render_member_entry_button():
     member = current_member()
     if is_member_page_requested():
         label = "返回搜索"
-        href = build_app_href(member="0", admin="0")
+        href = build_app_href(member="0", admin="0", bom="0")
         css_class = "member-login-fixed secondary"
     elif member:
         label = "会员中心"
-        href = build_app_href(member="1")
+        href = build_app_href(member="1", admin="0", bom="0")
         css_class = "member-login-fixed active"
     else:
         label = "会员登录"
-        href = build_app_href(member="1")
+        href = build_app_href(member="1", admin="0", bom="0")
         css_class = "member-login-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',

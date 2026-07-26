@@ -894,3 +894,11 @@
 - Root cause: Streamlit's standard download control exposes only an attachment download; a nested cross-origin app cannot open a top-level system file picker by itself.
 - Fix: send the workbook through a channel-validated message to the formal shell and invoke `showSaveFilePicker` there. Write the generated `.xlsx` to the chosen file handle, preserve explicit cancellation, and fall back to a normal browser download when the API is unavailable.
 - Regression: source tests cover component wiring, channel validation, picker/fallback behavior, and script-safe payload generation. A real cross-origin Chrome test confirms that the nested click activates the top-level page and receives the save-status response.
+
+## 2026-07-27 - Logout token was restored and member navigation duplicated
+
+- Symptom: `退出会员登录` appeared ineffective, and opening the member center from the BOM page produced two `返回搜索` buttons while BOM content remained visible.
+- Root cause: the browser-persistence bridge attempted token recovery before consuming the logout clear marker. Member-center links also preserved `bom=1`, so both member and BOM page predicates evaluated true and both navigation controls rendered as active-page return actions.
+- Fix: consume the clear marker before any token recovery, clear local state and all page parameters before server revocation, and make page-mode resolution mutually exclusive with explicit route clearing in member links.
+- Data safety: remote logout persistence runs only after a confirmed current/restored snapshot; an unavailable or invalid remote snapshot cannot be overwritten by the local replica.
+- Regression: isolated tests cover mixed `member=1&bom=1` routing, browser-clear ordering, navigation links, local state cleanup, session-row revocation, and remote flush behavior.
