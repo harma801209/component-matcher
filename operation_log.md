@@ -3641,3 +3641,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Increased the authoritative member-session TTL from one hour to twelve hours while preserving logout, account-status validation, and sliding renewal behavior.
 - Updated the formal Cloudflare shell's local-storage fallback to the same twelve-hour duration so browser persistence cannot expire before a valid server session.
 - Added isolated regression coverage for initial token expiry, near-expiry renewal, and the public-shell TTL contract. No protected runtime database was modified.
+
+### 2026-07-26 [BOM export] Add system Save As location selection
+
+- Replaced the BOM result `st.download_button` with an `另存 BOM 匹配后 Excel` control that transfers the generated workbook to the formal top-level shell through the existing random bridge channel.
+- The formal shell now validates the channel, opens the Chromium system file picker, writes the workbook to the selected path, and treats user cancellation as cancellation rather than a second download.
+- Browsers without the File System Access API keep a normal-download fallback. Source, syntax, payload-escaping, and cross-origin user-activation tests pass without using production databases.

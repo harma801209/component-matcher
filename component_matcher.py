@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-22T17:29:33+08:00"
+PUBLIC_CODE_STAMP = "2026-07-26T20:44:43+08:00"
 
 
 def startup_trace(message):
@@ -36952,16 +36952,199 @@ def build_search_progress_state(
         "summary_lines": summary_lines or [],
     }
 
-def build_bom_download_footer_html(data_bytes, filename, label="下载 BOM 匹配后 Excel", container_class="result-table-footer"):
+def build_bom_download_footer_html(
+    data_bytes,
+    filename,
+    label="另存 BOM 匹配后 Excel",
+    container_class="result-table-footer",
+    bridge_channel="",
+):
+    safe_class = html.escape(clean_text(container_class) or "result-table-footer", quote=True)
+    safe_label = clean_text(label) or "另存 BOM 匹配后 Excel"
+    safe_filename = clean_text(filename) or "bom_匹配后.xlsx"
+    button_id = "bom-save-" + hashlib.sha256(
+        f"{safe_filename}|{len(data_bytes or b'')}".encode("utf-8")
+    ).hexdigest()[:16]
     if not data_bytes:
-        return f'<div class="{html.escape(container_class, quote=True)}"><span class="bom-download-hint">下载文件尚未生成</span></div>'
-    href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + base64.b64encode(data_bytes).decode("ascii")
-    safe_name = html.escape(clean_text(filename) or "bom_匹配后.xlsx", quote=True)
-    return f'''
-<div class="{html.escape(container_class, quote=True)}">
-  <a class="bom-download-btn" href="{href}" download="{safe_name}">{html.escape(label)}</a>
+        return f'''
+<div class="{safe_class} bom-save-as-wrap">
+  <button class="bom-save-as-btn" type="button" disabled>下载文件尚未生成</button>
 </div>
+<style>
+html, body {{ margin: 0; background: transparent; overflow: hidden; }}
+.bom-save-as-wrap {{ width: 100%; }}
+.bom-save-as-btn {{
+  width: 100%; height: 46px; border: 1px solid #d6dbe3; border-radius: 8px;
+  background: #f4f6f8; color: #8a93a3; font: 600 16px/1 system-ui, sans-serif;
+}}
+</style>
 '''
+
+    data_base64 = base64.b64encode(data_bytes).decode("ascii")
+    def script_json(value):
+        return (
+            json.dumps(value, ensure_ascii=False)
+            .replace("&", "\\u0026")
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
+        )
+
+    template = r'''
+<div class="__CONTAINER_CLASS__ bom-save-as-wrap">
+  <button id="__BUTTON_ID__" class="bom-save-as-btn" type="button">__BUTTON_LABEL__</button>
+</div>
+<style>
+html, body { margin: 0; background: transparent; overflow: hidden; }
+.bom-save-as-wrap { width: 100%; }
+.bom-save-as-btn {
+  width: 100%; height: 46px; padding: 0 14px; border: 1px solid #cbd3df;
+  border-radius: 8px; background: #ffffff; color: #263244;
+  font: 600 16px/1 system-ui, sans-serif; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bom-save-as-btn:hover { border-color: #8090a6; background: #f7f9fb; }
+.bom-save-as-btn:focus-visible { outline: 3px solid rgba(37, 99, 235, .22); outline-offset: 1px; }
+.bom-save-as-btn:disabled { cursor: wait; color: #637083; background: #f4f6f8; }
+</style>
+<script>
+(() => {
+  const button = document.getElementById(__BUTTON_ID_JSON__);
+  const defaultLabel = __BUTTON_LABEL_JSON__;
+  const filename = __FILENAME_JSON__;
+  const bridgeChannel = __BRIDGE_CHANNEL_JSON__;
+  const targetOrigin = __TARGET_ORIGIN_JSON__;
+  const encoded = __DATA_BASE64_JSON__;
+  const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  let acknowledgementTimer = 0;
+  let requestPending = false;
+
+  function decodeBlob() {
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mime });
+  }
+
+  function browserDownload(blob) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  async function saveFromCurrentPage(blob) {
+    let pickerWindow = window;
+    try {
+      if (window.top && typeof window.top.showSaveFilePicker === "function") {
+        pickerWindow = window.top;
+      }
+    } catch (error) {}
+    if (typeof pickerWindow.showSaveFilePicker !== "function") return "unsupported";
+    try {
+      const handle = await pickerWindow.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: "Excel 工作簿",
+          accept: { [mime]: [".xlsx"] },
+        }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return "saved";
+    } catch (error) {
+      if (error && error.name === "AbortError") return "canceled";
+      return "unsupported";
+    }
+  }
+
+  function finish(status) {
+    clearTimeout(acknowledgementTimer);
+    requestPending = false;
+    button.disabled = false;
+    if (status === "saved") button.textContent = "已另存";
+    else if (status === "canceled") button.textContent = "已取消";
+    else if (status === "downloaded") button.textContent = "浏览器已开始下载";
+    else button.textContent = defaultLabel;
+    if (status) {
+      setTimeout(() => { button.textContent = defaultLabel; }, 1600);
+    }
+  }
+
+  window.addEventListener("message", (event) => {
+    const payload = event.data || {};
+    if (payload.source !== "fruition-file-save-result") return;
+    if (payload.channel !== bridgeChannel) return;
+    if (!requestPending) return;
+    clearTimeout(acknowledgementTimer);
+    if (payload.status === "opened") {
+      button.textContent = "请选择保存位置…";
+      return;
+    }
+    finish(String(payload.status || ""));
+  });
+
+  button.addEventListener("click", async () => {
+    if (requestPending) return;
+    const blob = decodeBlob();
+    button.disabled = true;
+    button.textContent = "正在打开另存为…";
+    requestPending = true;
+
+    if (bridgeChannel && window.top !== window) {
+      window.top.postMessage({
+        source: "fruition-file-save",
+        channel: bridgeChannel,
+        action: "save",
+        filename,
+        mime,
+        dataBase64: encoded,
+      }, targetOrigin);
+      acknowledgementTimer = setTimeout(async () => {
+        const status = await saveFromCurrentPage(blob);
+        if (status === "unsupported") {
+          browserDownload(blob);
+          finish("downloaded");
+        } else {
+          finish(status);
+        }
+      }, 1800);
+      return;
+    }
+
+    const status = await saveFromCurrentPage(blob);
+    if (status === "unsupported") {
+      browserDownload(blob);
+      finish("downloaded");
+    } else {
+      finish(status);
+    }
+  });
+})();
+</script>
+'''
+    replacements = {
+        "__CONTAINER_CLASS__": safe_class,
+        "__BUTTON_ID__": html.escape(button_id, quote=True),
+        "__BUTTON_ID_JSON__": script_json(button_id),
+        "__BUTTON_LABEL__": html.escape(safe_label),
+        "__BUTTON_LABEL_JSON__": script_json(safe_label),
+        "__FILENAME_JSON__": script_json(safe_filename),
+        "__BRIDGE_CHANNEL_JSON__": script_json(clean_text(bridge_channel)),
+        "__TARGET_ORIGIN_JSON__": script_json(MEMBER_AUTH_OUTER_SHELL_ORIGIN),
+        "__DATA_BASE64_JSON__": script_json(data_base64),
+    }
+    for marker, replacement in replacements.items():
+        template = template.replace(marker, replacement)
+    return template
 
 
 def get_query_param_text(name):
@@ -38633,17 +38816,16 @@ def render_bom_upload_page():
                         with result_header_cols[1]:
                             download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
                             download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
-                            if export_bytes:
-                                st.download_button(
-                                    "下载 BOM 匹配后 Excel",
-                                    data=export_bytes,
-                                    file_name=export_filename,
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key=download_key,
-                                    use_container_width=True,
-                                )
-                            else:
-                                st.button("下载文件尚未生成", key=f"{download_key}_disabled", disabled=True, use_container_width=True)
+                            components.html(
+                                build_bom_download_footer_html(
+                                    export_bytes,
+                                    export_filename,
+                                    bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM),
+                                    container_class=download_key,
+                                ),
+                                height=48,
+                                scrolling=False,
+                            )
                         clickable_bom_html = render_clickable_result_table(
                             display_bom_result_df,
                             hide_columns=[],

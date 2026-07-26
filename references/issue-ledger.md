@@ -887,3 +887,10 @@
 - Root cause: both the server-side session expiry and the formal public shell's browser-storage fallback were fixed at one hour.
 - Fix: set both layers to twelve hours. Valid sessions keep the existing sliding-renewal behavior when less than half of the lifetime remains.
 - Regression: isolated member-auth tests verify a new session and a renewed near-expiry session each retain approximately 43,200 seconds, and source tests pin the public-shell TTL to the same value.
+
+## 2026-07-26 - BOM downloads could not choose a destination
+
+- Symptom: clicking the completed BOM Excel download always followed the browser's default download-folder behavior.
+- Root cause: Streamlit's standard download control exposes only an attachment download; a nested cross-origin app cannot open a top-level system file picker by itself.
+- Fix: send the workbook through a channel-validated message to the formal shell and invoke `showSaveFilePicker` there. Write the generated `.xlsx` to the chosen file handle, preserve explicit cancellation, and fall back to a normal browser download when the API is unavailable.
+- Regression: source tests cover component wiring, channel validation, picker/fallback behavior, and script-safe payload generation. A real cross-origin Chrome test confirms that the nested click activates the top-level page and receives the save-status response.
