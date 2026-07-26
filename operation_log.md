@@ -3661,3 +3661,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - XLSX export now keeps the source workbook's existing freeze state, cell values and styles, alignments, column widths, row heights, hidden rows/columns, merged ranges, filters, print settings, hyperlinks, sheet names, and rich text. Match columns start after both the parsed columns and the worksheet's actual rightmost column.
 - Existing cells are no longer restyled. For an Excel source, a format-preserving append failure now stops with a clear error instead of returning a reformatted workbook; legacy `.xls` must first be saved as `.xlsx`.
 - A format-heavy regression workbook and real `1通力-富临通.xlsx` / `星际需求0715.xlsx` replays show zero differences across the original worksheet region. Tests use isolated runtime database paths.
+
+### 2026-07-27 [Admin authentication] Make exit backend leave the admin route
+
+- Fixed `退出后台` appearing ineffective when the active member account also had administrator privileges.
+- The exit callback now clears the backend-authentication flag and removes all active page-mode parameters, returning to the search page while preserving the member login session.
+- Added regression coverage that verifies the admin route is cleared without deleting the member token. No protected runtime database is modified.

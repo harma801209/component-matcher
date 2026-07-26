@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T01:43:38+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T02:18:00+08:00"
 
 
 def startup_trace(message):
@@ -1365,6 +1365,7 @@ def no_match_admin_login_valid(username, password):
 
 def logout_no_match_admin():
     st.session_state.pop("_no_match_admin_authenticated", None)
+    update_query_params(admin="", member="", bom="")
 
 
 def render_no_match_admin_login():

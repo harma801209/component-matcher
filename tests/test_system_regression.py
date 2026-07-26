@@ -455,6 +455,48 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
+    def test_02bc_admin_logout_exits_backend_without_logging_out_member(self):
+        app = self.app
+        member_token = "member-session-token"
+        fake_st = type(
+            "FakeStreamlit",
+            (),
+            {
+                "session_state": {
+                    "_member_auth_token": member_token,
+                    "_no_match_admin_authenticated": True,
+                }
+            },
+        )()
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "update_query_params",
+            ]
+        }
+        route_updates = []
+        try:
+            app["st"] = fake_st
+            app["update_query_params"] = lambda **updates: route_updates.append(updates)
+
+            app["logout_no_match_admin"]()
+
+            self.assertNotIn("_no_match_admin_authenticated", fake_st.session_state)
+            self.assertEqual(fake_st.session_state["_member_auth_token"], member_token)
+            self.assertEqual(
+                route_updates,
+                [
+                    {
+                        "admin": "",
+                        "member": "",
+                        "bom": "",
+                    }
+                ],
+            )
+        finally:
+            app.update(original_functions)
+
     def test_02c_pending_search_resumes_once_after_login(self):
         app = self.app
         original_st = app["st"]

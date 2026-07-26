@@ -910,3 +910,10 @@
 - Fix: preserve every existing worksheet setting and cell style, append only after the actual rightmost source column, retain rich-text/external-link loading, and block the Excel export instead of using a destructive fallback when preservation fails.
 - Compatibility: `.xlsx` is the format-preserving path. Legacy `.xls` files must be saved as `.xlsx` first because rebuilding them as OpenXML cannot guarantee identical formatting.
 - Regression: a styled workbook checks merged cells, filters, freeze state, dimensions, hidden rows/columns, print settings, hyperlinks, values, and styles. Two real BOM files compare with zero changes in their original worksheet regions.
+
+## 2026-07-27 - Backend exit immediately re-authenticated the administrator
+
+- Symptom: clicking `退出后台` left the same backend page visible.
+- Root cause: the callback removed only `_no_match_admin_authenticated`. Because the URL still requested `admin=1` and the active member had the administrator role, the next rerun immediately recreated the backend-authentication flag.
+- Fix: clear the backend flag and remove the admin/member/BOM page-mode parameters in the same callback. The user returns to search while the independent member session remains signed in.
+- Regression: a focused test verifies route cleanup, backend-state cleanup, and preservation of the member token.
