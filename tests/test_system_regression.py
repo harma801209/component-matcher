@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 
 class UploadedBytes:
@@ -37,6 +38,61 @@ def dataframe_to_xlsx_bytes(frame):
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         frame.to_excel(writer, index=False, sheet_name="报价")
+    return output.getvalue()
+
+
+def formatted_bom_xlsx_bytes():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "格式BOM"
+    sheet.sheet_view.showGridLines = False
+    sheet.sheet_properties.tabColor = "4F81BD"
+    sheet.page_setup.orientation = "landscape"
+    sheet.auto_filter.ref = "A1:C3"
+    sheet.freeze_panes = None
+    sheet.merge_cells("E1:F1")
+    sheet["E1"] = "原表保留区"
+
+    thin_blue = Side(style="thin", color="4F81BD")
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_font = Font(name="微软雅黑", size=11, bold=True, color="1F4E78")
+    body_font = Font(name="微软雅黑", size=10, color="333333")
+    for cell in sheet[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = Border(left=thin_blue, right=thin_blue, top=thin_blue, bottom=thin_blue)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    rows = [
+        ["型号", "规格", "数量"],
+        ["RC0402FR-071KL", "0402 1KΩ ±1% 1/16W", 12000],
+        ["GRM155R71C104KA88D", "0402 X7R 100nF 16V", 8000],
+    ]
+    for row_idx, values in enumerate(rows, start=1):
+        for col_idx, value in enumerate(values, start=1):
+            cell = sheet.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            if row_idx > 1:
+                cell.font = body_font
+                cell.border = Border(bottom=thin_blue)
+                cell.alignment = Alignment(vertical="center")
+    sheet["C2"].number_format = '#,##0" PCS"'
+    sheet["A2"].hyperlink = "https://example.com/RC0402FR-071KL"
+    sheet["A2"].style = "Hyperlink"
+    sheet.column_dimensions["A"].width = 24
+    sheet.column_dimensions["B"].width = 36
+    sheet.column_dimensions["C"].width = 16
+    sheet.column_dimensions["D"].width = 7
+    sheet.column_dimensions["D"].hidden = True
+    sheet.column_dimensions["E"].width = 20
+    sheet.row_dimensions[1].height = 28
+    sheet.row_dimensions[2].height = 24
+    sheet.row_dimensions[3].hidden = True
+    sheet.print_title_rows = "1:1"
+
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
     return output.getvalue()
 
 
@@ -2107,6 +2163,108 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
+
+    def test_06bb_bom_xlsx_export_preserves_original_format(self):
+        app = self.app
+        raw_bytes = formatted_bom_xlsx_bytes()
+        source_df = pd.DataFrame(
+            [
+                {"型号": "RC0402FR-071KL", "规格": "0402 1KΩ ±1% 1/16W", "数量": "12000"},
+                {"型号": "GRM155R71C104KA88D", "规格": "0402 X7R 100nF 16V", "数量": "8000"},
+            ]
+        )
+        result_df = pd.DataFrame(
+            [
+                {
+                    "状态": "可推荐",
+                    "自有品牌": "富捷",
+                    "自有型号": "FRC0402F1001TS",
+                    "自有匹配说明": "关键规格完全一致",
+                },
+                {
+                    "状态": "需确认",
+                    "自有品牌": "信昌PDC",
+                    "自有型号": "CC0402KRX7R7BB104",
+                    "自有匹配说明": "需确认厚度",
+                },
+            ]
+        )
+        export_bytes = app["bom_to_excel_bytes"](
+            result_df,
+            source_df,
+            source_workbook={
+                "kind": "excel",
+                "file_name": "格式BOM.xlsx",
+                "file_bytes": raw_bytes,
+            },
+            sheet_results=[
+                {
+                    "sheet_name": "格式BOM",
+                    "source_df": source_df,
+                    "result_df": result_df,
+                }
+            ],
+        )
+
+        source_workbook = load_workbook(BytesIO(raw_bytes), data_only=False, rich_text=True)
+        exported_workbook = load_workbook(BytesIO(export_bytes), data_only=False, rich_text=True)
+        source_sheet = source_workbook["格式BOM"]
+        exported_sheet = exported_workbook["格式BOM"]
+        original_max_column = source_sheet.max_column
+
+        self.assertGreater(exported_sheet.max_column, original_max_column)
+        self.assertEqual(exported_sheet.cell(1, original_max_column + 1).value, "匹配状态")
+        self.assertEqual(exported_sheet.cell(2, original_max_column + 1).value, "可推荐")
+        self.assertEqual(exported_sheet.freeze_panes, source_sheet.freeze_panes)
+        self.assertEqual(exported_sheet.auto_filter.ref, source_sheet.auto_filter.ref)
+        self.assertEqual(
+            {str(item) for item in exported_sheet.merged_cells.ranges},
+            {str(item) for item in source_sheet.merged_cells.ranges},
+        )
+        self.assertEqual(exported_sheet.sheet_view.showGridLines, source_sheet.sheet_view.showGridLines)
+        self.assertEqual(exported_sheet.page_setup.orientation, source_sheet.page_setup.orientation)
+        self.assertEqual(exported_sheet.print_title_rows, source_sheet.print_title_rows)
+        self.assertEqual(
+            exported_sheet.sheet_properties.tabColor.rgb,
+            source_sheet.sheet_properties.tabColor.rgb,
+        )
+
+        for column_name in ["A", "B", "C", "D", "E", "F"]:
+            source_dimension = source_sheet.column_dimensions[column_name]
+            exported_dimension = exported_sheet.column_dimensions[column_name]
+            self.assertEqual(exported_dimension.width, source_dimension.width, column_name)
+            self.assertEqual(exported_dimension.hidden, source_dimension.hidden, column_name)
+            self.assertEqual(exported_dimension.outlineLevel, source_dimension.outlineLevel, column_name)
+        for row_idx in [1, 2, 3]:
+            source_dimension = source_sheet.row_dimensions[row_idx]
+            exported_dimension = exported_sheet.row_dimensions[row_idx]
+            self.assertEqual(exported_dimension.height, source_dimension.height, row_idx)
+            self.assertEqual(exported_dimension.hidden, source_dimension.hidden, row_idx)
+            for column_idx in range(1, original_max_column + 1):
+                source_cell = source_sheet.cell(row=row_idx, column=column_idx)
+                exported_cell = exported_sheet.cell(row=row_idx, column=column_idx)
+                self.assertEqual(exported_cell.value, source_cell.value, source_cell.coordinate)
+                self.assertEqual(exported_cell._style, source_cell._style, source_cell.coordinate)
+                self.assertEqual(
+                    getattr(exported_cell.hyperlink, "target", None),
+                    getattr(source_cell.hyperlink, "target", None),
+                    source_cell.coordinate,
+                )
+
+        source_workbook.close()
+        exported_workbook.close()
+
+        with self.assertRaisesRegex(RuntimeError, "保持原 Excel 格式"):
+            app["bom_to_excel_bytes"](
+                result_df,
+                source_df,
+                source_workbook={
+                    "kind": "excel",
+                    "file_name": "旧版.xls",
+                    "file_bytes": b"not-an-openxml-workbook",
+                },
+                sheet_results=[],
+            )
 
     def test_06c_bom_matching_reuses_bounded_cache_and_rich_candidates(self):
         app = self.app

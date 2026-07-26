@@ -3654,3 +3654,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Member-center links now explicitly clear the BOM and admin route parameters. The right-side navigation therefore renders one `返回搜索` action instead of duplicate buttons.
 - Logout now clears Streamlit state, route parameters, pending work, and the browser-persistence marker before attempting remote session revocation. The browser bridge gives that clear marker priority over token recovery and notifies the formal shell to remove its saved token.
 - Remote session changes are flushed only after a confirmed synchronized member snapshot, preventing a failed remote refresh from publishing stale local member data. Focused regressions use temporary member, cost-list, and no-match databases.
+
+### 2026-07-27 [BOM export] Preserve the uploaded XLSX format
+
+- Confirmed that the export path could change workbook presentation by adding an `A2` freeze pane when the source had none. An append failure could also silently fall back to rebuilding a flat result workbook.
+- XLSX export now keeps the source workbook's existing freeze state, cell values and styles, alignments, column widths, row heights, hidden rows/columns, merged ranges, filters, print settings, hyperlinks, sheet names, and rich text. Match columns start after both the parsed columns and the worksheet's actual rightmost column.
+- Existing cells are no longer restyled. For an Excel source, a format-preserving append failure now stops with a clear error instead of returning a reformatted workbook; legacy `.xls` must first be saved as `.xlsx`.
+- A format-heavy regression workbook and real `1通力-富临通.xlsx` / `星际需求0715.xlsx` replays show zero differences across the original worksheet region. Tests use isolated runtime database paths.

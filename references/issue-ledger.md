@@ -902,3 +902,11 @@
 - Fix: consume the clear marker before any token recovery, clear local state and all page parameters before server revocation, and make page-mode resolution mutually exclusive with explicit route clearing in member links.
 - Data safety: remote logout persistence runs only after a confirmed current/restored snapshot; an unavailable or invalid remote snapshot cannot be overwritten by the local replica.
 - Regression: isolated tests cover mixed `member=1&bom=1` routing, browser-clear ordering, navigation links, local state cleanup, session-row revocation, and remote flush behavior.
+
+## 2026-07-27 - BOM Excel export could alter the source format
+
+- Symptom: the downloaded matched workbook could look different from the uploaded BOM even though only match-result columns were expected.
+- Root cause: the original-workbook path imposed an `A2` freeze pane, calculated the append position from parsed columns rather than the worksheet's real width, and silently regenerated a flat workbook if the format-preserving save failed.
+- Fix: preserve every existing worksheet setting and cell style, append only after the actual rightmost source column, retain rich-text/external-link loading, and block the Excel export instead of using a destructive fallback when preservation fails.
+- Compatibility: `.xlsx` is the format-preserving path. Legacy `.xls` files must be saved as `.xlsx` first because rebuilding them as OpenXML cannot guarantee identical formatting.
+- Regression: a styled workbook checks merged cells, filters, freeze state, dimensions, hidden rows/columns, print settings, hyperlinks, values, and styles. Two real BOM files compare with zero changes in their original worksheet regions.

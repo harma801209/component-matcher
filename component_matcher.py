@@ -183,7 +183,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T01:17:18+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T01:43:38+08:00"
 
 
 def startup_trace(message):
@@ -37593,7 +37593,7 @@ def append_export_columns_to_worksheet(ws, source_df, append_columns):
         return
 
     source_columns = list(source_df.columns) if source_df is not None and not source_df.empty else []
-    base_col = max(1, len(source_columns) if source_columns else int(ws.max_column or 1))
+    base_col = max(1, len(source_columns), int(ws.max_column or 1))
     header_template_col = max(1, min(base_col, int(ws.max_column or base_col)))
     max_value_len = max([len(item.get("values", []) or []) for item in append_columns] + [0])
     max_rows = max_value_len + 1
@@ -37616,7 +37616,6 @@ def append_export_columns_to_worksheet(ws, source_df, append_columns):
                 detail = values[value_index] if value_index < len(values) else ""
                 cell = ws.cell(row=row_idx, column=existing_target_col)
                 cell.value = merge_match_confirmation_into_remark1(cell.value, detail)
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
             continue
 
         append_offset += 1
@@ -37748,9 +37747,16 @@ def sanitize_dataframe_for_excel_export(df):
 def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_results=None):
     if source_workbook is not None and sheet_results is not None:
         raw_bytes = source_workbook.get("file_bytes", b"")
+        source_kind = clean_text(source_workbook.get("kind", ""))
         if raw_bytes:
             try:
-                wb = load_workbook(BytesIO(raw_bytes))
+                wb = load_workbook(
+                    BytesIO(raw_bytes),
+                    read_only=False,
+                    data_only=False,
+                    keep_links=True,
+                    rich_text=True,
+                )
                 result_map = {clean_text(item.get("sheet_name", "")): item for item in (sheet_results or [])}
                 for ws in wb.worksheets:
                     payload = result_map.get(clean_text(ws.title))
@@ -37760,10 +37766,6 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
                     safe_result_df = sanitize_dataframe_for_excel_export(payload.get("result_df"))
                     append_columns = build_bom_own_brand_append_columns(safe_result_df, len(safe_source_df))
                     append_export_columns_to_worksheet(ws, safe_source_df, append_columns)
-                    try:
-                        ws.freeze_panes = ws.freeze_panes or "A2"
-                    except Exception:
-                        pass
                 output = BytesIO()
                 wb.save(output)
                 output.seek(0)
@@ -37772,8 +37774,12 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
                 except Exception:
                     pass
                 return output.getvalue()
-            except Exception:
-                pass
+            except Exception as exc:
+                if source_kind == "excel":
+                    raise RuntimeError(
+                        "无法在保持原 Excel 格式的情况下追加匹配结果；"
+                        "请确认文件为有效的 .xlsx，旧版 .xls 请先另存为 .xlsx 后重试。"
+                    ) from exc
 
     if source_df is not None and not source_df.empty:
         export_df = build_bom_matched_export_df(
