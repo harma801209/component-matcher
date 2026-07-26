@@ -134,6 +134,7 @@ NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
+ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY = "_admin_route_clear_outer_shell"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
 MEMBER_AUTH_BROWSER_EXPIRES_KEY = "fruition_member_auth_expires_at"
 MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
@@ -183,7 +184,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T02:18:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T02:25:00+08:00"
 
 
 def startup_trace(message):
@@ -1365,6 +1366,7 @@ def no_match_admin_login_valid(username, password):
 
 def logout_no_match_admin():
     st.session_state.pop("_no_match_admin_authenticated", None)
+    st.session_state[ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY] = True
     update_query_params(admin="", member="", bom="")
 
 
@@ -2965,6 +2967,7 @@ def current_member():
 
 def render_member_auth_browser_persistence_bridge():
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
+    clear_outer_page_modes = bool(st.session_state.pop(ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY, False))
     if clear_token:
         st.session_state.pop("_member_auth_token", None)
         st.session_state.pop("_member_display_name", None)
@@ -2987,6 +2990,7 @@ def render_member_auth_browser_persistence_bridge():
         const outerShellOrigin = {json.dumps(MEMBER_AUTH_OUTER_SHELL_ORIGIN)};
         const token = {json.dumps(token)};
         const clearToken = {json.dumps(clear_token)};
+        const clearOuterPageModes = {json.dumps(clear_outer_page_modes)};
         const ttlSeconds = {ttl_seconds};
         const ttlMs = ttlSeconds * 1000;
         const now = Date.now();
@@ -3001,6 +3005,17 @@ def render_member_auth_browser_persistence_bridge():
                     action: action,
                     token: value || "",
                     expiresAt: Number(expiresAt || 0),
+                }}, outerShellOrigin);
+            }} catch (err) {{}}
+        }}
+
+        function clearOuterShellPageModes() {{
+            if (!clearOuterPageModes || !bridgeChannel) return;
+            try {{
+                window.top.postMessage({{
+                    source: "fruition-route",
+                    channel: bridgeChannel,
+                    action: "clear-page-modes",
                 }}, outerShellOrigin);
             }} catch (err) {{}}
         }}
@@ -3048,6 +3063,8 @@ def render_member_auth_browser_persistence_bridge():
             deleteCookie();
             notifyOuterShell("clear", "", 0);
         }}
+
+        clearOuterShellPageModes();
 
         if (clearToken) {{
             clearSavedToken();

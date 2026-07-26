@@ -3666,4 +3666,5 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 
 - Fixed `退出后台` appearing ineffective when the active member account also had administrator privileges.
 - The exit callback now clears the backend-authentication flag and removes all active page-mode parameters, returning to the search page while preserving the member login session.
+- The formal outer shell also removes its visible `admin` route so refreshing the browser cannot reopen the backend immediately.
 - Added regression coverage that verifies the admin route is cleared without deleting the member token. No protected runtime database is modified.

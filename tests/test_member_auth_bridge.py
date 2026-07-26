@@ -44,6 +44,13 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('outerUrl.searchParams.delete("member_token");', self.worker)
         self.assertIn('history.replaceState(null, "", outerUrl.pathname + outerUrl.search + outerUrl.hash);', self.worker)
 
+    def test_admin_exit_clears_page_modes_in_the_formal_shell(self):
+        self.assertIn('source: "fruition-route"', self.matcher)
+        self.assertIn('action: "clear-page-modes"', self.matcher)
+        self.assertIn('if (payload.source === "fruition-route")', self.worker)
+        self.assertIn('for (const name of ["admin", "member", "bom"])', self.worker)
+        self.assertIn('history.replaceState(null, "", routeUrl.pathname + routeUrl.search + routeUrl.hash);', self.worker)
+
     def test_member_session_persists_for_twelve_hours(self):
         self.assertIn("MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60", self.matcher)
         self.assertIn("const ttlMs = 12 * 60 * 60 * 1000;", self.worker)

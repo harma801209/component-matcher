@@ -484,6 +484,7 @@ class SystemRegressionTests(unittest.TestCase):
 
             self.assertNotIn("_no_match_admin_authenticated", fake_st.session_state)
             self.assertEqual(fake_st.session_state["_member_auth_token"], member_token)
+            self.assertTrue(fake_st.session_state[app["ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY"]])
             self.assertEqual(
                 route_updates,
                 [
