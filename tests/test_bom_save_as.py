@@ -28,6 +28,12 @@ class BomSaveAsSourceTests(unittest.TestCase):
         self.assertIn("bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM)", download_block)
         self.assertNotIn("st.download_button(", download_block)
 
+    def test_legacy_xls_exports_a_separate_result_workbook(self):
+        self.assertIn("def build_independent_bom_result_workbook_bytes(", self.matcher)
+        self.assertIn('f"{export_name_root}_匹配结果.xlsx"', self.matcher)
+        self.assertIn("原始文件不会转换或修改", self.matcher)
+        self.assertIn('"另存独立匹配结果 Excel"', self.matcher)
+
     def test_save_as_component_has_picker_and_download_fallback(self):
         start = self.matcher.index("def build_bom_download_footer_html(")
         end = self.matcher.index("\ndef get_query_param_text", start)

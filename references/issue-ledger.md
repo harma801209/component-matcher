@@ -917,3 +917,10 @@
 - Root cause: the callback removed only `_no_match_admin_authenticated`. Because the URL still requested `admin=1` and the active member had the administrator role, the next rerun immediately recreated the backend-authentication flag.
 - Fix: clear the backend flag and remove the admin/member/BOM page-mode parameters in the same callback. A channel-validated bridge also clears those parameters from the formal outer URL, so refresh cannot reopen the backend. The user returns to search while the independent member session remains signed in.
 - Regression: focused tests verify inner and outer route cleanup, backend-state cleanup, and preservation of the member token.
+
+## 2026-07-27 - Legacy XLS BOM files could not be exported without conversion
+
+- Symptom: customers commonly supplied `.xls`, but the format-preserving exporter rejected it and required manual conversion to `.xlsx`.
+- Root cause: `.xls` is BIFF binary data and cannot be safely opened and written back by the `openpyxl` OpenXML path used to preserve `.xlsx` formatting.
+- Fix: route `.xls` to an independent result-workbook builder. It never opens or rewrites the source bytes; it exports every parsed source sheet plus the appended matching columns to `原文件名_匹配结果.xlsx`. The `.xlsx` preservation path is unchanged.
+- Regression: a simulated BIFF payload proves the exporter does not attempt OpenXML loading, and a real 199-row `.xls` BOM replay confirms successful parsing/export with byte-identical source data.

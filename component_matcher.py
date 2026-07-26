@@ -184,7 +184,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T02:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T03:05:00+08:00"
 
 
 def startup_trace(message):
@@ -37762,8 +37762,88 @@ def sanitize_dataframe_for_excel_export(df):
     return work
 
 
+def is_legacy_xls_file_name(file_name):
+    return clean_text(file_name).lower().endswith(".xls")
+
+
+def safe_bom_export_sheet_name(sheet_name, used_names=None, fallback="BOM匹配结果"):
+    safe_name = re.sub(r'[\\/*?:\[\]]', "_", clean_text(sheet_name))[:31] or fallback
+    used_names = used_names if used_names is not None else set()
+    candidate = safe_name
+    suffix = 2
+    while candidate.lower() in used_names:
+        suffix_text = f"_{suffix}"
+        candidate = safe_name[: max(1, 31 - len(suffix_text))] + suffix_text
+        suffix += 1
+    used_names.add(candidate.lower())
+    return candidate
+
+
+def format_independent_bom_result_sheet(sheet, export_df):
+    if sheet is None:
+        return
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    wrap_export_bases = {
+        bom_slot_name(base, idx)
+        for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
+        for base in BOM_OWN_BRAND_EXPORT_BASE_COLUMNS
+    }
+    for export_col_idx, export_col_name in enumerate(export_df.columns, start=1):
+        base_name = re.sub(r"\(导出\d*\)$", "", clean_text(export_col_name))
+        if base_name not in wrap_export_bases:
+            continue
+        export_letter = get_column_letter(export_col_idx)
+        if "型号" in base_name:
+            sheet.column_dimensions[export_letter].width = 32
+        elif "说明" in base_name or "备注" in base_name:
+            sheet.column_dimensions[export_letter].width = 40
+        else:
+            sheet.column_dimensions[export_letter].width = 18
+        for excel_row in range(2, len(export_df) + 2):
+            sheet.cell(row=excel_row, column=export_col_idx).alignment = Alignment(
+                wrap_text=True,
+                vertical="top",
+            )
+
+
+def build_independent_bom_result_workbook_bytes(sheet_results):
+    output = BytesIO()
+    used_sheet_names = set()
+    wrote_sheet = False
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_index, payload in enumerate(sheet_results or [], start=1):
+            source_df = sanitize_dataframe_for_excel_export(payload.get("source_df"))
+            result_df = sanitize_dataframe_for_excel_export(payload.get("result_df"))
+            if source_df.empty and result_df.empty:
+                continue
+            if not source_df.empty:
+                export_df = build_bom_matched_export_df(source_df, result_df)
+            else:
+                export_df = build_bom_display_df(result_df)
+            sheet_name = safe_bom_export_sheet_name(
+                payload.get("sheet_name", ""),
+                used_names=used_sheet_names,
+                fallback=f"BOM匹配结果{sheet_index}",
+            )
+            export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+            format_independent_bom_result_sheet(writer.sheets[sheet_name], export_df)
+            wrote_sheet = True
+        if not wrote_sheet:
+            sheet_name = safe_bom_export_sheet_name("BOM匹配结果", used_names=used_sheet_names)
+            pd.DataFrame([{"说明": "没有可导出的 BOM 匹配结果"}]).to_excel(
+                writer,
+                index=False,
+                sheet_name=sheet_name,
+            )
+    output.seek(0)
+    return output.getvalue()
+
+
 def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_results=None):
     if source_workbook is not None and sheet_results is not None:
+        if is_legacy_xls_file_name(source_workbook.get("file_name", "")):
+            return build_independent_bom_result_workbook_bytes(sheet_results)
         raw_bytes = source_workbook.get("file_bytes", b"")
         source_kind = clean_text(source_workbook.get("kind", ""))
         if raw_bytes:
@@ -37796,7 +37876,7 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
                 if source_kind == "excel":
                     raise RuntimeError(
                         "无法在保持原 Excel 格式的情况下追加匹配结果；"
-                        "请确认文件为有效的 .xlsx，旧版 .xls 请先另存为 .xlsx 后重试。"
+                        "请确认上传文件是有效的 .xlsx。"
                     ) from exc
 
     if source_df is not None and not source_df.empty:
@@ -37809,29 +37889,7 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="BOM匹配结果")
-        sheet = writer.sheets["BOM匹配结果"]
-        sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions
-
-        wrap_export_bases = {
-            bom_slot_name(base, idx)
-            for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
-            for base in BOM_OWN_BRAND_EXPORT_BASE_COLUMNS
-        }
-        for export_col_idx, export_col_name in enumerate(export_df.columns, start=1):
-            base_name = re.sub(r"\(导出\d*\)$", "", clean_text(export_col_name))
-            if base_name not in wrap_export_bases:
-                continue
-            export_letter = get_column_letter(export_col_idx)
-            if "型号" in base_name:
-                sheet.column_dimensions[export_letter].width = 32
-            elif "说明" in base_name or "备注" in base_name:
-                sheet.column_dimensions[export_letter].width = 40
-            else:
-                sheet.column_dimensions[export_letter].width = 18
-            for excel_row in range(2, len(export_df) + 2):
-                cell = sheet.cell(row=excel_row, column=export_col_idx)
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+        format_independent_bom_result_sheet(writer.sheets["BOM匹配结果"], export_df)
     output.seek(0)
     return output.getvalue()
 
@@ -38876,9 +38934,20 @@ def render_bom_upload_page():
                         display_bom_result_df = format_display_df(
                             build_bom_matched_export_df(bom_df, bom_result_df)
                         )
-                        export_name_root = os.path.splitext(getattr(uploaded_file, "name", "bom"))[0] or "bom"
-                        export_filename = f"{export_name_root}_匹配后.xlsx"
+                        upload_file_name = clean_text(getattr(uploaded_file, "name", "bom")) or "bom"
+                        legacy_xls_export = is_legacy_xls_file_name(upload_file_name)
+                        export_name_root = os.path.splitext(upload_file_name)[0] or "bom"
+                        export_filename = (
+                            f"{export_name_root}_匹配结果.xlsx"
+                            if legacy_xls_export
+                            else f"{export_name_root}_匹配后.xlsx"
+                        )
                         export_bytes = st.session_state.get("_bom_export_bytes", b"")
+                        if legacy_xls_export:
+                            st.info(
+                                "已读取旧版 .xls；原始文件不会转换或修改。"
+                                "下载内容是独立的 .xlsx 匹配结果工作簿，并按原分页保留已解析数据。"
+                            )
                         result_header_cols = st.columns([0.72, 0.28], gap="small")
                         with result_header_cols[0]:
                             st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
@@ -38889,6 +38958,11 @@ def render_bom_upload_page():
                                 build_bom_download_footer_html(
                                     export_bytes,
                                     export_filename,
+                                    label=(
+                                        "另存独立匹配结果 Excel"
+                                        if legacy_xls_export
+                                        else "另存 BOM 匹配后 Excel"
+                                    ),
                                     bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM),
                                     container_class=download_key,
                                 ),

@@ -2297,17 +2297,40 @@ class SystemRegressionTests(unittest.TestCase):
         source_workbook.close()
         exported_workbook.close()
 
-        with self.assertRaisesRegex(RuntimeError, "保持原 Excel 格式"):
-            app["bom_to_excel_bytes"](
-                result_df,
-                source_df,
-                source_workbook={
-                    "kind": "excel",
-                    "file_name": "旧版.xls",
-                    "file_bytes": b"not-an-openxml-workbook",
-                },
-                sheet_results=[],
-            )
+        legacy_raw_bytes = b"legacy-biff-source-remains-unchanged"
+        legacy_export_bytes = app["bom_to_excel_bytes"](
+            result_df,
+            source_df,
+            source_workbook={
+                "kind": "excel",
+                "file_name": "旧版.xls",
+                "file_bytes": legacy_raw_bytes,
+            },
+            sheet_results=[
+                {
+                    "sheet_name": "原分页",
+                    "source_df": source_df,
+                    "result_df": result_df,
+                }
+            ],
+        )
+        self.assertEqual(legacy_raw_bytes, b"legacy-biff-source-remains-unchanged")
+        legacy_result_workbook = load_workbook(BytesIO(legacy_export_bytes), data_only=False)
+        self.assertEqual(legacy_result_workbook.sheetnames, ["原分页"])
+        legacy_result_sheet = legacy_result_workbook["原分页"]
+        legacy_headers = [
+            legacy_result_sheet.cell(row=1, column=column_idx).value
+            for column_idx in range(1, legacy_result_sheet.max_column + 1)
+        ]
+        self.assertEqual(legacy_headers[:3], ["型号", "规格", "数量"])
+        self.assertIn("匹配品牌", legacy_headers)
+        self.assertIn("匹配型号", legacy_headers)
+        self.assertEqual(
+            legacy_result_sheet.cell(row=2, column=legacy_headers.index("匹配型号") + 1).value,
+            "FRC0402F1001TS",
+        )
+        self.assertEqual(legacy_result_sheet.freeze_panes, "A2")
+        legacy_result_workbook.close()
 
     def test_06c_bom_matching_reuses_bounded_cache_and_rich_candidates(self):
         app = self.app

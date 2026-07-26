@@ -3668,3 +3668,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The exit callback now clears the backend-authentication flag and removes all active page-mode parameters, returning to the search page while preserving the member login session.
 - The formal outer shell also removes its visible `admin` route so refreshing the browser cannot reopen the backend immediately.
 - Added regression coverage that verifies the admin route is cleared without deleting the member token. No protected runtime database is modified.
+
+### 2026-07-27 [BOM export] Export legacy XLS as a separate result workbook
+
+- Legacy `.xls` uploads no longer enter the OpenXML in-place append path or require the user to convert the source file.
+- The original `.xls` remains untouched. The system creates `原文件名_匹配结果.xlsx`, retains each parsed source sheet and source column, and appends the matching brand/model/cost/MOQ/L&T/explanation/remark columns.
+- The BOM page clearly labels this as an independent result workbook. Existing `.xlsx` uploads still use the format-preserving append path.
+- Real-file replay with `阻容待下6-22.xls` reads 199 rows, exports the same source sheet with appended match columns, and confirms the original file bytes remain unchanged. Tests use isolated runtime databases.
