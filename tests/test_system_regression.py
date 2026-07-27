@@ -513,6 +513,55 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
+    def test_02bad_navigation_slots_compact_when_backend_entry_is_hidden(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member_is_admin",
+                "current_member",
+                "is_member_page_requested",
+                "is_bom_page_requested",
+                "is_no_match_admin_page_requested",
+                "build_app_href",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["current_member"] = lambda: {"username": "ordinary-member"}
+            app["is_member_page_requested"] = lambda: False
+            app["is_bom_page_requested"] = lambda: False
+            app["is_no_match_admin_page_requested"] = lambda: False
+            app["build_app_href"] = lambda **updates: "?" + "&".join(
+                f"{key}={value}" for key, value in updates.items()
+            )
+
+            app["current_member_is_admin"] = lambda: False
+            app["render_member_entry_button"]()
+            app["render_bom_entry_button"]()
+            self.assertIn("member-login-fixed active nav-slot-first", fake_st.markup[0])
+            self.assertIn("bom-entry-fixed nav-slot-second", fake_st.markup[1])
+
+            fake_st.markup.clear()
+            app["current_member_is_admin"] = lambda: True
+            app["render_member_entry_button"]()
+            app["render_bom_entry_button"]()
+            self.assertIn('class="member-login-fixed active"', fake_st.markup[0])
+            self.assertIn('class="bom-entry-fixed"', fake_st.markup[1])
+            self.assertNotIn("nav-slot-", "".join(fake_st.markup))
+        finally:
+            app.update(original_functions)
+
     def test_02bb_member_logout_clears_ui_and_revokes_session(self):
         app = self.app
         app["ensure_configured_admin_member_account"]()

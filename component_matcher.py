@@ -184,7 +184,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T09:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T11:27:00+08:00"
 
 
 def startup_trace(message):
@@ -3200,6 +3200,7 @@ def is_bom_page_requested():
 def render_member_entry_button():
     if is_no_match_admin_page_requested() and current_member_is_admin():
         return
+    compact_navigation = not current_member_is_admin()
     member = current_member()
     if is_member_page_requested():
         label = "返回搜索"
@@ -3213,6 +3214,8 @@ def render_member_entry_button():
         label = "会员登录"
         href = build_app_href(member="1", admin="0", bom="0")
         css_class = "member-login-fixed"
+    if compact_navigation:
+        css_class += " nav-slot-first"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
         unsafe_allow_html=True,
@@ -3230,6 +3233,8 @@ def render_bom_entry_button():
         label = "BOM批量匹配"
         href = build_app_href(bom="1", member="0", admin="0")
         css_class = "bom-entry-fixed"
+    if not current_member_is_admin():
+        css_class += " nav-slot-second"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
         unsafe_allow_html=True,
@@ -6568,6 +6573,9 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     background: #ffffff;
     color: #475569 !important;
 }
+.member-login-fixed.nav-slot-first {
+    top: 18px;
+}
 .bom-entry-fixed {
     position: fixed;
     top: 118px;
@@ -6597,6 +6605,9 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 .bom-entry-fixed.secondary {
     border-color: rgba(100, 116, 139, 0.26);
     color: #475569 !important;
+}
+.bom-entry-fixed.nav-slot-second {
+    top: 68px;
 }
 @media (max-width: 700px) {
     .admin-hero {
@@ -6634,6 +6645,9 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
         padding: 0 12px;
         font-size: 13px;
     }
+    .member-login-fixed.nav-slot-first {
+        top: 12px;
+    }
     .bom-entry-fixed {
         top: 96px;
         right: 12px;
@@ -6641,6 +6655,9 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
         height: 34px;
         padding: 0 12px;
         font-size: 13px;
+    }
+    .bom-entry-fixed.nav-slot-second {
+        top: 54px;
     }
 }
 .interp-chip-row {

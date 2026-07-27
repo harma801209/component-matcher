@@ -3682,3 +3682,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Backend authorization now requires the active member record to have `role=admin`. Administrators sign in through the normal member page and then see `进入后台` on search, member-center, and BOM modules.
 - An unauthorized legacy `?admin=1` URL shows the member-login entry and an administrator-permission notice, but no backend form or backend content.
 - Focused role, login, logout, and route tests pass. Isolated browser verification covered logged-out, ordinary-member, and administrator sessions without touching production member, cost-list, or no-match databases.
+
+### 2026-07-27 [Navigation] Move ordinary-member controls to the top
+
+- Removed the empty administrator slot from logged-out and ordinary-member layouts. `会员登录/会员中心` now occupies the first right-side slot and `BOM批量匹配` the second.
+- Administrator accounts retain `进入后台`, member center, and BOM in their original three-slot order.
+- Desktop and mobile browser checks confirm top offsets of `18px/68px` and `12px/54px`. The 32-test release safety gate passed with protected runtime-data fingerprints unchanged.

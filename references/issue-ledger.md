@@ -924,3 +924,10 @@
 - Root cause: `.xls` is BIFF binary data and cannot be safely opened and written back by the `openpyxl` OpenXML path used to preserve `.xlsx` formatting.
 - Fix: route `.xls` to an independent result-workbook builder. It never opens or rewrites the source bytes; it exports every parsed source sheet plus the appended matching columns to `原文件名_匹配结果.xlsx`. The `.xlsx` preservation path is unchanged.
 - Regression: a simulated BIFF payload proves the exporter does not attempt OpenXML loading, and a real 199-row `.xls` BOM replay confirms successful parsing/export with byte-identical source data.
+
+## 2026-07-27 - Ordinary-member navigation reserved the hidden admin slot
+
+- Symptom: after an ordinary member logged in, the right-side navigation began at the second vertical slot and left a large blank area at the top.
+- Root cause: the member and BOM controls kept fixed offsets for the administrator layout even when the backend entry was hidden.
+- Fix: assign compact first and second navigation slots whenever the active account is not an administrator. Administrator accounts retain the three-control layout.
+- Regression: focused role-layout tests and desktop/mobile browser checks verify `18px/68px` and `12px/54px` ordinary-user offsets while administrator controls keep their original classes.
