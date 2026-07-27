@@ -3675,3 +3675,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The original `.xls` remains untouched. The system creates `原文件名_匹配结果.xlsx`, retains each parsed source sheet and source column, and appends the matching brand/model/cost/MOQ/L&T/explanation/remark columns.
 - The BOM page clearly labels this as an independent result workbook. Existing `.xlsx` uploads still use the format-preserving append path.
 - Real-file replay with `阻容待下6-22.xls` reads 199 rows, exports the same source sheet with appended match columns, and confirms the original file bytes remain unchanged. Tests use isolated runtime databases.
+
+### 2026-07-27 [Admin authorization] Expose backend entry only to administrator members
+
+- Removed the public standalone backend-login entry and password form. Logged-out visitors and ordinary members now see only the member-login/member-center entry and cannot reuse a stale backend-session flag.
+- Backend authorization now requires the active member record to have `role=admin`. Administrators sign in through the normal member page and then see `进入后台` on search, member-center, and BOM modules.
+- An unauthorized legacy `?admin=1` URL shows the member-login entry and an administrator-permission notice, but no backend form or backend content.
+- Focused role, login, logout, and route tests pass. Isolated browser verification covered logged-out, ordinary-member, and administrator sessions without touching production member, cost-list, or no-match databases.

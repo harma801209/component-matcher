@@ -184,7 +184,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T03:05:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-27T09:45:00+08:00"
 
 
 def startup_trace(message):
@@ -1374,24 +1374,12 @@ def render_no_match_admin_login():
     st.markdown(
         """
         <div class="admin-login-panel">
-            <div class="admin-login-title">管理员登录</div>
-            <div class="admin-login-desc">请输入后台账号密码后进入管理中心。</div>
+            <div class="admin-login-title">管理员权限</div>
+            <div class="admin-login-desc">后台仅限管理员会员账号使用。请先通过右上角“会员登录”登入管理员账号。</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    with st.form("no_match_admin_login_form"):
-        username = st.text_input("账号")
-        password = st.text_input("密码", type="password")
-        submitted = st.form_submit_button("登入后台", use_container_width=True)
-        if submitted:
-            if no_match_admin_login_valid(username, password):
-                st.session_state["_no_match_admin_authenticated"] = True
-                set_current_member_from_admin_login(username, password)
-                st.success("登录成功。")
-                st.rerun()
-            else:
-                st.error("账号或密码不正确。")
 
 
 def current_member_is_admin():
@@ -1400,11 +1388,10 @@ def current_member_is_admin():
 
 
 def require_no_match_admin_login():
-    if st.session_state.get("_no_match_admin_authenticated") is True:
-        return True
     if current_member_is_admin():
         st.session_state["_no_match_admin_authenticated"] = True
         return True
+    st.session_state.pop("_no_match_admin_authenticated", None)
     render_no_match_admin_login()
     return False
 
@@ -1424,8 +1411,10 @@ def is_no_match_admin_page_requested():
 
 
 def render_no_match_admin_entry_button():
+    if not current_member_is_admin():
+        st.session_state.pop("_no_match_admin_authenticated", None)
+        return
     admin_active = is_no_match_admin_page_requested()
-    authenticated = st.session_state.get("_no_match_admin_authenticated") is True or current_member_is_admin()
     if admin_active:
         label = "返回搜索"
         member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
@@ -1437,7 +1426,7 @@ def render_no_match_admin_entry_button():
         href = build_app_href(**href_updates)
         css_class = "admin-login-fixed secondary"
     else:
-        label = "进入后台" if authenticated else "登入后台"
+        label = "进入后台"
         href = build_app_href(admin="1", member="0", bom="0")
         css_class = "admin-login-fixed"
     st.markdown(
@@ -3209,7 +3198,7 @@ def is_bom_page_requested():
 
 
 def render_member_entry_button():
-    if is_no_match_admin_page_requested():
+    if is_no_match_admin_page_requested() and current_member_is_admin():
         return
     member = current_member()
     if is_member_page_requested():

@@ -391,6 +391,128 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["get_query_param_value"] = original_get_query_param_value
 
+    def test_02baa_backend_entry_is_visible_only_to_admin_members(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {"_no_match_admin_authenticated": True}
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member_is_admin",
+                "is_no_match_admin_page_requested",
+                "build_app_href",
+                "get_query_param_value",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["is_no_match_admin_page_requested"] = lambda: False
+            app["build_app_href"] = lambda **updates: "?" + "&".join(
+                f"{key}={value}" for key, value in updates.items()
+            )
+            app["get_query_param_value"] = lambda name: ""
+
+            app["current_member_is_admin"] = lambda: False
+            app["render_no_match_admin_entry_button"]()
+            self.assertEqual(fake_st.markup, [])
+            self.assertNotIn("_no_match_admin_authenticated", fake_st.session_state)
+
+            app["current_member_is_admin"] = lambda: True
+            app["render_no_match_admin_entry_button"]()
+            self.assertEqual(len(fake_st.markup), 1)
+            self.assertIn("admin-login-fixed", fake_st.markup[0])
+            self.assertIn("进入后台", fake_st.markup[0])
+            self.assertIn("admin=1", fake_st.markup[0])
+            self.assertNotIn("登入后台", fake_st.markup[0])
+        finally:
+            app.update(original_functions)
+
+    def test_02bab_backend_access_uses_member_admin_role_only(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {"_no_match_admin_authenticated": True}
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member_is_admin",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["current_member_is_admin"] = lambda: False
+            self.assertFalse(app["require_no_match_admin_login"]())
+            self.assertNotIn("_no_match_admin_authenticated", fake_st.session_state)
+            self.assertTrue(any("会员登录" in value for value in fake_st.markup))
+
+            fake_st.markup.clear()
+            app["current_member_is_admin"] = lambda: True
+            self.assertTrue(app["require_no_match_admin_login"]())
+            self.assertTrue(fake_st.session_state["_no_match_admin_authenticated"])
+            self.assertEqual(fake_st.markup, [])
+        finally:
+            app.update(original_functions)
+
+    def test_02bac_unauthorized_backend_route_keeps_member_login_entry(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {}
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "is_no_match_admin_page_requested",
+                "current_member_is_admin",
+                "current_member",
+                "build_app_href",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["is_no_match_admin_page_requested"] = lambda: True
+            app["current_member_is_admin"] = lambda: False
+            app["current_member"] = lambda: None
+            app["build_app_href"] = lambda **updates: "?" + "&".join(
+                f"{key}={value}" for key, value in updates.items()
+            )
+            app["render_member_entry_button"]()
+            self.assertEqual(len(fake_st.markup), 1)
+            self.assertIn("member-login-fixed", fake_st.markup[0])
+            self.assertIn("会员登录", fake_st.markup[0])
+            self.assertIn("member=1", fake_st.markup[0])
+
+            fake_st.markup.clear()
+            app["current_member_is_admin"] = lambda: True
+            app["render_member_entry_button"]()
+            self.assertEqual(fake_st.markup, [])
+        finally:
+            app.update(original_functions)
+
     def test_02bb_member_logout_clears_ui_and_revokes_session(self):
         app = self.app
         app["ensure_configured_admin_member_account"]()
