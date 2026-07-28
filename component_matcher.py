@@ -29383,7 +29383,6 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         and models
         and not is_public_mode()
         and not is_streamlit_cloud_runtime()
-        and not os.path.exists(SEARCH_DB_PATH)
     ):
         conn = sqlite3.connect(DB_PATH)
         try:
