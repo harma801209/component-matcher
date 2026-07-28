@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 105
+QUERY_RESULT_CACHE_VERSION = 106
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-27T11:27:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-28T23:34:16+08:00"
 
 
 def startup_trace(message):
@@ -4849,7 +4849,7 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     return {}
 
 
-def enrich_component_cost_columns(df):
+def enrich_component_cost_columns(df, lookup=None):
     if df is None:
         return df
     out = df.copy()
@@ -4858,7 +4858,7 @@ def enrich_component_cost_columns(df):
             out[column] = ""
     if out.empty:
         return out
-    lookup = load_active_cost_price_lookup()
+    lookup = load_active_cost_price_lookup() if lookup is None else lookup
     for idx, row in out.iterrows():
         price = lookup_active_cost_price_for_row(row, lookup=lookup) if lookup else {}
         manufacturer_packaging = lookup_manufacturer_packaging(row)
@@ -7421,6 +7421,7 @@ def apply_query_brand_hint_to_spec(spec, query_text):
     if explicit_brands:
         aliases = []
         for requested_brand in explicit_brands:
+            aliases.append(requested_brand)
             aliases.extend(brand_query_aliases_for_label(requested_brand))
         merged[BRAND_QUERY_FILTER_FLAG] = True
         merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
@@ -7450,6 +7451,7 @@ def apply_search_brand_scope_to_spec(spec, query_text, brand_mode="", selected_b
         if selected:
             aliases = []
             for brand in selected:
+                aliases.append(brand)
                 aliases.extend(brand_query_aliases_for_label(brand))
             merged[BRAND_QUERY_FILTER_FLAG] = True
             merged[BRAND_QUERY_FILTER_ALIASES_KEY] = "|".join(dict.fromkeys(aliases))
@@ -7563,6 +7565,18 @@ def requested_brand_aliases_from_spec(spec):
         if aliases:
             return aliases
     return brand_query_aliases_for_label(spec.get("品牌", ""))
+
+
+def requested_brand_scope_is_fojan_only(spec):
+    aliases = requested_brand_aliases_from_spec(spec)
+    if not aliases:
+        return False
+    canonical_brands = {
+        canonical_brand_query_label(alias) or clean_brand(alias)
+        for alias in aliases
+        if clean_brand(alias) != ""
+    }
+    return canonical_brands == {"FOJAN(富捷)"}
 
 
 def row_brand_matches_requested_brand(row_brand, spec):
@@ -16304,6 +16318,9 @@ def normalize_resistor_pricing_type_dimension(value):
 
 
 def load_resistor_series_pricing_rules():
+    cached_rules = _RESISTOR_SERIES_PRICING_CACHE.get("rules")
+    if cached_rules is not None:
+        return cached_rules
     path = RESISTOR_SERIES_PRICING_PATH
     try:
         mtime = os.path.getmtime(path)
@@ -16422,7 +16439,7 @@ def get_row_resistance_for_pricing(row):
     return explicit
 
 
-def lookup_resistor_series_pricing(row):
+def lookup_resistor_series_pricing(row, rules=None):
     component_type = normalize_component_type(row.get("器件类型", ""))
     if component_type not in RESISTOR_COMPONENT_TYPES:
         return {"成本": "", "更新时间": "", "MOQ": ""}
@@ -16446,8 +16463,9 @@ def lookup_resistor_series_pricing(row):
     if price_key == "":
         return {"成本": "", "更新时间": "", "MOQ": ""}
     type_dimension = f"{size} {power}"
+    pricing_rules = load_resistor_series_pricing_rules() if rules is None else rules
     if series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
-        for rule in load_resistor_series_pricing_rules():
+        for rule in pricing_rules:
             if rule.get("series") != series or rule.get("type_dimension_norm") != type_dimension:
                 continue
             price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_1", ""), 10.0)
@@ -16458,7 +16476,7 @@ def lookup_resistor_series_pricing(row):
                     "MOQ": rule.get("package", ""),
                 }
         return {"成本": "", "更新时间": "", "MOQ": ""}
-    for rule in load_resistor_series_pricing_rules():
+    for rule in pricing_rules:
         if rule.get("series") != series:
             continue
         if rule.get("type_dimension_norm") != type_dimension:
@@ -16469,7 +16487,7 @@ def lookup_resistor_series_pricing(row):
     return {"成本": "", "更新时间": "", "MOQ": ""}
 
 
-def enrich_resistor_pricing_columns(df):
+def enrich_resistor_pricing_columns(df, rules=None):
     if df is None:
         return df
     out = df.copy()
@@ -16478,7 +16496,8 @@ def enrich_resistor_pricing_columns(df):
         out["更新时间"] = ""
         out["MOQ"] = ""
         return out
-    pricing_rows = out.apply(lookup_resistor_series_pricing, axis=1)
+    pricing_rules = load_resistor_series_pricing_rules() if rules is None else rules
+    pricing_rows = out.apply(lambda row: lookup_resistor_series_pricing(row, rules=pricing_rules), axis=1)
     out["成本"] = [item.get("成本", "") for item in pricing_rows]
     out["更新时间"] = [item.get("更新时间", "") for item in pricing_rows]
     out["MOQ"] = [item.get("MOQ", "") for item in pricing_rows]
@@ -23404,6 +23423,14 @@ def special_use_allows_unconfirmed_compliance(candidate, target):
     return hard_tokens.issubset(candidate_tokens)
 
 
+def special_use_specificity_rank(candidate, target):
+    target_tokens = set(special_use_tokens(target)) - SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
+    candidate_tokens = set(special_use_tokens(candidate)) - SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
+    missing_count = len(target_tokens - candidate_tokens)
+    extra_count = len(candidate_tokens - target_tokens)
+    return (missing_count * 100) + extra_count
+
+
 def missing_soft_compliance_tokens(candidate, target):
     target_tokens = set(special_use_tokens(target)) & SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
     if not target_tokens:
@@ -24016,7 +24043,13 @@ def infer_bom_own_brand_component_type(spec=None, frame=None):
     return ""
 
 
-def prepare_bom_own_brand_candidate_frame(frame, component_type, brand_groups=None):
+def prepare_bom_own_brand_candidate_frame(
+    frame,
+    component_type,
+    brand_groups=None,
+    cost_lookup=None,
+    resistor_pricing_rules=None,
+):
     if frame is None or frame.empty:
         return pd.DataFrame()
     work = frame.copy()
@@ -24031,8 +24064,16 @@ def prepare_bom_own_brand_candidate_frame(frame, component_type, brand_groups=No
     ctype = normalize_component_type(component_type)
     if ctype in RESISTOR_COMPONENT_TYPES:
         work = normalize_fojan_resistor_series_display_fields(work)
-        work = enrich_resistor_pricing_columns(work)
-    work = enrich_component_cost_columns(work)
+        work = (
+            enrich_resistor_pricing_columns(work)
+            if resistor_pricing_rules is None
+            else enrich_resistor_pricing_columns(work, rules=resistor_pricing_rules)
+        )
+    work = (
+        enrich_component_cost_columns(work)
+        if cost_lookup is None
+        else enrich_component_cost_columns(work, lookup=cost_lookup)
+    )
     return work
 
 
@@ -24133,7 +24174,14 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
     return slots
 
 
-def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS, export_settings=None):
+def build_bom_own_brand_export_slots(
+    frame,
+    spec=None,
+    limit=BOM_OWN_BRAND_EXPORT_MAX_SLOTS,
+    export_settings=None,
+    cost_lookup=None,
+    resistor_pricing_rules=None,
+):
     slots = empty_bom_own_brand_export_slots(limit=limit)
     if frame is None or frame.empty:
         return slots
@@ -24145,7 +24193,13 @@ def build_bom_own_brand_export_slots(frame, spec=None, limit=BOM_OWN_BRAND_EXPOR
     if not brand_groups:
         return slots
 
-    work = prepare_bom_own_brand_candidate_frame(frame, component_type, brand_groups=brand_groups)
+    work = prepare_bom_own_brand_candidate_frame(
+        frame,
+        component_type,
+        brand_groups=brand_groups,
+        cost_lookup=cost_lookup,
+        resistor_pricing_rules=resistor_pricing_rules,
+    )
     if work.empty:
         return slots
 
@@ -24305,7 +24359,10 @@ def build_bom_export_candidate_frame(matched, query_df=None, spec=None, mode="",
         frames.append(matched)
     if not frames:
         return pd.DataFrame()
-    return concat_component_frames(frames)
+    if len(frames) == 1:
+        return frames[0].copy()
+    combined = safe_concat_dataframes(frames, ignore_index=True, sort=False)
+    return deduplicate_component_matches(combined).reset_index(drop=True)
 
 
 def choose_bom_display_match(frame, spec=None):
@@ -29400,10 +29457,13 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         pairs,
         preferred_component_type=preferred_component_type,
     )
-    combined = concat_component_frames([combined, sidecar_combined])
     seed_rows = load_jianghai_seed_rows() + load_sunlord_mcl_seed_rows()
+    seed_combined = pd.DataFrame()
     if seed_rows:
-        combined = concat_component_frames([combined, pd.DataFrame(seed_rows)])
+        seed_combined = filter_base_by_candidate_pairs(pd.DataFrame(seed_rows), pairs)
+    if combined.empty and seed_combined.empty:
+        return sidecar_combined
+    combined = concat_component_frames([combined, sidecar_combined, seed_combined])
     if combined.empty:
         return combined
     combined = filter_base_by_candidate_pairs(combined, pairs)
@@ -30324,16 +30384,146 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
             )
             if model == "":
                 continue
-            parsed = parse_fojan_catalog_resistor_model(model, brand="FOJAN(富捷)")
-            if not isinstance(parsed, dict):
-                continue
-            parsed["功率"] = format_power_display(size_rule.get("power", ""))
-            parsed["耐压（V）"] = clean_voltage(size_rule.get("voltage", ""))
-            rows.append(parsed)
+            value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+            rows.append(
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": clean_model(model).upper(),
+                    "器件类型": profile.get("component_type", "厚膜电阻"),
+                    "材质（介质）": clean_text(profile.get("material", "")),
+                    "系列": clean_text(profile.get("series_display", "")) or series,
+                    "系列说明": profile.get("description", ""),
+                    "特殊用途": profile.get("special_use", ""),
+                    "尺寸（inch）": size,
+                    "容值": value_text,
+                    "容值单位": unit_text,
+                    "容值_pf": float("nan"),
+                    "容值误差": tolerance,
+                    "阻值@25C": f"{float(resistance_ohm):g}",
+                    "阻值单位": "Ω",
+                    "阻值误差": tolerance,
+                    "功率": format_power_display(size_rule.get("power", "")),
+                    "耐压（V）": clean_voltage(size_rule.get("voltage", "")),
+                    "工作温度": "-55~155℃",
+                    "安装方式": "贴片",
+                    "封装代码": size,
+                    "数据来源": f"富捷官方规格书：{profile.get('source', '')}",
+                    "_resistance_ohm": float(resistance_ohm),
+                    "_power": format_power_display(size_rule.get("power", "")),
+                    "_model_rule_authority": "fojan_official_special_resistor_catalog",
+                    "_param_count": 6,
+                }
+            )
     if not rows:
         return pd.DataFrame()
-    frame = ensure_component_display_columns(pd.DataFrame(rows))
-    return prepare_search_dataframe(frame)
+    return prepare_fojan_generated_resistor_rows(rows)
+
+
+def prepare_fojan_generated_resistor_rows(rows):
+    frame = pd.DataFrame(rows or [])
+    if frame.empty:
+        return frame
+
+    frame = frame.copy()
+    row_count = len(frame)
+
+    def text_series(column_name, normalizer=clean_text):
+        if column_name not in frame.columns:
+            return pd.Series([""] * row_count, index=frame.index, dtype="object")
+        return frame[column_name].astype(str).replace({"nan": "", "None": ""}).apply(normalizer)
+
+    frame["品牌"] = text_series("品牌", clean_brand)
+    frame["型号"] = text_series("型号")
+    frame["器件类型"] = text_series("器件类型", normalize_component_type)
+    frame["尺寸（inch）"] = text_series("尺寸（inch）", clean_size)
+    frame["材质（介质）"] = text_series("材质（介质）", clean_material)
+    frame["容值误差"] = text_series("容值误差", clean_tol_for_display)
+    frame["阻值误差"] = text_series("阻值误差", clean_tol_for_display)
+    frame["耐压（V）"] = text_series("耐压（V）", voltage_display)
+    frame["功率"] = text_series("功率", format_power_display)
+    frame["工作温度"] = text_series("工作温度", normalize_working_temperature_text)
+    frame["安装方式"] = text_series("安装方式", normalize_mounting_style)
+    frame["特殊用途"] = text_series("特殊用途", normalize_special_use)
+    frame["系列"] = text_series("系列")
+    frame["系列说明"] = text_series("系列说明")
+    frame["容值"] = text_series("容值")
+    frame["容值单位"] = text_series("容值单位", normalize_library_value_unit)
+
+    resistance_values = pd.to_numeric(frame.get("_resistance_ohm"), errors="coerce")
+    normalized_resistance = pd.DataFrame(
+        [
+            ohm_to_library_value_unit(value) if pd.notna(value) else ("", "")
+            for value in resistance_values
+        ],
+        index=frame.index,
+        columns=["_generated_value", "_generated_unit"],
+    )
+    blank_value = frame["容值"].eq("")
+    frame.loc[blank_value, "容值"] = normalized_resistance.loc[blank_value, "_generated_value"]
+    blank_unit = frame["容值单位"].eq("")
+    frame.loc[blank_unit, "容值单位"] = normalized_resistance.loc[blank_unit, "_generated_unit"]
+    blank_power = frame["功率"].eq("")
+    frame.loc[blank_power, "功率"] = (
+        frame.loc[blank_power, "尺寸（inch）"]
+        .map(RESISTOR_POWER_BY_SIZE)
+        .fillna("")
+        .apply(format_power_display)
+    )
+    blank_voltage = frame["耐压（V）"].eq("")
+    frame.loc[blank_voltage, "耐压（V）"] = (
+        frame.loc[blank_voltage, "尺寸（inch）"]
+        .map(FOJAN_FRC_MAX_WORKING_VOLTAGE_BY_SIZE)
+        .fillna("")
+        .apply(voltage_display)
+    )
+    blank_material = frame["材质（介质）"].eq("")
+    material_by_type = {
+        "厚膜电阻": "厚膜",
+        "薄膜电阻": "薄膜",
+        "合金电阻": "合金",
+    }
+    frame.loc[blank_material, "材质（介质）"] = (
+        frame.loc[blank_material, "器件类型"].map(material_by_type).fillna("")
+    )
+
+    frame["_model_clean"] = frame["型号"].apply(clean_model)
+    frame["_size"] = frame["尺寸（inch）"]
+    frame["_mat"] = frame["材质（介质）"]
+    frame["_tol"] = frame["容值误差"].apply(clean_tol_for_match)
+    frame["_volt"] = frame["耐压（V）"].apply(clean_voltage)
+    frame["_pf"] = pd.to_numeric(frame.get("容值_pf"), errors="coerce")
+    tol_keys = frame["_tol"].apply(tolerance_sort_key)
+    frame["_tol_kind"] = tol_keys.apply(lambda item: item[0])
+    frame["_tol_num"] = pd.to_numeric(tol_keys.apply(lambda item: item[1]), errors="coerce")
+    frame["_volt_num"] = pd.to_numeric(frame["_volt"], errors="coerce")
+    frame["_component_type"] = frame["器件类型"]
+    frame["_res_ohm"] = pd.to_numeric(frame.get("_resistance_ohm"), errors="coerce")
+    frame["_power"] = frame["功率"]
+    frame["_power_watt"] = pd.to_numeric(frame["_power"].apply(parse_power_to_watts), errors="coerce")
+    frame["_power_source"] = "official_rule"
+    frame["_body_size"] = ""
+    frame["_pitch"] = ""
+    frame["_safety_class"] = ""
+    frame["_varistor_voltage"] = ""
+    frame["_disc_size"] = ""
+    temperature_bounds = frame["工作温度"].apply(working_temperature_bounds)
+    frame["_temp_low"] = pd.to_numeric(temperature_bounds.apply(lambda item: item[0]), errors="coerce")
+    frame["_temp_high"] = pd.to_numeric(temperature_bounds.apply(lambda item: item[1]), errors="coerce")
+    frame["_life_hours_num"] = float("nan")
+    frame["_mount_style"] = frame["安装方式"]
+    frame["_special_use_norm"] = frame["特殊用途"]
+    frame["_mlcc_series_class"] = ""
+    frame["_unit_upper"] = frame["容值单位"].apply(
+        lambda value: (
+            normalize_search_sidecar_value(value).upper()
+            if normalize_search_sidecar_value(value) is not None
+            else None
+        )
+    )
+    frame["_value_num"] = pd.to_numeric(frame["容值"], errors="coerce")
+    if "_model_rule_authority" not in frame.columns:
+        frame["_model_rule_authority"] = "fojan_official_special_resistor_catalog"
+    return frame
 
 
 def build_fojan_resistor_model_from_spec(spec):
@@ -30366,6 +30556,9 @@ def build_fojan_resistor_model_from_spec(spec):
 
 
 def fojan_brand_requested_or_unset(spec):
+    requested_aliases = requested_brand_aliases_from_spec(spec)
+    if requested_aliases:
+        return brand_alias_matches("FOJAN(富捷)", requested_aliases)
     brand = clean_brand((spec or {}).get("品牌", ""))
     if brand == "":
         return True
@@ -30488,11 +30681,22 @@ def build_rule_fallback_row_from_model(model, brand=""):
     parsed = fallback_defaults
     if resolved_brand == "FOJAN(富捷)" and parse_valid_fojan_resistor_model(model) is not None:
         parsed["_model_rule_authority"] = "fojan_frc_generated_rule"
-    fallback = pd.DataFrame([parsed])
-    try:
-        fallback = prepare_search_dataframe(fallback)
-    except Exception:
-        pass
+    if (
+        resolved_brand == "FOJAN(富捷)"
+        and normalize_component_type(parsed.get("器件类型", "")) in RESISTOR_COMPONENT_TYPES
+    ):
+        fallback = prepare_fojan_generated_resistor_rows([parsed])
+        raw_tolerance = clean_tol_for_match(parsed.get("容值误差", ""))
+        if raw_tolerance != "" and not fallback.empty:
+            fallback["容值误差"] = raw_tolerance
+            fallback["阻值误差"] = raw_tolerance
+            fallback["_tol"] = raw_tolerance
+    else:
+        fallback = pd.DataFrame([parsed])
+        try:
+            fallback = prepare_search_dataframe(fallback)
+        except Exception:
+            pass
     if (
         resolved_brand == "FOJAN(富捷)"
         and not fallback.empty
@@ -30522,7 +30726,14 @@ def build_fojan_rule_candidate_from_spec(spec):
     special_frame = build_fojan_special_resistor_candidates_from_spec(spec)
     if isinstance(special_frame, pd.DataFrame) and not special_frame.empty:
         frames.append(special_frame)
-    return concat_component_frames(frames)
+    if not frames:
+        return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    combined = safe_concat_dataframes(frames, ignore_index=True, sort=False)
+    if {"品牌", "型号"}.issubset(combined.columns):
+        combined = combined.drop_duplicates(subset=["品牌", "型号"], keep="first")
+    return combined.reset_index(drop=True)
 
 
 def load_component_rows_by_clean_model(model):
@@ -30791,7 +31002,11 @@ def enrich_fojan_frc_official_query_fields(df):
 
 
 def finalize_search_candidate_frames(frames):
-    return enrich_fojan_frc_official_query_fields(concat_component_frames(frames))
+    valid = [frame for frame in frames if isinstance(frame, pd.DataFrame) and not frame.empty]
+    if not valid:
+        return pd.DataFrame()
+    combined = valid[0] if len(valid) == 1 else concat_component_frames(valid)
+    return enrich_fojan_frc_official_query_fields(combined)
 
 
 def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=None):
@@ -30814,6 +31029,8 @@ def load_search_dataframe_for_query(mode, spec, query_text="", exact_part_rows=N
         fojan_rule_candidate = build_fojan_rule_candidate_from_spec(spec)
         if isinstance(fojan_rule_candidate, pd.DataFrame) and not fojan_rule_candidate.empty:
             frames.append(fojan_rule_candidate)
+            if requested_brand_scope_is_fojan_only(spec):
+                return finalize_search_candidate_frames(frames)
     if can_use_fast_search_dataframe(spec):
         candidate_pairs = fetch_search_candidate_pairs(spec)
         if candidate_pairs is not None:
@@ -31121,6 +31338,16 @@ def fetch_search_candidate_pairs(spec):
     else:
         return None
 
+    requested_brand_aliases = list(dict.fromkeys(requested_brand_aliases_from_spec(spec)))
+    if requested_brand_aliases:
+        brand_placeholders = ",".join(["?"] * len(requested_brand_aliases))
+        brand_clause = f'"品牌" IN ({brand_placeholders})'
+        where_clauses.append(brand_clause)
+        params.extend(requested_brand_aliases)
+        if exact_query:
+            exact_query += f" AND {brand_clause}"
+            exact_query_params.extend(requested_brand_aliases)
+
     query = (
         f'SELECT DISTINCT "品牌", "型号" FROM {search_table_name} '
         f'WHERE {" AND ".join(where_clauses)}'
@@ -31179,7 +31406,11 @@ def scope_search_dataframe(df, spec):
     if spec is None:
         return prepare_search_dataframe(df)
     base = df
-    search_candidate_pairs = fetch_search_candidate_pairs(spec)
+    search_candidate_pairs = (
+        None
+        if requested_brand_scope_is_fojan_only(spec)
+        else fetch_search_candidate_pairs(spec)
+    )
     if search_candidate_pairs is not None:
         base = filter_base_by_candidate_pairs(base, search_candidate_pairs)
         if base.empty:
@@ -34611,6 +34842,19 @@ def apply_match_levels_and_sort(df, spec):
     else:
         work["_thermistor_b_rank"] = 0
         work["_thermistor_series_rank"] = 0
+    requested_special_use = normalize_special_use(spec.get("特殊用途", ""))
+    if target_type in RESISTOR_COMPONENT_TYPES:
+        if "特殊用途" in work.columns:
+            candidate_special_use = work["特殊用途"].astype(str)
+        elif "_special_use_norm" in work.columns:
+            candidate_special_use = work["_special_use_norm"].astype(str)
+        else:
+            candidate_special_use = pd.Series("", index=work.index, dtype="object")
+        work["_special_use_rank"] = candidate_special_use.apply(
+            lambda value: special_use_specificity_rank(value, requested_special_use)
+        )
+    else:
+        work["_special_use_rank"] = 0
     if target_type in RESISTOR_COMPONENT_TYPES and "型号" in work.columns:
         model_sort_parts = work.apply(
             lambda row: fojan_frc_model_sort_parts(row.get("品牌", ""), row.get("型号", "")),
@@ -34644,8 +34888,8 @@ def apply_match_levels_and_sort(df, spec):
         sort_cols.extend(["_brand_rank", "品牌"])
         ascending.extend([True, True])
         if target_type in RESISTOR_COMPONENT_TYPES:
-            sort_cols.extend(["_model_family_sort_key", "_fojan_frc_suffix_rank"])
-            ascending.extend([True, True])
+            sort_cols.extend(["_special_use_rank", "_model_family_sort_key", "_fojan_frc_suffix_rank"])
+            ascending.extend([True, True, True])
         sort_cols.append("型号")
         ascending.append(True)
     work = work.sort_values(by=sort_cols, ascending=ascending)
@@ -34659,6 +34903,7 @@ def apply_match_levels_and_sort(df, spec):
             "_mlcc_class_rank",
             "_thermistor_b_rank",
             "_thermistor_series_rank",
+            "_special_use_rank",
             "_model_family_sort_key",
             "_fojan_frc_suffix_rank",
         ],
@@ -34698,7 +34943,27 @@ def detect_query_mode_and_spec(df, line):
         return "暂不支持", build_unsupported_semiconductor_spec(line, semiconductor_hint)
 
     if "_" in clean_text(line) and looks_like_compact_part_query(line):
-        compound_rows, _, matched_token = load_component_rows_by_query_model_tokens(line)
+        compound_rows = pd.DataFrame()
+        matched_token = ""
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            if "_model_clean" in df.columns:
+                prefetched_model_keys = df["_model_clean"].astype(str).map(clean_model)
+            elif "型号" in df.columns:
+                prefetched_model_keys = df["型号"].astype(str).map(clean_model)
+            else:
+                prefetched_model_keys = pd.Series("", index=df.index, dtype=str)
+            whole_query_key = clean_model(line)
+            for token in extract_model_like_tokens(line):
+                token_key = clean_model(token)
+                if token_key == "" or token_key == whole_query_key:
+                    continue
+                token_mask = prefetched_model_keys.eq(token_key)
+                if token_mask.any():
+                    compound_rows = df[token_mask].copy()
+                    matched_token = token
+                    break
+        if compound_rows.empty:
+            compound_rows, _, matched_token = load_component_rows_by_query_model_tokens(line)
         if (
             isinstance(compound_rows, pd.DataFrame)
             and not compound_rows.empty
@@ -36198,10 +36463,21 @@ def bom_record_looks_like_repeated_header(model_value, spec_value, name_value):
     return sum([model_header, spec_header, name_header]) >= 2
 
 
+def looks_like_internal_bom_part_number(value):
+    text = clean_text(value).replace(" ", "")
+    if text == "":
+        return False
+    return bool(re.fullmatch(r"\d+(?:\.\d+){2,}(?:-\d+)?", text))
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
     extra_values = [clean_text(x) for x in (extra_values or []) if clean_text(x) != ""]
+    model_is_internal_number = (
+        looks_like_internal_bom_part_number(model_value)
+        and (clean_text(spec_value) != "" or clean_text(name_value) != "")
+    )
 
     def add_candidate(text, source):
         query = join_bom_parts(text)
@@ -36211,8 +36487,9 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
 
     # Exact models are cheapest and most authoritative. If that misses, try the
     # richest combined specification before weaker single-column fallbacks.
-    add_candidate(model_value, "型号列")
-    if clean_text(model_value) != "" and clean_text(spec_value) != "":
+    if not model_is_internal_number:
+        add_candidate(model_value, "型号列")
+    if not model_is_internal_number and clean_text(model_value) != "" and clean_text(spec_value) != "":
         add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
         add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
     add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
@@ -36290,8 +36567,14 @@ def evaluate_bom_candidate(
     query_cache=None,
     full_df_provider=None,
     exact_part_rows=None,
+    export_settings=None,
 ):
-    cache_key = bom_query_cache_key(query_text)
+    normalized_export_settings = normalize_bom_export_settings(export_settings)
+    export_scope_key = "|".join(
+        [normalized_export_settings.get("mode", "")]
+        + list(normalized_export_settings.get("brands", []))
+    )
+    cache_key = bom_query_cache_key(f"{export_scope_key}|{query_text}")
     cached = query_cache.get(cache_key) if isinstance(query_cache, dict) else None
     if cached is None:
         full_df = df
@@ -36317,6 +36600,19 @@ def evaluate_bom_candidate(
         ):
             query_df = model_token_rows
             mode, spec = detect_query_mode_and_spec(query_df, matched_model_token or query_text)
+        spec = merge_query_text_hints_into_spec(spec, query_text)
+        if (
+            mode != "无法识别"
+            and spec is not None
+            and normalized_export_settings.get("mode") == BOM_EXPORT_MODE_CUSTOM
+            and normalized_export_settings.get("brands")
+        ):
+            spec = apply_search_brand_scope_to_spec(
+                spec,
+                query_text,
+                brand_mode=SEARCH_BRAND_MODE_CUSTOM,
+                selected_brands=normalized_export_settings["brands"],
+            )
         if mode != "无法识别" and spec is not None:
             query_df = (
                 load_search_dataframe_for_query(mode, spec, query_text, exact_part_rows=exact_part_rows)
@@ -36336,7 +36632,7 @@ def evaluate_bom_candidate(
             query_df = full_df if allow_heavy_fallback else None
             if query_df is not None and (mode == "无法识别" or spec is None):
                 mode, spec = detect_query_mode_and_spec(query_df, query_text)
-        spec = merge_query_text_hints_into_spec(spec, query_text)
+                spec = merge_query_text_hints_into_spec(spec, query_text)
         result = {
             "mode": mode,
             "spec": spec,
@@ -36361,7 +36657,10 @@ def evaluate_bom_candidate(
             result["failure_reason"] = f"请至少提供{min_required}个关键规格参数"
         else:
             result["parse_status"] = "解析成功"
-            matched = cached_run_query_match(query_df if query_df is not None else pd.DataFrame(), mode, spec, query_text=query_text)
+            # The BOM worker already owns a bounded per-job query cache. Reusing the
+            # interactive cache here would recalculate database/file signatures for
+            # every row and serialize otherwise independent worker threads.
+            matched = run_query_match(query_df if query_df is not None else pd.DataFrame(), mode, spec)
             result["matched"] = matched
             if matched.empty:
                 result["status"] = "无匹配"
@@ -36474,6 +36773,12 @@ def bom_candidate_good_enough(candidate_result):
     if candidate_result is None:
         return False
     if (
+        candidate_result.get("status") == "无匹配"
+        and "规格列+品名列" in clean_text(candidate_result.get("source", ""))
+        and bom_candidate_core_count(candidate_result) >= 4
+    ):
+        return True
+    if (
         is_other_passive_mode(candidate_result.get("mode"))
         and "品名列" in clean_text(candidate_result.get("source", ""))
         and bom_candidate_core_count(candidate_result) >= 2
@@ -36500,12 +36805,24 @@ def choose_best_bom_candidate(
     query_cache=None,
     full_df_provider=None,
     exact_part_prefetch_map=None,
+    export_settings=None,
 ):
     best = None
     for idx, candidate in enumerate(candidates):
         prefetched_rows = None
-        if candidate["source"] == "型号列" and isinstance(exact_part_prefetch_map, dict):
-            prefetched_rows = exact_part_prefetch_map.get(clean_model(candidate["query"]))
+        if isinstance(exact_part_prefetch_map, dict):
+            prefetched_frames = []
+            candidate_keys = [clean_model(candidate["query"])]
+            candidate_keys.extend(
+                clean_model(token)
+                for token in extract_model_like_tokens(candidate["query"])
+            )
+            for candidate_key in dict.fromkeys(key for key in candidate_keys if key != ""):
+                frame = exact_part_prefetch_map.get(candidate_key)
+                if isinstance(frame, pd.DataFrame) and not frame.empty:
+                    prefetched_frames.append(frame)
+            if prefetched_frames:
+                prefetched_rows = concat_component_frames(prefetched_frames)
         result = evaluate_bom_candidate(
             df,
             candidate["query"],
@@ -36514,6 +36831,7 @@ def choose_best_bom_candidate(
             query_cache=query_cache,
             full_df_provider=full_df_provider,
             exact_part_rows=prefetched_rows,
+            export_settings=export_settings,
         )
         if should_replace_best_bom_candidate(best, result):
             best = result
@@ -36635,6 +36953,8 @@ def build_bom_upload_result_row(
     full_df_provider=None,
     export_settings=None,
     exact_part_prefetch_map=None,
+    cost_lookup=None,
+    resistor_pricing_rules=None,
 ):
     model_value = get_bom_selected_value(record, column_mapping.get("model"))
     spec_value = get_bom_selected_value(record, column_mapping.get("spec"))
@@ -36705,6 +37025,7 @@ def build_bom_upload_result_row(
         query_cache=query_cache,
         full_df_provider=full_df_provider,
         exact_part_prefetch_map=exact_part_prefetch_map,
+        export_settings=export_settings,
     )
     if best is None:
         result_row["失败原因"] = "BOM 解析失败"
@@ -36805,6 +37126,8 @@ def build_bom_upload_result_row(
         export_candidates,
         spec=spec,
         export_settings=export_settings,
+        cost_lookup=cost_lookup,
+        resistor_pricing_rules=resistor_pricing_rules,
     )
     result_row.update(export_slots)
     reconcile_bom_output_status(result_row, export_slots, export_settings=export_settings)
@@ -37334,19 +37657,31 @@ def bom_dataframe_from_upload(
     query_cache = query_cache if isinstance(query_cache, dict) else {}
     full_df_provider = get_full_bom_df if allow_full_fallback else None
     records = work.to_dict(orient="records")
-    model_column = column_mapping.get("model")
     exact_model_queries = []
-    if model_column:
-        exact_model_queries = [
-            clean_text(record.get(model_column, ""))
-            for record in records
-            if looks_like_compact_part_query(clean_text(record.get(model_column, "")))
-        ]
+    possible_model_columns = [
+        column_mapping.get(role)
+        for role in ("model", "spec", "name")
+        if column_mapping.get(role)
+    ]
+    for record in records:
+        for column_name in possible_model_columns:
+            value = clean_text(record.get(column_name, ""))
+            if value == "":
+                continue
+            if looks_like_compact_part_query(value):
+                exact_model_queries.append(value)
+            exact_model_queries.extend(
+                token
+                for token in extract_model_like_tokens(value)
+                if looks_like_compact_part_query(token)
+            )
     exact_part_prefetch_map = (
         load_component_rows_by_exact_models_from_database(list(dict.fromkeys(exact_model_queries)))
         if exact_model_queries
         else {}
     )
+    cost_lookup = load_active_cost_price_lookup()
+    resistor_pricing_rules = load_resistor_series_pricing_rules()
     total_rows = len(records)
     completed_rows = {
         int(row_index): dict(row_value)
@@ -37458,6 +37793,8 @@ def bom_dataframe_from_upload(
             full_df_provider=full_df_provider,
             export_settings=export_settings,
             exact_part_prefetch_map=exact_part_prefetch_map,
+            cost_lookup=cost_lookup,
+            resistor_pricing_rules=resistor_pricing_rules,
         )
         if BOM_MATCH_DEBUG:
             bom_match_debug_log(
@@ -37474,8 +37811,8 @@ def bom_dataframe_from_upload(
     ]
     worker_count = max_workers
     if worker_count is None:
-        worker_count = min(4, max(1, len(pending_items)))
-    worker_count = max(1, min(int(worker_count or 1), 4))
+        worker_count = min(6, max(1, len(pending_items)))
+    worker_count = max(1, min(int(worker_count or 1), 6))
     checkpoint_every = max(1, min(10, total_rows // 40 if total_rows >= 40 else 1))
 
     emit_progress(

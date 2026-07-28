@@ -1352,6 +1352,25 @@ class SystemRegressionTests(unittest.TestCase):
                 suffix_matches["型号"].tolist(),
                 ["FRC0402F1001TS", "FRC0402F1001RS"],
             )
+            car_spec = app["parse_resistor_spec_query"]("0402 4.99Ω ±1% 1/16W 车规")
+            car_spec["特殊用途"] = "车规"
+            car_candidates = app["build_fojan_special_resistor_candidates_from_spec"](car_spec)
+            car_matches = app["apply_match_levels_and_sort"](car_candidates, car_spec)
+            self.assertTrue(car_matches.iloc[0]["型号"].startswith("FRQ0402F4R99"))
+            self.assertEqual(app["special_use_specificity_rank"]("车规", "车规"), 0)
+            self.assertGreater(app["special_use_specificity_rank"]("低阻/车规", "车规"), 0)
+
+            reversed_car_query = car_matches.iloc[:2].iloc[::-1].copy()
+            ordered_car_export = app["build_bom_export_candidate_frame"](
+                car_matches.iloc[:2].copy(),
+                query_df=reversed_car_query,
+                spec=car_spec,
+                mode="厚膜电阻",
+            )
+            self.assertEqual(
+                ordered_car_export.iloc[0]["型号"],
+                car_matches.iloc[0]["型号"],
+            )
             self.assertEqual(
                 app["normalize_fojan_frc_model_display"]("FRC0201F1003 TS", "FOJAN(富捷)"),
                 "FRC0201F1003TS",
@@ -2585,6 +2604,27 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["enrich_component_cost_columns"] = original_enrich_cost
         self.assertEqual(enriched_brands, ["华新科Walsin"])
+
+        original_cache_signature = app["get_query_cache_signature"]
+        try:
+            app["get_query_cache_signature"] = lambda: self.fail(
+                "BOM matching must not recalculate the interactive search cache signature"
+            )
+            direct_bom_result = app["evaluate_bom_candidate"](
+                None,
+                "0402 1K ±1% 1/16W",
+                "规格列",
+                0,
+                query_cache={},
+                export_settings={
+                    "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                    "brands": ["富捷"],
+                },
+            )
+        finally:
+            app["get_query_cache_signature"] = original_cache_signature
+        self.assertEqual(direct_bom_result["status"], "可推荐")
+        self.assertFalse(direct_bom_result["matched"].empty)
 
         original_bom_dataframe = app["bom_dataframe_from_upload"]
         seen_cache_ids = []

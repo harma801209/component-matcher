@@ -938,3 +938,10 @@
 - Root cause: the dot after the resistance unit was neither a supported field delimiter nor part of a valid resistance token. The line therefore failed resistor-context detection and missed the fast resistor index.
 - Fix: normalize only the unambiguous `value + R/K/M + dot + tolerance%` typo form, so `3R.5%` becomes `3R,5%` while legal values such as `3.3R` remain unchanged.
 - Regression: all six reported 1206 queries resolve through the fast index with the expected resistance and tolerance; `3R.5%` is verified as 3Ω ±5%.
+
+## 2026-07-28 - Large BOM matching still repeated per-row runtime I/O
+
+- Symptom: the 767-row resistor BOM still advanced at about 0.65 row/s on the formal page even after concurrency and checkpoint support were added.
+- Root cause: batch rows reused the result dictionary but still recalculated the interactive search cache signature, reloaded active cost and resistor pricing rules, and entered all-brand prefetch logic for FOJAN-only output. Export preparation could also replace the matcher order with query-frame order.
+- Fix: isolate BOM jobs from interactive cache-signature scans, snapshot cost/pricing data once per workbook, bypass all-brand prefetch for FOJAN-only scope, and preserve validated candidate ordering through export.
+- Regression: the complete isolated 767-row workbook finishes in 107.9 seconds at 7.11 row/s. Status counts remain 715 recommended, 10 confirmation-required, and 42 no-match. All 33 system regressions pass with protected runtime databases untouched.

@@ -3704,3 +3704,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Exact-model lookup now uses the indexed search sidecar first and avoids the full-table `REPLACE/UPPER` miss scan when that index is available. Local candidate loading no longer reads both the source database and sidecar for the same rows.
 - The reported file's first 25 rows improved from about 118 seconds to about 51 seconds with identical status counts. A 100-row replay completed all rows and produced checkpoints through row 100.
 - All 33 regression tests and the release safety gate passed with protected runtime databases unchanged.
+
+### 2026-07-28 [BOM performance] Reuse per-job data snapshots and preserve match ordering
+
+- Replayed the reported `1厚膜电阻对标报价.xlsx` with 767 rows. The formal screenshot processed 13 rows in 20 seconds (about 0.65 row/s), so the remaining old path would take roughly 19.7 minutes.
+- Root cause: every BOM row still recalculated the interactive search cache signature and repeatedly loaded active cost and resistor-series pricing data. FOJAN-only output also entered unnecessary all-brand prefetch paths, while export assembly could reorder already ranked candidates.
+- BOM matching now uses its own bounded per-job query cache without interactive signature scans, loads cost/pricing snapshots once per workbook, scopes FOJAN-only queries before database prefetch, reuses direct generated FOJAN candidates, and keeps the validated match order through export.
+- A full isolated 767-row replay completed in 107.9 seconds (7.11 rows/s), about 10.9 times the reported formal-page rate. Result distribution stayed at 715 recommended, 10 confirmation-required, and 42 no-match rows.
+- All 33 system regressions pass, including new checks for cache-signature isolation, automotive-series specificity, candidate-order preservation, and legacy tolerance-field compatibility. Query cache version is `106`; public code/release stamps are `2026-07-28T23:34:16+08:00`.
