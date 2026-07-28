@@ -38790,12 +38790,30 @@ def render_bom_upload_page():
                             },
                         )
                 else:
+                    output_selection_ready = bom_output_selection_ready(
+                        bom_export_mode,
+                        selected_export_brands,
+                    )
                     render_bom_progress_card(
                         progress_placeholder,
                         {
                             "title": "BOM 文件读取完成",
-                            "subtitle": f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据，等待确认输出品牌",
-                            "current_text": f"当前分页：{selected_sheet_name}",
+                            "subtitle": (
+                                f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据；"
+                                + (
+                                    "输出品牌已设置，等待点击开始匹配"
+                                    if output_selection_ready
+                                    else "等待选择输出品牌"
+                                )
+                            ),
+                            "current_text": (
+                                f"当前分页：{selected_sheet_name} · "
+                                + (
+                                    "点击开始匹配后执行"
+                                    if output_selection_ready
+                                    else "请选择输出品牌"
+                                )
+                            ),
                             "processed_rows": 0,
                             "total_rows": total_workbook_rows,
                             "percent": 0.0,
@@ -38918,9 +38936,7 @@ def render_bom_upload_page():
                         st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
 
                     if stored_bom_signature != current_bom_signature:
-                        if not start_bom_matching:
-                            st.info("输出品牌设置已就绪，点击上方开始按钮后才会执行匹配。")
-                        elif not ensure_component_data_ready("BOM 匹配"):
+                        if start_bom_matching and not ensure_component_data_ready("BOM 匹配"):
                             render_bom_progress_card(
                                 progress_placeholder,
                                 {
@@ -39115,8 +39131,6 @@ def render_bom_upload_page():
                                 ),
                                 scrolling=False,
                             )
-                    else:
-                        st.info("正在等待当前自动匹配结果生成。")
 
         except Exception as e:
             try:
