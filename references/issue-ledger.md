@@ -945,3 +945,10 @@
 - Root cause: batch rows reused the result dictionary but still recalculated the interactive search cache signature, reloaded active cost and resistor pricing rules, and entered all-brand prefetch logic for FOJAN-only output. Export preparation could also replace the matcher order with query-frame order.
 - Fix: isolate BOM jobs from interactive cache-signature scans, snapshot cost/pricing data once per workbook, bypass all-brand prefetch for FOJAN-only scope, and preserve validated candidate ordering through export.
 - Regression: the complete isolated 767-row workbook finishes in 107.9 seconds at 7.11 row/s. Status counts remain 715 recommended, 10 confirmation-required, and 42 no-match. All 33 system regressions pass with protected runtime databases untouched.
+
+## 2026-07-29 - Customer source brands suppressed FOJAN special resistor alternatives
+
+- Symptom: FOJAN special resistor series matched when the user entered only electrical specifications, but disappeared when the copied customer BOM line also contained another manufacturer's brand/model.
+- Root cause: the FOJAN rule generator treated the parsed source brand as a hard output-brand restriction even when the search mode was `自动匹配其他品牌`.
+- Fix: permit FOJAN generation whenever no explicit brand filter is active. Preserve strict exclusion when the user selects `指定品牌` and FOJAN is not selected.
+- Regression: a Yageo automotive-resistor line now returns `FRQ0402F4R99TS` first; an explicit Yageo-only search still excludes FOJAN. All 38 configured FOJAN special-series model builders produce valid models.

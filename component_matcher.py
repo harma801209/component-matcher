@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 106
+QUERY_RESULT_CACHE_VERSION = 107
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-28T23:34:16+08:00"
+PUBLIC_CODE_STAMP = "2026-07-29T00:09:24+08:00"
 
 
 def startup_trace(message):
@@ -30559,11 +30559,10 @@ def fojan_brand_requested_or_unset(spec):
     requested_aliases = requested_brand_aliases_from_spec(spec)
     if requested_aliases:
         return brand_alias_matches("FOJAN(富捷)", requested_aliases)
-    brand = clean_brand((spec or {}).get("品牌", ""))
-    if brand == "":
-        return True
-    brand_upper = brand.upper()
-    return "FOJAN" in brand_upper or "富捷" in brand
+    # In automatic mode, a brand parsed from the customer BOM is source
+    # metadata rather than an output restriction. Only an explicit brand
+    # filter may suppress generated FOJAN alternatives.
+    return True
 
 
 def build_fojan_alloy_models_from_spec(spec):

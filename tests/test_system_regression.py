@@ -1371,6 +1371,63 @@ class SystemRegressionTests(unittest.TestCase):
                 ordered_car_export.iloc[0]["型号"],
                 car_matches.iloc[0]["型号"],
             )
+
+            source_brand_query = (
+                "电阻-4.99R-±1%-1/16W-(-55~155℃)-车规-0402;"
+                "YAGEO;AC0402FR-074R99L"
+            )
+            source_brand_mode, source_brand_spec = app["detect_query_mode_and_spec"](
+                pd.DataFrame(),
+                source_brand_query,
+            )
+            source_brand_spec = app["merge_query_text_hints_into_spec"](
+                source_brand_spec,
+                source_brand_query,
+            )
+            self.assertEqual(source_brand_spec["品牌"], "国巨YAGEO")
+            self.assertTrue(app["fojan_brand_requested_or_unset"](source_brand_spec))
+            source_brand_fojan = app["build_fojan_special_resistor_candidates_from_spec"](
+                source_brand_spec
+            )
+            self.assertTrue(source_brand_fojan["型号"].str.startswith("FRQ0402F4R99").any())
+            source_brand_matches = app["run_query_match"](
+                source_brand_fojan,
+                source_brand_mode,
+                source_brand_spec,
+            )
+            self.assertTrue(source_brand_matches.iloc[0]["型号"].startswith("FRQ0402F4R99"))
+
+            yageo_only_spec = app["apply_search_brand_scope_to_spec"](
+                source_brand_spec,
+                source_brand_query,
+                brand_mode=app["SEARCH_BRAND_MODE_CUSTOM"],
+                selected_brands=["国巨YAGEO"],
+            )
+            self.assertFalse(app["fojan_brand_requested_or_unset"](yageo_only_spec))
+            self.assertTrue(
+                app["build_fojan_special_resistor_candidates_from_spec"](
+                    yageo_only_spec
+                ).empty
+            )
+
+            missing_special_series = []
+            for series_name, profile in app["FOJAN_SPECIAL_RESISTOR_CATALOG"].items():
+                size_name, size_rule = next(iter(profile["sizes"].items()))
+                minimum = float(size_rule.get("min_ohm", 0.0) or 0.0)
+                maximum = float(size_rule.get("max_ohm", 1000.0) or 1000.0)
+                resistance = min(max(1000.0, minimum), maximum)
+                tolerance = next(iter(profile.get("tolerances", ("1",))))
+                model = app["build_fojan_catalog_model"](
+                    series_name,
+                    profile,
+                    size_name,
+                    resistance,
+                    tolerance,
+                    suffix=next(iter(profile.get("suffixes", ("TS",)))),
+                )
+                if model == "":
+                    missing_special_series.append(series_name)
+            self.assertEqual(missing_special_series, [])
             self.assertEqual(
                 app["normalize_fojan_frc_model_display"]("FRC0201F1003 TS", "FOJAN(富捷)"),
                 "FRC0201F1003TS",

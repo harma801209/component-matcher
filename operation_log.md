@@ -3712,3 +3712,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - BOM matching now uses its own bounded per-job query cache without interactive signature scans, loads cost/pricing snapshots once per workbook, scopes FOJAN-only queries before database prefetch, reuses direct generated FOJAN candidates, and keeps the validated match order through export.
 - A full isolated 767-row replay completed in 107.9 seconds (7.11 rows/s), about 10.9 times the reported formal-page rate. Result distribution stayed at 715 recommended, 10 confirmation-required, and 42 no-match rows.
 - All 33 system regressions pass, including new checks for cache-signature isolation, automotive-series specificity, candidate-order preservation, and legacy tolerance-field compatibility. Query cache version is `106`; public code/release stamps are `2026-07-28T23:34:16+08:00`.
+
+### 2026-07-29 [FOJAN special resistors] Treat customer brands as source metadata
+
+- Reproduced the missing FOJAN alternatives with a customer-style query containing `YAGEO / AC0402FR-074R99L` plus `0402 / 4.99R / 1% / 1/16W / 车规`. The same specification without the source brand generated FOJAN correctly.
+- Root cause: `fojan_brand_requested_or_unset()` still treated any parsed brand as an output restriction, even in automatic cross-brand mode. That suppressed generated FOJAN special-series candidates whenever the pasted BOM retained another manufacturer's brand or model.
+- Automatic mode now always permits FOJAN alternative generation; only the explicit `指定品牌` filter can exclude FOJAN. A Yageo-only explicit filter still returns no FOJAN rows.
+- The reproduced query now ranks `FRQ0402F4R99TS` first, followed by other compatible FOJAN special series. Representative vehicle, anti-sulfur, high-voltage, high-power, surge, low-ohm, and alloy searches pass, and all 38 configured FOJAN special-series model builders return valid models.
+- Raised query cache version to `107` and public code/release stamps to `2026-07-29T00:09:24+08:00`. No protected runtime database or component data file was modified.
