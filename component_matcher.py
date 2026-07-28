@@ -28,6 +28,7 @@ import warnings
 import traceback
 import textwrap
 from copy import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 try:
@@ -29382,6 +29383,7 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
         and models
         and not is_public_mode()
         and not is_streamlit_cloud_runtime()
+        and not os.path.exists(SEARCH_DB_PATH)
     ):
         conn = sqlite3.connect(DB_PATH)
         try:
@@ -29615,20 +29617,32 @@ def load_component_rows_by_exact_models_from_database(models, prepare_rows=True)
     result_map = {clean_model(model): pd.DataFrame() for model in model_texts if clean_model(model) != ""}
     if not model_texts:
         return result_map
-    if is_public_mode() or is_streamlit_cloud_runtime() or not os.path.exists(DB_PATH):
+    sidecar_available = os.path.exists(SEARCH_DB_PATH)
+    if sidecar_available or is_public_mode() or is_streamlit_cloud_runtime() or not os.path.exists(DB_PATH):
         sidecar_result = load_component_rows_by_exact_models_from_search_sidecar(
             model_texts,
             prepare_rows=prepare_rows,
         )
         if sidecar_result:
-            return sidecar_result
+            for model_key, frame in sidecar_result.items():
+                if model_key in result_map and isinstance(frame, pd.DataFrame) and not frame.empty:
+                    result_map[model_key] = frame
+        if all(isinstance(frame, pd.DataFrame) and not frame.empty for frame in result_map.values()):
+            return result_map
         if not os.path.exists(DB_PATH):
             return result_map
+    remaining_texts = [
+        model
+        for model in model_texts
+        if result_map.get(clean_model(model), pd.DataFrame()).empty
+    ]
+    if not remaining_texts:
+        return result_map
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         frames = []
-        exact_values = list(dict.fromkeys(model_texts + [model.upper() for model in model_texts]))
+        exact_values = list(dict.fromkeys(remaining_texts + [model.upper() for model in remaining_texts]))
         for model_chunk in chunk_items(exact_values, 200):
             placeholders = ",".join(["?"] * len(model_chunk))
             frames.append(
@@ -29654,8 +29668,14 @@ def load_component_rows_by_exact_models_from_database(models, prepare_rows=True)
                         result_map[model_key] = hit
                         found_model_keys.add(model_key)
 
-        remaining_model_keys = [model_key for model_key in result_map if model_key not in found_model_keys]
-        if remaining_model_keys:
+        remaining_model_keys = [
+            model_key
+            for model_key, frame in result_map.items()
+            if model_key not in found_model_keys and (not isinstance(frame, pd.DataFrame) or frame.empty)
+        ]
+        # Normalized model keys are indexed in the search sidecar. Avoid a
+        # full-table REPLACE/UPPER scan for every batch miss.
+        if remaining_model_keys and not sidecar_available:
             normalized_frames = []
             for model_chunk in chunk_items(remaining_model_keys, 200):
                 placeholders = ",".join(["?"] * len(model_chunk))
@@ -37287,6 +37307,9 @@ def bom_dataframe_from_upload(
     progress_callback=None,
     export_settings=None,
     query_cache=None,
+    resume_rows=None,
+    checkpoint_callback=None,
+    max_workers=None,
 ):
     if upload_df is None or upload_df.empty:
         return pd.DataFrame()
@@ -37326,6 +37349,11 @@ def bom_dataframe_from_upload(
         else {}
     )
     total_rows = len(records)
+    completed_rows = {
+        int(row_index): dict(row_value)
+        for row_index, row_value in (resume_rows or {}).items()
+        if isinstance(row_value, dict) and 0 <= int(row_index) < total_rows
+    }
     rows = []
     exact_count = 0
     partial_count = 0
@@ -37384,34 +37412,9 @@ def bom_dataframe_from_upload(
             ],
         })
 
-    emit_progress(0, {"BOM行号": "", "解析输入": "准备开始 BOM 匹配"}, done=False)
-    for idx, record in enumerate(records):
-        row_started_at = time.perf_counter()
-        if BOM_MATCH_DEBUG:
-            bom_match_debug_log(
-                f"row_start={idx + 2}",
-                f"model={clean_text(record.get(column_mapping.get('model'), '')) if column_mapping.get('model') else ''}",
-                f"spec={clean_text(record.get(column_mapping.get('spec'), '')) if column_mapping.get('spec') else ''}",
-                f"name={clean_text(record.get(column_mapping.get('name'), '')) if column_mapping.get('name') else ''}",
-            )
-        result_row = build_bom_upload_result_row(
-            None,
-            idx,
-            record,
-            column_mapping,
-            query_cache=query_cache,
-            full_df_provider=full_df_provider,
-            export_settings=export_settings,
-            exact_part_prefetch_map=exact_part_prefetch_map,
-        )
-        if BOM_MATCH_DEBUG:
-            bom_match_debug_log(
-                f"row_done={idx + 2}",
-                f"elapsed={time.perf_counter() - row_started_at:.3f}s",
-                f"status={clean_text(result_row.get('状态', ''))}",
-            )
-        rows.append(result_row)
-
+    def update_status_counts(result_row):
+        nonlocal exact_count, partial_count, substitute_count
+        nonlocal matched_count, no_match_count, fail_count, skipped_count
         status_text = clean_text(result_row.get("状态", ""))
         level_text = clean_text(result_row.get("首选推荐等级", ""))
         if status_text == "可推荐":
@@ -37429,12 +37432,77 @@ def bom_dataframe_from_upload(
         else:
             fail_count += 1
 
-        now_ts = time.perf_counter()
-        processed_rows = idx + 1
-        if processed_rows == 1 or processed_rows == total_rows or (processed_rows - last_emit_index) >= emit_every or (now_ts - last_emit_ts) >= 0.2:
-            emit_progress(processed_rows, result_row=result_row, done=False)
-            last_emit_ts = now_ts
-            last_emit_index = processed_rows
+    for resumed_row in completed_rows.values():
+        update_status_counts(resumed_row)
+
+    thread_state = threading.local()
+
+    def process_record(idx, record):
+        row_started_at = time.perf_counter()
+        if BOM_MATCH_DEBUG:
+            bom_match_debug_log(
+                f"row_start={idx + 2}",
+                f"model={clean_text(record.get(column_mapping.get('model'), '')) if column_mapping.get('model') else ''}",
+                f"spec={clean_text(record.get(column_mapping.get('spec'), '')) if column_mapping.get('spec') else ''}",
+                f"name={clean_text(record.get(column_mapping.get('name'), '')) if column_mapping.get('name') else ''}",
+            )
+        worker_cache = query_cache if worker_count == 1 else getattr(thread_state, "query_cache", None)
+        if worker_cache is None:
+            worker_cache = {}
+            thread_state.query_cache = worker_cache
+        result_row = build_bom_upload_result_row(
+            None,
+            idx,
+            record,
+            column_mapping,
+            query_cache=worker_cache,
+            full_df_provider=full_df_provider,
+            export_settings=export_settings,
+            exact_part_prefetch_map=exact_part_prefetch_map,
+        )
+        if BOM_MATCH_DEBUG:
+            bom_match_debug_log(
+                f"row_done={idx + 2}",
+                f"elapsed={time.perf_counter() - row_started_at:.3f}s",
+                f"status={clean_text(result_row.get('状态', ''))}",
+            )
+        return idx, result_row
+
+    pending_items = [
+        (idx, record)
+        for idx, record in enumerate(records)
+        if idx not in completed_rows
+    ]
+    worker_count = max_workers
+    if worker_count is None:
+        worker_count = min(4, max(1, len(pending_items)))
+    worker_count = max(1, min(int(worker_count or 1), 4))
+    checkpoint_every = max(1, min(10, total_rows // 40 if total_rows >= 40 else 1))
+
+    emit_progress(
+        len(completed_rows),
+        {"BOM行号": "", "解析输入": "正在从断点继续 BOM 匹配" if completed_rows else "准备开始 BOM 匹配"},
+        done=False,
+    )
+    futures = {}
+    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="bom-match") as executor:
+        for idx, record in pending_items:
+            futures[executor.submit(process_record, idx, record)] = idx
+        for future in as_completed(futures):
+            idx, result_row = future.result()
+            completed_rows[idx] = result_row
+            update_status_counts(result_row)
+            processed_rows = len(completed_rows)
+            if checkpoint_callback is not None and (
+                processed_rows == total_rows or processed_rows % checkpoint_every == 0
+            ):
+                checkpoint_callback(dict(completed_rows))
+            now_ts = time.perf_counter()
+            if processed_rows == 1 or processed_rows == total_rows or (processed_rows - last_emit_index) >= emit_every or (now_ts - last_emit_ts) >= 0.2:
+                emit_progress(processed_rows, result_row=result_row, done=False)
+                last_emit_ts = now_ts
+                last_emit_index = processed_rows
+    rows = [completed_rows[idx] for idx in range(total_rows) if idx in completed_rows]
     result_df = pd.DataFrame(rows)
     emit_progress(total_rows, result_row=rows[-1] if rows else {"BOM行号": "", "解析输入": "BOM 匹配已完成"}, done=True)
     return move_reference_model_columns_after_rank(result_df)
@@ -37685,6 +37753,8 @@ def build_bom_workbook_sheet_results(
     sheet_mappings=None,
     progress_callback=None,
     export_settings=None,
+    resume_sheet_rows=None,
+    checkpoint_callback=None,
 ):
     sheet_frames = list((bom_workbook or {}).get("sheet_frames", []) or [])
     if not sheet_frames:
@@ -37695,6 +37765,7 @@ def build_bom_workbook_sheet_results(
     processed_rows = 0
     sheet_results = []
     shared_query_cache = {}
+    resume_sheet_rows = resume_sheet_rows if isinstance(resume_sheet_rows, dict) else {}
     start_ts = time.perf_counter()
 
     def emit_workbook_progress(state, sheet_name="", sheet_index=0, sheet_count=0, sheet_offset=0):
@@ -37734,6 +37805,11 @@ def build_bom_workbook_sheet_results(
         def sheet_progress(progress_state, _sheet_name=sheet_name, _sheet_index=sheet_index, _sheet_count=len(sheet_frames), _sheet_offset=sheet_offset):
             emit_workbook_progress(progress_state, sheet_name=_sheet_name, sheet_index=_sheet_index, sheet_count=_sheet_count, sheet_offset=_sheet_offset)
 
+        def sheet_checkpoint(rows, _sheet_name=sheet_name):
+            resume_sheet_rows[_sheet_name] = rows
+            if checkpoint_callback is not None:
+                checkpoint_callback(dict(resume_sheet_rows))
+
         result_df = bom_dataframe_from_upload(
             None,
             sheet_df,
@@ -37741,6 +37817,8 @@ def build_bom_workbook_sheet_results(
             progress_callback=sheet_progress if progress_callback is not None else None,
             export_settings=export_settings,
             query_cache=shared_query_cache,
+            resume_rows=resume_sheet_rows.get(sheet_name, {}),
+            checkpoint_callback=sheet_checkpoint,
         )
         sheet_results.append({
             "sheet_name": sheet_name,
@@ -38812,12 +38890,18 @@ def render_bom_upload_page():
                         export_settings=bom_export_settings,
                     )
                     stored_bom_signature = st.session_state.get("_bom_result_signature", "")
+                    pending_checkpoint = st.session_state.get("_bom_match_checkpoint", {})
+                    checkpoint_available = (
+                        isinstance(pending_checkpoint, dict)
+                        and clean_text(pending_checkpoint.get("signature", "")) == current_bom_signature
+                        and bool(pending_checkpoint.get("sheet_rows", {}))
+                    )
                     start_bom_matching = should_start_bom_matching(
                         stored_bom_signature,
                         current_bom_signature,
                         bom_export_mode,
                         start_clicked=match_start_clicked,
-                    )
+                    ) or checkpoint_available
                     force_requested_rerun = (
                         bool(match_start_clicked)
                         and stored_bom_signature == current_bom_signature
@@ -38827,6 +38911,8 @@ def render_bom_upload_page():
                         st.session_state.pop("_bom_result_df", None)
                         st.session_state.pop("_bom_export_bytes", None)
                         st.session_state.pop("_bom_sheet_results", None)
+                        if force_requested_rerun:
+                            st.session_state.pop("_bom_match_checkpoint", None)
                         stored_bom_signature = ""
 
                     if len(parse_columns) != len(set(parse_columns)):
@@ -38861,6 +38947,23 @@ def render_bom_upload_page():
                                 progress_state_holder["state"] = progress_state or {}
                                 render_bom_progress_card(progress_placeholder, progress_state_holder["state"])
 
+                            checkpoint_state = st.session_state.get("_bom_match_checkpoint", {})
+                            if (
+                                not isinstance(checkpoint_state, dict)
+                                or clean_text(checkpoint_state.get("signature", "")) != current_bom_signature
+                            ):
+                                checkpoint_state = {
+                                    "signature": current_bom_signature,
+                                    "sheet_rows": {},
+                                }
+                                st.session_state["_bom_match_checkpoint"] = checkpoint_state
+
+                            def save_bom_checkpoint(sheet_rows):
+                                st.session_state["_bom_match_checkpoint"] = {
+                                    "signature": current_bom_signature,
+                                    "sheet_rows": sheet_rows,
+                                }
+
                             update_bom_progress({
                                 "title": "BOM 正在匹配",
                                 "subtitle": f"正在解析上传文件并匹配元器件库（分页 {selected_sheet_name}）",
@@ -38881,6 +38984,8 @@ def render_bom_upload_page():
                                 sheet_mapping_store,
                                 progress_callback=update_bom_progress,
                                 export_settings=bom_export_settings,
+                                resume_sheet_rows=checkpoint_state.get("sheet_rows", {}),
+                                checkpoint_callback=save_bom_checkpoint,
                             )
                             sheet_result_map = {item["sheet_name"]: item.get("result_df", pd.DataFrame()) for item in sheet_results}
 
@@ -38913,6 +39018,7 @@ def render_bom_upload_page():
                                 source_workbook=bom_workbook,
                                 sheet_results=sheet_results,
                             )
+                            st.session_state.pop("_bom_match_checkpoint", None)
                             component_distribution_text = build_bom_component_distribution_text(
                                 current_bom_result_df
                             )

@@ -3695,3 +3695,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added a narrow normalization rule for `3R.5%`-style input without changing valid decimal resistance forms such as `3.3R`.
 - Added regression coverage for all six reported 1206 specifications, including parsed resistance/tolerance and fast-index resolution.
 - Focused resistor regression passes with isolated member, cost-list, and no-match database paths.
+
+### 2026-07-28 [BOM performance] Make large matching jobs resumable and remove unindexed prefetch scans
+
+- Reproduced the reported problem with `1厚膜电阻对标报价.xlsx`: 767 active BOM rows, while worksheet formatting extended far beyond the actual data.
+- Root cause: batch matching ran synchronously and saved only the final result. A Streamlit rerun discarded all unfinished work. Exact-model misses also triggered an unindexed normalized-model scan over the full component table.
+- Added four-worker bounded matching, ordered result assembly, and checkpoints every small batch. A rerun with the same upload/mapping/output settings now resumes completed row indexes.
+- Exact-model lookup now uses the indexed search sidecar first and avoids the full-table `REPLACE/UPPER` miss scan when that index is available. Local candidate loading no longer reads both the source database and sidecar for the same rows.
+- The reported file's first 25 rows improved from about 118 seconds to about 51 seconds with identical status counts. A 100-row replay completed all rows and produced checkpoints through row 100.
+- All 33 regression tests and the release safety gate passed with protected runtime databases unchanged.

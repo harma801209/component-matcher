@@ -2613,6 +2613,59 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(len(seen_cache_ids), 2)
         self.assertEqual(seen_cache_ids[0], seen_cache_ids[1])
 
+    def test_06d_large_bom_matching_is_bounded_ordered_and_resumable(self):
+        app = self.app
+        original_builder = app["build_bom_upload_result_row"]
+        active = 0
+        max_active = 0
+        calls = []
+        state_lock = threading.Lock()
+
+        def fake_builder(_df, row_index, record, _mapping, **_kwargs):
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+                calls.append(row_index)
+            time.sleep(0.01)
+            with state_lock:
+                active -= 1
+            return {
+                "BOM行号": row_index + 2,
+                "BOM型号": record["型号"],
+                "状态": "可推荐",
+                "首选推荐等级": "完全匹配",
+            }
+
+        checkpoints = []
+        source = pd.DataFrame([{"型号": f"P{index:03d}"} for index in range(30)])
+        try:
+            app["build_bom_upload_result_row"] = fake_builder
+            result = app["bom_dataframe_from_upload"](
+                None,
+                source,
+                {"model": "型号", "spec": None, "name": None, "quantity": None},
+                checkpoint_callback=lambda rows: checkpoints.append(rows),
+                max_workers=4,
+            )
+            self.assertLessEqual(max_active, 4)
+            self.assertEqual(result["BOM型号"].tolist(), source["型号"].tolist())
+            self.assertTrue(checkpoints)
+            self.assertEqual(len(checkpoints[-1]), len(source))
+
+            calls.clear()
+            resumed = app["bom_dataframe_from_upload"](
+                None,
+                source,
+                {"model": "型号", "spec": None, "name": None, "quantity": None},
+                resume_rows=checkpoints[-1],
+                max_workers=4,
+            )
+            self.assertEqual(calls, [])
+            self.assertEqual(resumed["BOM型号"].tolist(), source["型号"].tolist())
+        finally:
+            app["build_bom_upload_result_row"] = original_builder
+
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
         app = self.app
         snapshot = {"version": 0, "sha256": "", "payload_base64": "", "updated_at": ""}
