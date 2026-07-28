@@ -931,3 +931,10 @@
 - Root cause: the member and BOM controls kept fixed offsets for the administrator layout even when the backend entry was hidden.
 - Fix: assign compact first and second navigation slots whenever the active account is not an administrator. Administrator accounts retain the three-control layout.
 - Regression: focused role-layout tests and desktop/mobile browser checks verify `18px/68px` and `12px/54px` ordinary-user offsets while administrator controls keep their original classes.
+
+## 2026-07-28 - Dot-separated resistor tolerance bypassed the fast index
+
+- Symptom: a batch containing `1206,3R.5%` displayed `当前环境未加载整库回退数据` while the surrounding resistor specifications continued matching.
+- Root cause: the dot after the resistance unit was neither a supported field delimiter nor part of a valid resistance token. The line therefore failed resistor-context detection and missed the fast resistor index.
+- Fix: normalize only the unambiguous `value + R/K/M + dot + tolerance%` typo form, so `3R.5%` becomes `3R,5%` while legal values such as `3.3R` remain unchanged.
+- Regression: all six reported 1206 queries resolve through the fast index with the expected resistance and tolerance; `3R.5%` is verified as 3Ω ±5%.

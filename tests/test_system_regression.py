@@ -990,6 +990,35 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(detected["器件类型"], "贴片电阻", query)
             self.assertIsNone(detected.get("容值_pf"), query)
 
+        compact_1206_specs = [
+            ("1206,3R,1%", 3.0, "1"),
+            ("1206,3R.5%", 3.0, "5"),
+            ("1206,3.3R,1%", 3.3, "1"),
+            ("1206,3.3R,5%", 3.3, "5"),
+            ("1206,4R,  1%", 4.0, "1"),
+            ("1206,4R,  5%", 4.0, "5"),
+        ]
+        for query, expected_ohm, expected_tol in compact_1206_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["尺寸（inch）"], "1206", query)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), expected_tol, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            resolved = app["resolve_search_query_dataframe_and_spec"](query)
+            self.assertNotEqual(resolved["resolution_path"], "full_dataframe", query)
+            self.assertFalse(resolved["query_df"].empty, query)
+
+        self.assertEqual(
+            app["normalize_resistor_value_tolerance_separator"]("1206,3R.5%"),
+            "1206,3R,5%",
+        )
+        self.assertEqual(
+            app["normalize_resistor_value_tolerance_separator"]("1206,3.3R,1%"),
+            "1206,3.3R,1%",
+        )
+
         for query in ["2010 100K士1%", "2010 100K土1%", "2010 100K士1％", "2010 100K±1%"]:
             parsed = app["parse_resistor_spec_query"](query)
             self.assertIsNotNone(parsed, query)

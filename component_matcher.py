@@ -16230,8 +16230,22 @@ def normalize_common_tolerance_symbol_typos(text):
     return re.sub(r"(?<![\u4e00-\u9fff])[士土]\s*(?=\d+(?:\.\d+)?\s*%)", "±", value)
 
 
+def normalize_resistor_value_tolerance_separator(text):
+    value = clean_text(text)
+    if value == "":
+        return ""
+    return re.sub(
+        r"(?<![A-Z0-9.])(\d+(?:\.\d+)?[RKM])\s*\.\s*(\d+(?:\.\d+)?)\s*%",
+        r"\1,\2%",
+        value,
+        flags=re.I,
+    )
+
+
 def find_resistance_in_text(text):
-    raw = normalize_common_tolerance_symbol_typos(text).replace("±", "+/-").replace("卤", "+/-")
+    raw = normalize_resistor_value_tolerance_separator(
+        normalize_common_tolerance_symbol_typos(text)
+    ).replace("±", "+/-").replace("卤", "+/-")
     explicit_ohm = find_explicit_resistance_in_text(raw)
     if explicit_ohm is not None:
         return explicit_ohm
@@ -16841,7 +16855,9 @@ def find_disc_size_code(text):
     return f"{match.group(1)}D"
 
 def find_tolerance_in_text(text):
-    upper = normalize_common_tolerance_symbol_typos(text).upper()
+    upper = normalize_resistor_value_tolerance_separator(
+        normalize_common_tolerance_symbol_typos(text)
+    ).upper()
     upper = upper.replace("±", "+/-").replace("卤", "+/-")
     if upper == "":
         return ""
@@ -17928,7 +17944,9 @@ def looks_like_resistor_context(text):
         return False
     if hint in RESISTOR_COMPONENT_TYPES:
         return True
-    normalized_text = normalize_common_tolerance_symbol_typos(text)
+    normalized_text = normalize_resistor_value_tolerance_separator(
+        normalize_common_tolerance_symbol_typos(text)
+    )
     upper = normalized_text.upper().replace("±", "+/-").replace("卤", "+/-")
     compact = normalize_component_keyword_compact(normalized_text).replace("±", "+/-").replace("卤", "+/-")
     if any(token in upper for token in ["电阻", "RESISTOR", "OHM", "Ω"]) or upper.startswith("RES"):
@@ -18053,12 +18071,13 @@ def parse_inductor_spec_query(line):
 
 def parse_resistor_spec_query(line):
     raw = clean_text(line)
-    if raw == "" or not looks_like_resistor_context(raw):
+    normalized_raw = normalize_resistor_value_tolerance_separator(raw)
+    if raw == "" or not looks_like_resistor_context(normalized_raw):
         return None
-    if detect_unsupported_semiconductor_type(raw) != "":
+    if detect_unsupported_semiconductor_type(normalized_raw) != "":
         return None
 
-    normalized = raw.upper()
+    normalized = normalized_raw.upper()
     normalized = normalized.replace("μF", "UF").replace("µF", "UF")
     normalized = normalized.replace("％", "%").replace("﹪", "%")
     normalized = normalized.replace("＋", "+").replace("﹢", "+")
@@ -18070,12 +18089,12 @@ def parse_resistor_spec_query(line):
     normalized = normalized.replace("PLUSMINUS", "+/-")
     tokens = [token.strip().upper() for token in normalized.split(" ") if token.strip()]
 
-    component_type_hint = detect_resistor_subtype_hint(raw)
+    component_type_hint = detect_resistor_subtype_hint(normalized_raw)
     component_type = component_type_hint or "贴片电阻"
     if component_type in SPECIAL_RESISTOR_COMPONENT_TYPES:
         return None
     invalid_size_token = find_invalid_leading_zero_size_token(tokens, component_type)
-    size = find_embedded_size(raw)
+    size = find_embedded_size(normalized_raw)
     if size == "":
         array_size_match = re.search(
             r"(?<![A-Z0-9])(022R|024R|042R|044R|062R|064R)(?![A-Z0-9])",
@@ -18083,8 +18102,8 @@ def parse_resistor_spec_query(line):
         )
         if array_size_match is not None:
             size = array_size_match.group(1)
-    tol = find_tolerance_in_text(raw)
-    resistance_source = raw
+    tol = find_tolerance_in_text(normalized_raw)
+    resistance_source = normalized_raw
     if size in {"022R", "024R", "042R", "044R", "062R", "064R"}:
         resistance_source = re.sub(
             rf"(?<![A-Z0-9]){re.escape(size)}(?![A-Z0-9])",
@@ -18095,10 +18114,10 @@ def parse_resistor_spec_query(line):
     resistance_ohm = find_resistance_in_text(resistance_source)
     if resistance_ohm is None:
         resistance_ohm = find_leading_unlabeled_resistance_in_resistor_text(resistance_source)
-    power = find_power_in_text(raw)
+    power = find_power_in_text(normalized_raw)
     if component_type_hint == "" and resistance_ohm is not None:
         compact_raw = clean_model(raw)
-        low_ohm_notation = MILLIOHM_NOTATION_PATTERN.search(raw.replace("Ω", "Ω").replace("ω", "Ω")) is not None
+        low_ohm_notation = MILLIOHM_NOTATION_PATTERN.search(normalized_raw.replace("Ω", "Ω").replace("ω", "Ω")) is not None
         if "HOLRS" in compact_raw or "LRS" in compact_raw or (resistance_ohm < 0.01 and low_ohm_notation):
             component_type = "合金电阻"
     if size == "":

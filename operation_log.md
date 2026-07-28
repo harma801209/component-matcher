@@ -3688,3 +3688,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Removed the empty administrator slot from logged-out and ordinary-member layouts. `会员登录/会员中心` now occupies the first right-side slot and `BOM批量匹配` the second.
 - Administrator accounts retain `进入后台`, member center, and BOM in their original three-slot order.
 - Desktop and mobile browser checks confirm top offsets of `18px/68px` and `12px/54px`. The 32-test release safety gate passed with protected runtime-data fingerprints unchanged.
+
+### 2026-07-28 [Resistor search] Accept dot-separated tolerance after an R/K/M value
+
+- Confirmed that `1206,3R.5%` was the only reported line that failed resistor-context detection; the dot between `3R` and `5%` caused the fast index to miss and exposed the unavailable-full-library warning.
+- Added a narrow normalization rule for `3R.5%`-style input without changing valid decimal resistance forms such as `3.3R`.
+- Added regression coverage for all six reported 1206 specifications, including parsed resistance/tolerance and fast-index resolution.
+- Focused resistor regression passes with isolated member, cost-list, and no-match database paths.
