@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 110
+QUERY_RESULT_CACHE_VERSION = 111
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-30T21:31:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-30T23:47:00+08:00"
 
 
 def startup_trace(message):
@@ -6118,6 +6118,8 @@ MODEL_REVERSE_LOOKUP_COLUMNS = [
     "输出频率", "频率", "频率单位", "频差（ppm）", "电源电压", "输出类型", "占空比", "负载电容（pF）", "ESR", "驱动电平",
     "型号粒度", "频率温度特性（ppm）", "25℃老化（ppm）", "拐点温度", "抛物线系数（ppm/℃²）", "泛音阶次", "AEC等级",
     "接口类型", "计时电压（V）", "备用电流（µA）", "月偏差（s）", "官方规格编号",
+    "长期稳定度", "相位噪声", "相位抖动", "消耗电流", "启动时间", "启动功耗",
+    "使能/待机功能", "频率控制范围", "控制电压", "终端/脚位", "资料完整度", "缺失关键参数",
     "_model_rule_authority",
 ]
 MODEL_REVERSE_LOOKUP_CACHE = {}
@@ -19122,6 +19124,9 @@ def get_component_display_schema(spec_or_type):
             ("泛音阶次", "泛音阶次"),
             ("AEC等级", "AEC等级"),
             ("官方规格编号", "官方规格编号"),
+            ("终端/脚位", "终端/脚位"),
+            ("资料完整度", "资料完整度"),
+            ("缺失关键参数", "缺失关键参数"),
             ("封装数量", "封装数量"),
             ("安装方式", "安装方式"),
             ("生产状态", "生产状态"),
@@ -19150,8 +19155,18 @@ def get_component_display_schema(spec_or_type):
             ("占空比", "占空比"),
             ("长期稳定度", "长期稳定度"),
             ("相位噪声", "相位噪声"),
+            ("相位抖动", "相位抖动"),
+            ("消耗电流", "消耗电流"),
+            ("启动时间", "启动时间"),
+            ("启动功耗", "启动功耗"),
+            ("使能/待机功能", "使能/待机功能"),
+            ("频率控制范围", "频率控制范围"),
+            ("控制电压", "控制电压"),
+            ("终端/脚位", "终端/脚位"),
             ("AEC等级", "AEC等级"),
             ("官方规格编号", "官方规格编号"),
+            ("资料完整度", "资料完整度"),
+            ("缺失关键参数", "缺失关键参数"),
             ("封装数量", "封装数量"),
             ("安装方式", "安装方式"),
             ("生产状态", "生产状态"),
@@ -19970,7 +19985,9 @@ def ensure_component_display_columns(df):
         "负载电容选项", "储存温度", "频率温度特性（ppm）", "泛音阶次", "AEC等级",
         "25℃老化（ppm）", "拐点温度", "抛物线系数（ppm/℃²）",
         "接口类型", "计时电压（V）", "备用电流（µA）", "月偏差（s）",
-        "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
+        "封装数量", "官方规格编号", "长期稳定度", "相位噪声", "相位抖动",
+        "消耗电流", "启动时间", "启动功耗", "使能/待机功能",
+        "频率控制范围", "控制电压", "终端/脚位", "资料完整度", "缺失关键参数",
     ]:
         if col not in out.columns:
             out[col] = blank_series()
@@ -20411,6 +20428,16 @@ def build_component_column_config(columns, spec_or_type=None):
         "官方规格编号": "medium",
         "长期稳定度": "medium",
         "相位噪声": "medium",
+        "相位抖动": "medium",
+        "消耗电流": "medium",
+        "启动时间": "medium",
+        "启动功耗": "medium",
+        "使能/待机功能": "medium",
+        "频率控制范围": "medium",
+        "控制电压": "medium",
+        "终端/脚位": "medium",
+        "资料完整度": "medium",
+        "缺失关键参数": "large",
         "尺寸来源": "medium",
         "备注1": "medium",
         "备注2": "medium",
@@ -26292,7 +26319,9 @@ LIBRARY_COMMON_COLUMNS = [
     "负载电容选项", "储存温度", "频率温度特性（ppm）", "25℃老化（ppm）",
     "拐点温度", "抛物线系数（ppm/℃²）", "泛音阶次", "AEC等级",
     "接口类型", "计时电压（V）", "备用电流（µA）", "月偏差（s）",
-    "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
+    "封装数量", "官方规格编号", "长期稳定度", "相位噪声", "相位抖动",
+    "消耗电流", "启动时间", "启动功耗", "使能/待机功能",
+    "频率控制范围", "控制电压", "终端/脚位", "资料完整度", "缺失关键参数",
 ]
 
 
@@ -27271,7 +27300,9 @@ def get_search_sidecar_table_specs():
                 "负载电容选项", "储存温度", "频率温度特性（ppm）", "25℃老化（ppm）",
                 "拐点温度", "抛物线系数（ppm/℃²）", "泛音阶次", "AEC等级",
                 "接口类型", "计时电压（V）", "备用电流（µA）", "月偏差（s）",
-                "封装数量", "官方规格编号", "长期稳定度", "相位噪声",
+                "封装数量", "官方规格编号", "长期稳定度", "相位噪声", "相位抖动",
+                "消耗电流", "启动时间", "启动功耗", "使能/待机功能",
+                "频率控制范围", "控制电压", "终端/脚位", "资料完整度", "缺失关键参数",
             ],
             "numeric": ["_value_num", "_volt_num", "频率下限", "频率上限"],
             "indexes": [
@@ -29697,6 +29728,16 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         "官方规格编号": clean_text(detail_row.get("官方规格编号", "")),
         "长期稳定度": clean_text(detail_row.get("长期稳定度", "")),
         "相位噪声": clean_text(detail_row.get("相位噪声", "")),
+        "相位抖动": clean_text(detail_row.get("相位抖动", "")),
+        "消耗电流": clean_text(detail_row.get("消耗电流", "")),
+        "启动时间": clean_text(detail_row.get("启动时间", "")),
+        "启动功耗": clean_text(detail_row.get("启动功耗", "")),
+        "使能/待机功能": clean_text(detail_row.get("使能/待机功能", "")),
+        "频率控制范围": clean_text(detail_row.get("频率控制范围", "")),
+        "控制电压": clean_text(detail_row.get("控制电压", "")),
+        "终端/脚位": clean_text(detail_row.get("终端/脚位", "")),
+        "资料完整度": clean_text(detail_row.get("资料完整度", "")),
+        "缺失关键参数": clean_text(detail_row.get("缺失关键参数", "")),
         "容值_pf": None,
         "_resistance_ohm": None,
         "_model_rule_authority": "search_sidecar_light",
@@ -32602,6 +32643,15 @@ def reverse_spec(df, model, cache_signature=None):
             "长期稳定度": clean_text(row.get("长期稳定度", "")),
             "相位噪声": clean_text(row.get("相位噪声", "")),
             "相位抖动": clean_text(row.get("相位抖动", "")),
+            "消耗电流": clean_text(row.get("消耗电流", "")),
+            "启动时间": clean_text(row.get("启动时间", "")),
+            "启动功耗": clean_text(row.get("启动功耗", "")),
+            "使能/待机功能": clean_text(row.get("使能/待机功能", "")),
+            "频率控制范围": clean_text(row.get("频率控制范围", "")),
+            "控制电压": clean_text(row.get("控制电压", "")),
+            "终端/脚位": clean_text(row.get("终端/脚位", "")),
+            "资料完整度": clean_text(row.get("资料完整度", "")),
+            "缺失关键参数": clean_text(row.get("缺失关键参数", "")),
         }
         if parsed_rule is not None and parsed_rule_matches_record_family(component_type, parsed_rule):
             row_is_jianghai = (
@@ -32792,6 +32842,8 @@ def format_display_df(show_df):
         "负载电容（pF）","驱动电平","输出类型","占空比",
         "频率温度特性（ppm）","25℃老化（ppm）","拐点温度","抛物线系数（ppm/℃²）","泛音阶次",
         "接口类型","计时电压（V）","备用电流（µA）","月偏差（s）",
+        "消耗电流","启动时间","启动功耗","使能/待机功能","频率控制范围","控制电压",
+        "终端/脚位","长期稳定度","相位噪声","相位抖动","资料完整度","缺失关键参数",
     ]:
         if col in show_df.columns:
             show_df[col] = show_df[col].astype(str).replace("nan", "").replace("None", "")

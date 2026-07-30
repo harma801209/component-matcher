@@ -976,3 +976,11 @@
 - Root cause: the timing parser had no brand-specific conservative series layer. The official synchronizer also did not ingest TKD and Huilun product families. KDS duplicate product-table rows retained only the first frequency segment.
 - Fix: add official TKD/Huilun series ingestion, brand aliases and conservative series/package decoders for all five brands. Never infer frequency, load capacitance, tolerance, temperature, ESR or output configuration from a series token alone. Merge KDS frequency segments by minimum lower and maximum upper bounds.
 - Verification: the library now has NDK 4,013, KDS 149, TXC 105, TKD 101 and Huilun 38 records. Representative `DSX321G`, `SX-3225`, `9C` and `7M` ranges resolve correctly, and 46 focused regressions pass.
+
+## 2026-07-30 - Official timing rows still omitted detailed parameters and KDS exact parts
+
+- Symptom: many NDK/KDS searches returned a recognized series but left important oscillator/crystal parameters blank, so the system could not distinguish a well-specified exact replacement from a broad series candidate.
+- Root cause: the NDK API synchronization read the wrong tolerance field for oscillators and ignored several published detail fields. The KDS synchronization merged product tables only to series ranges even where an official `Part No.` was present.
+- Fix: map the official NDK overall tolerance and detailed timing fields, import KDS `Part No.` rows as official exact models, reject placeholder part numbers, and expose row-level completeness and missing-parameter notes.
+- Accuracy boundary: only explicit official part numbers become orderable rows. Series names remain `官方系列范围`; no model number is synthesized from a naming rule. Completeness notes do not turn incomplete records into complete matches.
+- Verification: the source contains NDK 4,013 rows and KDS 206 rows (149 series plus 57 exact part numbers). Exact sidecar lookup succeeds for representative KDS and NDK models; 49 timing tests and the release safety gate pass with protected runtime data unchanged.

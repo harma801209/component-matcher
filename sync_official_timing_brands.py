@@ -214,12 +214,25 @@ STANDARD_COLUMNS = [
     "负载电容选项",
     "储存温度",
     "频率温度特性（ppm）",
+    "25℃老化（ppm）",
+    "拐点温度",
+    "抛物线系数（ppm/℃²）",
     "泛音阶次",
     "AEC等级",
     "封装数量",
     "官方规格编号",
     "长期稳定度",
     "相位噪声",
+    "相位抖动",
+    "消耗电流",
+    "启动时间",
+    "启动功耗",
+    "使能/待机功能",
+    "频率控制范围",
+    "控制电压",
+    "终端/脚位",
+    "资料完整度",
+    "缺失关键参数",
 ]
 
 
@@ -396,6 +409,62 @@ def timing_summary(row: dict[str, Any]) -> str:
     return "；".join(part for part in parts if part)
 
 
+def row_has_any(row: dict[str, Any], *columns: str) -> bool:
+    return any(clean_text(row.get(column)) != "" for column in columns)
+
+
+def timing_parameter_completeness(row: dict[str, Any]) -> tuple[str, str]:
+    component_type = clean_text(row.get("器件类型"))
+    if component_type not in {"晶振", "振荡器"}:
+        return "", ""
+
+    checks: list[tuple[str, tuple[str, ...]]] = [
+        ("尺寸", ("尺寸（inch）", "尺寸（mm）", "封装代码")),
+        (
+            "频率",
+            ("频率", "输出频率", "频率下限", "频率上限", "频率选项"),
+        ),
+        ("频差", ("频差（ppm）", "容值误差", "频差选项")),
+        ("工作温度", ("工作温度",)),
+    ]
+    if component_type == "晶振":
+        checks.extend(
+            [
+                ("负载电容", ("负载电容（pF）", "负载电容选项")),
+                ("ESR", ("ESR",)),
+                ("驱动电平", ("驱动电平",)),
+                ("频率温度特性", ("频率温度特性（ppm）",)),
+                ("老化/长期稳定度", ("25℃老化（ppm）", "长期稳定度")),
+                ("泛音阶次", ("泛音阶次",)),
+            ]
+        )
+        unit = clean_text(row.get("频率单位")).upper()
+        frequency = clean_text(row.get("频率") or row.get("容值"))
+        if unit == "KHZ" and frequency == "32.768":
+            checks.extend(
+                [
+                    ("拐点温度", ("拐点温度",)),
+                    ("抛物线系数", ("抛物线系数（ppm/℃²）",)),
+                ]
+            )
+    else:
+        checks.extend(
+            [
+                ("电源电压", ("电源电压", "耐压（V）", "电压选项")),
+                ("输出类型", ("输出类型",)),
+                ("消耗电流", ("消耗电流",)),
+                ("启动时间", ("启动时间",)),
+                ("使能/待机功能", ("使能/待机功能",)),
+                ("老化/长期稳定度", ("25℃老化（ppm）", "长期稳定度")),
+            ]
+        )
+
+    missing = [label for label, columns in checks if not row_has_any(row, *columns)]
+    completed = len(checks) - len(missing)
+    percent = int(round(completed * 100 / len(checks))) if checks else 0
+    return f"{percent}%（{completed}/{len(checks)}）", "、".join(missing)
+
+
 def finalize_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
     frame = pd.DataFrame(rows)
     for column in STANDARD_COLUMNS:
@@ -410,6 +479,12 @@ def finalize_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
             lambda row: timing_summary(row.to_dict()),
             axis=1,
         )
+    for index, source_row in frame.iterrows():
+        completeness, missing = timing_parameter_completeness(source_row.to_dict())
+        if clean_text(frame.at[index, "资料完整度"]) == "":
+            frame.at[index, "资料完整度"] = completeness
+        if clean_text(frame.at[index, "缺失关键参数"]) == "":
+            frame.at[index, "缺失关键参数"] = missing
     frame["_key"] = (
         frame["品牌"].astype(str).str.strip()
         + "\0"
@@ -800,7 +875,8 @@ def build_ndk_rows(session: requests.Session, checked_at: str) -> list[dict[str,
             tolerance_source = (
                 source_row.get("Frequency tolerance")
                 if component_type == "晶振"
-                else source_row.get("Frequency temperature characteristics Max.")
+                else source_row.get("Overall frequency tolerance Max.")
+                or source_row.get("Frequency temperature characteristics Max.")
                 or source_row.get("Frequency tolerance Max.")
                 or source_row.get("Frequency tolerance")
             )
@@ -823,6 +899,16 @@ def build_ndk_rows(session: requests.Session, checked_at: str) -> list[dict[str,
             )
             aec = clean_text(source_row.get("AEC"))
             features = clean_text(source_row.get("Features"))
+            phase_noise_parts = []
+            for key, value in source_row.items():
+                key_text = clean_text(key)
+                value_text = clean_text(value)
+                match = re.fullmatch(r"\[Phase noise Typ\.,(.+)]", key_text)
+                if match and value_text:
+                    phase_noise_parts.append(f"{match.group(1)}: {value_text}dBc/Hz")
+            phase_noise = "；".join(phase_noise_parts) or clean_text(
+                source_row.get("Phase noise Typ.")
+            )
             row = base_row(
                 品牌="NDK",
                 型号=model,
@@ -885,13 +971,34 @@ def build_ndk_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                         source_row.get("Frequency temperature characteristics")
                         or source_row.get("Frequency temperature characteristics Max.")
                     ),
+                    "拐点温度": clean_text(source_row.get("Turnover temperature")),
+                    "抛物线系数（ppm/℃²）": clean_text(
+                        source_row.get("Parabolic coefficient")
+                    ),
                     "泛音阶次": clean_text(source_row.get("Overtone order")),
                     "AEC等级": aec,
                     "官方规格编号": spec_number,
                     "长期稳定度": clean_text(
                         source_row.get("Long-term frequency stability Max.")
                     ),
-                    "相位噪声": clean_text(source_row.get("Phase noise Typ.")),
+                    "相位噪声": phase_noise,
+                    "消耗电流": clean_text(
+                        source_row.get("Current consumption Max.")
+                        or source_row.get("Current consumption (Steady State) Max.")
+                    ),
+                    "启动时间": clean_text(source_row.get("Start-up time Max.")),
+                    "启动功耗": clean_text(
+                        source_row.get("Power consumption (At Start-up) Max.")
+                    ),
+                    "使能/待机功能": clean_text(
+                        source_row.get("Enable/Disable function, STB function")
+                    ),
+                    "频率控制范围": clean_text(
+                        source_row.get("Frequency control range Min.")
+                        or source_row.get("Absolute frequency control range Min.")
+                    ),
+                    "控制电压": clean_text(source_row.get("Control voltage")),
+                    "终端/脚位": clean_text(source_row.get("Terminal（Number/ Form)")),
                 },
             )
             row["规格摘要"] = timing_summary(row)
@@ -1002,6 +1109,7 @@ def clean_kds_model(value: Any) -> str:
 
 def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
+    exact_rows: list[dict[str, Any]] = []
     for source_url, component_type in KDS_SOURCES.items():
         for table in read_official_tables(session, source_url):
             if "Model" not in table.columns:
@@ -1031,6 +1139,22 @@ def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                 load_cap = clean_number(load_cap_text)
                 aec = dataframe_value(source_row, "Reliability Specification")
                 features = dataframe_value(source_row, "Features")
+                current_consumption = dataframe_value(
+                    source_row,
+                    "Current Consumption [mA Max.]",
+                    "Current Consumption [mA typ.]",
+                    "Current Consumption [μA typ.]",
+                )
+                current_unit = ""
+                if current_consumption:
+                    current_unit = (
+                        "μA typ."
+                        if dataframe_value(source_row, "Current Consumption [μA typ.]")
+                        else "mA"
+                    )
+                part_number = dataframe_value(source_row, "Part No.")
+                if part_number in {"-", "－", "—"}:
+                    part_number = ""
                 candidate = base_row(
                     品牌="KDS大真空",
                     型号=model,
@@ -1085,9 +1209,40 @@ def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                             source_row.get("Freq. Temp. Characteristics [×10-6]")
                         ),
                         "AEC等级": aec,
+                        "消耗电流": (
+                            f"{current_consumption} {current_unit}".strip()
+                            if current_consumption
+                            else ""
+                        ),
+                        "使能/待机功能": "/".join(
+                            value
+                            for value in [
+                                f"Voltage Control: {dataframe_value(source_row, 'Voltage Control')}"
+                                if dataframe_value(source_row, "Voltage Control")
+                                else "",
+                                f"Stand-by: {dataframe_value(source_row, 'Stand-by Function')}"
+                                if dataframe_value(source_row, "Stand-by Function")
+                                else "",
+                            ]
+                            if value
+                        ),
                     },
                 )
                 candidate["规格摘要"] = timing_summary(candidate)
+                if part_number:
+                    exact_candidate = candidate.copy()
+                    exact_candidate.update(
+                        {
+                            "型号": part_number,
+                            "系列": model,
+                            "型号粒度": "官方逐料号",
+                            "官方规格编号": part_number,
+                            "数据状态": "KDS官方逐料号",
+                            "校验备注": "KDS官方产品表Part No.与该行频率及参数直接对应",
+                        }
+                    )
+                    exact_candidate["规格摘要"] = timing_summary(exact_candidate)
+                    exact_rows.append(exact_candidate)
                 existing = merged.get(model)
                 if existing is None:
                     merged[model] = candidate
@@ -1131,7 +1286,7 @@ def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                     extract_numeric_options(existing.get("负载电容选项", ""))
                     + extract_numeric_options(candidate.get("负载电容选项", ""))
                 )
-    return list(merged.values())
+    return list(merged.values()) + exact_rows
 
 
 def element_class_text(element: Any, class_name: str) -> str:

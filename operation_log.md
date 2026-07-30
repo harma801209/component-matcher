@@ -3747,3 +3747,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Partial source models can now enter Epson cross-brand matching, but incomplete requirements remain `需确认配置` with missing-parameter notes rather than being labelled complete equivalents.
 - Fixed KDS duplicate-series aggregation so split product-table ranges use the minimum lower bound and maximum upper bound. `DSX321G` now correctly covers 7.9-64 MHz instead of retaining only its first range segment.
 - Rebuilt the search sidecar to 1,705,519 core rows and 59,442 value rows. All 46 focused multi-brand/Epson timing regressions pass with temporary protected-database paths.
+
+### 2026-07-30 [Timing data] Import official NDK details and KDS orderable part numbers
+
+- Corrected the NDK oscillator tolerance mapping to use the official `Overall frequency tolerance Max.` field. All 4,013 NDK records now carry an official frequency-tolerance value instead of leaving oscillator rows blank.
+- Imported additional official NDK parameters including turnover temperature, parabolic coefficient, aging/long-term stability, phase noise, current consumption, startup time/power, enable/standby behavior, frequency-control range, control voltage, and terminal/pin information.
+- Imported 57 KDS orderable `Part No.` rows directly from KDS official product tables while retaining 149 series-range rows. Empty cells and `-` markers are never converted into part numbers.
+- Added per-row `资料完整度` and `缺失关键参数` fields. These are informational safeguards only; they do not relax frequency, package, load, temperature, output, voltage, ESR, aging, or overtone compatibility checks.
+- The official timing source now contains 29,271 rows. The rebuilt search sidecar contains 1,705,576 core rows and 59,499 parameter rows; exact lookups for KDS `7EG02600A2C` and NDK `NH7050SA · 10MHZ · NSC5263A` succeed.
+- All 49 focused timing regressions and the 33-test release safety gate pass. Tests use isolated databases and protected member, cost-list, and no-match runtime data remains unchanged.

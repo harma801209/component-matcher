@@ -10,6 +10,103 @@ import sync_official_timing_brands as timing_sync
 
 
 class MultiBrandTimingIntegrationTests(unittest.TestCase):
+    def test_ndk_official_detailed_fields_are_imported(self):
+        oscillator_source = {
+            "Model": "NZ2520SDA",
+            "Specification number": "EXS00A-CS00001",
+            "Nominal frequency": "25 MHz",
+            "Package size(LxW)": "2.5 x 2.0",
+            "Package size(H)": "0.8",
+            "Overall frequency tolerance Max.": "±50",
+            "Supply voltage": "3.3V",
+            "Operating temperature rang": "-40 to +85",
+            "Output specification": "CMOS",
+            "Current consumption Max.": "3.5",
+            "Start-up time Max.": "4",
+            "Enable/Disable function, STB function": "STB function",
+            "Long-term frequency stability Max.": "±5",
+            "Terminal（Number/ Form)": "4",
+            "[Phase noise Typ.,10Hz]": "-120",
+            "[Phase noise Typ.,1kHz]": "-153",
+        }
+
+        class Response:
+            @staticmethod
+            def raise_for_status():
+                return None
+
+            @staticmethod
+            def json():
+                return {"status": "ok", "data": [oscillator_source]}
+
+        class Session:
+            @staticmethod
+            def post(_url, data=None, timeout=240):
+                return Response()
+
+        category = {
+            "大分類": "osc",
+            "小分類": "spxo",
+            "大分類名": "Crystal Oscillators",
+            "小分類名": "SPXO",
+        }
+        with mock.patch.object(timing_sync, "ndk_categories", return_value=[category]):
+            rows = timing_sync.build_ndk_rows(Session(), "2026-07-30 21:00:00")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["频差（ppm）"], "50")
+        self.assertEqual(rows[0]["消耗电流"], "3.5")
+        self.assertEqual(rows[0]["启动时间"], "4")
+        self.assertEqual(rows[0]["使能/待机功能"], "STB function")
+        self.assertEqual(rows[0]["长期稳定度"], "±5")
+        self.assertEqual(rows[0]["终端/脚位"], "4")
+        self.assertIn("10Hz: -120dBc/Hz", rows[0]["相位噪声"])
+        self.assertNotIn("频差", timing_sync.timing_parameter_completeness(rows[0])[1])
+
+    def test_ndk_khz_crystal_turnover_and_parabolic_fields_are_imported(self):
+        crystal_source = {
+            "Model": "NX1610SA",
+            "Specification number": "EXS00A-MU00001",
+            "Nominal frequency": "32.768 kHz",
+            "Package size(LxW)": "1.6 x 1.0",
+            "Package size(H)": "0.5",
+            "Frequency tolerance": "±20",
+            "Load capacitance": "7",
+            "Equivalent series resistance": "90000",
+            "Level of drive": "0.1",
+            "Operating temperature rang": "-40 to +85",
+            "Turnover temperature": "+25±5",
+            "Parabolic coefficient": "-0.04 Max",
+            "Terminal（Number/ Form)": "2",
+        }
+
+        class Response:
+            @staticmethod
+            def raise_for_status():
+                return None
+
+            @staticmethod
+            def json():
+                return {"status": "ok", "data": [crystal_source]}
+
+        class Session:
+            @staticmethod
+            def post(_url, data=None, timeout=240):
+                return Response()
+
+        category = {
+            "大分類": "crystal",
+            "小分類": "khz",
+            "大分類名": "Crystal Units",
+            "小分類名": "Tuning Fork Crystal Units (kHz range)",
+        }
+        with mock.patch.object(timing_sync, "ndk_categories", return_value=[category]):
+            rows = timing_sync.build_ndk_rows(Session(), "2026-07-30 21:00:00")
+
+        self.assertEqual(rows[0]["拐点温度"], "+25±5")
+        self.assertEqual(rows[0]["抛物线系数（ppm/℃²）"], "-0.04 Max")
+        self.assertEqual(rows[0]["终端/脚位"], "2")
+
     def test_kds_split_frequency_ranges_are_merged_to_full_series_range(self):
         source = pd.DataFrame(
             [
@@ -47,6 +144,53 @@ class MultiBrandTimingIntegrationTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["频率下限"], "7.9")
         self.assertEqual(rows[0]["频率上限"], "64")
+
+    def test_kds_official_part_number_is_imported_as_exact_row(self):
+        source = pd.DataFrame(
+            [
+                {
+                    "Model": "DSB1612SDN",
+                    "Part No.": "7EG02600A2C",
+                    "Size (L×W) [mm]": "1.6 x 1.2",
+                    "Frequency [MHz]": "26",
+                    "Output": "Clipped sine",
+                    "Supply Voltage [V]": "1.8",
+                    "Freq. Temp. Characteristics [×10-6]": "0.5",
+                    "Operating Temp. Range [℃]": "-30 to +85",
+                    "Voltage Control": "-",
+                    "Stand-by Function": "-",
+                },
+                {
+                    "Model": "DSX321G",
+                    "Part No.": "-",
+                    "Size (L×W) [mm]": "3.2 x 2.5",
+                    "Frequency [MHz]": "12 to 64",
+                    "Frequency Tolerance [×10-6]": "20",
+                    "Load Capacitance [pF]": "8, 10, 12",
+                },
+            ]
+        )
+
+        with (
+            mock.patch.object(
+                timing_sync,
+                "KDS_SOURCES",
+                {"https://example.invalid/kds": "振荡器"},
+            ),
+            mock.patch.object(
+                timing_sync,
+                "read_official_tables",
+                return_value=[source],
+            ),
+        ):
+            rows = timing_sync.build_kds_rows(mock.Mock(), "2026-07-30 21:00:00")
+
+        exact = next(row for row in rows if row["型号"] == "7EG02600A2C")
+        self.assertEqual(exact["系列"], "DSB1612SDN")
+        self.assertEqual(exact["型号粒度"], "官方逐料号")
+        self.assertEqual(exact["官方规格编号"], "7EG02600A2C")
+        self.assertEqual(exact["输出频率"], "26")
+        self.assertFalse(any(row["型号"] == "-" for row in rows))
 
     def test_tkd_official_product_table_is_parsed_as_series_range(self):
         markup = """
