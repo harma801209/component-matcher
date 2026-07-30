@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 107
+QUERY_RESULT_CACHE_VERSION = 108
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -17545,6 +17545,12 @@ def detect_timing_subtype_hint(text):
         or re.fullmatch(r"(?:RX|RA|RTC)-?\d{4}[A-Z]{1,3}(?:-?(?:UA|UB|UC|AA|AC|B))?", compact_model)
     ):
         return "实时时钟模块"
+    if re.fullmatch(
+        r"SIT9121A[CI]-?[12][BCD][F123]-?(?:25|33|XX)[ENS]"
+        r"\d{1,3}\.\d{6}[TXYDEG]?",
+        compact_model,
+    ):
+        return "振荡器"
     if matches_component_alias(text, "振荡器"):
         return "振荡器"
     if matches_component_alias(text, "晶振"):
@@ -21526,6 +21532,135 @@ TIMING_PACKAGE_CODES = {
     "3215", "3225", "5032", "7015", "7050", "8038",
 }
 
+SITIME_SIT9121_MODEL_PATTERN = re.compile(
+    r"^SIT9121(?P<revision>A)(?P<temperature>[CI])-?"
+    r"(?P<signaling>[12])(?P<package>[BCD])(?P<stability>[F123])-?"
+    r"(?P<voltage>25|33|XX)(?P<feature>[ENS])"
+    r"(?P<frequency>\d{1,3}\.\d{6})(?P<packaging>[TXYDEG])?$",
+    flags=re.I,
+)
+
+SITIME_SIT9121_EXACT_PRODUCT_PAGES = {
+    "SIT9121AI-2D3-33E125.000000": (
+        "https://www.sitime.com/parts/sit9121ai-2d3-33e125000000"
+    ),
+}
+
+
+def parse_sitime_sit9121_model(model):
+    model_text = clean_model(model)
+    match = SITIME_SIT9121_MODEL_PATTERN.fullmatch(model_text)
+    if not match:
+        return None
+
+    try:
+        frequency_value = float(match.group("frequency"))
+    except (TypeError, ValueError):
+        return None
+    if not (1.0 <= frequency_value <= 220.0):
+        return None
+    if 209.000001 <= frequency_value <= 210.999999:
+        return None
+
+    package_profiles = {
+        "B": ("3225", "3.2 x 2.5 x 0.75", "3.2", "2.5", "0.75"),
+        "C": ("5032", "5.0 x 3.2 x 0.75", "5.0", "3.2", "0.75"),
+        "D": ("7050", "7.0 x 5.0 x 0.90", "7.0", "5.0", "0.90"),
+    }
+    temperature_profiles = {
+        "C": "-20~70℃",
+        "I": "-40~85℃",
+    }
+    signaling_profiles = {
+        "1": "LVPECL",
+        "2": "LVDS",
+    }
+    stability_profiles = {
+        "F": "10",
+        "1": "20",
+        "2": "25",
+        "3": "50",
+    }
+    voltage_profiles = {
+        "25": "2.5",
+        "33": "3.3",
+        "XX": "2.25~3.63",
+    }
+    feature_profiles = {
+        "E": "输出使能（OE）",
+        "N": "无连接（NC）",
+        "S": "待机（Standby）",
+    }
+
+    package_code, body_size, length, width, height = package_profiles[match.group("package").upper()]
+    frequency_text = format_sidecar_numeric_display(frequency_value)
+    frequency_tolerance = stability_profiles[match.group("stability").upper()]
+    output_type = signaling_profiles[match.group("signaling").upper()]
+    voltage = voltage_profiles[match.group("voltage").upper()]
+    feature = feature_profiles[match.group("feature").upper()]
+    packaging_suffix = clean_text(match.group("packaging")).upper()
+    exact_product_page = SITIME_SIT9121_EXACT_PRODUCT_PAGES.get(model_text, "")
+    datasheet_url = "https://www.sitime.com/datasheet/SIT9121"
+    source_url = exact_product_page or datasheet_url
+    source_status = (
+        "SiTime官方逐料号页面已核验"
+        if exact_product_page
+        else "SiTime官方数据手册订购码解码"
+    )
+    source_note = (
+        "该完整料号已由SiTime官方型号页面核验。"
+        if exact_product_page
+        else "该频点没有采用逐型号网页作证；参数由SiTime SiT9121官方数据手册订购规则解码。"
+    )
+    packaging_note = "散装（型号无包装后缀）" if packaging_suffix == "" else f"包装代码 {packaging_suffix}"
+
+    return {
+        "品牌": "SiTime",
+        "型号": model_text,
+        "器件类型": "振荡器",
+        "系列": "SiT9121",
+        "系列说明": "SiTime SiT9121 高性能差分MEMS振荡器",
+        "尺寸（inch）": package_code,
+        "尺寸（mm）": body_size,
+        "长度（mm）": length,
+        "宽度（mm）": width,
+        "高度（mm）": height,
+        "封装代码": package_code,
+        "容值": frequency_text,
+        "容值单位": "MHZ",
+        "容值误差": f"±{frequency_tolerance}ppm",
+        "输出频率": frequency_text,
+        "频率": frequency_text,
+        "频率单位": "MHZ",
+        "频差（ppm）": f"±{frequency_tolerance}ppm",
+        "耐压（V）": voltage,
+        "电源电压": voltage,
+        "输出类型": output_type,
+        "工作温度": temperature_profiles[match.group("temperature").upper()],
+        "占空比": "45~55%",
+        "25℃老化（ppm）": "±2ppm（第1年）",
+        "长期稳定度": "±5ppm（10年）",
+        "安装方式": "贴片",
+        "特殊用途": "差分输出/低抖动",
+        "型号粒度": "官方逐料号",
+        "生产状态": "量产",
+        "规格摘要": (
+            f"{frequency_text}MHz / {output_type} / {voltage}V / "
+            f"±{frequency_tolerance}ppm / {package_code} / "
+            f"{temperature_profiles[match.group('temperature').upper()]}"
+        ),
+        "备注1": f"{feature}；{packaging_note}",
+        "备注2": source_url,
+        "备注3": "SiT9121系列典型积分RMS相位抖动0.6ps（12kHz~20MHz，原厂系列规格）。",
+        "官网链接": source_url,
+        "数据来源": source_url,
+        "数据状态": source_status,
+        "校验备注": source_note,
+        "_model_rule_authority": "sitime_sit9121_official_ordering_code",
+        "_core_param_count": 7,
+        "_param_count": 9,
+    }
+
 
 def find_timing_package_code_in_text(text):
     raw = clean_text(text)
@@ -21567,6 +21702,7 @@ def parse_timing_spec_query(line):
     output_type = find_timing_output_type_in_text(raw) if component_type == "振荡器" else ""
     load_cap = find_load_capacitance_pf_in_text(raw) if component_type == "晶振" else ""
     work_temp = extract_working_temperature_from_text(raw)
+    special_use = extract_special_use_from_text(raw)
     temp_characteristic = find_labeled_timing_ppm_in_text(
         raw,
         TIMING_TEMPERATURE_CHARACTERISTIC_LABEL,
@@ -25592,6 +25728,9 @@ def parse_model_rule(model, brand="", component_type=""):
     m = clean_model(model)
     if m == "":
         return None
+    parsed_sitime = parse_sitime_sit9121_model(m)
+    if parsed_sitime is not None:
+        return parsed_sitime
     parsed_bbgk = parse_pulse_bbgk_ferrite_bead(m)
     if parsed_bbgk is not None:
         return parsed_bbgk
@@ -29628,41 +29767,26 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
     return prepare_search_dataframe(pd.DataFrame(records)) if records else pd.DataFrame()
 
 
-def load_component_rows_by_exact_model_from_database(model):
-    model_text = clean_text(model)
-    if model_text == "" or not os.path.exists(DB_PATH):
+def build_sitime_sit9121_exact_model_frame(model, prepare_rows=True):
+    parsed = parse_sitime_sit9121_model(model)
+    if parsed is None:
         return pd.DataFrame()
-    conn = None
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        frame = pd.read_sql_query(
-            "SELECT * FROM components WHERE [型号] = ?",
-            conn,
-            params=[model_text],
-        )
-        if (not isinstance(frame, pd.DataFrame) or frame.empty) and model_text.upper() != model_text:
-            frame = pd.read_sql_query(
-                "SELECT * FROM components WHERE [型号] = ?",
-                conn,
-                params=[model_text.upper()],
-            )
-        if (not isinstance(frame, pd.DataFrame) or frame.empty):
-            frame = pd.read_sql_query(
-                """
-                SELECT * FROM components
-                WHERE REPLACE(REPLACE(REPLACE(UPPER(IFNULL([型号], '')), '-', ''), ' ', ''), '_', '') = ?
-                """,
-                conn,
-                params=[clean_model(model_text)],
-            )
-        if not isinstance(frame, pd.DataFrame) or frame.empty:
-            return pd.DataFrame()
+    frame = normalize_imported_component_dataframe(pd.DataFrame([parsed]))
+    if frame.empty:
+        return frame
+    if prepare_rows:
         return prepare_search_dataframe(frame)
-    except Exception:
+    if "_model_clean" not in frame.columns:
+        frame = frame.copy()
+        frame["_model_clean"] = frame["型号"].astype(str).apply(clean_model)
+    return frame
+
+
+def load_component_rows_by_exact_model_from_database(model):
+    model_key = clean_model(model)
+    if model_key == "":
         return pd.DataFrame()
-    finally:
-        if conn is not None:
-            conn.close()
+    return load_component_rows_by_exact_models_from_database([model]).get(model_key, pd.DataFrame())
 
 
 def load_component_rows_by_exact_models_from_database(models, prepare_rows=True):
@@ -29676,6 +29800,14 @@ def load_component_rows_by_exact_models_from_database(models, prepare_rows=True)
     result_map = {clean_model(model): pd.DataFrame() for model in model_texts if clean_model(model) != ""}
     if not model_texts:
         return result_map
+    for model_text in model_texts:
+        model_key = clean_model(model_text)
+        synthetic_frame = build_sitime_sit9121_exact_model_frame(
+            model_text,
+            prepare_rows=prepare_rows,
+        )
+        if isinstance(synthetic_frame, pd.DataFrame) and not synthetic_frame.empty:
+            result_map[model_key] = synthetic_frame
     sidecar_available = os.path.exists(SEARCH_DB_PATH)
     if sidecar_available or is_public_mode() or is_streamlit_cloud_runtime() or not os.path.exists(DB_PATH):
         sidecar_result = load_component_rows_by_exact_models_from_search_sidecar(
@@ -31405,6 +31537,11 @@ def scope_search_dataframe(df, spec):
     if spec is None:
         return prepare_search_dataframe(df)
     base = df
+    exact_model_rows = pd.DataFrame()
+    exact_model_key = clean_model(spec.get("型号", ""))
+    if exact_model_key != "" and isinstance(df, pd.DataFrame) and "型号" in df.columns:
+        exact_model_mask = df["型号"].astype(str).apply(clean_model).eq(exact_model_key)
+        exact_model_rows = df[exact_model_mask].copy()
     search_candidate_pairs = (
         None
         if requested_brand_scope_is_fojan_only(spec)
@@ -31412,6 +31549,10 @@ def scope_search_dataframe(df, spec):
     )
     if search_candidate_pairs is not None:
         base = filter_base_by_candidate_pairs(base, search_candidate_pairs)
+        if not exact_model_rows.empty:
+            base = concat_component_frames([exact_model_rows, base])
+            if "品牌" in base.columns and "型号" in base.columns:
+                base = base.drop_duplicates(subset=["品牌", "型号"], keep="first")
         if base.empty:
             return base
     base = prepare_search_dataframe(base)

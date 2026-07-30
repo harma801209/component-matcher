@@ -952,3 +952,10 @@
 - Root cause: the FOJAN rule generator treated the parsed source brand as a hard output-brand restriction even when the search mode was `自动匹配其他品牌`.
 - Fix: permit FOJAN generation whenever no explicit brand filter is active. Preserve strict exclusion when the user selects `指定品牌` and FOJAN is not selected.
 - Regression: a Yageo automotive-resistor line now returns `FRQ0402F4R99TS` first; an explicit Yageo-only search still excludes FOJAN. All 38 configured FOJAN special-series model builders produce valid models.
+
+## 2026-07-30 - Complete SiTime SiT9121 order numbers were not recognized
+
+- Symptom: `SIT9121AI-2D3-33E125.000000` and `SIT9121AI-2D3-33E120.000000` returned `无法识别输入内容`, so neither the original SiTime specification nor other-brand alternatives were shown.
+- Root cause: the timing parser recognized generic timing specifications and locally stored models but had no deterministic decoder for SiTime's complete SiT9121 ordering format. Fast-sidecar candidate replacement could also discard a synthetic exact-model row.
+- Fix: decode the official SiT9121 ordering fields before generic model parsing, seed an exact original-model frame for valid full order numbers, retain it alongside fast-sidecar alternatives, and reject the datasheet's unsupported 209.000001-210.999999 MHz gap.
+- Verification: the 125 MHz order number matches SiTime's exact product page; the 120 MHz order number is valid under the official datasheet ordering table. End-to-end searches preserve one exact SiTime row and return partial Abracon alternatives with confirmation notes instead of reporting them as complete equivalents.

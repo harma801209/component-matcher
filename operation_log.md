@@ -3720,3 +3720,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Automatic mode now always permits FOJAN alternative generation; only the explicit `指定品牌` filter can exclude FOJAN. A Yageo-only explicit filter still returns no FOJAN rows.
 - The reproduced query now ranks `FRQ0402F4R99TS` first, followed by other compatible FOJAN special series. Representative vehicle, anti-sulfur, high-voltage, high-power, surge, low-ohm, and alloy searches pass, and all 38 configured FOJAN special-series model builders return valid models.
 - Raised query cache version to `107` and public code/release stamps to `2026-07-29T00:09:24+08:00`. No protected runtime database or component data file was modified.
+
+### 2026-07-30 [SiTime oscillator search] Decode complete SiT9121 ordering codes
+
+- Added an official-rule parser for complete SiTime SiT9121 order numbers, including temperature grade, output type, package, frequency stability, supply voltage, feature pin, and frequency.
+- Exact SiT9121 input models now produce an original-model row even when the local component database does not yet contain that exact order number. The exact row remains visible when the fast timing sidecar also returns cross-brand alternatives.
+- Verified `SIT9121AI-2D3-33E125.000000` against SiTime's exact product page and decoded `SIT9121AI-2D3-33E120.000000` from the official SiT9121 ordering table. Both resolve as 7050, LVDS, 3.3 V, industrial-temperature, +/-50 ppm oscillators with OE; the frequency is 125 MHz or 120 MHz respectively.
+- End-to-end matching returns nine Abracon partial alternatives for 125 MHz and one Abracon partial alternative for 120 MHz. Alternatives remain partial because load/drive, enable behavior, jitter, aging, and other model-specific parameters still require confirmation.
+- Fixed an existing timing-query variable error exposed by the new path and raised the query cache version to `108`. No protected runtime database or component data file was modified.

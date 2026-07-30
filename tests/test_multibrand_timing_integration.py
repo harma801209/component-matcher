@@ -10,6 +10,59 @@ import sync_official_timing_brands as timing_sync
 
 
 class MultiBrandTimingIntegrationTests(unittest.TestCase):
+    def test_sitime_sit9121_official_ordering_code_is_decoded(self):
+        parsed = cm.parse_model_rule("SIT9121AI-2D3-33E125.000000")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["品牌"], "SiTime")
+        self.assertEqual(parsed["器件类型"], "振荡器")
+        self.assertEqual(parsed["系列"], "SiT9121")
+        self.assertEqual(parsed["输出频率"], "125")
+        self.assertEqual(parsed["频率单位"], "MHZ")
+        self.assertEqual(parsed["容值误差"], "±50ppm")
+        self.assertEqual(parsed["电源电压"], "3.3")
+        self.assertEqual(parsed["输出类型"], "LVDS")
+        self.assertEqual(parsed["尺寸（inch）"], "7050")
+        self.assertEqual(parsed["工作温度"], "-40~85℃")
+        self.assertEqual(parsed["数据状态"], "SiTime官方逐料号页面已核验")
+
+    def test_sitime_sit9121_datasheet_decoded_frequency_is_searchable(self):
+        model = "SIT9121AI-2D3-33E120.000000"
+        exact_map = cm.load_component_rows_by_exact_models_from_database([model])
+        exact_rows = exact_map[cm.clean_model(model)]
+
+        self.assertEqual(len(exact_rows), 1)
+        self.assertEqual(exact_rows.iloc[0]["型号"], model)
+        self.assertEqual(exact_rows.iloc[0]["输出频率"], "120")
+        self.assertEqual(
+            exact_rows.iloc[0]["数据状态"],
+            "SiTime官方数据手册订购码解码",
+        )
+        mode, spec = cm.detect_query_mode_and_spec(exact_rows, model)
+        self.assertEqual(mode, "料号")
+        self.assertEqual(spec["器件类型"], "振荡器")
+        self.assertEqual(spec["容值"], "120")
+
+    def test_sitime_exact_row_survives_index_candidate_filter(self):
+        model = "SIT9121AI-2D3-33E125.000000"
+        exact_rows = cm.load_component_rows_by_exact_models_from_database([model])[
+            cm.clean_model(model)
+        ]
+        mode, spec = cm.detect_query_mode_and_spec(exact_rows, model)
+
+        with mock.patch.object(
+            cm,
+            "fetch_search_candidate_pairs",
+            return_value=[("Abracon", "ASG-D-V-A-125.000MHZ")],
+        ):
+            scoped = cm.scope_search_dataframe(exact_rows, spec)
+
+        self.assertEqual(mode, "料号")
+        self.assertEqual(scoped["型号"].tolist(), [model])
+
+    def test_sitime_sit9121_rejects_unsupported_frequency_gap(self):
+        self.assertIsNone(cm.parse_model_rule("SIT9121AI-2D3-33E210.000000"))
+
     def test_frequency_profile_preserves_range_and_discrete_option(self):
         profile = timing_sync.frequency_profile("24 to 54/76.8", "MHz")
 
