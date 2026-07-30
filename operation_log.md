@@ -3728,3 +3728,13 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Verified `SIT9121AI-2D3-33E125.000000` against SiTime's exact product page and decoded `SIT9121AI-2D3-33E120.000000` from the official SiT9121 ordering table. Both resolve as 7050, LVDS, 3.3 V, industrial-temperature, +/-50 ppm oscillators with OE; the frequency is 125 MHz or 120 MHz respectively.
 - End-to-end matching returns nine Abracon partial alternatives for 125 MHz and one Abracon partial alternative for 120 MHz. Alternatives remain partial because load/drive, enable behavior, jitter, aging, and other model-specific parameters still require confirmation.
 - Fixed an existing timing-query variable error exposed by the new path and raised the query cache version to `108`. No protected runtime database or component data file was modified.
+
+### 2026-07-30 [Epson cross-brand timing] Reverse exact source models into official Epson order numbers
+
+- Verified Epson's official selector feeds and product-number sources. A clean synchronization produced 6,161 records: 1,489 crystal units, 4,574 oscillators, and 98 RTC rows.
+- Reproduced cross-brand failure with Abracon `ABM11N-40.0000MHZ-8-D2X-T3`. Its exact row correctly decoded 40 MHz, 2016, 8 pF, +/-20 ppm, -40~85C, fundamental mode, and 50-ohm maximum ESR, but the fast timing sidecar rejected Epson `Q22FA12800697` because its tighter +/-10 ppm tolerance was not textually equal to +/-20 ppm.
+- Timing prefilter and detailed matching now accept a positive candidate frequency tolerance that is equal to or tighter than the source requirement. Larger or otherwise conflicting tolerances remain rejected.
+- Exact orderable Epson product numbers now sort ahead of Epson series, templates, and configurable placeholders. Non-orderable rows remain marked `需确认配置`.
+- Epson synchronization records the official product-number search and crystal ordering-rule references and states that concrete order numbers must come from Epson's official product-number results rather than being invented from a series name.
+- Raised the query result cache version to `109` and the public code stamp to `2026-07-30T20:29:39+08:00` so previously cached no-alternative results cannot survive the release.
+- All 42 Epson and multi-brand timing regressions pass with isolated runtime database paths. No protected runtime database or component bundle was modified.

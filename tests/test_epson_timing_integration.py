@@ -13,6 +13,28 @@ import sync_epson_parametric_products as epson_sync
 
 
 class EpsonTimingIntegrationTests(unittest.TestCase):
+    def test_official_product_row_records_selector_and_ordering_rule_sources(self):
+        product = {
+            "pn": "Q22FA12800697",
+            "model": "FA-128",
+            "frequencyMin": "40",
+            "frequencyTol25C": "10",
+            "loadCapPf": "8",
+            "dimensionL": "2.0",
+            "dimensionW": "1.6",
+        }
+
+        row = epson_sync.build_product_row(
+            product,
+            "xtal_mhz.json",
+            epson_sync.SOURCE_SPECS["xtal_mhz.json"],
+            "2026-07-30 12:00:00",
+        )
+
+        self.assertIn(epson_sync.PRODUCT_NUMBER_SEARCH_URL, row["备注3"])
+        self.assertIn(epson_sync.CRYSTAL_PRODUCT_NUMBER_RULE_URL, row["备注3"])
+        self.assertIn("不按系列名称臆造", row["校验备注"])
+
     def test_decimal_text_preserves_integer_trailing_zeroes(self):
         self.assertEqual(epson_sync.decimal_text("50"), "50")
         self.assertEqual(epson_sync.decimal_text("100"), "100")

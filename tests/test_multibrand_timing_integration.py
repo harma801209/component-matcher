@@ -10,6 +10,118 @@ import sync_official_timing_brands as timing_sync
 
 
 class MultiBrandTimingIntegrationTests(unittest.TestCase):
+    def test_timing_sidecar_filter_allows_tighter_frequency_tolerance(self):
+        where_clauses = []
+        params = []
+
+        cm.append_timing_tolerance_candidate_filter(where_clauses, params, "20")
+
+        self.assertEqual(len(where_clauses), 1)
+        self.assertIn("CAST(_tol AS REAL) <= ?", where_clauses[0])
+        self.assertEqual(params, ["20", 20.0, "%|20|%"])
+
+    def test_other_brand_exact_crystal_can_match_tighter_official_epson_pn(self):
+        rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "Abracon",
+                    "型号": "ABM11N-40.0000MHZ-8-D2X-T3",
+                    "系列": "ABM11N",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2016",
+                    "容值": "40",
+                    "容值单位": "MHz",
+                    "容值误差": "20",
+                    "负载电容（pF）": "8",
+                    "工作温度": "-40~+85°C",
+                    "频率温度特性（ppm）": "±20ppm",
+                    "泛音阶次": "基频（Fundamental）",
+                    "ESR": "50Ω Max",
+                    "型号粒度": "官方逐料号",
+                },
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "Q22FA12800697",
+                    "系列": "FA-128",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2016",
+                    "容值": "40",
+                    "容值单位": "MHz",
+                    "容值误差": "10",
+                    "负载电容（pF）": "8",
+                    "工作温度": "-40~+85°C",
+                    "频率温度特性（ppm）": "±20ppm",
+                    "25℃老化（ppm）": "±1ppm",
+                    "泛音阶次": "基频（Fundamental）",
+                    "ESR": "50Ω Max",
+                    "型号粒度": "官方逐料号",
+                    "官方规格编号": "Q22FA12800697",
+                },
+            ]
+        )
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(rows)
+        )
+        mode, spec = cm.detect_query_mode_and_spec(
+            prepared,
+            "ABM11N-40.0000MHZ-8-D2X-T3",
+        )
+
+        with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):
+            matched = cm.match_other_passive_spec(prepared, spec)
+
+        self.assertEqual(mode, "料号")
+        self.assertIn("Q22FA12800697", matched["型号"].tolist())
+
+    def test_official_exact_pn_sorts_before_epson_series_template(self):
+        rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "FA-128",
+                    "系列": "FA-128",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2016",
+                    "容值": "40",
+                    "容值单位": "MHz",
+                    "容值误差": "10",
+                    "负载电容（pF）": "8",
+                    "工作温度": "-40~+85°C",
+                    "频率温度特性（ppm）": "±20ppm",
+                    "泛音阶次": "基频（Fundamental）",
+                    "型号粒度": "官方系列模板",
+                },
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "Q22FA12800697",
+                    "系列": "FA-128",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2016",
+                    "容值": "40",
+                    "容值单位": "MHz",
+                    "容值误差": "10",
+                    "负载电容（pF）": "8",
+                    "工作温度": "-40~+85°C",
+                    "频率温度特性（ppm）": "±20ppm",
+                    "泛音阶次": "基频（Fundamental）",
+                    "型号粒度": "官方逐料号",
+                    "官方规格编号": "Q22FA12800697",
+                },
+            ]
+        )
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(rows)
+        )
+        spec = cm.parse_timing_spec_query(
+            "晶振 40MHz 2016 8pF ±10ppm -40~85°C 温度特性±20ppm 基频"
+        )
+
+        with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):
+            matched = cm.match_other_passive_spec(prepared, spec)
+
+        self.assertEqual(matched.iloc[0]["型号"], "Q22FA12800697")
+        self.assertEqual(matched.iloc[1]["推荐等级"], "需确认配置")
+
     def test_sitime_sit9121_official_ordering_code_is_decoded(self):
         parsed = cm.parse_model_rule("SIT9121AI-2D3-33E125.000000")
 

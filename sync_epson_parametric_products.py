@@ -40,6 +40,11 @@ BRAND = "爱普生Epson"
 JSON_BASE_URL = "https://download.epsondevice.com/td/ps/"
 PDF_BASE_URL = "https://download.epsondevice.com/td/pdf/"
 PRODUCT_BASE_URL = "https://www.epsondevice.com/crystal/en/products/"
+PRODUCT_NUMBER_SEARCH_URL = "https://www.epsondevice.com/crystal/en/product-search/pnsearch.html"
+PRODUCT_CONFIGURATION_GUIDE_URL = "https://www.epsondevice.com/crystal/en/support/product-no/"
+CRYSTAL_PRODUCT_NUMBER_RULE_URL = (
+    "https://www.epsondevice.com/crystal/en/support/product-no/pdf/pcs_xtal.pdf"
+)
 MIN_EXPECTED_ROWS = 5_000
 
 SOURCE_SPECS = {
@@ -530,6 +535,11 @@ def build_product_row(
     parabolic = normalize_parabolic_coefficient(product.get("parabolicCoef"))
     overtone = normalize_overtone_order(product.get("overtoneOrder"))
     aec_grade = automotive_grade_text(product)
+    official_references = [source_url, PRODUCT_NUMBER_SEARCH_URL]
+    if component_type == "晶振":
+        official_references.extend(
+            [PRODUCT_CONFIGURATION_GUIDE_URL, CRYSTAL_PRODUCT_NUMBER_RULE_URL]
+        )
     return {
         "品牌": BRAND,
         "型号": pn,
@@ -547,7 +557,7 @@ def build_product_row(
         "特殊用途": special_use,
         "备注1": clean_text(product.get("description")),
         "备注2": datasheet_url(product, source_spec),
-        "备注3": source_url,
+        "备注3": " | ".join(official_references),
         "器件类型": component_type,
         "安装方式": "贴片",
         "封装代码": clean_text(product.get("pkgType")) if component_type == "实时时钟模块" else size_code,
@@ -561,7 +571,10 @@ def build_product_row(
         "数据来源": source_url,
         "数据状态": "Epson官方产品编号级参数",
         "校验时间": checked_at,
-        "校验备注": "型号、频率及关键参数由Epson官方参数选型JSON直接映射",
+        "校验备注": (
+            "型号、频率及关键参数由Epson官方参数选型JSON直接映射；"
+            "具体订购型号以Epson官方产品编号搜索结果为准，不按系列名称臆造"
+        ),
         "ESR": esr,
         "工作温度": temperature_text(product),
         "系列说明": series_desc,

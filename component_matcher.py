@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 108
+QUERY_RESULT_CACHE_VERSION = 109
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-29T00:09:24+08:00"
+PUBLIC_CODE_STAMP = "2026-07-30T20:29:39+08:00"
 
 
 def startup_trace(message):
@@ -21322,7 +21322,23 @@ def timing_tolerance_candidate_allows(row, required):
     )
     if candidate_text == required_text:
         return True
-    return timing_option_contains(row.get("频差选项", ""), required_text)
+    try:
+        required_number = float(required_text)
+        candidate_number = float(candidate_text)
+    except (TypeError, ValueError):
+        required_number = candidate_number = None
+    if (
+        required_number is not None
+        and candidate_number is not None
+        and 0 < candidate_number <= required_number
+    ):
+        return True
+    if required_number is None:
+        return timing_option_contains(row.get("频差选项", ""), required_text)
+    return any(
+        0 < option <= required_number
+        for option in timing_option_numbers(row.get("频差选项", ""))
+    )
 
 
 def timing_voltage_candidate_allows(row, required):
@@ -31232,6 +31248,24 @@ def filter_mlcc_candidate_pairs_by_series_class(pairs, target_class):
     return filtered_pairs
 
 
+def append_timing_tolerance_candidate_filter(where_clauses, params, tolerance):
+    normalized = clean_frequency_tolerance_for_match(tolerance)
+    if normalized == "":
+        return
+    try:
+        numeric_tolerance = float(normalized)
+    except (TypeError, ValueError):
+        where_clauses.append('(_tol = ? OR "频差选项" LIKE ?)')
+        params.extend([normalized, f"%|{normalized}|%"])
+        return
+    where_clauses.append(
+        '(_tol = ? OR (NULLIF(TRIM(_tol), \'\') IS NOT NULL '
+        'AND CAST(_tol AS REAL) > 0 AND CAST(_tol AS REAL) <= ?) '
+        'OR "频差选项" LIKE ?)'
+    )
+    params.extend([normalized, numeric_tolerance, f"%|{normalized}|%"])
+
+
 def fetch_search_candidate_pairs(spec):
     if spec is None:
         return None
@@ -31380,9 +31414,7 @@ def fetch_search_candidate_pairs(spec):
             target_frequency,
             option_token,
         ])
-        if tol != "":
-            where_clauses.append('(_tol = ? OR "频差选项" LIKE ?)')
-            params.extend([tol, f"%|{tol}|%"])
+        append_timing_tolerance_candidate_filter(where_clauses, params, tol)
     elif target_type in {"薄膜电容", "铝电解电容", "引线型陶瓷电容"}:
         pf = spec.get("容值_pf", None)
         tol = clean_tol_for_match(spec.get("容值误差", ""))
@@ -32080,14 +32112,15 @@ def match_other_passive_spec(df, spec):
         if complete_query:
             work.loc[detail_complete, "推荐等级"] = "完全匹配"
         configurable_mask = work.apply(timing_model_requires_configuration, axis=1)
+        work["_configuration_rank"] = configurable_mask.astype(int)
         work.loc[configurable_mask, "推荐等级"] = "需确认配置"
         work.loc[work["_exact_model_rank"].eq(0) & ~configurable_mask, "推荐等级"] = "完全匹配"
         work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
         work = work.sort_values(
-            by=["_exact_model_rank", "_brand_rank", "品牌", "型号"],
-            ascending=[True, True, True, True],
+            by=["_exact_model_rank", "_configuration_rank", "_brand_rank", "品牌", "型号"],
+            ascending=[True, True, True, True, True],
             kind="mergesort",
-        ).drop(columns=["_exact_model_rank", "_brand_rank"], errors="ignore")
+        ).drop(columns=["_exact_model_rank", "_configuration_rank", "_brand_rank"], errors="ignore")
         return work
 
     return pd.DataFrame()
