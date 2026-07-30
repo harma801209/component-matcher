@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 109
+QUERY_RESULT_CACHE_VERSION = 110
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-30T20:29:39+08:00"
+PUBLIC_CODE_STAMP = "2026-07-30T21:31:00+08:00"
 
 
 def startup_trace(message):
@@ -7334,6 +7334,8 @@ BRAND_QUERY_ALIAS_GROUPS = (
     ("KDS大真空", ("KDS", "大真空", "DAISHINKU")),
     ("TXC", ("TXC",)),
     ("NDK", ("NDK", "NIHON DEMPA KOGYO")),
+    ("TKD泰晶", ("TKD", "泰晶")),
+    ("YL惠伦", ("YL", "惠伦", "惠倫", "慧伦", "HUILUN")),
     ("Abracon", ("ABRACON",)),
     ("SiTime", ("SITIME",)),
 )
@@ -21678,6 +21680,182 @@ def parse_sitime_sit9121_model(model):
     }
 
 
+HUILUN_TIMING_SERIES_PACKAGES = {
+    "AS": "1210",
+    "1S": "1612",
+    "9S": "2016",
+    "2S": "2520",
+    "3S": "3225",
+    "9Y": "2016",
+    "2Y": "2520",
+    "3Y": "3225",
+    "1Z": "1612",
+    "9Z": "2016",
+    "2Z": "2520",
+    "1K": "1612",
+    "9K": "2016",
+    "1SQ": "1610",
+    "2SQ": "2012",
+    "3SQ": "3215",
+    "7PSQ": "7015",
+    "7SQ": "7015",
+    "1T": "1612",
+    "9T": "2016",
+    "2T": "2520",
+    "3T": "3225",
+    "9N": "2016",
+    "9C": "2016",
+    "2C": "2520",
+    "3C": "3225",
+    "5C": "5032",
+    "7C": "7050",
+    "9L": "2016",
+    "2L": "2520",
+    "3L": "3225",
+    "5L": "5032",
+    "7L": "7050",
+    "3D": "3225",
+    "5D": "5032",
+    "7D": "7050",
+    "3P": "3225",
+    "5P": "5032",
+}
+
+
+def parse_official_timing_series_model(model, brand=""):
+    model_text = clean_model(model)
+    brand_text = clean_brand(brand)
+    brand_upper = clean_text(brand_text).upper()
+    if model_text == "":
+        return None
+
+    resolved_brand = ""
+    series = ""
+    package_code = ""
+    component_type = ""
+    authority = ""
+    source_url = ""
+
+    ndk_match = re.match(r"^(N[XHTZPVYR]\d{4}[A-Z]{0,4})", model_text)
+    if (
+        "NDK" in brand_upper
+        or "NIHON DEMPA" in brand_upper
+        or ndk_match is not None
+    ):
+        if ndk_match is None:
+            return None
+        resolved_brand = "NDK"
+        series = ndk_match.group(1)
+        package_match = re.search(r"(\d{4})", series)
+        package_code = package_match.group(1) if package_match else ""
+        component_type = "晶振" if series.startswith("NX") else "振荡器"
+        authority = "ndk_official_series_nomenclature"
+        source_url = "https://www.ndk.com/en/products/info/post_38.html"
+
+    kds_match = re.match(r"^(DS(?:X|T|S|O|A|V|B)[A-Z0-9]+)", model_text)
+    if resolved_brand == "" and (
+        "KDS" in brand_upper
+        or "DAISHINKU" in brand_upper
+        or "大真空" in brand_text
+        or kds_match is not None
+    ):
+        if kds_match is None:
+            return None
+        resolved_brand = "KDS大真空"
+        series = kds_match.group(1)
+        package_match = re.search(r"(1210|1612|2016|2520|3215|3225|5032|7050)", series)
+        package_code = package_match.group(1) if package_match else ""
+        component_type = "晶振" if series.startswith(("DSX", "DST", "DSS")) else "振荡器"
+        authority = "kds_official_series_nomenclature"
+        source_url = "https://www.kds.info/en/products/"
+
+    if resolved_brand == "" and ("TKD" in brand_upper or "泰晶" in brand_text):
+        series_match = re.match(
+            r"^((?:SX|TSX|XO|TCXO|DXO|OCXO)[-_]?[A-Z0-9]+)",
+            model_text,
+        )
+        if series_match is None:
+            return None
+        resolved_brand = "TKD泰晶"
+        series = series_match.group(1)
+        package_match = re.search(r"(1210|1612|2016|2520|3225|5032|7050)", series)
+        package_code = package_match.group(1) if package_match else ""
+        component_type = "晶振" if series.startswith(("SX", "TSX")) else "振荡器"
+        authority = "tkd_official_series_nomenclature"
+        source_url = "https://www.sztkd.com/products/"
+
+    huilun_brand = (
+        "HUILUN" in brand_upper
+        or "惠伦" in brand_text
+        or "惠倫" in brand_text
+        or "慧伦" in brand_text
+        or brand_upper == "YL"
+    )
+    if resolved_brand == "" and huilun_brand:
+        series = next(
+            (
+                candidate
+                for candidate in sorted(
+                    HUILUN_TIMING_SERIES_PACKAGES,
+                    key=len,
+                    reverse=True,
+                )
+                if model_text.startswith(candidate)
+            ),
+            "",
+        )
+        if series == "":
+            return None
+        resolved_brand = "YL惠伦"
+        package_code = HUILUN_TIMING_SERIES_PACKAGES[series]
+        component_type = (
+            "晶振"
+            if series.endswith(("S", "Y", "Z", "K", "SQ")) or series == "AS"
+            else "振荡器"
+        )
+        authority = "huilun_official_series_nomenclature"
+        source_url = "https://www.dgylec.com/web/index/productcategory.html"
+
+    if resolved_brand == "" and "TXC" in brand_upper:
+        series = re.split(r"[-_]", model_text, maxsplit=1)[0]
+        if series == "":
+            return None
+        resolved_brand = "TXC"
+        component_type = normalize_component_type("晶振" if "CRYSTAL" in brand_upper else "")
+        authority = "txc_official_series_nomenclature"
+        source_url = "https://www.txccorp.com/en/search/act/?act=1&filter=&page=1&keyword="
+
+    if resolved_brand == "":
+        return None
+
+    result = {
+        "品牌": resolved_brand,
+        "型号": clean_text(model),
+        "系列": series,
+        "器件类型": component_type,
+        "尺寸（inch）": package_code,
+        "封装代码": package_code,
+        "材质（介质）": "Quartz",
+        "安装方式": "贴片",
+        "型号粒度": "官方系列识别",
+        "数据来源": source_url,
+        "官网链接": source_url,
+        "数据状态": "仅识别官方系列/封装，完整订购参数待确认",
+        "校验备注": (
+            "型号只解码官方已公开的品牌、系列、封装和器件类别；"
+            "频率、负载电容、频差、温稳、ESR、驱动和老化等未公开字段不作推断。"
+        ),
+        "_model_rule_authority": authority,
+        "_core_param_count": 1 + int(package_code != ""),
+        "_param_count": 2 + int(package_code != ""),
+    }
+    if package_code:
+        result["系列说明"] = f"{resolved_brand} {series} {package_code} 系列"
+    else:
+        result["系列说明"] = f"{resolved_brand} {series} 系列"
+    return result
+
+
 def find_timing_package_code_in_text(text):
     raw = clean_text(text)
     if raw == "":
@@ -25747,6 +25925,9 @@ def parse_model_rule(model, brand="", component_type=""):
     parsed_sitime = parse_sitime_sit9121_model(m)
     if parsed_sitime is not None:
         return parsed_sitime
+    parsed_timing_series = parse_official_timing_series_model(m, brand=brand)
+    if parsed_timing_series is not None:
+        return parsed_timing_series
     parsed_bbgk = parse_pulse_bbgk_ferrite_bead(m)
     if parsed_bbgk is not None:
         return parsed_bbgk

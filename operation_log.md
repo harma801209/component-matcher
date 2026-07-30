@@ -3738,3 +3738,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Epson synchronization records the official product-number search and crystal ordering-rule references and states that concrete order numbers must come from Epson's official product-number results rather than being invented from a series name.
 - Raised the query result cache version to `109` and the public code stamp to `2026-07-30T20:29:39+08:00` so previously cached no-alternative results cannot survive the release.
 - All 42 Epson and multi-brand timing regressions pass with isolated runtime database paths. No protected runtime database or component bundle was modified.
+
+### 2026-07-30 [Multi-brand timing] Add conservative NDK/KDS/TKD/Huilun/TXC reverse identification
+
+- Audited the official timing coverage for NDK, KDS, TKD/泰晶, 惠伦 and TXC. The existing library contained 4,013 NDK records, 149 KDS series and 105 TXC series, but no TKD or Huilun records.
+- Added 101 TKD official series-range rows and 38 Huilun official series-range rows without manufacturing synthetic order numbers. The timing source now contains 29,214 records in total.
+- Added conservative series/order-code identification for all five brands. It only extracts a brand, official series, device class and package when those fields are deterministic; frequency, load capacitance, tolerance, temperature range, ESR and output configuration remain blank unless the source model or official row provides them.
+- Partial source models can now enter Epson cross-brand matching, but incomplete requirements remain `需确认配置` with missing-parameter notes rather than being labelled complete equivalents.
+- Fixed KDS duplicate-series aggregation so split product-table ranges use the minimum lower bound and maximum upper bound. `DSX321G` now correctly covers 7.9-64 MHz instead of retaining only its first range segment.
+- Rebuilt the search sidecar to 1,705,519 core rows and 59,442 value rows. All 46 focused multi-brand/Epson timing regressions pass with temporary protected-database paths.

@@ -10,6 +10,116 @@ import sync_official_timing_brands as timing_sync
 
 
 class MultiBrandTimingIntegrationTests(unittest.TestCase):
+    def test_kds_split_frequency_ranges_are_merged_to_full_series_range(self):
+        source = pd.DataFrame(
+            [
+                {
+                    "Model": "DSX321G",
+                    "Size (L×W) [mm]": "3.2 x 2.5",
+                    "Frequency [MHz]": "7.9 to 12",
+                    "Frequency Tolerance [×10-6]": "20",
+                    "Load Capacitance [pF]": "8, 10, 12",
+                },
+                {
+                    "Model": "DSX321G",
+                    "Size (L×W) [mm]": "3.2 x 2.5",
+                    "Frequency [MHz]": "12 to 64",
+                    "Frequency Tolerance [×10-6]": "20",
+                    "Load Capacitance [pF]": "8, 10, 12",
+                },
+            ]
+        )
+
+        with (
+            mock.patch.object(
+                timing_sync,
+                "KDS_SOURCES",
+                {"https://example.invalid/kds": "晶振"},
+            ),
+            mock.patch.object(
+                timing_sync,
+                "read_official_tables",
+                return_value=[source],
+            ),
+        ):
+            rows = timing_sync.build_kds_rows(mock.Mock(), "2026-07-30 21:00:00")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["频率下限"], "7.9")
+        self.assertEqual(rows[0]["频率上限"], "64")
+
+    def test_tkd_official_product_table_is_parsed_as_series_range(self):
+        markup = """
+        <div class="table-row">
+          <div class="col-root-class">高频晶体MHz</div>
+          <div class="col-class">SEAM封装 MHz</div>
+          <div class="col-series"><a href="/sx-3225/">SX-3225</a></div>
+          <div class="col-size">3.2 x 2.5</div>
+          <div class="col-freq">8MHz ~ 200MHz</div>
+          <div class="col-accuracy">±10ppm(可定制)</div>
+          <div class="col-zd_product_title3">±10ppm(可定制)</div>
+          <div class="col-temp">-40 ~ +85℃</div>
+          <div class="col-load">6pF, 10pF, 12pF, 16pF</div>
+          <div class="col-feature">高稳定性，低老化率</div>
+        </div>
+        """
+
+        class Response:
+            content = markup.encode("utf-8")
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        class Session:
+            @staticmethod
+            def get(_url, timeout=90):
+                return Response()
+
+        with mock.patch.object(
+            timing_sync,
+            "TKD_SOURCES",
+            {"https://www.sztkd.com/seam_package_crystal_mhz/": "晶振"},
+        ):
+            rows = timing_sync.build_tkd_rows(Session(), "2026-07-30 21:00:00")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["品牌"], "TKD泰晶")
+        self.assertEqual(rows[0]["型号"], "SX-3225")
+        self.assertEqual(rows[0]["尺寸（inch）"], "3225")
+        self.assertEqual(rows[0]["频率下限"], "8")
+        self.assertEqual(rows[0]["频率上限"], "200")
+        self.assertEqual(rows[0]["负载电容选项"], "|6|10|12|16|")
+        self.assertEqual(rows[0]["型号粒度"], "官方系列范围")
+
+    def test_huilun_official_series_rows_are_available_but_not_fake_exact_parts(self):
+        rows = timing_sync.build_huilun_rows("2026-07-30 21:00:00")
+        frame = pd.DataFrame(rows).set_index("型号")
+
+        self.assertIn("9C", frame.index)
+        self.assertIn("1S", frame.index)
+        self.assertIn("9Y", frame.index)
+        self.assertEqual(frame.loc["9C", "尺寸（inch）"], "2016")
+        self.assertEqual(frame.loc["9C", "频率下限"], "1")
+        self.assertEqual(frame.loc["9C", "频率上限"], "60")
+        self.assertEqual(frame.loc["9C", "型号粒度"], "官方系列范围")
+
+    def test_official_timing_series_decoders_do_not_invent_missing_frequency(self):
+        ndk = cm.parse_model_rule("NX3225SA")
+        kds = cm.parse_model_rule("DSX321G")
+        tkd = cm.parse_model_rule("SX-3225", brand="泰晶")
+        huilun = cm.parse_model_rule("9CABC", brand="惠伦")
+
+        self.assertEqual(ndk["品牌"], "NDK")
+        self.assertEqual(ndk["尺寸（inch）"], "3225")
+        self.assertEqual(kds["品牌"], "KDS大真空")
+        self.assertEqual(tkd["品牌"], "TKD泰晶")
+        self.assertEqual(huilun["品牌"], "YL惠伦")
+        for parsed in [ndk, kds, tkd, huilun]:
+            self.assertNotIn("频率", parsed)
+            self.assertNotIn("输出频率", parsed)
+            self.assertIn("完整订购参数待确认", parsed["数据状态"])
+
     def test_timing_sidecar_filter_allows_tighter_frequency_tolerance(self):
         where_clauses = []
         params = []

@@ -15,6 +15,7 @@ from urllib.parse import urljoin
 
 import pandas as pd
 import requests
+from lxml import html
 
 import component_matcher as cm
 from incremental_semiconductor_cache_update import (
@@ -31,6 +32,88 @@ NDK_API_URL = "https://www.ndk.com/cgi-bin/parametric/searchlist.php"
 NDK_PRODUCTS_BASE = "https://www.ndk.com"
 KYOCERA_BASE = "https://ele.kyocera.com"
 TXC_SEARCH_URL = "https://www.txccorp.com/en/search/act/?act=1&filter=&page=1&keyword="
+
+TKD_SOURCES = {
+    "https://www.sztkd.com/cylindrical_crystal/": "晶振",
+    "https://www.sztkd.com/plastic_package_crystal/": "晶振",
+    "https://www.sztkd.com/seam_package_crystal/": "晶振",
+    "https://www.sztkd.com/automotive_grade_crystal/": "晶振",
+    "https://www.sztkd.com/49_series/": "晶振",
+    "https://www.sztkd.com/seam_package_crystal_mhz/": "晶振",
+    "https://www.sztkd.com/automotive_grade_crystal_mhz/": "晶振",
+    "https://www.sztkd.com/standard_tsx/": "晶振",
+    "https://www.sztkd.com/automotive_grade_tsx/": "晶振",
+    "https://www.sztkd.com/standard_xo/": "振荡器",
+    "https://www.sztkd.com/low_voltage_xo/": "振荡器",
+    "https://www.sztkd.com/programmable_xo/": "振荡器",
+    "https://www.sztkd.com/wide_temperature_xo/": "振荡器",
+    "https://www.sztkd.com/spread_spectrum/": "振荡器",
+    "https://www.sztkd.com/automotive_grade_xo/": "振荡器",
+    "https://www.sztkd.com/standard_tcxo/": "振荡器",
+    "https://www.sztkd.com/cmos_tcxo/": "振荡器",
+    "https://www.sztkd.com/wide_temperature_tcxo/": "振荡器",
+    "https://www.sztkd.com/high_precision_tcxo/": "振荡器",
+    "https://www.sztkd.com/low_voltage_tcxo/": "振荡器",
+    "https://www.sztkd.com/low_phase_noise_tcxo/": "振荡器",
+    "https://www.sztkd.com/high_frequency_tcxo/": "振荡器",
+    "https://www.sztkd.com/automotive_grade_tcxo/": "振荡器",
+    "https://www.sztkd.com/high_fundamental_frequency_dxo/": "振荡器",
+    "https://www.sztkd.com/ultra_high_fundamental_frequency_dxo/": "振荡器",
+    "https://www.sztkd.com/temperature_compensated_dxo/": "振荡器",
+    "https://www.sztkd.com/programmable_dxo/": "振荡器",
+    "https://www.sztkd.com/automotive_grade_dxo/": "振荡器",
+    "https://www.sztkd.com/standard_ocxo/": "振荡器",
+    "https://www.sztkd.com/miniature_ocxo/": "振荡器",
+    "https://www.sztkd.com/ultra_low_phase_noise_ocxo/": "振荡器",
+    "https://www.sztkd.com/ultra_high_precision_ocxo/": "振荡器",
+}
+
+HUILUN_SERIES = [
+    # Series and ranges are published on YL/Huilun's official product/application pages.
+    {"series": "AS", "type": "晶振", "size": "1.2 x 1.0", "frequency": "", "family": "SMD Crystal"},
+    {"series": "1S", "type": "晶振", "size": "1.6 x 1.2", "frequency": "20~96MHz", "family": "SMD Crystal"},
+    {"series": "9S", "type": "晶振", "size": "2.0 x 1.6", "frequency": "", "family": "SMD Crystal"},
+    {"series": "2S", "type": "晶振", "size": "2.5 x 2.0", "frequency": "12~96MHz", "family": "SMD Crystal"},
+    {"series": "3S", "type": "晶振", "size": "3.2 x 2.5", "frequency": "8~96MHz", "family": "SMD Crystal"},
+    {"series": "9Y", "type": "晶振", "size": "2.0 x 1.6", "frequency": "16~96MHz", "family": "Automotive Crystal", "special": "车规"},
+    {"series": "2Y", "type": "晶振", "size": "2.5 x 2.0", "frequency": "8~60MHz", "family": "Automotive Crystal", "special": "车规"},
+    {"series": "3Y", "type": "晶振", "size": "3.2 x 2.5", "frequency": "8~60MHz", "family": "Automotive Crystal", "special": "车规"},
+    {"series": "1Z", "type": "晶振", "size": "1.6 x 1.2", "frequency": "19.2/26/38.4/52/76.8MHz", "family": "Thermal Crystal"},
+    {"series": "9Z", "type": "晶振", "size": "2.0 x 1.6", "frequency": "", "family": "Thermal Crystal"},
+    {"series": "2Z", "type": "晶振", "size": "2.5 x 2.0", "frequency": "19.2/26/76.8MHz", "family": "Thermal Crystal"},
+    {"series": "1K", "type": "晶振", "size": "1.6 x 1.2", "frequency": "19.2/26/38.4/52/76.8MHz", "family": "Automotive Thermal Crystal", "special": "车规"},
+    {"series": "9K", "type": "晶振", "size": "2.0 x 1.6", "frequency": "19.2/26/38.4/52MHz", "family": "Automotive Thermal Crystal", "special": "车规"},
+    {"series": "1SQ", "type": "晶振", "size": "1.6 x 1.0", "frequency": "32.768kHz", "family": "32.768kHz Crystal"},
+    {"series": "2SQ", "type": "晶振", "size": "2.0 x 1.2", "frequency": "32.768kHz", "family": "32.768kHz Crystal"},
+    {"series": "3SQ", "type": "晶振", "size": "3.2 x 1.5", "frequency": "32.768kHz", "family": "32.768kHz Crystal"},
+    {"series": "7PSQ", "type": "晶振", "size": "7.0 x 1.5", "frequency": "32.768kHz", "family": "32.768kHz Crystal"},
+    {"series": "7SQ", "type": "晶振", "size": "7.0 x 1.5", "frequency": "32.768kHz", "family": "32.768kHz Crystal"},
+    {"series": "1T", "type": "振荡器", "size": "1.6 x 1.2", "frequency": "13~52MHz", "family": "TCXO"},
+    {"series": "9T", "type": "振荡器", "size": "2.0 x 1.6", "frequency": "", "family": "TCXO"},
+    {"series": "2T", "type": "振荡器", "size": "2.5 x 2.0", "frequency": "13~40MHz", "family": "TCXO"},
+    {"series": "3T", "type": "振荡器", "size": "3.2 x 2.5", "frequency": "12~60MHz", "family": "TCXO"},
+    {"series": "9N", "type": "振荡器", "size": "2.0 x 1.6", "frequency": "", "family": "Automotive TCXO", "special": "车规"},
+    {"series": "9C", "type": "振荡器", "size": "2.0 x 1.6", "frequency": "1~60MHz", "family": "XO", "tolerance": "±10/15/20/25/30/50ppm"},
+    {"series": "2C", "type": "振荡器", "size": "2.5 x 2.0", "frequency": "1~62.5MHz", "family": "XO"},
+    {"series": "3C", "type": "振荡器", "size": "3.2 x 2.5", "frequency": "1~125MHz", "family": "XO"},
+    {"series": "5C", "type": "振荡器", "size": "5.0 x 3.2", "frequency": "", "family": "XO"},
+    {"series": "7C", "type": "振荡器", "size": "7.0 x 5.0", "frequency": "", "family": "XO"},
+    {"series": "9L", "type": "振荡器", "size": "2.0 x 1.6", "frequency": "1~54MHz", "family": "Automotive XO", "special": "车规"},
+    {"series": "2L", "type": "振荡器", "size": "2.5 x 2.0", "frequency": "", "family": "Automotive XO", "special": "车规"},
+    {"series": "3L", "type": "振荡器", "size": "3.2 x 2.5", "frequency": "1~54MHz", "family": "Automotive XO", "special": "车规"},
+    {"series": "5L", "type": "振荡器", "size": "5.0 x 3.2", "frequency": "1~50MHz", "family": "Automotive XO（另有32.768kHz配置）", "special": "车规"},
+    {"series": "7L", "type": "振荡器", "size": "7.0 x 5.0", "frequency": "", "family": "Automotive XO", "special": "车规"},
+    {"series": "3D", "type": "振荡器", "size": "3.2 x 2.5", "frequency": "", "family": "LVDS Differential XO", "output": "LVDS"},
+    {"series": "5D", "type": "振荡器", "size": "5.0 x 3.2", "frequency": "", "family": "LVDS Differential XO", "output": "LVDS"},
+    {"series": "7D", "type": "振荡器", "size": "7.0 x 5.0", "frequency": "", "family": "LVDS Differential XO", "output": "LVDS"},
+    {"series": "3P", "type": "振荡器", "size": "3.2 x 2.5", "frequency": "", "family": "LVPECL Differential XO", "output": "LVPECL"},
+    {"series": "5P", "type": "振荡器", "size": "5.0 x 3.2", "frequency": "", "family": "LVPECL Differential XO", "output": "LVPECL"},
+]
+HUILUN_OFFICIAL_URL = "https://www.dgylec.com/web/index/productcategory.html"
+HUILUN_NETWORK_URL = "https://www.dgylec.com/programme-network/ids/105.html"
+HUILUN_XO_URL = "https://www.dgylec.com/programme-network/ids/102.html"
+HUILUN_AUTOMOTIVE_URL = "https://www.dgylec.com/programme-network/ids/101.html"
+HUILUN_9C_URL = "https://www.dgylec.com/product/2910_9C%2BSeries%2B%282016%2BMHz%29.html"
 
 KYOCERA_SOURCES = {
     "crystal": {
@@ -1022,9 +1105,20 @@ def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                 existing["特殊用途"] = combined_special
                 if "AEC" in combined_special.upper():
                     existing["AEC等级"] = aec or existing.get("AEC等级", "")
-                if existing.get("频率下限", "") == "" and candidate.get("频率下限", ""):
-                    existing["频率下限"] = candidate["频率下限"]
-                    existing["频率上限"] = candidate["频率上限"]
+                for column, selector in (
+                    ("频率下限", min),
+                    ("频率上限", max),
+                ):
+                    current_bound = clean_number(existing.get(column))
+                    candidate_bound = clean_number(candidate.get(column))
+                    if not candidate_bound:
+                        continue
+                    if not current_bound:
+                        existing[column] = candidate_bound
+                        continue
+                    existing[column] = clean_number(
+                        selector(float(current_bound), float(candidate_bound))
+                    )
                 existing["频率选项"] = normalized_option_string(
                     extract_numeric_options(existing.get("频率选项", ""))
                     + extract_numeric_options(candidate.get("频率选项", ""))
@@ -1038,6 +1132,197 @@ def build_kds_rows(session: requests.Session, checked_at: str) -> list[dict[str,
                     + extract_numeric_options(candidate.get("负载电容选项", ""))
                 )
     return list(merged.values())
+
+
+def element_class_text(element: Any, class_name: str) -> str:
+    matches = element.xpath(
+        f".//*[contains(concat(' ', normalize-space(@class), ' '), ' {class_name} ')]"
+    )
+    if not matches:
+        return ""
+    return clean_text(" ".join(matches[0].text_content().split()))
+
+
+def build_tkd_rows(session: requests.Session, checked_at: str) -> list[dict[str, Any]]:
+    result = []
+    for source_url, component_type in TKD_SOURCES.items():
+        response = session.get(source_url, timeout=90)
+        response.raise_for_status()
+        document = html.fromstring(response.content)
+        table_rows = document.xpath(
+            "//div[contains(concat(' ', normalize-space(@class), ' '), ' table-row ')]"
+        )
+        for source_row in table_rows:
+            series = element_class_text(source_row, "col-series")
+            if series == "":
+                continue
+            size_text = element_class_text(source_row, "col-size")
+            frequency_text = element_class_text(source_row, "col-freq")
+            tolerance_text = element_class_text(source_row, "col-accuracy")
+            temperature_stability_text = element_class_text(
+                source_row, "col-zd_product_title3"
+            )
+            operating_temperature = element_class_text(source_row, "col-temp")
+            load_cap_text = element_class_text(source_row, "col-load")
+            voltage_text = element_class_text(source_row, "col-zd_product_title4")
+            output_type = element_class_text(source_row, "col-zd_product_title5")
+            features = element_class_text(source_row, "col-feature")
+            root_class = element_class_text(source_row, "col-root-class")
+            category = element_class_text(source_row, "col-class")
+            profile = frequency_profile(
+                frequency_text,
+                "kHz" if "KHZ" in frequency_text.upper() else "MHz",
+            )
+            tolerance, tolerance_options = tolerance_profile(tolerance_text)
+            temperature_tolerance, _ = tolerance_profile(temperature_stability_text)
+            voltage, voltage_options = voltage_profile(voltage_text)
+            length, width, height, size_code = dimensions_from_text(size_text)
+            load_cap = clean_number(load_cap_text)
+            hrefs = [
+                clean_text(value)
+                for value in source_row.xpath(".//a[@href]/@href")
+                if clean_text(value)
+                and not clean_text(value).lower().startswith("javascript:")
+            ]
+            product_url = urljoin(source_url, hrefs[0]) if hrefs else source_url
+            special_use = "/".join(
+                value
+                for value in [
+                    "车规" if "AUTOMOTIVE" in source_url.upper() or "车规" in category else "",
+                    features,
+                ]
+                if value
+            )
+            row = base_row(
+                品牌="TKD泰晶",
+                型号=series,
+                系列=series,
+                **{
+                    "尺寸（inch）": size_code,
+                    "材质（介质）": "Quartz",
+                    "容值": profile["exact"],
+                    "容值单位": profile["unit"],
+                    "容值误差": tolerance,
+                    "耐压（V）": voltage,
+                    "特殊用途": special_use,
+                    "备注1": features,
+                    "备注2": product_url,
+                    "备注3": source_url,
+                    "器件类型": component_type,
+                    "安装方式": "贴片",
+                    "封装代码": size_code,
+                    "尺寸（mm）": " x ".join(value for value in [length, width, height] if value),
+                    "生产状态": "官方当前系列",
+                    "长度（mm）": length,
+                    "宽度（mm）": width,
+                    "高度（mm）": height,
+                    "官网链接": product_url,
+                    "数据来源": source_url,
+                    "数据状态": "TKD泰晶官方系列范围，需确认完整订购料号",
+                    "校验时间": checked_at,
+                    "校验备注": "系列和参数范围由TKD泰晶官方产品表直接映射；未公开订购码字段不作推断",
+                    "ESR": element_class_text(source_row, "col-resist"),
+                    "工作温度": normalize_temperature(operating_temperature),
+                    "系列说明": f"TKD {series} {root_class} {category}".strip(),
+                    "输出频率": profile["exact"] if component_type == "振荡器" else "",
+                    "频率": profile["exact"] if component_type == "晶振" else "",
+                    "频率单位": profile["unit"],
+                    "频差（ppm）": tolerance,
+                    "电源电压": voltage,
+                    "输出类型": output_type,
+                    "负载电容（pF）": load_cap,
+                    "尺寸来源": "TKD泰晶官方产品表",
+                    "型号粒度": "官方系列范围",
+                    "频率下限": profile["minimum"],
+                    "频率上限": profile["maximum"],
+                    "频率选项": profile["options"],
+                    "频差选项": tolerance_options,
+                    "电压选项": voltage_options,
+                    "负载电容选项": normalized_option_string(
+                        extract_numeric_options(load_cap_text)
+                    ),
+                    "频率温度特性（ppm）": temperature_tolerance,
+                    "AEC等级": "AEC-Q200" if "车规" in special_use else "",
+                },
+            )
+            row["规格摘要"] = timing_summary(row)
+            result.append(row)
+    return result
+
+
+def build_huilun_rows(checked_at: str) -> list[dict[str, Any]]:
+    result = []
+    for source_profile in HUILUN_SERIES:
+        series = clean_text(source_profile.get("series"))
+        component_type = clean_text(source_profile.get("type"))
+        frequency_text = clean_text(source_profile.get("frequency"))
+        size_text = clean_text(source_profile.get("size"))
+        profile = frequency_profile(
+            frequency_text,
+            "kHz" if "KHZ" in frequency_text.upper() else "MHz",
+        )
+        tolerance, tolerance_options = tolerance_profile(
+            source_profile.get("tolerance", "")
+        )
+        length, width, height, size_code = dimensions_from_text(size_text)
+        family = clean_text(source_profile.get("family"))
+        if series == "9C":
+            source_url = HUILUN_9C_URL
+        elif "Automotive" in family:
+            source_url = HUILUN_AUTOMOTIVE_URL
+        elif family == "XO" or "Differential XO" in family:
+            source_url = HUILUN_XO_URL
+        else:
+            source_url = HUILUN_NETWORK_URL
+        row = base_row(
+            品牌="YL惠伦",
+            型号=series,
+            系列=series,
+            **{
+                "尺寸（inch）": size_code,
+                "材质（介质）": "Quartz",
+                "容值": profile["exact"],
+                "容值单位": profile["unit"],
+                "容值误差": tolerance,
+                "特殊用途": clean_text(source_profile.get("special")),
+                "备注1": family,
+                "备注2": source_url,
+                "备注3": HUILUN_OFFICIAL_URL,
+                "器件类型": component_type,
+                "安装方式": "贴片",
+                "封装代码": size_code,
+                "尺寸（mm）": " x ".join(value for value in [length, width, height] if value),
+                "生产状态": "官方当前系列",
+                "长度（mm）": length,
+                "宽度（mm）": width,
+                "高度（mm）": height,
+                "官网链接": source_url,
+                "数据来源": source_url,
+                "数据状态": "YL惠伦官方系列范围，需确认完整订购料号",
+                "校验时间": checked_at,
+                "校验备注": "系列、封装和公开频率范围来自YL惠伦官方产品/应用页；未公开订购码字段不作推断",
+                "系列说明": f"YL Huilun {series} {family}".strip(),
+                "输出频率": profile["exact"] if component_type == "振荡器" else "",
+                "频率": profile["exact"] if component_type == "晶振" else "",
+                "频率单位": profile["unit"],
+                "频差（ppm）": tolerance,
+                "输出类型": clean_text(source_profile.get("output")),
+                "尺寸来源": "YL惠伦官方产品系列",
+                "型号粒度": "官方系列范围",
+                "频率下限": profile["minimum"],
+                "频率上限": profile["maximum"],
+                "频率选项": profile["options"],
+                "频差选项": tolerance_options,
+                "AEC等级": (
+                    "AEC-Q200"
+                    if "车规" in clean_text(source_profile.get("special"))
+                    else ""
+                ),
+            },
+        )
+        row["规格摘要"] = timing_summary(row)
+        result.append(row)
+    return result
 
 
 def build_murata_rows(session: requests.Session, checked_at: str) -> list[dict[str, Any]]:
@@ -1238,6 +1523,8 @@ def fetch_official_rows(selected_sources: set[str] | None = None) -> tuple[pd.Da
         "ndk",
         "txc",
         "kds",
+        "tkd",
+        "huilun",
         "murata",
         "sitime",
     }
@@ -1251,6 +1538,8 @@ def fetch_official_rows(selected_sources: set[str] | None = None) -> tuple[pd.Da
             ("ndk", lambda: build_ndk_rows(session, checked_at)),
             ("txc", lambda: build_txc_rows(session, checked_at)),
             ("kds", lambda: build_kds_rows(session, checked_at)),
+            ("tkd", lambda: build_tkd_rows(session, checked_at)),
+            ("huilun", lambda: build_huilun_rows(checked_at)),
             ("murata", lambda: build_murata_rows(session, checked_at)),
             ("sitime", lambda: build_sitime_rows(session, checked_at)),
         ]
@@ -1297,11 +1586,11 @@ def refresh_runtime_caches(frame: pd.DataFrame, source_path: Path) -> dict[str, 
     counts = refresh_search_sidecar_rows(prepared)
     try:
         replaced = replace_prepared_cache_rows(prepared)
-    except PermissionError:
+    except (FileNotFoundError, PermissionError):
         # A running Streamlit process can keep the parquet file open on Windows.
-        # The compact search sidecar is already refreshed and is sufficient for
-        # public/runtime matching; defer the parquet replacement instead of
-        # interrupting an active user session.
+        # Some release worktrees also omit the optional prepared parquet. The
+        # compact search sidecar is already refreshed and is sufficient for
+        # public/runtime matching, so defer that optional replacement.
         replaced = -1
     return {
         "source_rows": int(len(frame)),
@@ -1324,8 +1613,16 @@ def main() -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--sources",
-        default="abracon,kyocera,ndk,txc,kds,murata,sitime",
-        help="Comma-separated sources: abracon,kyocera,ndk,txc,kds,murata,sitime",
+        default="abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime",
+        help=(
+            "Comma-separated sources: "
+            "abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime"
+        ),
+    )
+    parser.add_argument(
+        "--merge-existing",
+        action="store_true",
+        help="Replace only selected brand rows in an existing output CSV.",
     )
     parser.add_argument(
         "--apply-cache",
@@ -1343,6 +1640,29 @@ def main() -> int:
         if clean_text(value)
     }
     frame, source_counts = fetch_official_rows(selected_sources)
+    if args.merge_existing and output_path.exists():
+        existing = pd.read_csv(output_path, dtype=str, keep_default_na=False)
+        source_brand_map = {
+            "abracon": {"Abracon"},
+            "kyocera": {"京瓷Kyocera"},
+            "ndk": {"NDK"},
+            "txc": {"TXC"},
+            "kds": {"KDS大真空"},
+            "tkd": {"TKD泰晶"},
+            "huilun": {"YL惠伦"},
+            "murata": {"村田Murata"},
+            "sitime": {"SiTime"},
+        }
+        replaced_brands = set().union(
+            *(source_brand_map.get(source, set()) for source in selected_sources)
+        )
+        if "品牌" in existing.columns and replaced_brands:
+            existing = existing[
+                ~existing["品牌"].astype(str).isin(replaced_brands)
+            ].copy()
+        frame = finalize_rows(
+            pd.concat([existing, frame], ignore_index=True).to_dict("records")
+        )
     write_csv_atomically(frame, output_path)
     print(f"source_csv={output_path}")
     print(f"official_rows={len(frame)}")
