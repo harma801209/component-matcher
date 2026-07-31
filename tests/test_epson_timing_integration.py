@@ -675,6 +675,113 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
 
         self.assertEqual(matched["推荐等级"].tolist(), ["部分参数匹配"])
 
+    def test_higher_esr_crystal_is_not_labeled_complete(self):
+        rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0001710001",
+                    "系列": "FC2012AN",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2012",
+                    "容值": "32.768",
+                    "容值单位": "kHz",
+                    "容值误差": "20",
+                    "负载电容（pF）": "12.5",
+                    "工作温度": "-40~+105℃",
+                    "ESR": "60kΩ Max",
+                    "驱动电平": "0.5µW Max",
+                    "25℃老化（ppm）": "±3ppm",
+                    "拐点温度": "+25℃ ±5℃",
+                    "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+                    "泛音阶次": "基频（Fundamental）",
+                },
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0002010001",
+                    "系列": "FC2012SN",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2012",
+                    "容值": "32.768",
+                    "容值单位": "kHz",
+                    "容值误差": "20",
+                    "负载电容（pF）": "12.5",
+                    "工作温度": "-40~+105℃",
+                    "ESR": "100kΩ Max",
+                    "驱动电平": "0.5µW Max",
+                    "25℃老化（ppm）": "±3ppm",
+                    "拐点温度": "+25℃ ±5℃",
+                    "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+                    "泛音阶次": "基频（Fundamental）",
+                },
+            ]
+        )
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(rows)
+        )
+        source_spec = rows.iloc[0].to_dict()
+
+        with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):
+            matched = cm.match_other_passive_spec(prepared, source_spec)
+
+        candidate = matched[matched["型号"].eq("X1A0002010001")].iloc[0]
+        self.assertEqual(candidate["推荐等级"], "需确认替代")
+        detail = cm.timing_match_confirmation_detail(candidate, source_spec, "晶振")
+        self.assertIn("候选ESR 100kΩ Max高于原型号60kΩ Max", detail)
+        self.assertIn("振荡电路负阻裕量", detail)
+
+    def test_lower_esr_crystal_can_remain_complete_when_other_details_match(self):
+        rows = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0002010001",
+                    "系列": "FC2012SN",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2012",
+                    "容值": "32.768",
+                    "容值单位": "kHz",
+                    "容值误差": "20",
+                    "负载电容（pF）": "12.5",
+                    "工作温度": "-40~+105℃",
+                    "ESR": "100kΩ Max",
+                    "驱动电平": "0.5µW Max",
+                    "25℃老化（ppm）": "±3ppm",
+                    "拐点温度": "+25℃ ±5℃",
+                    "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+                    "泛音阶次": "基频（Fundamental）",
+                },
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0001710001",
+                    "系列": "FC2012AN",
+                    "器件类型": "晶振",
+                    "尺寸（inch）": "2012",
+                    "容值": "32.768",
+                    "容值单位": "kHz",
+                    "容值误差": "20",
+                    "负载电容（pF）": "12.5",
+                    "工作温度": "-40~+105℃",
+                    "ESR": "60kΩ Max",
+                    "驱动电平": "0.5µW Max",
+                    "25℃老化（ppm）": "±3ppm",
+                    "拐点温度": "+25℃ ±5℃",
+                    "抛物线系数（ppm/℃²）": "-0.04ppm/℃²",
+                    "泛音阶次": "基频（Fundamental）",
+                },
+            ]
+        )
+        prepared = cm.prepare_search_dataframe(
+            cm.normalize_imported_component_dataframe(rows)
+        )
+        source_spec = rows.iloc[0].to_dict()
+
+        with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):
+            matched = cm.match_other_passive_spec(prepared, source_spec)
+
+        candidate = matched[matched["型号"].eq("X1A0001710001")].iloc[0]
+        self.assertEqual(candidate["推荐等级"], "完全匹配")
+
     def test_detailed_crystal_match_rejects_known_parameter_conflicts(self):
         rows = pd.DataFrame(
             [

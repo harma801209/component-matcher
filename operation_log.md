@@ -3763,3 +3763,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added legacy Epson series-list detection so `FC2012AN`, `FC2012AA`, and `FC2012SN` display under series with concrete-PN confirmation, while exact identifiers such as `X1A0001710001` remain models.
 - Applied the same rule to KDS, TXC, TKD, Huilun, SiTime, Murata, and other timing rows through shared granularity metadata. NDK official model+frequency+specification ordering combinations remain eligible.
 - Verified 54 Epson/multi-brand timing tests, 39 system/BOM tests, and the 33-test release safety gate with isolated runtime databases.
+
+### 2026-07-31 [Crystal ESR matching] Prevent higher-ESR parts from being marked complete
+
+- Confirmed the official Epson rows already distinguish `X1A0001710001` (`FC2012AN`, ESR `60kΩ Max`) from `X1A0002010001` (`FC2012SN`, ESR `100kΩ Max`).
+- Fixed exact-model reverse matching so the source model's ESR participates in candidate classification even when the user did not type ESR explicitly.
+- A candidate with a higher maximum ESR now remains visible as `需确认替代`, with a note identifying the ESR increase and requiring oscillator negative-resistance margin confirmation. Missing candidate ESR prevents a complete-match label.
+- The rule is directional: a lower-or-equal ESR candidate may remain complete when every other required parameter matches, while a higher-ESR candidate cannot.
+- Added bidirectional regressions for the two Epson orderable product numbers. All 36 Epson timing tests and 33 system regressions pass without modifying protected runtime data.

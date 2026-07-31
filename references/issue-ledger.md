@@ -992,3 +992,11 @@
 - Fix: keep internal series aliases searchable, but blank the model field for timing rows classified as a series, template, or configurable record and preserve the original token in the series field. Legacy Epson crystal-list rows now receive an inferred `官方系列/具体PN需确认` granularity.
 - Export safety: BOM primary, preferred-brand, own-brand, and other-brand model fields now exclude non-orderable timing series. Concrete product numbers and official ordering combinations remain eligible.
 - Verification: real database lookups show `FC2012AN` and `FC2012AA` only as series, while `X1A0001710001` remains an `官方逐料号` model. Epson/multi-brand timing tests, system/BOM regressions, and the release safety gate pass.
+
+## 2026-07-31 - Higher-ESR crystal was incorrectly labelled as a complete replacement
+
+- Symptom: searching Epson `X1A0001710001` returned `X1A0002010001` as `完全匹配`, although the source is `FC2012AN` with ESR `60kΩ Max` and the candidate is `FC2012SN` with ESR `100kΩ Max`.
+- Root cause: the database contained both ESR values, but candidate-level timing classification only checked ESR when it appeared explicitly in typed query text. ESR recovered from an exact source model was used in confirmation notes but not in the complete-match decision.
+- Fix: compare source and candidate ESR for every exact-model crystal match. Missing ESR prevents a complete label; known higher ESR becomes `需确认替代` and records the difference plus the need to confirm oscillator negative-resistance margin.
+- Directionality: lower-or-equal candidate ESR is acceptable when the remaining required parameters match. The reverse direction is not treated as equivalent.
+- Verification: bidirectional Epson regressions pass, the full 36-test timing suite passes, and all 33 system regressions pass with protected runtime databases unchanged.

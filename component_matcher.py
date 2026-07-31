@@ -21503,6 +21503,28 @@ def timing_detail_candidate_state(row, spec):
     return True, complete
 
 
+def timing_crystal_esr_candidate_state(row, spec):
+    required_text = clean_text(spec.get("ESR", ""))
+    if required_text == "":
+        return True, True
+    candidate_text = clean_text(row.get("ESR", ""))
+    if candidate_text == "":
+        return True, False
+
+    required_value = parse_resistive_measurement_to_ohms(
+        re.sub(r"(?i)(MAX|TYP|MIN).*$", "", required_text).strip(),
+        default_unit="Ω",
+    )
+    candidate_value = parse_resistive_measurement_to_ohms(
+        re.sub(r"(?i)(MAX|TYP|MIN).*$", "", candidate_text).strip(),
+        default_unit="Ω",
+    )
+    if required_value is None or candidate_value is None:
+        same_text = clean_text(candidate_text).upper() == clean_text(required_text).upper()
+        return same_text, same_text
+    return candidate_value <= required_value + 1e-9, True
+
+
 def timing_query_has_complete_details(spec, component_type):
     if component_type == "实时时钟模块":
         return all(
@@ -32388,6 +32410,16 @@ def match_other_passive_spec(df, spec):
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
+        if component_type == "晶振":
+            esr_states = work.apply(
+                lambda row: timing_crystal_esr_candidate_state(row, spec),
+                axis=1,
+            )
+        else:
+            esr_states = pd.Series([(True, True)] * len(work), index=work.index)
+        esr_allows = esr_states.apply(lambda state: bool(state[0]))
+        esr_complete = esr_states.apply(lambda state: bool(state[1]))
+        esr_conflict = esr_complete & ~esr_allows
         if spec_model != "":
             work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
         else:
@@ -32405,20 +32437,33 @@ def match_other_passive_spec(df, spec):
                 )
             )
         )
-        detail_complete = detail_states.apply(lambda state: bool(state[1]))
+        detail_complete = (
+            detail_states.apply(lambda state: bool(state[1]))
+            & esr_complete
+            & esr_allows
+        )
         work["推荐等级"] = "部分参数匹配"
         if complete_query:
             work.loc[detail_complete, "推荐等级"] = "完全匹配"
         configurable_mask = work.apply(timing_model_requires_configuration, axis=1)
         work["_configuration_rank"] = configurable_mask.astype(int)
         work.loc[configurable_mask, "推荐等级"] = "需确认配置"
+        work.loc[esr_conflict & ~configurable_mask, "推荐等级"] = "需确认替代"
         work.loc[work["_exact_model_rank"].eq(0) & ~configurable_mask, "推荐等级"] = "完全匹配"
+        work["_level_rank"] = work["推荐等级"].map(
+            {
+                "完全匹配": 0,
+                "部分参数匹配": 1,
+                "需确认配置": 2,
+                "需确认替代": 3,
+            }
+        ).fillna(9)
         work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
         work = work.sort_values(
-            by=["_exact_model_rank", "_configuration_rank", "_brand_rank", "品牌", "型号"],
-            ascending=[True, True, True, True, True],
+            by=["_exact_model_rank", "_level_rank", "_configuration_rank", "_brand_rank", "品牌", "型号"],
+            ascending=[True, True, True, True, True, True],
             kind="mergesort",
-        ).drop(columns=["_exact_model_rank", "_configuration_rank", "_brand_rank"], errors="ignore")
+        ).drop(columns=["_exact_model_rank", "_level_rank", "_configuration_rank", "_brand_rank"], errors="ignore")
         return work
 
     return pd.DataFrame()
