@@ -32,6 +32,14 @@ NDK_API_URL = "https://www.ndk.com/cgi-bin/parametric/searchlist.php"
 NDK_PRODUCTS_BASE = "https://www.ndk.com"
 KYOCERA_BASE = "https://ele.kyocera.com"
 TXC_SEARCH_URL = "https://www.txccorp.com/en/search/act/?act=1&filter=&page=1&keyword="
+LCSC_QUERY_URL = "https://wmsc.lcsc.com/ftps/wm/product/query/list"
+LCSC_TIMING_BRANDS = {
+    83: {"brand": "TXC", "catalogs": (1155, 1157)},
+    78: {"brand": "KDS大真空", "catalogs": (1155, 1157)},
+    11696: {"brand": "TKD泰晶", "catalogs": (1155, 1157)},
+    12049: {"brand": "YL惠伦", "catalogs": (1155, 1157)},
+    1140: {"brand": "鸿星HOSONIC", "catalogs": (1155, 1157)},
+}
 
 TKD_SOURCES = {
     "https://www.sztkd.com/cylindrical_crystal/": "晶振",
@@ -309,6 +317,17 @@ def frequency_profile(text: Any, default_unit: str) -> dict[str, str]:
     }
 
 
+def explicit_frequency_profile(text: Any) -> dict[str, str] | None:
+    match = re.search(
+        r"(?<![\d.])(\d+(?:\.\d+)?)\s*(GHZ|MHZ|KHZ|HZ)\b",
+        clean_text(text),
+        flags=re.I,
+    )
+    if not match:
+        return None
+    return frequency_profile(match.group(0), match.group(2))
+
+
 def tolerance_profile(text: Any) -> tuple[str, str]:
     raw = clean_text(text)
     values = extract_numeric_options(raw, ppb_to_ppm=True)
@@ -493,11 +512,21 @@ def finalize_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
     frame["_status_rank"] = frame["生产状态"].map(
         {"量产": 0, "新品": 1, "新品/样品": 2, "样品": 3, "规划中": 4, "NRND": 5, "停产": 9}
     ).fillna(6)
+    frame["_source_rank"] = frame["型号粒度"].map(
+        {
+            "官方型号+频率+规格编号": 0,
+            "官方逐料号": 0,
+            "Epson官方具体产品编号": 0,
+            "专业分销商逐料号": 1,
+            "官方可配置系列": 5,
+            "官方系列范围": 6,
+        }
+    ).fillna(4)
     frame = frame.sort_values(
-        ["_status_rank", "型号粒度", "品牌", "型号"],
+        ["_source_rank", "_status_rank", "品牌", "型号"],
         kind="stable",
     ).drop_duplicates("_key", keep="first")
-    return frame.drop(columns=["_key", "_status_rank"]).reset_index(drop=True)
+    return frame.drop(columns=["_key", "_status_rank", "_source_rank"]).reset_index(drop=True)
 
 
 def request_session() -> requests.Session:
@@ -1015,6 +1044,212 @@ def read_official_tables(session: requests.Session, url: str) -> list[pd.DataFra
         return pd.read_html(io.StringIO(response.text), flavor="lxml")
     except Exception:
         return []
+
+
+def lcsc_query_page(
+    session: requests.Session,
+    *,
+    brand_id: int,
+    catalog_id: int,
+    current_page: int,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    payload = {
+        "globalKeyword": "",
+        "scene": "",
+        "catalogIdList": [catalog_id],
+        "brandIdList": [brand_id],
+        "encapValueList": [],
+        "isStock": False,
+        "isHot": False,
+        "isDiscount": False,
+        "isNew": False,
+        "isPreSale": False,
+        "isRecom": False,
+        "paramNameValueMap": {},
+        "currentPage": current_page,
+        "pageSize": page_size,
+    }
+    response = session.post(
+        LCSC_QUERY_URL,
+        json=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Referer": f"https://www.lcsc.com/brand/{catalog_id}-{brand_id}.html",
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get("code") != 200 or not isinstance(data.get("result"), dict):
+        raise RuntimeError(
+            f"LCSC query failed for brand={brand_id}, catalog={catalog_id}: "
+            f"{clean_text(data.get('msg')) or data.get('code')}"
+        )
+    return data["result"]
+
+
+def lcsc_param_map(source_row: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for parameter in source_row.get("paramVOList") or []:
+        name = clean_text(parameter.get("paramNameEn") or parameter.get("paramName"))
+        value = clean_text(parameter.get("paramValueEn") or parameter.get("paramValue"))
+        if name and value not in {"", "-", "—", "－"}:
+            result[name] = value
+    return result
+
+
+def package_dimensions_from_code(value: Any) -> tuple[str, str, str, str]:
+    text = clean_text(value).upper()
+    match = re.search(r"(?:SMD)?(\d{4})(?:-\d+P)?", text)
+    if not match:
+        return "", "", "", ""
+    code = match.group(1)
+    length = clean_number(int(code[:2]) / 10)
+    width = clean_number(int(code[2:]) / 10)
+    return length, width, "", code
+
+
+def lcsc_component_type(catalog_name: Any) -> str:
+    text = clean_text(catalog_name).upper()
+    if "OSCILLATOR" in text or "TCXO" in text or "VCXO" in text or "OCXO" in text:
+        return "振荡器"
+    if "CRYSTAL" in text:
+        return "晶振"
+    return ""
+
+
+def build_lcsc_timing_rows(
+    session: requests.Session,
+    checked_at: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen_products: set[str] = set()
+    for brand_id, brand_config in LCSC_TIMING_BRANDS.items():
+        brand = clean_text(brand_config["brand"])
+        for catalog_id in brand_config["catalogs"]:
+            first_page = lcsc_query_page(
+                session,
+                brand_id=brand_id,
+                catalog_id=catalog_id,
+                current_page=1,
+            )
+            total_pages = int(first_page.get("totalPage") or 0)
+            pages = [first_page]
+            for page_number in range(2, total_pages + 1):
+                pages.append(
+                    lcsc_query_page(
+                        session,
+                        brand_id=brand_id,
+                        catalog_id=catalog_id,
+                        current_page=page_number,
+                    )
+                )
+            for page in pages:
+                for source_row in page.get("dataList") or []:
+                    product_code = clean_text(source_row.get("productCode"))
+                    model = clean_text(source_row.get("productModel"))
+                    component_type = lcsc_component_type(source_row.get("catalogName"))
+                    if not model or not component_type:
+                        continue
+                    product_key = f"{brand_id}:{re.sub(r'[\s\-_]', '', model.upper())}"
+                    if product_key in seen_products:
+                        continue
+                    seen_products.add(product_key)
+                    parameters = lcsc_param_map(source_row)
+                    frequency = frequency_profile(parameters.get("Frequency"), "MHz")
+                    intro_frequency = explicit_frequency_profile(
+                        source_row.get("productIntroEn")
+                    )
+                    if intro_frequency and intro_frequency["exact"]:
+                        frequency = intro_frequency
+                    normal_tolerance, tolerance_options = tolerance_profile(
+                        parameters.get("Normal temperature Frequency Tolerance")
+                    )
+                    frequency_stability, stability_options = tolerance_profile(
+                        parameters.get("Frequency Stability")
+                    )
+                    tolerance = normal_tolerance or frequency_stability
+                    if not tolerance_options:
+                        tolerance_options = stability_options
+                    voltage, voltage_options = voltage_profile(
+                        parameters.get("Voltage - Supply")
+                    )
+                    package = clean_text(source_row.get("encapStandard"))
+                    length, width, height, size_code = package_dimensions_from_code(package)
+                    product_url = clean_text(source_row.get("url")) or (
+                        f"https://www.lcsc.com/product-detail/{product_code}.html"
+                    )
+                    pdf_url = clean_text(source_row.get("pdfUrl"))
+                    load_capacitance = clean_number(parameters.get("Load Capacitance"))
+                    esr = clean_text(parameters.get("Equivalent Series Resistance(ESR)"))
+                    row = base_row(
+                        品牌=brand,
+                        型号=model,
+                        系列="",
+                        **{
+                            "尺寸（inch）": size_code,
+                            "材质（介质）": "Quartz",
+                            "容值": frequency["exact"],
+                            "容值单位": frequency["unit"],
+                            "容值误差": tolerance,
+                            "耐压（V）": voltage,
+                            "备注1": clean_text(source_row.get("productIntroEn")),
+                            "备注2": pdf_url,
+                            "备注3": product_url,
+                            "器件类型": component_type,
+                            "安装方式": "贴片" if size_code or "SMD" in package.upper() else "",
+                            "封装代码": size_code or package,
+                            "尺寸（mm）": " x ".join(
+                                value for value in [length, width, height] if value
+                            ),
+                            "生产状态": "量产"
+                            if clean_text(source_row.get("productCycle")).lower() == "normal"
+                            else clean_text(source_row.get("productCycle")),
+                            "长度（mm）": length,
+                            "宽度（mm）": width,
+                            "高度（mm）": height,
+                            "官网链接": pdf_url or product_url,
+                            "数据来源": product_url,
+                            "数据状态": "专业分销商逐料号；原厂规格书优先核验",
+                            "校验时间": checked_at,
+                            "校验备注": (
+                                f"LCSC {product_code}逐料号参数"
+                                + ("；附原厂规格书" if pdf_url else "；未附原厂规格书")
+                            ),
+                            "ESR": esr,
+                            "工作温度": normalize_temperature(
+                                parameters.get("Operating Temperature")
+                            ),
+                            "系列说明": clean_text(source_row.get("catalogName")),
+                            "输出频率": frequency["exact"]
+                            if component_type == "振荡器"
+                            else "",
+                            "频率": frequency["exact"] if component_type == "晶振" else "",
+                            "频率单位": frequency["unit"],
+                            "频差（ppm）": tolerance,
+                            "电源电压": voltage,
+                            "输出类型": clean_text(parameters.get("Output Type")),
+                            "负载电容（pF）": load_capacitance,
+                            "驱动电平": "",
+                            "尺寸来源": "LCSC封装字段",
+                            "型号粒度": "专业分销商逐料号",
+                            "频率下限": frequency["minimum"],
+                            "频率上限": frequency["maximum"],
+                            "频率选项": frequency["options"],
+                            "频差选项": tolerance_options,
+                            "电压选项": voltage_options,
+                            "频率温度特性（ppm）": frequency_stability
+                            if component_type == "晶振"
+                            else "",
+                            "封装数量": clean_number(source_row.get("minPacketNumber")),
+                            "官方规格编号": product_code,
+                            "消耗电流": clean_text(parameters.get("Current - Supply")),
+                        },
+                    )
+                    row["规格摘要"] = timing_summary(row)
+                    result.append(row)
+    return result
 
 
 def dataframe_value(row: pd.Series, *names: str) -> str:
@@ -1682,6 +1917,7 @@ def fetch_official_rows(selected_sources: set[str] | None = None) -> tuple[pd.Da
         "huilun",
         "murata",
         "sitime",
+        "lcsc_timing",
     }
     session = request_session()
     rows = []
@@ -1697,6 +1933,7 @@ def fetch_official_rows(selected_sources: set[str] | None = None) -> tuple[pd.Da
             ("huilun", lambda: build_huilun_rows(checked_at)),
             ("murata", lambda: build_murata_rows(session, checked_at)),
             ("sitime", lambda: build_sitime_rows(session, checked_at)),
+            ("lcsc_timing", lambda: build_lcsc_timing_rows(session, checked_at)),
         ]
         for source_name, builder in builders:
             if source_name not in selected:
@@ -1757,6 +1994,48 @@ def refresh_runtime_caches(frame: pd.DataFrame, source_path: Path) -> dict[str, 
     }
 
 
+def remove_replaced_existing_rows(
+    existing: pd.DataFrame,
+    selected_sources: set[str],
+) -> pd.DataFrame:
+    source_brand_map = {
+        "abracon": {"Abracon"},
+        "kyocera": {"京瓷Kyocera"},
+        "ndk": {"NDK"},
+        "txc": {"TXC"},
+        "kds": {"KDS大真空"},
+        "tkd": {"TKD泰晶"},
+        "huilun": {"YL惠伦"},
+        "murata": {"村田Murata"},
+        "sitime": {"SiTime"},
+    }
+    result = existing.copy()
+    replaced_brands = set().union(
+        *(source_brand_map.get(source, set()) for source in selected_sources)
+    )
+    if "品牌" in result.columns and replaced_brands:
+        result = result[
+            ~result["品牌"].astype(str).isin(replaced_brands)
+        ].copy()
+
+    # LCSC supplements exact orderable parts for several brands. Refresh only
+    # those distributor rows so existing first-party series/range rows survive.
+    if (
+        "lcsc_timing" in selected_sources
+        and "品牌" in result.columns
+        and "型号粒度" in result.columns
+    ):
+        lcsc_brands = {
+            clean_text(config["brand"]) for config in LCSC_TIMING_BRANDS.values()
+        }
+        distributor_mask = (
+            result["品牌"].astype(str).isin(lcsc_brands)
+            & result["型号粒度"].astype(str).eq("专业分销商逐料号")
+        )
+        result = result[~distributor_mask].copy()
+    return result
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1768,10 +2047,10 @@ def main() -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--sources",
-        default="abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime",
+        default="abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime,lcsc_timing",
         help=(
             "Comma-separated sources: "
-            "abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime"
+            "abracon,kyocera,ndk,txc,kds,tkd,huilun,murata,sitime,lcsc_timing"
         ),
     )
     parser.add_argument(
@@ -1797,24 +2076,7 @@ def main() -> int:
     frame, source_counts = fetch_official_rows(selected_sources)
     if args.merge_existing and output_path.exists():
         existing = pd.read_csv(output_path, dtype=str, keep_default_na=False)
-        source_brand_map = {
-            "abracon": {"Abracon"},
-            "kyocera": {"京瓷Kyocera"},
-            "ndk": {"NDK"},
-            "txc": {"TXC"},
-            "kds": {"KDS大真空"},
-            "tkd": {"TKD泰晶"},
-            "huilun": {"YL惠伦"},
-            "murata": {"村田Murata"},
-            "sitime": {"SiTime"},
-        }
-        replaced_brands = set().union(
-            *(source_brand_map.get(source, set()) for source in selected_sources)
-        )
-        if "品牌" in existing.columns and replaced_brands:
-            existing = existing[
-                ~existing["品牌"].astype(str).isin(replaced_brands)
-            ].copy()
+        existing = remove_replaced_existing_rows(existing, selected_sources)
         frame = finalize_rows(
             pd.concat([existing, frame], ignore_index=True).to_dict("records")
         )

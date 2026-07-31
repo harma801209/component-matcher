@@ -3771,3 +3771,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - A candidate with a higher maximum ESR now remains visible as `需确认替代`, with a note identifying the ESR increase and requiring oscillator negative-resistance margin confirmation. Missing candidate ESR prevents a complete-match label.
 - The rule is directional: a lower-or-equal ESR candidate may remain complete when every other required parameter matches, while a higher-ESR candidate cannot.
 - Added bidirectional regressions for the two Epson orderable product numbers. All 36 Epson timing tests and 33 system regressions pass without modifying protected runtime data.
+
+### 2026-07-31 [Multi-brand timing data] Add traceable exact order numbers
+
+- Added a repeatable exact-order-number synchronization source for currently listed TXC, KDS, TKD, YL/Huilun, and HOSONIC crystals and oscillators. Each row retains the product page, available original datasheet, distributor product code, package quantity, verification time, completeness score, and explicit missing-parameter list.
+- Imported 3,431 exact rows: TXC 2,313, TKD 671, HOSONIC 243, KDS 165, and YL/Huilun 39. The multi-brand timing source now contains 32,702 rows; existing first-party NDK/KDS exact rows retain higher precedence over duplicate distributor records.
+- Fixed incremental refresh so old distributor rows are replaced without deleting first-party series/range records. This corrected stale `SF32WK32768D71T005` data from 32.768MHz to the traceable 32.768kHz value.
+- Missing fields remain blank and are exposed as confirmation notes. TDK ceramic resonators are not presented as quartz-crystal replacements, and archived/unlisted order numbers are not synthesized.
+- Replaced all 32,702 timing rows in the prepared cache and refreshed the 1,709,006-row search core plus 62,929 timing/value index rows. Exact lookups for `SF32WK32768D71T005`, `3S30000079`, `1P224000AA0Z`, and `7X80000600` return the expected brand, order number, frequency unit, completeness, and missing fields.
+- All 24 multi-brand timing integration tests pass. Added the synchronization script to the public publish list so future refreshes remain reproducible. Protected member, cost-list, and no-match databases were not modified.
