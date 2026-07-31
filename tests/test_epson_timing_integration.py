@@ -808,6 +808,119 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         self.assertEqual(result["型号"].tolist(), ["RX8025T-UC"])
         self.assertEqual(result["器件类型"].tolist(), ["实时时钟模块"])
 
+    def test_epson_series_alias_is_shown_as_series_not_orderable_model(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "FC2012AN",
+                    "系列": "FC2012AN",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方系列型号/具体PN需确认",
+                }
+            ]
+        )
+
+        display = cm.normalize_timing_model_display_fields(frame)
+
+        self.assertEqual(display.iloc[0]["型号"], "")
+        self.assertEqual(display.iloc[0]["系列"], "FC2012AN")
+        self.assertEqual(cm.timing_orderable_model(frame.iloc[0]), "")
+
+    def test_legacy_epson_list_page_model_is_inferred_as_series(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "FC2012AA",
+                    "系列": "FC2012",
+                    "器件类型": "晶振",
+                    "型号粒度": "",
+                    "官方规格编号": "",
+                    "数据来源": "Epson official crystal-unit list page",
+                }
+            ]
+        )
+
+        display = cm.normalize_timing_model_display_fields(frame)
+
+        self.assertEqual(display.iloc[0]["型号"], "")
+        self.assertEqual(display.iloc[0]["系列"], "FC2012AA")
+        self.assertEqual(display.iloc[0]["型号粒度"], "官方系列/具体PN需确认")
+
+    def test_exact_epson_product_number_remains_in_model_column(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0001710001",
+                    "系列": "FC2012AN",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方逐料号",
+                }
+            ]
+        )
+
+        display = cm.normalize_timing_model_display_fields(frame)
+
+        self.assertEqual(display.iloc[0]["型号"], "X1A0001710001")
+        self.assertEqual(display.iloc[0]["系列"], "FC2012AN")
+        self.assertEqual(cm.timing_orderable_model(frame.iloc[0]), "X1A0001710001")
+
+    def test_other_brand_series_is_hidden_but_ndk_ordering_combination_remains(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "KDS大真空",
+                    "型号": "DSX1210A",
+                    "系列": "DSX1210A",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方系列范围",
+                },
+                {
+                    "品牌": "NDK",
+                    "型号": "NX2016GC-26.000000MHZ-EXS00A-CS11393",
+                    "系列": "NX2016GC",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方型号+频率+规格编号",
+                },
+            ]
+        )
+
+        display = cm.normalize_timing_model_display_fields(frame)
+
+        self.assertEqual(display.iloc[0]["型号"], "")
+        self.assertEqual(display.iloc[0]["系列"], "DSX1210A")
+        self.assertEqual(
+            display.iloc[1]["型号"],
+            "NX2016GC-26.000000MHZ-EXS00A-CS11393",
+        )
+
+    def test_series_rows_are_not_exported_as_other_brand_models(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "TXC",
+                    "型号": "7M",
+                    "系列": "7M",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方系列范围",
+                },
+                {
+                    "品牌": "爱普生Epson",
+                    "型号": "X1A0001710001",
+                    "系列": "FC2012AN",
+                    "器件类型": "晶振",
+                    "型号粒度": "官方逐料号",
+                },
+            ]
+        )
+
+        output = cm.format_other_brand_models(frame, exclude_aliases=())
+
+        self.assertNotIn("TXC:7M", output)
+        self.assertIn("爱普生Epson:X1A0001710001", output)
+
 
 if __name__ == "__main__":
     unittest.main()

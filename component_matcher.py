@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-07-30T23:47:00+08:00"
+PUBLIC_CODE_STAMP = "2026-07-31T09:30:00+08:00"
 
 
 def startup_trace(message):
@@ -20307,6 +20307,7 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     if df is None:
         return pd.DataFrame()
     out = ensure_component_display_columns(df)
+    out = enrich_timing_model_granularity(out)
     display_component_type = resolve_component_display_type(spec_or_type)
     if display_component_type in RESISTOR_COMPONENT_TYPES:
         out = normalize_fojan_resistor_series_display_fields(out)
@@ -21539,12 +21540,84 @@ def timing_query_has_complete_details(spec, component_type):
     )
 
 
+def timing_row_is_legacy_series_record(row):
+    brand = clean_text(row.get("品牌", "")).upper()
+    source = clean_text(row.get("数据来源", "")).upper()
+    model = clean_model(row.get("型号", ""))
+    official_spec = clean_text(row.get("官方规格编号", ""))
+    if (
+        ("EPSON" in brand or "爱普生" in brand)
+        and "CRYSTAL-UNIT LIST PAGE" in source
+        and official_spec == ""
+        and not re.match(r"^(?:X1|Q\d)", model)
+    ):
+        return True
+    return False
+
+
 def timing_model_requires_configuration(row):
     granularity = clean_text(row.get("型号粒度", "")).upper()
     if any(token in granularity for token in ["系列", "模板", "可配置"]):
         return True
+    if timing_row_is_legacy_series_record(row):
+        return True
     model = clean_text(row.get("型号", ""))
     return "*" in model or "?" in model
+
+
+def timing_row_has_timing_identity(row):
+    component_type = (
+        normalize_component_type(row.get("_component_type", ""))
+        or infer_db_component_type(row)
+        or normalize_component_type(row.get("器件类型", ""))
+        or normalize_component_type(row.get("器件类别", ""))
+    )
+    if component_type in TIMING_COMPONENT_TYPES:
+        return True
+    granularity = clean_text(row.get("型号粒度", "")).upper()
+    return any(token in granularity for token in ["逐料号", "系列", "模板", "可配置", "规格编号"])
+
+
+def enrich_timing_model_granularity(frame):
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame
+    out = frame.copy()
+    for col in ["型号", "系列", "型号粒度"]:
+        if col not in out.columns:
+            out[col] = ""
+    for idx, row in out.iterrows():
+        if not timing_row_has_timing_identity(row) or not timing_row_is_legacy_series_record(row):
+            continue
+        model = clean_text(row.get("型号", ""))
+        if model != "":
+            out.at[idx, "系列"] = model
+        if clean_text(row.get("型号粒度", "")) == "":
+            out.at[idx, "型号粒度"] = "官方系列/具体PN需确认"
+    return out
+
+
+def normalize_timing_model_display_fields(frame):
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame
+    out = enrich_timing_model_granularity(frame)
+    for idx, row in out.iterrows():
+        if not timing_row_has_timing_identity(row) or not timing_model_requires_configuration(row):
+            continue
+        model = clean_text(row.get("型号", ""))
+        if model != "":
+            out.at[idx, "系列"] = model
+        if clean_text(row.get("型号粒度", "")) == "":
+            out.at[idx, "型号粒度"] = "官方系列/具体PN需确认"
+        out.at[idx, "型号"] = ""
+    return out
+
+
+def timing_orderable_model(row):
+    if row is None:
+        return ""
+    if timing_row_has_timing_identity(row) and timing_model_requires_configuration(row):
+        return ""
+    return clean_text(row.get("型号", ""))
 
 
 def find_timing_output_type_in_text(text):
@@ -24510,6 +24583,7 @@ def build_bom_preferred_brand_slots(frame, limit=BOM_PREFERRED_BRAND_SLOTS, excl
         return slots
     if "品牌" not in frame.columns or "型号" not in frame.columns:
         return slots
+    frame = normalize_timing_model_display_fields(frame)
     excluded = normalize_brand_model_pair_set(exclude_pairs)
     items = []
     seen = set()
@@ -24559,6 +24633,7 @@ def build_bom_own_brand_export_slots(
     )
     if work.empty:
         return slots
+    work = normalize_timing_model_display_fields(work)
 
     selected = []
     seen = set()
@@ -24818,6 +24893,7 @@ def lookup_brand_models_for_spec(df, spec, aliases):
 def format_other_brand_models(frame, limit=None, exclude_aliases=None, exclude_pairs=None):
     if frame is None or frame.empty:
         return ""
+    frame = normalize_timing_model_display_fields(frame)
     if "品牌" not in frame.columns or "型号" not in frame.columns:
         return ""
     alias_filter = tuple(exclude_aliases or MLCC_REFERENCE_EXCLUDE_ALIASES)
@@ -33992,6 +34068,7 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
         display_df = show_df.copy()
     display_df = normalize_fojan_resistor_series_display_fields(display_df)
     display_df = normalize_joyin_ntc_series_display_fields(display_df)
+    display_df = normalize_timing_model_display_fields(display_df)
 
     hidden = set(hide_columns or [])
     visible_columns = [col for col in display_df.columns if col != "_量产状态链接" and col not in hidden]
@@ -34159,6 +34236,7 @@ def build_part_info_df(df, spec, query_model):
             suffix_columns=suffix_columns,
             allow_online_lookup=allow_online_lookup,
         )
+        show_df = normalize_timing_model_display_fields(show_df)
         return format_display_df(show_df)
     row = pd.DataFrame([{
         "品牌": spec.get("品牌", ""),
@@ -34174,6 +34252,7 @@ def build_part_info_df(df, spec, query_model):
         prefix_columns=["品牌", "型号", "器件类别"],
         suffix_columns=["官网链接", "数据来源"],
     )
+    row = normalize_timing_model_display_fields(row)
     return format_display_df(row)
 
 
@@ -37302,7 +37381,7 @@ def build_bom_result_row(df, line, export_settings=None):
 
     value, unit = spec_display_value_unit(spec)
     row["品牌"] = spec.get("品牌", "")
-    row["型号"] = spec.get("型号", "") if mode == "料号" else ""
+    row["型号"] = timing_orderable_model(spec) if mode == "料号" else ""
     row["尺寸（inch）"] = spec.get("尺寸（inch）", "")
     row["材质（介质）"] = spec.get("材质（介质）", "")
     row["容值"] = value
@@ -37325,7 +37404,7 @@ def build_bom_result_row(df, line, export_settings=None):
     row["匹配数量"] = int(len(matched))
     if display_match is not None:
         row["推荐品牌"] = clean_text(display_match.get("品牌", ""))
-        row["推荐型号"] = clean_text(display_match.get("型号", ""))
+        row["推荐型号"] = timing_orderable_model(display_match)
         row["备注1"] = merge_match_confirmation_into_remark1(
             display_match.get("备注1", ""),
             build_match_confirmation_detail(display_match, spec),
@@ -37458,7 +37537,7 @@ def build_bom_upload_result_row(
         result_row["规格参数明细"] = build_component_spec_detail_from_spec(spec)
         value, unit = spec_display_value_unit(spec)
         result_row["品牌"] = spec.get("品牌", "")
-        result_row["型号"] = spec.get("型号", "") if best["mode"] == "料号" else ""
+        result_row["型号"] = timing_orderable_model(spec) if best["mode"] == "料号" else ""
         result_row["尺寸（inch）"] = spec.get("尺寸（inch）", "")
         result_row["材质（介质）"] = spec.get("材质（介质）", "")
         result_row["容值"] = value
@@ -37480,6 +37559,7 @@ def build_bom_upload_result_row(
                 display_match.get("型号", ""),
                 display_match.get("品牌", ""),
             )
+            display_match["型号"] = timing_orderable_model(display_match)
         detail_match = display_match if display_match is not None else matched.iloc[0]
         result_row["匹配数量"] = int(len(matched))
         result_row["状态"] = recommendation.get("status", result_row["状态"])
@@ -40420,6 +40500,7 @@ if search_requested:
                     )
                     show_df = format_display_df(show_df)
                     show_df = deduplicate_component_matches(show_df)
+                    show_df = normalize_timing_model_display_fields(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
                     if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                         show_df = show_df.drop(columns=["特殊用途"])
@@ -40541,6 +40622,7 @@ if search_requested:
                 )
                 show_df = format_display_df(show_df)
                 show_df = deduplicate_component_matches(show_df)
+                show_df = normalize_timing_model_display_fields(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)
                 if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                     show_df = show_df.drop(columns=["特殊用途"])

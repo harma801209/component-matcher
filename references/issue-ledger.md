@@ -984,3 +984,11 @@
 - Fix: map the official NDK overall tolerance and detailed timing fields, import KDS `Part No.` rows as official exact models, reject placeholder part numbers, and expose row-level completeness and missing-parameter notes.
 - Accuracy boundary: only explicit official part numbers become orderable rows. Series names remain `官方系列范围`; no model number is synthesized from a naming rule. Completeness notes do not turn incomplete records into complete matches.
 - Verification: the source contains NDK 4,013 rows and KDS 206 rows (149 series plus 57 exact part numbers). Exact sidecar lookup succeeds for representative KDS and NDK models; 49 timing tests and the release safety gate pass with protected runtime data unchanged.
+
+## 2026-07-31 - Timing series names were displayed and exported as orderable models
+
+- Symptom: searching Epson `FC2012AN` displayed `FC2012AN` in both the model and series columns, even though orderable Epson product numbers use identifiers such as `X1A0001710001`. Other brands' series-range and configurable-template rows had the same presentation risk.
+- Root cause: series aliases are intentionally stored in the internal model field so exact series searches can locate them, but the UI and BOM exporters did not apply the existing `型号粒度` classification before presenting a model.
+- Fix: keep internal series aliases searchable, but blank the model field for timing rows classified as a series, template, or configurable record and preserve the original token in the series field. Legacy Epson crystal-list rows now receive an inferred `官方系列/具体PN需确认` granularity.
+- Export safety: BOM primary, preferred-brand, own-brand, and other-brand model fields now exclude non-orderable timing series. Concrete product numbers and official ordering combinations remain eligible.
+- Verification: real database lookups show `FC2012AN` and `FC2012AA` only as series, while `X1A0001710001` remains an `官方逐料号` model. Epson/multi-brand timing tests, system/BOM regressions, and the release safety gate pass.
