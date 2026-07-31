@@ -10,6 +10,141 @@ import sync_official_timing_brands as timing_sync
 
 
 class MultiBrandTimingIntegrationTests(unittest.TestCase):
+    def test_lcsc_exact_timing_rows_import_traceable_part_parameters(self):
+        products = [
+            {
+                "productCode": "C431166",
+                "productModel": "3S30000079",
+                "catalogName": "Crystals",
+                "productIntroEn": "Crystal 30MHz ±10ppm 12pF 40Ω SMD3225-4P",
+                "encapStandard": "SMD3225-4P",
+                "productCycle": "normal",
+                "minPacketNumber": 3000,
+                "url": "https://www.lcsc.com/product-detail/C431166.html",
+                "pdfUrl": "https://datasheet.example/3S30000079.pdf",
+                "paramVOList": [
+                    {
+                        "paramNameEn": "Frequency",
+                        "paramValueEn": "30MHz",
+                    },
+                    {
+                        "paramNameEn": "Normal temperature Frequency Tolerance",
+                        "paramValueEn": "±10ppm",
+                    },
+                    {
+                        "paramNameEn": "Frequency Stability",
+                        "paramValueEn": "±10ppm",
+                    },
+                    {
+                        "paramNameEn": "Operating Temperature",
+                        "paramValueEn": "-20℃~+70℃",
+                    },
+                    {
+                        "paramNameEn": "Load Capacitance",
+                        "paramValueEn": "12pF",
+                    },
+                    {
+                        "paramNameEn": "Equivalent Series Resistance(ESR)",
+                        "paramValueEn": "40Ω",
+                    },
+                ],
+            }
+        ]
+
+        def fake_query(_session, **kwargs):
+            if kwargs["brand_id"] == 12049 and kwargs["catalog_id"] == 1155:
+                return {"totalPage": 1, "dataList": products}
+            return {"totalPage": 0, "dataList": []}
+
+        with (
+            mock.patch.object(
+                timing_sync,
+                "LCSC_TIMING_BRANDS",
+                {12049: {"brand": "YL惠伦", "catalogs": (1155, 1157)}},
+            ),
+            mock.patch.object(timing_sync, "lcsc_query_page", side_effect=fake_query),
+        ):
+            rows = timing_sync.build_lcsc_timing_rows(
+                mock.Mock(),
+                "2026-07-31 10:00:00",
+            )
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["品牌"], "YL惠伦")
+        self.assertEqual(row["型号"], "3S30000079")
+        self.assertEqual(row["型号粒度"], "专业分销商逐料号")
+        self.assertEqual(row["频率"], "30")
+        self.assertEqual(row["频率单位"], "MHZ")
+        self.assertEqual(row["频差（ppm）"], "10")
+        self.assertEqual(row["频率温度特性（ppm）"], "10")
+        self.assertEqual(row["负载电容（pF）"], "12")
+        self.assertEqual(row["ESR"], "40Ω")
+        self.assertEqual(row["尺寸（inch）"], "3225")
+        self.assertEqual(row["封装数量"], "3000")
+        self.assertEqual(row["官方规格编号"], "C431166")
+        self.assertIn("附原厂规格书", row["校验备注"])
+
+    def test_official_exact_row_wins_over_distributor_duplicate(self):
+        official = timing_sync.base_row(
+            品牌="KDS大真空",
+            型号="1P224000AA0Z",
+            型号粒度="官方逐料号",
+            数据来源="https://www.kds.info/",
+            生产状态="量产",
+        )
+        distributor = timing_sync.base_row(
+            品牌="KDS大真空",
+            型号="1P224000AA0Z",
+            型号粒度="专业分销商逐料号",
+            数据来源="https://www.lcsc.com/product-detail/C51904733.html",
+            生产状态="量产",
+        )
+
+        result = timing_sync.finalize_rows([distributor, official])
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["数据来源"], "https://www.kds.info/")
+
+    def test_lcsc_product_description_corrects_32768_frequency_unit(self):
+        profile = timing_sync.explicit_frequency_profile(
+            "Crystal 32.768kHz ±20ppm 7pF SMD3215-2P"
+        )
+
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile["exact"], "32.768")
+        self.assertEqual(profile["unit"], "KHZ")
+
+    def test_lcsc_refresh_replaces_only_old_distributor_rows(self):
+        existing = pd.DataFrame(
+            [
+                {
+                    "品牌": "TKD泰晶",
+                    "型号": "SF32WK32768D71T005",
+                    "型号粒度": "专业分销商逐料号",
+                },
+                {
+                    "品牌": "TKD泰晶",
+                    "型号": "SX-3225",
+                    "型号粒度": "官方系列范围",
+                },
+                {
+                    "品牌": "NDK",
+                    "型号": "NX3225SA",
+                    "型号粒度": "官方系列范围",
+                },
+            ]
+        )
+
+        result = timing_sync.remove_replaced_existing_rows(
+            existing,
+            {"lcsc_timing"},
+        )
+
+        self.assertNotIn("SF32WK32768D71T005", result["型号"].tolist())
+        self.assertIn("SX-3225", result["型号"].tolist())
+        self.assertIn("NX3225SA", result["型号"].tolist())
+
     def test_ndk_official_detailed_fields_are_imported(self):
         oscillator_source = {
             "Model": "NZ2520SDA",

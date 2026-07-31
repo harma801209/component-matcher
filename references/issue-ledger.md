@@ -1000,3 +1000,18 @@
 - Fix: compare source and candidate ESR for every exact-model crystal match. Missing ESR prevents a complete label; known higher ESR becomes `需确认替代` and records the difference plus the need to confirm oscillator negative-resistance margin.
 - Directionality: lower-or-equal candidate ESR is acceptable when the remaining required parameters match. The reverse direction is not treated as equivalent.
 - Verification: bidirectional Epson regressions pass, the full 36-test timing suite passes, and all 33 system regressions pass with protected runtime databases unchanged.
+
+## 2026-07-31 - Multi-brand timing library lacked exact order numbers and traceable parameters
+
+- Symptom: TXC, KDS, TKD/泰晶, 惠伦, and other timing searches often stopped at a series name or showed many blank fields, so a concrete Epson replacement could not be selected reliably.
+- Root cause: series naming rules describe only part of a family. The library lacked a repeatable exact-order-number source for several brands, and incremental distributor refreshes retained an older duplicate ahead of corrected source data.
+- Fix: ingest currently listed exact order numbers and parameters from traceable product and datasheet records for TXC, KDS, TKD, YL/Huilun, and HOSONIC. Preserve source URLs and missing-field notes, rank first-party exact rows above distributor rows, and replace only previous distributor rows during incremental refresh.
+- Accuracy rule: never infer unpublished frequency, load, tolerance, temperature, ESR, drive, aging, overtone, oscillator output, or voltage values. Incomplete candidates remain confirmation-required; ceramic resonators are not treated as quartz-crystal equivalents.
+- Coverage / regression: added 3,431 exact rows and refreshed 32,702 timing rows in both runtime indexes. Representative exact searches, the 32.768kHz unit correction, official-row precedence, and distributor-only replacement behavior are covered by 24 passing integration tests.
+
+## 2026-07-31 - Formal publish used the local worktree branch instead of its upstream
+
+- Symptom: a worktree branch tracking `origin/main` built and committed the public bundle successfully, then failed while fetching a nonexistent remote branch with the local worktree name.
+- Root cause: the publish helper used `git branch --show-current` and ignored the configured upstream branch.
+- Fix: resolve `@{upstream}` first and publish to its remote branch name; fall back to the current local branch only when no upstream is configured.
+- Regression: focused tests cover both `origin/main` tracking and no-upstream fallback behavior.
