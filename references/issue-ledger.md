@@ -1015,6 +1015,7 @@
 - Root cause: the indexed prefilter and detailed matcher treated aluminum-electrolytic body size and lead pitch as exact database filters. Common catalogue dimensions such as 6.3x11.5 mm and 10x16 mm were discarded before compatibility classification.
 - Fix: keep capacitance, tolerance, minimum voltage, mounting type, temperature coverage, and explicit application requirements as safety filters. Rank body-size and pitch differences instead of discarding them, and label every dimensional or missing-data difference as `needs confirmation` with the exact reason in remark 1.
 - Accuracy boundary: SMD candidates are never mixed into a DIP request, known insufficient temperature or lifetime remains excluded, and a dimensional alternative can never be labelled a complete match.
+- Cache invalidation: the public code stamp was advanced so previously cached no-match results cannot survive this release.
 - Regression: both reported specifications return real cross-brand candidates; exact-size synthetic candidates remain complete while different-size candidates are ranked by distance and require confirmation. System and release-safety regressions pass with protected runtime data unchanged.
 
 ## 2026-07-31 - Formal publish used the local worktree branch instead of its upstream
