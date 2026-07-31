@@ -183,6 +183,22 @@ def parse_repo_full_name(remote_url: str) -> str:
 
 def get_default_branch() -> str:
     try:
+        upstream = run_command(
+            [
+                "git",
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ]
+        ).stdout.strip()
+        if "/" in upstream:
+            return upstream.split("/", 1)[1]
+        if upstream:
+            return upstream
+    except Exception:
+        pass
+    try:
         branch = run_command(["git", "branch", "--show-current"]).stdout.strip()
         return branch or "main"
     except Exception:
