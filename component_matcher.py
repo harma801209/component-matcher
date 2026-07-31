@@ -23788,7 +23788,7 @@ def normalize_mounting_style(value, package_code=""):
         return "螺栓式"
     if any(token in text for token in ["AXIAL", "CROWN", "轴向"]):
         return "轴向"
-    if any(token in text for token in ["SNAP-IN", "LUG", "RADIAL", "插件", "引线", "LEADED", "牛角"]):
+    if any(token in text for token in ["SNAP-IN", "LUG", "RADIAL", "DIP", "插件", "引线", "LEADED", "牛角"]):
         return "插件"
     return clean_text(value)
 
@@ -23804,7 +23804,7 @@ def extract_mounting_style_from_text(text):
         return "螺栓式"
     if any(token in upper for token in ["AXIAL", "CROWN", "轴向"]):
         return "轴向"
-    if any(token in upper for token in ["SNAP-IN", "LUG", "RADIAL", "插件", "引线", "LEADED", "牛角", "THROUGH HOLE", "THRU HOLE"]):
+    if any(token in upper for token in ["SNAP-IN", "LUG", "RADIAL", "DIP", "插件", "引线", "LEADED", "牛角", "THROUGH HOLE", "THRU HOLE"]):
         return "插件"
     return ""
 
@@ -31331,7 +31331,12 @@ def load_component_rows_by_typed_spec(spec):
                 if mat_mask.any():
                     frame = frame[mat_mask]
         spec_body_size = clean_text(spec.get("_body_size", ""))
-        if not frame.empty and spec_body_size != "" and "_body_size" in frame.columns:
+        if (
+            component_type != "铝电解电容"
+            and not frame.empty
+            and spec_body_size != ""
+            and "_body_size" in frame.columns
+        ):
             body_mask = frame["_body_size"].astype(str).apply(clean_text).eq(spec_body_size)
             frame = frame[body_mask]
         if component_type == "铝电解电容":
@@ -31757,10 +31762,10 @@ def fetch_search_candidate_pairs(spec):
         if volt != "":
             where_clauses.append("_volt_num IS NOT NULL AND _volt_num >= ?")
             params.append(float(volt))
-        if body_size != "":
+        if body_size != "" and target_type != "铝电解电容":
             where_clauses.append("_body_size = ?")
             params.append(body_size)
-        if pitch != "":
+        if pitch != "" and target_type != "铝电解电容":
             where_clauses.append("_pitch = ?")
             params.append(pitch)
         if target_type == "铝电解电容":
@@ -32151,59 +32156,62 @@ def match_other_passive_spec(df, spec):
                 work = work[work["_volt_num"].notna() & work["_volt_num"].ge(spec_volt_num)]
             except Exception:
                 work = work[work["_volt"].eq(spec_volt)]
-        if spec_body_size != "" and "_body_size" in work.columns:
-            same_body = work["_body_size"].astype(str).apply(clean_text).eq(spec_body_size)
-            work = work[same_body]
         if spec_temp != "":
-            same_temp = work["工作温度"].astype(str).apply(normalize_working_temperature_text).eq(spec_temp) if "工作温度" in work.columns else pd.Series(False, index=work.index)
-            if same_temp.any():
-                work = work[same_temp]
-            elif "_temp_high" in work.columns:
+            if "_temp_high" in work.columns:
                 temp_low, temp_high = working_temperature_bounds(spec_temp)
                 temp_mask = pd.Series(True, index=work.index)
+                row_high = pd.to_numeric(work["_temp_high"], errors="coerce")
+                row_low = pd.to_numeric(work["_temp_low"], errors="coerce") if "_temp_low" in work.columns else pd.Series(float("nan"), index=work.index)
                 if temp_high is not None:
-                    temp_mask &= pd.to_numeric(work["_temp_high"], errors="coerce").notna() & pd.to_numeric(work["_temp_high"], errors="coerce").ge(temp_high)
+                    temp_mask &= row_high.isna() | row_high.ge(temp_high)
                 if temp_low is not None:
-                    temp_mask &= pd.to_numeric(work["_temp_low"], errors="coerce").notna() & pd.to_numeric(work["_temp_low"], errors="coerce").le(temp_low)
+                    temp_mask &= row_low.isna() | row_low.le(temp_low)
                 work = work[temp_mask]
-            else:
-                work = work.iloc[0:0]
         if spec_life != "":
-            same_life = work["寿命（h）"].astype(str).apply(normalize_life_hours_value).eq(spec_life) if "寿命（h）" in work.columns else pd.Series(False, index=work.index)
-            if same_life.any():
-                work = work[same_life]
-            elif "_life_hours_num" in work.columns:
+            if "_life_hours_num" in work.columns:
                 life_target = life_hours_to_number(spec_life)
-                life_mask = pd.to_numeric(work["_life_hours_num"], errors="coerce").notna() & pd.to_numeric(work["_life_hours_num"], errors="coerce").ge(life_target)
-                work = work[life_mask]
-            else:
-                work = work.iloc[0:0]
+                row_life = pd.to_numeric(work["_life_hours_num"], errors="coerce")
+                if life_target is not None:
+                    work = work[row_life.isna() | row_life.ge(life_target)]
         if spec_mount != "":
-            same_mount = work["_mount_style"].astype(str).apply(normalize_mounting_style).eq(spec_mount) if "_mount_style" in work.columns else (
-                work["安装方式"].astype(str).apply(normalize_mounting_style).eq(spec_mount) if "安装方式" in work.columns else pd.Series(False, index=work.index)
+            mount_values = work["_mount_style"].astype(str).apply(normalize_mounting_style) if "_mount_style" in work.columns else (
+                work["安装方式"].astype(str).apply(normalize_mounting_style) if "安装方式" in work.columns else pd.Series("", index=work.index)
             )
-            work = work[same_mount]
+            work = work[mount_values.eq("") | mount_values.eq(spec_mount)]
         if spec_special != "":
             same_special = work["特殊用途"].astype(str).apply(lambda value: special_use_matches(value, spec_special)) if "特殊用途" in work.columns else (
                 work["_special_use_norm"].astype(str).apply(lambda value: special_use_matches(value, spec_special)) if "_special_use_norm" in work.columns else pd.Series(False, index=work.index)
             )
             work = work[same_special]
-        if spec_pitch != "" and "_pitch" in work.columns:
-            same_pitch = work["_pitch"].astype(str).apply(clean_text).eq(spec_pitch)
-            work = work[same_pitch]
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
-        work["推荐等级"] = "完全匹配"
+        work["推荐等级"] = work.apply(
+            lambda row: "需确认替代" if electrolytic_candidate_confirmation_reasons(row, spec) else "完全匹配",
+            axis=1,
+        )
+        work["_confirmation_rank"] = work["推荐等级"].apply(lambda value: 0 if clean_text(value) == "完全匹配" else 1)
+        work["_body_distance"] = work.apply(
+            lambda row: body_size_distance_for_match(
+                row.get("_body_size", "") or row.get("尺寸（mm）", ""),
+                spec_body_size,
+            ),
+            axis=1,
+        )
+        target_volt_num = safe_numeric_value(spec_volt)
+        work["_voltage_rank"] = pd.to_numeric(work.get("_volt_num", pd.Series(float("nan"), index=work.index)), errors="coerce")
+        if target_volt_num is not None:
+            work["_voltage_rank"] = (work["_voltage_rank"] - target_volt_num).abs()
+        work["_voltage_rank"] = work["_voltage_rank"].fillna(float("inf"))
         if "_model_rule_authority" in work.columns:
             work["_seed_rank"] = work["_model_rule_authority"].astype(str).apply(lambda value: 0 if clean_text(value) == "jianghai_seed" else 1)
         else:
             work["_seed_rank"] = 1
         work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=component_type)) if "品牌" in work.columns else 99
-        sort_cols = ["_seed_rank", "_brand_rank", "品牌", "型号"] if "品牌" in work.columns else ["_seed_rank"]
+        sort_cols = ["_confirmation_rank", "_body_distance", "_voltage_rank", "_seed_rank", "_brand_rank", "品牌", "型号"] if "品牌" in work.columns else ["_confirmation_rank", "_body_distance", "_voltage_rank", "_seed_rank"]
         ascending = [True] * len(sort_cols)
         work = work.sort_values(by=sort_cols, ascending=ascending)
-        work = work.drop(columns=["_seed_rank", "_brand_rank"], errors="ignore")
+        work = work.drop(columns=["_confirmation_rank", "_body_distance", "_voltage_rank", "_seed_rank", "_brand_rank"], errors="ignore")
         return work
 
     if component_type == "薄膜电容":
@@ -34734,6 +34742,95 @@ def get_row_body_size_text(row):
     return "", ""
 
 
+def body_size_distance_for_match(candidate_value, required_value):
+    required = normalize_body_size_for_match(required_value)
+    if required == "":
+        return 0.0
+    candidate = normalize_body_size_for_match(candidate_value)
+    if candidate == "":
+        return float("inf")
+    if candidate == required:
+        return 0.0
+
+    def numeric_parts(value):
+        normalized = re.sub(r"(?i)mm$", "", value)
+        parts = normalized.split("*")
+        if len(parts) not in {2, 3}:
+            return None
+        values = [safe_numeric_value(part) for part in parts]
+        return values if all(item is not None for item in values) else None
+
+    candidate_parts = numeric_parts(candidate)
+    required_parts = numeric_parts(required)
+    if candidate_parts is None or required_parts is None or len(candidate_parts) != len(required_parts):
+        return 1_000_000.0
+    return sum(abs(left - right) for left, right in zip(candidate_parts, required_parts))
+
+
+def electrolytic_candidate_confirmation_details(row, spec):
+    conflicts = []
+    warnings_list = []
+
+    spec_body = normalize_body_size_for_match(spec.get("_body_size", ""))
+    row_body, row_body_text = get_row_body_size_text(row)
+    if spec_body != "":
+        if row_body == "":
+            warnings_list.append(f"候选缺少外形尺寸，需确认满足{spec_body}")
+        elif row_body != spec_body:
+            conflicts.append(f"外形尺寸不一致：需求{spec_body}，候选{row_body_text or row_body}")
+
+    spec_pitch = normalize_dimension_mm_value(spec.get("_pitch", ""))
+    row_pitch = normalize_dimension_mm_value(row.get("_pitch", "") or row.get("脚距（mm）", ""))
+    if spec_pitch != "":
+        if row_pitch == "":
+            warnings_list.append(f"候选缺少脚距，需确认满足{spec_pitch}mm")
+        elif row_pitch != spec_pitch:
+            conflicts.append(f"脚距不一致：需求{spec_pitch}mm，候选{row_pitch}mm")
+
+    spec_mount = normalize_mounting_style(spec.get("安装方式", ""))
+    row_mount = normalize_mounting_style(row.get("_mount_style", "") or row.get("安装方式", ""))
+    if spec_mount != "":
+        if row_mount == "":
+            warnings_list.append(f"候选缺少安装方式，需确认是{spec_mount}")
+        elif row_mount != spec_mount:
+            conflicts.append(f"安装方式不一致：需求{spec_mount}，候选{row_mount}")
+
+    spec_temp = normalize_working_temperature_text(spec.get("工作温度", ""))
+    target_low, target_high = working_temperature_bounds(spec_temp)
+    row_low = safe_numeric_value(row.get("_temp_low", None))
+    row_high = safe_numeric_value(row.get("_temp_high", None))
+    if row_low is None and row_high is None:
+        row_low, row_high = working_temperature_bounds(normalize_working_temperature_text(row.get("工作温度", "")))
+    if target_high is not None:
+        if row_high is None:
+            warnings_list.append(f"候选缺少最高工作温度，需确认达到{format_sidecar_numeric_display(target_high)}℃")
+        elif row_high < target_high - 1e-9:
+            conflicts.append(f"最高工作温度不足：需求{format_sidecar_numeric_display(target_high)}℃，候选{format_sidecar_numeric_display(row_high)}℃")
+    if target_low is not None:
+        if row_low is None:
+            warnings_list.append(f"候选缺少最低工作温度，需确认达到{format_sidecar_numeric_display(target_low)}℃")
+        elif row_low > target_low + 1e-9:
+            conflicts.append(f"最低工作温度不足：需求{format_sidecar_numeric_display(target_low)}℃，候选{format_sidecar_numeric_display(row_low)}℃")
+
+    spec_life = normalize_life_hours_value(spec.get("寿命（h）", ""))
+    life_target = life_hours_to_number(spec_life)
+    if life_target is not None:
+        row_life = safe_numeric_value(row.get("_life_hours_num", None))
+        if row_life is None:
+            row_life = life_hours_to_number(normalize_life_hours_value(row.get("寿命（h）", "")))
+        if row_life is None:
+            warnings_list.append(f"候选缺少寿命数据，需确认达到{format_sidecar_numeric_display(life_target)}h")
+        elif row_life < life_target - 1e-9:
+            conflicts.append(f"寿命不足：需求{format_sidecar_numeric_display(life_target)}h，候选{format_sidecar_numeric_display(row_life)}h")
+
+    return conflicts, warnings_list
+
+
+def electrolytic_candidate_confirmation_reasons(row, spec):
+    conflicts, warnings_list = electrolytic_candidate_confirmation_details(row, spec)
+    return conflicts + warnings_list
+
+
 def collect_recommendation_conflicts(row, spec):
     if row is None or spec is None:
         return []
@@ -34889,6 +34986,10 @@ def collect_recommendation_conflicts(row, spec):
     if spec_volt is not None and row_volt is not None and row_volt < spec_volt - 1e-9:
         conflicts.append(f"耐压偏低：需求{format_sidecar_numeric_display(spec_volt)}V，候选{format_sidecar_numeric_display(row_volt)}V")
 
+    if target_type == "铝电解电容":
+        electrolytic_conflicts, _ = electrolytic_candidate_confirmation_details(row, spec)
+        conflicts.extend(electrolytic_conflicts)
+
     return conflicts
 
 
@@ -34905,6 +35006,10 @@ def collect_recommendation_warnings(row, spec):
         warnings_list.append(
             f"候选缺少{'、'.join(missing_compliance)}合规资料，需查原厂规格书确认"
         )
+
+    if target_type == "铝电解电容":
+        _, electrolytic_warnings = electrolytic_candidate_confirmation_details(row, spec)
+        warnings_list.extend(electrolytic_warnings)
 
     if target_type in INDUCTOR_COMPONENT_TYPES:
         spec_current_amps = parse_current_to_amps(spec.get("额定电流", "")) or parse_current_to_amps(spec.get("_current", ""))
