@@ -14,6 +14,64 @@ from incremental_semiconductor_cache_update import collect_prepared_pairs_by_sou
 
 
 class BroadComponentSyncTests(unittest.TestCase):
+    def test_official_timing_row_wins_over_distributor_duplicate(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            crystal_dir = Path(temp_dir)
+            official_path = crystal_dir / "epson_official.csv"
+            lcsc_path = crystal_dir / "lcsc.csv"
+            official = pd.DataFrame(
+                [
+                    {
+                        "品牌": "爱普生Epson",
+                        "型号": "X1A0001710001",
+                        "系列": "FC2012AN",
+                        "器件类型": "晶振",
+                        "尺寸（inch）": "2012",
+                        "频率": "32.768",
+                        "频率单位": "KHZ",
+                        "负载电容（pF）": "12.5",
+                        "ESR": "60kΩ Max",
+                        "驱动电平": "0.5µW Max",
+                        "型号粒度": "官方逐料号",
+                        "数据来源": "Epson official selector",
+                    }
+                ]
+            )
+            distributor = pd.DataFrame(
+                [
+                    {
+                        "品牌": "EPSON",
+                        "型号": "X1A0001710001",
+                        "系列": "FC2012AN",
+                        "器件类型": "晶振",
+                        "尺寸（inch）": "2012",
+                        "频率": "32.768",
+                        "频率单位": "KHZ",
+                        "ESR": "35kΩ Max",
+                        "型号粒度": "专业分销商逐料号",
+                        "数据来源": sync.SOURCE_MARKER,
+                    }
+                ]
+            )
+            official.to_csv(official_path, index=False, encoding="utf-8-sig")
+            normalized = sync.cm.normalize_imported_component_dataframe(
+                distributor,
+                source_path=str(lcsc_path),
+            )
+
+            with patch.object(sync, "CRYSTAL_DIR", crystal_dir):
+                merged = sync.merge_authoritative_timing_overlaps(
+                    normalized,
+                    {lcsc_path.resolve()},
+                )
+
+        row = merged.iloc[0]
+        self.assertEqual(row["型号"], "X1A0001710001")
+        self.assertEqual(row["负载电容（pF）"], "12.5")
+        self.assertEqual(row["ESR"], "60kΩ Max")
+        self.assertEqual(row["驱动电平"], "0.5µW Max")
+        self.assertIn("official", row["数据来源"].lower())
+
     def test_build_electrolytic_exact_mpn(self) -> None:
         source = {
             "brandNameEn": "Rubycon",

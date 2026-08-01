@@ -13,6 +13,43 @@ import sync_epson_parametric_products as epson_sync
 
 
 class EpsonTimingIntegrationTests(unittest.TestCase):
+    def test_crystal_query_parses_esr_and_drive_level(self):
+        spec = cm.parse_timing_spec_query(
+            "crystal 32.768kHz 2012 12.5pF +/-20ppm -40~105C "
+            "ESR 60kOhm Max drive level 0.5uW Max aging +/-3ppm "
+            "turnover temperature +25C +/-5C parabolic coefficient -0.04 fundamental"
+        )
+
+        self.assertEqual(spec["ESR"], "60KΩ")
+        self.assertEqual(spec["驱动电平"], "0.5µW Max")
+        self.assertTrue(cm.timing_query_has_complete_details(spec, "晶振"))
+
+    def test_higher_drive_level_crystal_needs_confirmation(self):
+        spec = {
+            "驱动电平": "0.5µW Max",
+        }
+        self.assertEqual(
+            cm.timing_crystal_drive_candidate_state({"驱动电平": "1µW Max"}, spec),
+            (False, True),
+        )
+        self.assertEqual(
+            cm.timing_crystal_drive_candidate_state({"驱动电平": "0.2µW Max"}, spec),
+            (True, True),
+        )
+
+    def test_low_frequency_tuning_fork_can_imply_fundamental_mode(self):
+        spec = {
+            "器件类型": "晶振",
+            "容值": "32.768",
+            "容值单位": "kHz",
+            "泛音阶次": "基频（Fundamental）",
+        }
+
+        self.assertEqual(cm.timing_detail_candidate_state({}, spec), (True, True))
+
+        mhz_spec = dict(spec, 容值="24", 容值单位="MHz")
+        self.assertEqual(cm.timing_detail_candidate_state({}, mhz_spec), (True, False))
+
     def test_official_product_row_records_selector_and_ordering_rule_sources(self):
         product = {
             "pn": "Q22FA12800697",
@@ -662,6 +699,8 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
                     "频率温度特性（ppm）": "±15ppm",
                     "25℃老化（ppm）": "±1ppm",
                     "泛音阶次": "基频（Fundamental）",
+                    "ESR": "40Ω Max",
+                    "驱动电平": "100µW Max",
                 }
             ]
         )
@@ -799,6 +838,8 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
                     "频率温度特性（ppm）": "±15ppm",
                     "25℃老化（ppm）": "±1ppm",
                     "泛音阶次": "基频（Fundamental）",
+                    "ESR": "40Ω Max",
+                    "驱动电平": "100µW Max",
                 },
                 {
                     "品牌": "Example",
@@ -814,6 +855,8 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
                     "频率温度特性（ppm）": "±30ppm",
                     "25℃老化（ppm）": "±5ppm",
                     "泛音阶次": "三次泛音（3rd Overtone）",
+                    "ESR": "80Ω Max",
+                    "驱动电平": "200µW Max",
                 },
             ]
         )
@@ -822,7 +865,8 @@ class EpsonTimingIntegrationTests(unittest.TestCase):
         )
         spec = cm.parse_timing_spec_query(
             "晶振 38.4MHz 2016 10pF ±15ppm "
-            "-20~85℃ 温度特性±15ppm 老化±1ppm 基频"
+            "-20~85℃ 温度特性±15ppm 老化±1ppm ESR 40Ω Max "
+            "驱动电平 100µW Max 基频"
         )
 
         with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):

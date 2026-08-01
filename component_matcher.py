@@ -160,7 +160,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 112
+QUERY_RESULT_CACHE_VERSION = 113
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -185,7 +185,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-01T15:02:00+08:00"
+PUBLIC_CODE_STAMP = "2026-08-01T20:10:00+08:00"
 
 
 def startup_trace(message):
@@ -16747,6 +16747,42 @@ def find_esr_in_text(text):
     return _find_labeled_resistive_measurement(text, ["ESR"])
 
 
+def find_timing_drive_level_in_text(text):
+    raw = clean_text(text)
+    if raw == "":
+        return ""
+    match = re.search(
+        r"(?:驱动电平|DRIVE\s*LEVEL)\s*[:：=]?\s*(\d+(?:\.\d+)?)\s*(PW|NW|[Uµμ]W|MW|W)\b\s*(MAX|TYP|MIN)?",
+        raw,
+        flags=re.I,
+    )
+    if not match:
+        return ""
+    unit = match.group(2).upper().replace("UW", "µW").replace("ΜW", "µW").replace("Μ", "µ")
+    suffix = clean_text(match.group(3) or "").title()
+    value = f"{match.group(1)}{unit}"
+    return f"{value} {suffix}".strip()
+
+
+def timing_power_measurement_to_watts(value):
+    text = clean_text(value).replace("μ", "U").replace("µ", "U").upper()
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(PW|NW|UW|MW|W)", text)
+    if not match:
+        return None
+    factors = {
+        "PW": 1e-12,
+        "NW": 1e-9,
+        "UW": 1e-6,
+        "MW": 1e-3,
+        "W": 1.0,
+    }
+    unit = match.group(2).upper()
+    try:
+        return float(match.group(1)) * factors[unit]
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def text_contains_impedance_range(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -21457,6 +21493,26 @@ def timing_turnover_candidate_allows(candidate, required):
     )
 
 
+def timing_spec_is_low_frequency_tuning_fork(spec):
+    if normalize_component_type(spec.get("器件类型", "")) != "晶振":
+        return False
+    value = clean_text(spec.get("容值", "") or spec.get("频率", ""))
+    unit = clean_text(spec.get("容值单位", "") or spec.get("频率单位", "")).upper()
+    try:
+        frequency = float(value)
+    except Exception:
+        return False
+    if unit == "HZ":
+        frequency_khz = frequency / 1000.0
+    elif unit == "KHZ":
+        frequency_khz = frequency
+    elif unit == "MHZ":
+        frequency_khz = frequency * 1000.0
+    else:
+        return False
+    return 32.0 <= frequency_khz <= 100.0
+
+
 def timing_detail_candidate_state(row, spec):
     checks = [
         (
@@ -21495,6 +21551,13 @@ def timing_detail_candidate_state(row, spec):
         candidate = clean_text(row.get(field, ""))
         if field == "25℃老化（ppm）" and candidate == "":
             candidate = clean_text(row.get("长期稳定度", ""))
+        if (
+            field == "泛音阶次"
+            and candidate == ""
+            and normalize_timing_overtone_order(required) == "FUNDAMENTAL"
+            and timing_spec_is_low_frequency_tuning_fork(spec)
+        ):
+            continue
         if candidate == "":
             complete = False
             continue
@@ -21525,6 +21588,21 @@ def timing_crystal_esr_candidate_state(row, spec):
     return candidate_value <= required_value + 1e-9, True
 
 
+def timing_crystal_drive_candidate_state(row, spec):
+    required_text = clean_text(spec.get("驱动电平", ""))
+    if required_text == "":
+        return True, True
+    candidate_text = clean_text(row.get("驱动电平", ""))
+    if candidate_text == "":
+        return True, False
+    required_value = timing_power_measurement_to_watts(required_text)
+    candidate_value = timing_power_measurement_to_watts(candidate_text)
+    if required_value is None or candidate_value is None:
+        same_text = candidate_text.upper() == required_text.upper()
+        return same_text, same_text
+    return candidate_value <= required_value + 1e-18, True
+
+
 def timing_query_has_complete_details(spec, component_type):
     if component_type == "实时时钟模块":
         return all(
@@ -21545,6 +21623,8 @@ def timing_query_has_complete_details(spec, component_type):
         return False
     if component_type == "振荡器":
         return True
+    if clean_text(spec.get("ESR", "")) == "" or clean_text(spec.get("驱动电平", "")) == "":
+        return False
     unit = clean_text(spec.get("容值单位", "")).upper()
     try:
         frequency = float(clean_text(spec.get("容值", "")))
@@ -22027,6 +22107,8 @@ def parse_timing_spec_query(line):
     turnover_temp = find_turnover_temperature_in_text(raw) if component_type == "晶振" else ""
     parabolic_coef = find_parabolic_coefficient_in_text(raw) if component_type == "晶振" else ""
     overtone_order = find_timing_overtone_order_in_text(raw) if component_type == "晶振" else ""
+    esr = find_esr_in_text(raw) if component_type == "晶振" else ""
+    drive_level = find_timing_drive_level_in_text(raw) if component_type == "晶振" else ""
     voltage = ""
     if component_type == "振荡器":
         voltage_match = re.search(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*V(?![A-Z])", raw.upper())
@@ -22047,6 +22129,8 @@ def parse_timing_spec_query(line):
         1 if turnover_temp != "" else 0,
         1 if parabolic_coef != "" else 0,
         1 if overtone_order != "" else 0,
+        1 if esr != "" else 0,
+        1 if drive_level != "" else 0,
     ])
     if value == "" and unit == "":
         return None
@@ -22075,6 +22159,8 @@ def parse_timing_spec_query(line):
         "拐点温度": turnover_temp,
         "抛物线系数（ppm/℃²）": parabolic_coef,
         "泛音阶次": overtone_order,
+        "ESR": esr,
+        "驱动电平": drive_level,
         "_body_size": body_size,
         "_core_param_count": param_count,
         "_param_count": param_count,
@@ -32186,11 +32272,20 @@ def match_other_passive_spec(df, spec):
         if work.empty:
             return pd.DataFrame()
         work = work.copy()
-        work["推荐等级"] = work.apply(
-            lambda row: "需确认替代" if electrolytic_candidate_confirmation_reasons(row, spec) else "完全匹配",
-            axis=1,
-        )
-        work["_confirmation_rank"] = work["推荐等级"].apply(lambda value: 0 if clean_text(value) == "完全匹配" else 1)
+        complete_query = electrolytic_query_has_complete_core(spec)
+        spec_model = clean_model(spec.get("型号", ""))
+
+        def electrolytic_level(row):
+            if spec_model != "" and clean_model(row.get("型号", "")) == spec_model:
+                return "完全匹配"
+            if electrolytic_candidate_confirmation_reasons(row, spec):
+                return "需确认替代"
+            return "完全匹配" if complete_query else "部分参数匹配"
+
+        work["推荐等级"] = work.apply(electrolytic_level, axis=1)
+        work["_confirmation_rank"] = work["推荐等级"].map(
+            {"完全匹配": 0, "部分参数匹配": 1, "需确认替代": 2}
+        ).fillna(9)
         work["_body_distance"] = work.apply(
             lambda row: body_size_distance_for_match(
                 row.get("_body_size", "") or row.get("尺寸（mm）", ""),
@@ -32423,11 +32518,19 @@ def match_other_passive_spec(df, spec):
                 lambda row: timing_crystal_esr_candidate_state(row, spec),
                 axis=1,
             )
+            drive_states = work.apply(
+                lambda row: timing_crystal_drive_candidate_state(row, spec),
+                axis=1,
+            )
         else:
             esr_states = pd.Series([(True, True)] * len(work), index=work.index)
+            drive_states = pd.Series([(True, True)] * len(work), index=work.index)
         esr_allows = esr_states.apply(lambda state: bool(state[0]))
         esr_complete = esr_states.apply(lambda state: bool(state[1]))
         esr_conflict = esr_complete & ~esr_allows
+        drive_allows = drive_states.apply(lambda state: bool(state[0]))
+        drive_complete = drive_states.apply(lambda state: bool(state[1]))
+        drive_conflict = drive_complete & ~drive_allows
         if spec_model != "":
             work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
         else:
@@ -32449,6 +32552,8 @@ def match_other_passive_spec(df, spec):
             detail_states.apply(lambda state: bool(state[1]))
             & esr_complete
             & esr_allows
+            & drive_complete
+            & drive_allows
         )
         work["推荐等级"] = "部分参数匹配"
         if complete_query:
@@ -32456,7 +32561,7 @@ def match_other_passive_spec(df, spec):
         configurable_mask = work.apply(timing_model_requires_configuration, axis=1)
         work["_configuration_rank"] = configurable_mask.astype(int)
         work.loc[configurable_mask, "推荐等级"] = "需确认配置"
-        work.loc[esr_conflict & ~configurable_mask, "推荐等级"] = "需确认替代"
+        work.loc[(esr_conflict | drive_conflict) & ~configurable_mask, "推荐等级"] = "需确认替代"
         work.loc[work["_exact_model_rank"].eq(0) & ~configurable_mask, "推荐等级"] = "完全匹配"
         work["_level_rank"] = work["推荐等级"].map(
             {
@@ -34829,6 +34934,27 @@ def electrolytic_candidate_confirmation_details(row, spec):
 def electrolytic_candidate_confirmation_reasons(row, spec):
     conflicts, warnings_list = electrolytic_candidate_confirmation_details(row, spec)
     return conflicts + warnings_list
+
+
+def electrolytic_query_has_complete_core(spec):
+    if not isinstance(spec, dict):
+        return False
+    has_value = (
+        spec.get("容值_pf", None) is not None
+        or (
+            clean_text(spec.get("容值", "")) != ""
+            and clean_text(spec.get("容值单位", "")) != ""
+        )
+    )
+    required = [
+        clean_tol_for_match(spec.get("容值误差", "")),
+        clean_voltage(spec.get("耐压（V）", "")),
+        normalize_mounting_style(spec.get("安装方式", "")),
+        normalize_working_temperature_text(spec.get("工作温度", "")),
+        normalize_body_size_for_match(spec.get("_body_size", "")),
+        normalize_life_hours_value(spec.get("寿命（h）", "")),
+    ]
+    return has_value and all(clean_text(value) != "" for value in required)
 
 
 def collect_recommendation_conflicts(row, spec):

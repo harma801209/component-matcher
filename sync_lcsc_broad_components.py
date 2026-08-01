@@ -41,6 +41,7 @@ CATEGORY_CONFIG = {
         / "lcsc_all_brand_timing_exact_mpn.csv",
     },
 }
+CRYSTAL_DIR = CATEGORY_CONFIG["timing"]["output"].parent
 
 COMMON_COLUMNS = [
     "器件类型",
@@ -579,6 +580,65 @@ def write_csv_atomically(frame: pd.DataFrame, output_path: Path) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def prepared_identity_key(frame: pd.DataFrame) -> pd.Series:
+    brand = frame["品牌"].astype(str).map(
+        lambda value: cm.canonical_cost_price_brand_label(value).upper()
+    )
+    model = frame["型号"].astype(str).map(cm.clean_model)
+    if "_component_type" in frame.columns:
+        component_type = frame["_component_type"].astype(str).map(cm.normalize_component_type)
+    else:
+        component_type = frame.apply(
+            lambda row: cm.infer_db_component_type(row)
+            or cm.normalize_component_type(row.get("器件类型", "")),
+            axis=1,
+        )
+    return brand + "|" + model + "|" + component_type
+
+
+def merge_authoritative_timing_overlaps(
+    normalized: pd.DataFrame,
+    source_paths: set[Path],
+) -> pd.DataFrame:
+    if normalized is None or normalized.empty:
+        return normalized
+    timing_mask = normalized["器件类型"].astype(str).map(cm.normalize_component_type).isin(
+        cm.TIMING_COMPONENT_TYPES
+    )
+    if not timing_mask.any():
+        return normalized
+
+    target_keys = set(prepared_identity_key(cm.prepare_search_dataframe(normalized.loc[timing_mask])))
+    authoritative_frames: list[pd.DataFrame] = []
+    resolved_sources = {path.resolve() for path in source_paths}
+    for path in sorted(CRYSTAL_DIR.glob("*.csv")):
+        if path.resolve() in resolved_sources or "lcsc" in path.name.lower():
+            continue
+        try:
+            source = pd.read_csv(path, dtype=str, keep_default_na=False)
+            source_normalized = cm.normalize_imported_component_dataframe(source, source_path=str(path))
+            source_prepared = cm.prepare_search_dataframe(source_normalized)
+        except Exception:
+            continue
+        if source_prepared.empty:
+            continue
+        overlap = source_prepared[prepared_identity_key(source_prepared).isin(target_keys)].copy()
+        if not overlap.empty:
+            authoritative_frames.append(overlap)
+
+    if not authoritative_frames:
+        return normalized
+    combined = pd.concat(
+        [cm.prepare_search_dataframe(normalized)] + authoritative_frames,
+        ignore_index=True,
+        sort=False,
+    )
+    combined = cm.prioritize_component_rows_for_lookup(combined)
+    combined["_broad_sync_identity"] = prepared_identity_key(combined)
+    combined = combined.drop_duplicates("_broad_sync_identity", keep="first")
+    return combined.drop(columns=["_broad_sync_identity"], errors="ignore").reset_index(drop=True)
+
+
 def refresh_runtime_caches(frames: list[tuple[pd.DataFrame, Path]]) -> dict[str, int]:
     normalized_frames = [
         cm.normalize_imported_component_dataframe(frame, source_path=str(path))
@@ -586,6 +646,10 @@ def refresh_runtime_caches(frames: list[tuple[pd.DataFrame, Path]]) -> dict[str,
         if frame is not None and not frame.empty
     ]
     normalized = cm.deduplicate_component_rows(pd.concat(normalized_frames, ignore_index=True))
+    normalized = merge_authoritative_timing_overlaps(
+        normalized,
+        {path.resolve() for _frame, path in frames},
+    )
     prepared = cm.prepare_search_dataframe(normalized)
     if prepared.empty:
         raise RuntimeError("broad component sync produced an empty prepared frame")

@@ -621,6 +621,8 @@ class MultiBrandTimingIntegrationTests(unittest.TestCase):
                     "频率温度特性（ppm）": "±10ppm",
                     "25℃老化（ppm）": "±1ppm",
                     "泛音阶次": "基频（Fundamental）",
+                    "ESR": "80Ω Max",
+                    "驱动电平": "100µW Max",
                     "型号粒度": "官方逐料号",
                 }
             ]
@@ -630,7 +632,8 @@ class MultiBrandTimingIntegrationTests(unittest.TestCase):
         )
         spec = cm.parse_timing_spec_query(
             "晶振 16MHz 3225 10pF ±10ppm "
-            "-40~85℃ 温度特性±10ppm 老化±1ppm 基频"
+            "-40~85℃ 温度特性±10ppm 老化±1ppm "
+            "ESR 80Ω Max 驱动电平 100µW Max 基频"
         )
 
         with mock.patch.object(cm, "fetch_search_candidate_pairs", return_value=None):

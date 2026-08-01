@@ -3789,3 +3789,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added timing category and model-shape gates. Unrelated category pollution and specification text such as `85MHz 25PPM 3.3V` can no longer appear as exact orderable models.
 - Incremental cache refresh now removes all stale rows from the same synchronized source before inserting the latest snapshot, without deleting official or unrelated-source records.
 - The refreshed search index contains 1,748,648 core rows and 79,484 parameter rows. Eight importer tests, 63 timing/electrolytic regressions, and the 33-test release safety gate pass; protected runtime database fingerprints are unchanged.
+
+## 2026-08-01 - Tighten cross-brand timing and aluminum-electrolytic equivalence
+
+- Crystal-unit specification queries now parse and compare ESR and maximum drive level. A crystal cannot be marked complete unless its type, frequency, package, frequency tolerance, load capacitance, temperature range, ESR, drive level, and aging requirements are known; MHz crystals also require temperature characteristic and overtone, while 32.768kHz tuning-fork crystals require turnover temperature and parabolic coefficient.
+- Added the official low-frequency tuning-fork rule that 32kHz to 100kHz crystal-unit rows may infer fundamental operation when the candidate datasheet omits a separate overtone cell. The rule does not apply to MHz crystals, oscillators, or unrelated timing devices.
+- Aluminum-electrolytic cross-brand results now require capacitance, tolerance, voltage, mounting style, operating temperature, exact body diameter and length, and rated lifetime before they can be marked complete. Sparse requests remain partial instead of appearing interchangeable.
+- Broad distributor refreshes now preserve higher-authority official timing rows when an exact manufacturer part number overlaps, preventing incomplete distributor records from replacing detailed Epson data.
+- Verified exact-MPN reverse lookup and complete/sparse specification queries against real Epson, Abracon, AISHI, ChuangHui, and Ymin records. All 77 focused timing/electrolytic/import regressions and the 33-test release safety gate pass with isolated databases; protected runtime data remains unchanged.

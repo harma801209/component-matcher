@@ -1024,3 +1024,11 @@
 - Root cause: the publish helper used `git branch --show-current` and ignored the configured upstream branch.
 - Fix: resolve `@{upstream}` first and publish to its remote branch name; fall back to the current local branch only when no upstream is configured.
 - Regression: focused tests cover both `origin/main` tracking and no-upstream fallback behavior.
+
+## 2026-08-01 - Sparse timing and electrolytic specifications were overstated as complete matches
+
+- Symptom: a crystal query could omit ESR or drive level and still receive `完全匹配`; a through-hole aluminum-electrolytic query without body size or rated life could also label cross-brand rows complete. A complete 32.768kHz tuning-fork query was meanwhile downgraded when an otherwise authoritative candidate did not repeat the inherent fundamental-mode field.
+- Root cause: the complete-query gates did not require the component-specific safety fields. The broad distributor refresh could also replace an authoritative exact timing row with an incomplete duplicate, while the detail checker treated a blank overtone cell as missing even for low-frequency tuning-fork crystals.
+- Fix: require ESR and maximum drive level for crystal complete matches; require capacitance, tolerance, voltage, mounting, temperature, body size, and rated life for aluminum-electrolytic complete matches. Preserve authoritative timing records during broad refreshes and recognize fundamental mode only for 32–100kHz crystal candidates when the query explicitly requires it.
+- Accuracy boundary: missing query or candidate data remains `部分参数匹配`; known worse ESR, drive, dimensions, temperature, or life remains confirmation-required. Exact source-model hits remain identifiable without claiming cross-brand equivalence.
+- Regression: 53 focused tests pass. Real-cache checks distinguish Epson `X1A0001710001` (complete) from higher-ESR `X1A0002010001` (confirmation-required), and distinguish a complete 470uF/16V/D6.3xL12/105C/2000h DIP query from its sparse counterpart.
