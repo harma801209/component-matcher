@@ -3780,3 +3780,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Missing fields remain blank and are exposed as confirmation notes. TDK ceramic resonators are not presented as quartz-crystal replacements, and archived/unlisted order numbers are not synthesized.
 - Replaced all 32,702 timing rows in the prepared cache and refreshed the 1,709,006-row search core plus 62,929 timing/value index rows. Exact lookups for `SF32WK32768D71T005`, `3S30000079`, `1P224000AA0Z`, and `7X80000600` return the expected brand, order number, frequency unit, completeness, and missing fields.
 - All 24 multi-brand timing integration tests pass. Added the synchronization script to the public publish list so future refreshes remain reproducible. Protected member, cost-list, and no-match databases were not modified.
+
+## 2026-08-01 - Broad timing and aluminum-electrolytic exact-MPN expansion
+
+- Added a repeatable LCSC category synchronizer that discovers brands before paging exact manufacturer part numbers; it never synthesizes an orderable model.
+- Added 24,050 aluminum-electrolytic records across 45 brands and 21,788 timing records across 65 brands. Official-source rows remain authoritative when a distributor row duplicates the same part number.
+- Imported capacitance/frequency, tolerance, voltage, package/body dimensions, ESR, ripple current, lifetime, temperature, MOQ, and packing fields where published. Rows missing category-critical parameters are marked confirmation-required with the missing fields recorded.
+- Added timing category and model-shape gates. Unrelated category pollution and specification text such as `85MHz 25PPM 3.3V` can no longer appear as exact orderable models.
+- Incremental cache refresh now removes all stale rows from the same synchronized source before inserting the latest snapshot, without deleting official or unrelated-source records.
+- The refreshed search index contains 1,748,648 core rows and 79,484 parameter rows. Eight importer tests, 63 timing/electrolytic regressions, and the 33-test release safety gate pass; protected runtime database fingerprints are unchanged.

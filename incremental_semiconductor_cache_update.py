@@ -114,7 +114,42 @@ def coerce_frame_to_schema(frame: pd.DataFrame, schema: pa.Schema) -> pd.DataFra
     return normalized
 
 
-def replace_prepared_cache_rows(seed_prepared: pd.DataFrame, batch_size: int = 50_000) -> int:
+def collect_prepared_pairs_by_source_markers(
+    source_markers: set[str],
+    batch_size: int = 50_000,
+) -> pd.DataFrame:
+    prepared_path = Path(cm.PREPARED_CACHE_PATH)
+    columns = ["品牌", "型号", "数据来源"]
+    if not prepared_path.exists() or not source_markers:
+        return pd.DataFrame(columns=columns[:2])
+
+    parquet_file = pq.ParquetFile(prepared_path)
+    available = set(parquet_file.schema_arrow.names)
+    if not set(columns).issubset(available):
+        parquet_file.close()
+        return pd.DataFrame(columns=columns[:2])
+
+    markers = {str(marker or "").strip() for marker in source_markers if str(marker or "").strip()}
+    frames: list[pd.DataFrame] = []
+    try:
+        for batch in parquet_file.iter_batches(batch_size=int(batch_size), columns=columns):
+            frame = batch.to_pandas()
+            source = frame["数据来源"].astype("string").fillna("").str.strip()
+            matched = frame.loc[source.isin(markers), columns[:2]].copy()
+            if not matched.empty:
+                frames.append(matched)
+    finally:
+        parquet_file.close()
+    if not frames:
+        return pd.DataFrame(columns=columns[:2])
+    return pd.concat(frames, ignore_index=True).drop_duplicates().reset_index(drop=True)
+
+
+def replace_prepared_cache_rows(
+    seed_prepared: pd.DataFrame,
+    batch_size: int = 50_000,
+    extra_remove_pairs: pd.DataFrame | None = None,
+) -> int:
     prepared_path = Path(cm.PREPARED_CACHE_PATH)
     meta_path = Path(cm.PREPARED_CACHE_META_PATH)
     if not prepared_path.exists():
@@ -126,6 +161,8 @@ def replace_prepared_cache_rows(seed_prepared: pd.DataFrame, batch_size: int = 5
     schema = parquet_file.schema_arrow
     seed_prepared = coerce_frame_to_schema(seed_prepared, schema)
     remove_keys = set(make_prepared_key(seed_prepared).astype(str))
+    if extra_remove_pairs is not None and not extra_remove_pairs.empty:
+        remove_keys.update(make_prepared_key(extra_remove_pairs).astype(str))
 
     tmp_dir = prepared_path.parent
     fd, tmp_name = tempfile.mkstemp(
@@ -175,7 +212,10 @@ def replace_prepared_cache_rows(seed_prepared: pd.DataFrame, batch_size: int = 5
     return int(len(seed_prepared))
 
 
-def refresh_search_sidecar_rows(seed_prepared: pd.DataFrame) -> dict[str, int]:
+def refresh_search_sidecar_rows(
+    seed_prepared: pd.DataFrame,
+    extra_remove_pairs: pd.DataFrame | None = None,
+) -> dict[str, int]:
     search_path = Path(cm.SEARCH_DB_PATH)
     if not search_path.exists():
         raise FileNotFoundError(search_path)
@@ -186,6 +226,11 @@ def refresh_search_sidecar_rows(seed_prepared: pd.DataFrame) -> dict[str, int]:
 
     specs = cm.get_search_sidecar_table_specs()
     pairs = seed_prepared.loc[:, ["品牌", "型号"]].drop_duplicates()
+    if extra_remove_pairs is not None and not extra_remove_pairs.empty:
+        pairs = pd.concat(
+            [pairs, extra_remove_pairs.loc[:, ["品牌", "型号"]]],
+            ignore_index=True,
+        ).drop_duplicates()
     with sqlite3.connect(search_path, timeout=60) as conn:
         conn.execute("PRAGMA busy_timeout = 60000")
         for table_name, spec in specs.items():
