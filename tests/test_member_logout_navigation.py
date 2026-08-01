@@ -21,6 +21,7 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
         )
         self.assertIn('if clear_token:', bridge)
         self.assertIn('token = ""', bridge)
+        self.assertIn('clear_token_value = clean_text(st.session_state.pop("_member_auth_clear_browser_token_value"', bridge)
 
     def test_member_navigation_clears_other_page_modes(self):
         start = self.matcher.index("def render_member_entry_button():")
@@ -37,6 +38,7 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
         remote_refresh = logout.index("refresh_member_auth_remote_snapshot(force=True)")
         self.assertLess(local_clear, remote_refresh)
         self.assertIn('st.session_state["_member_auth_clear_browser_token"] = True', logout)
+        self.assertIn('st.session_state["_member_auth_clear_browser_token_value"] = token', logout)
         self.assertIn('"member": ""', logout)
         self.assertIn('"bom": ""', logout)
         self.assertIn('"admin": ""', logout)

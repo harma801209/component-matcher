@@ -626,7 +626,9 @@ function buildEmbedShellResponse(request, incomingUrl) {
           if (payload.source !== "fruition-member-auth") return;
           if (payload.channel !== authBridgeChannel) return;
           if (payload.action === "clear") {
-            clearToken(String(payload.token || ""));
+            const clearTokenValue = String(payload.token || "");
+            if (!tokenPattern.test(clearTokenValue)) return;
+            clearToken(clearTokenValue);
             return;
           }
           if (payload.action === "save") {

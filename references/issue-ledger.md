@@ -1032,3 +1032,10 @@
 - Fix: require ESR and maximum drive level for crystal complete matches; require capacitance, tolerance, voltage, mounting, temperature, body size, and rated life for aluminum-electrolytic complete matches. Preserve authoritative timing records during broad refreshes and recognize fundamental mode only for 32–100kHz crystal candidates when the query explicitly requires it.
 - Accuracy boundary: missing query or candidate data remains `部分参数匹配`; known worse ESR, drive, dimensions, temperature, or life remains confirmation-required. Exact source-model hits remain identifiable without claiming cross-brand equivalence.
 - Regression: 53 focused tests pass. Real-cache checks distinguish Epson `X1A0001710001` (complete) from higher-ESR `X1A0002010001` (confirmation-required), and distinguish a complete 470uF/16V/D6.3xL12/105C/2000h DIP query from its sparse counterpart.
+
+## 2026-08-01 - A stale logged-out page could erase a newly saved member login
+
+- Symptom: after opening the member login page from the formal system, a successful login returned to search but the right-side control sometimes still showed `会员登录`.
+- Root cause: every unauthenticated persistence bridge sent an unconditional `clear` message to the formal outer shell. A bridge from the previous logged-out render could finish after the new authenticated render had saved its token, deleting the newer browser token.
+- Fix: passive unauthenticated renders now clear only their own local bridge storage and never clear the formal shell. Explicit invalid-token and logout actions carry the token they intend to clear; both the Streamlit bridge and formal shell ignore a clear request when that token differs from the currently saved login.
+- Regression: focused member/login tests pass with isolated temporary runtime databases. A real Chrome message-order replay confirms save succeeds, a stale clear is ignored, and a matching logout clear still removes the token.
