@@ -2767,6 +2767,7 @@ class SystemRegressionTests(unittest.TestCase):
         app = self.app
         snapshot = {"version": 0, "sha256": "", "payload_base64": "", "updated_at": ""}
         request_counts = {"get": 0, "put": 0}
+        put_delay = {"seconds": 0.0}
         api_secret = "regression-secret"
 
         class SnapshotHandler(BaseHTTPRequestHandler):
@@ -2796,6 +2797,7 @@ class SystemRegressionTests(unittest.TestCase):
                     self._send(401, {"error": "unauthorized"})
                     return
                 request_counts["put"] += 1
+                time.sleep(float(put_delay["seconds"]))
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if int(body.get("expected_version") or 0) != int(snapshot["version"]):
@@ -2842,9 +2844,15 @@ class SystemRegressionTests(unittest.TestCase):
             app["reset_member_auth_remote_refresh_cache"]()
             requests_before_login = dict(request_counts)
             app["initialize_member_auth_remote_storage"]()
+            put_delay["seconds"] = 2.0
+            login_started_at = time.perf_counter()
             restored, message = app["authenticate_member"]("DURABLEUSER", "secret1")
+            login_elapsed = time.perf_counter() - login_started_at
             self.assertIsNotNone(restored, message)
+            self.assertLess(login_elapsed, 1.5)
             self.assertEqual(request_counts["get"] - requests_before_login["get"], 1)
+            self.assertTrue(app["wait_for_member_auth_remote_snapshot_flush"](timeout=5.0))
+            put_delay["seconds"] = 0.0
             self.assertEqual(request_counts["put"] - requests_before_login["put"], 1)
             requests_after_login = dict(request_counts)
             for _ in range(3):

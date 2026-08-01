@@ -103,10 +103,21 @@ MEMBER_AUTH_DB_PATH = os.path.abspath(
 MEMBER_AUTH_REMOTE_STATE_PATH = os.path.join(BASE_DIR, "cache", "member_auth_remote_state.json")
 MEMBER_AUTH_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/member-store/snapshot"
 MEMBER_AUTH_OUTER_SHELL_ORIGIN = "https://fruition-component.pages.dev"
-MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
-MEMBER_AUTH_REMOTE_REFRESH_LOCK = threading.Lock()
-MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 15.0
-_MEMBER_AUTH_REMOTE_REFRESH_CACHE = {"checked_at": 0.0, "db_path": ""}
+if "MEMBER_AUTH_REMOTE_LOCK" not in globals():
+    MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
+if "MEMBER_AUTH_REMOTE_REFRESH_LOCK" not in globals():
+    MEMBER_AUTH_REMOTE_REFRESH_LOCK = threading.Lock()
+if "_MEMBER_AUTH_REMOTE_FLUSH_CONDITION" not in globals():
+    _MEMBER_AUTH_REMOTE_FLUSH_CONDITION = threading.Condition(threading.Lock())
+if "_MEMBER_AUTH_REMOTE_FLUSH_STATE" not in globals():
+    _MEMBER_AUTH_REMOTE_FLUSH_STATE = {
+        "generation": 0,
+        "running": False,
+        "last_result": None,
+    }
+MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
+if "_MEMBER_AUTH_REMOTE_REFRESH_CACHE" not in globals():
+    _MEMBER_AUTH_REMOTE_REFRESH_CACHE = {"checked_at": 0.0, "db_path": ""}
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
@@ -1085,6 +1096,59 @@ def flush_member_auth_remote_snapshot():
             return False
         save_member_auth_remote_state(version, payload_sha)
         return True
+
+
+def _run_member_auth_remote_snapshot_flush_worker(condition, state):
+    while True:
+        with condition:
+            target_generation = int(state.get("generation") or 0)
+        try:
+            result = bool(flush_member_auth_remote_snapshot())
+        except Exception as exc:
+            logging.warning("member auth background snapshot flush failed: %s", type(exc).__name__)
+            result = False
+        with condition:
+            state["last_result"] = result
+            if int(state.get("generation") or 0) == target_generation:
+                state["running"] = False
+                condition.notify_all()
+                return
+
+
+def queue_member_auth_remote_snapshot_flush():
+    """Persist the latest member replica without holding up the login response."""
+    _, _, enabled = get_member_auth_remote_config()
+    if not enabled or not os.path.exists(MEMBER_AUTH_DB_PATH):
+        return False
+    condition = _MEMBER_AUTH_REMOTE_FLUSH_CONDITION
+    state = _MEMBER_AUTH_REMOTE_FLUSH_STATE
+    with condition:
+        state["generation"] = int(state.get("generation") or 0) + 1
+        if bool(state.get("running")):
+            return True
+        state["running"] = True
+        state["last_result"] = None
+        worker = threading.Thread(
+            target=_run_member_auth_remote_snapshot_flush_worker,
+            args=(condition, state),
+            name="member-auth-snapshot-flush",
+            daemon=True,
+        )
+        worker.start()
+    return True
+
+
+def wait_for_member_auth_remote_snapshot_flush(timeout=10.0):
+    condition = _MEMBER_AUTH_REMOTE_FLUSH_CONDITION
+    state = _MEMBER_AUTH_REMOTE_FLUSH_STATE
+    deadline = time.monotonic() + max(0.0, float(timeout or 0.0))
+    with condition:
+        while bool(state.get("running")):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            condition.wait(timeout=remaining)
+        return state.get("last_result") is not False
 
 
 def initialize_member_auth_remote_storage():
@@ -2863,22 +2927,43 @@ def create_member_session(member_id):
         )
         conn.execute("UPDATE members SET last_login_at=?, updated_at=? WHERE id=?", (now, now, int(member_id)))
         conn.commit()
-    flush_member_auth_remote_snapshot()
+    queue_member_auth_remote_snapshot_flush()
     return token
 
 
 def authenticate_member(username, password):
     refresh_member_auth_remote_snapshot()
-    ensure_configured_admin_member_account()
     member = get_member_by_username(username)
+    configured_admin_username, configured_admin_password = get_no_match_admin_credentials()
+    configured_admin_login = (
+        clean_text(username).lower() == clean_text(configured_admin_username).lower()
+    )
+    if member is None and configured_admin_login:
+        ensure_configured_admin_member_account()
+        member = get_member_by_username(configured_admin_username)
     if not member:
         return None, "账号或密码不正确。"
     status_value = normalize_member_status(member.get("status", ""))
+    if configured_admin_login and (
+        normalize_member_role(member.get("role", "")) != "admin" or status_value != "active"
+    ):
+        ensure_configured_admin_member_account()
+        member = get_member_by_username(configured_admin_username)
+        status_value = normalize_member_status(member.get("status", "")) if member else ""
     if status_value == "pending":
         return None, "账号正在等待管理员审核，通过后才能登录。"
     if status_value != "active":
         return None, "账号尚未开通或已停用，请联系管理员。"
-    if not verify_member_password(password, member.get("password_hash", "")):
+    password_valid = verify_member_password(password, member.get("password_hash", ""))
+    if not password_valid and configured_admin_login and hmac.compare_digest(
+        str(password or ""), str(configured_admin_password or "")
+    ):
+        ensure_configured_admin_member_account()
+        member = get_member_by_username(configured_admin_username)
+        password_valid = bool(member) and verify_member_password(
+            password, member.get("password_hash", "")
+        )
+    if not password_valid:
         return None, "账号或密码不正确。"
     token = create_member_session(int(member["id"]))
     member = get_member_by_id(int(member["id"]))

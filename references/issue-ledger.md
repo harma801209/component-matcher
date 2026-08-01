@@ -1039,3 +1039,11 @@
 - Root cause: every unauthenticated persistence bridge sent an unconditional `clear` message to the formal outer shell. A bridge from the previous logged-out render could finish after the new authenticated render had saved its token, deleting the newer browser token.
 - Fix: passive unauthenticated renders now clear only their own local bridge storage and never clear the formal shell. Explicit invalid-token and logout actions carry the token they intend to clear; both the Streamlit bridge and formal shell ignore a clear request when that token differs from the currently saved login.
 - Regression: focused member/login tests pass with isolated temporary runtime databases. A real Chrome message-order replay confirms save succeeds, a stale clear is ignored, and a matching logout clear still removes the token.
+
+## 2026-08-02 - Member login waited for remote snapshot persistence
+
+- Symptom: pressing the member login button consistently took several seconds before the authenticated page appeared.
+- Root cause: every successful login synchronously uploaded the complete member SQLite snapshot before returning. Ordinary-member login also verified the configured administrator password, and a 15-second refresh window could trigger a second remote read while the user was entering credentials.
+- Fix: establish the local session immediately, queue a coalesced background snapshot flush, and keep the remote write serialized with existing member-store operations. Ordinary logins no longer run administrator-account repair; the configured administrator is repaired only when that account actually needs it. The same-page remote refresh window is now 60 seconds.
+- Safety boundary: password hashing strength, account status checks, the 12-hour session lifetime, database schema, and protected runtime records are unchanged. Profile, approval, logout, and other member mutations retain synchronous persistence where their existing behavior requires it.
+- Regression: with the remote PUT intentionally delayed by two seconds, authentication returns before the 1.5-second threshold and the queued snapshot subsequently completes. Member login, logout, browser persistence, and remote restoration tests pass against isolated temporary databases.
