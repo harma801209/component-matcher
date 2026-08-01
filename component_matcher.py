@@ -2951,12 +2951,14 @@ def current_member():
         st.session_state.pop("_member_display_name", None)
     if saw_invalid_query_token and query_token != "":
         st.session_state["_member_auth_clear_browser_token"] = True
+        st.session_state["_member_auth_clear_browser_token_value"] = query_token
         update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
     return None
 
 
 def render_member_auth_browser_persistence_bridge():
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
+    clear_token_value = clean_text(st.session_state.pop("_member_auth_clear_browser_token_value", ""))
     clear_outer_page_modes = bool(st.session_state.pop(ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY, False))
     if clear_token:
         st.session_state.pop("_member_auth_token", None)
@@ -2980,6 +2982,7 @@ def render_member_auth_browser_persistence_bridge():
         const outerShellOrigin = {json.dumps(MEMBER_AUTH_OUTER_SHELL_ORIGIN)};
         const token = {json.dumps(token)};
         const clearToken = {json.dumps(clear_token)};
+        const clearTokenValue = {json.dumps(clear_token_value)};
         const clearOuterPageModes = {json.dumps(clear_outer_page_modes)};
         const ttlSeconds = {ttl_seconds};
         const ttlMs = ttlSeconds * 1000;
@@ -3042,8 +3045,14 @@ def render_member_auth_browser_persistence_bridge():
             return "";
         }}
 
-        function clearSavedToken() {{
+        function clearSavedToken(notifyShell, expectedToken) {{
             const storage = getStorage();
+            let savedToken = "";
+            try {{
+                if (storage) savedToken = storage.getItem(storageKey) || "";
+            }} catch (err) {{}}
+            if (!savedToken) savedToken = readCookie();
+            if (expectedToken && savedToken && savedToken !== expectedToken) return;
             try {{
                 if (storage) {{
                     storage.removeItem(storageKey);
@@ -3051,13 +3060,13 @@ def render_member_auth_browser_persistence_bridge():
                 }}
             }} catch (err) {{}}
             deleteCookie();
-            notifyOuterShell("clear", "", 0);
+            if (notifyShell && expectedToken) notifyOuterShell("clear", expectedToken, 0);
         }}
 
         clearOuterShellPageModes();
 
         if (clearToken) {{
-            clearSavedToken();
+            clearSavedToken(true, clearTokenValue);
             return;
         }}
 
@@ -3089,7 +3098,7 @@ def render_member_auth_browser_persistence_bridge():
             expiresAt = savedToken ? now + ttlMs : 0;
         }}
         if (!savedToken || (expiresAt && expiresAt <= now)) {{
-            clearSavedToken();
+            clearSavedToken(false, savedToken);
             return;
         }}
 
@@ -3153,6 +3162,7 @@ def logout_member():
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
     st.session_state["_member_auth_clear_browser_token"] = True
+    st.session_state["_member_auth_clear_browser_token_value"] = token
     update_query_params(
         **{
             MEMBER_AUTH_QUERY_PARAM: "",
@@ -3262,10 +3272,13 @@ def render_member_auth_panel(action_text=""):
             @st.dialog("会员登录", width="small")
             def render_action_login_dialog():
                 st.caption(f"登录后将自动继续{context_text}，无需再次提交。")
-                with st.form("member_action_login_form", clear_on_submit=False):
-                    username = st.text_input("账号", key="member_action_login_username")
-                    password = st.text_input("密码", type="password", key="member_action_login_password")
-                    submitted = st.form_submit_button("登录并继续", use_container_width=True)
+                username = st.text_input("账号", key="member_action_login_username")
+                password = st.text_input("密码", type="password", key="member_action_login_password")
+                submitted = st.button(
+                    "登录并继续",
+                    key="member_action_login_submit",
+                    use_container_width=True,
+                )
                 if submitted:
                     member, error = authenticate_member(username, password)
                     if member:

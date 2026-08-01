@@ -468,16 +468,21 @@ function buildEmbedShellResponse(request, incomingUrl) {
           ? crypto.randomUUID()
           : Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("");
 
-        function clearToken() {
+        function clearToken(expectedToken = "") {
           try {
+            const savedToken = localStorage.getItem(tokenKey) || "";
+            if (expectedToken && savedToken && savedToken !== expectedToken) return false;
             localStorage.removeItem(tokenKey);
             localStorage.removeItem(expiresKey);
+            return true;
           } catch (error) {}
+          return false;
         }
 
         function saveToken(token, expiresAt) {
           if (!tokenPattern.test(token || "")) return;
-          const safeExpiry = Number(expiresAt) > now ? Number(expiresAt) : now + ttlMs;
+          const currentTime = Date.now();
+          const safeExpiry = Number(expiresAt) > currentTime ? Number(expiresAt) : currentTime + ttlMs;
           try {
             localStorage.setItem(tokenKey, token);
             localStorage.setItem(expiresKey, String(safeExpiry));
@@ -621,7 +626,7 @@ function buildEmbedShellResponse(request, incomingUrl) {
           if (payload.source !== "fruition-member-auth") return;
           if (payload.channel !== authBridgeChannel) return;
           if (payload.action === "clear") {
-            clearToken();
+            clearToken(String(payload.token || ""));
             return;
           }
           if (payload.action === "save") {
