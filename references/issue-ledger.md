@@ -1064,3 +1064,10 @@
 - Administrator path: the configured administrator password is already the authoritative runtime secret, so an exact constant-time comparison can authenticate that account without first recalculating its legacy database hash. A successful login upgrades the stored hash without changing the account or session record.
 - Safety boundary: failures are never cached; account status is checked before password acceptance; stored-hash changes invalidate cache keys; cache state is process-local and bounded; member IDs, profiles, approvals, sessions, and remote snapshot behavior are preserved.
 - Regression: tests cover configured-administrator KDF bypass, PBKDF2 backward compatibility, automatic scrypt upgrade, persistent run-path state, password changes, logout, and the 12-hour session lifetime.
+
+## 2026-08-02 - Authentication runtime hot reload lacked newly added state slots
+
+- Symptom: the formal Streamlit process imported the earlier `member_auth_runtime` module before deployment, then reran the updated application and failed because the retained module object did not yet contain the new schema and password-cache state attributes.
+- Root cause: Python keeps normally imported modules across Streamlit run-path reruns and hot deployments. Updating the module file does not retroactively add attributes to an already imported object.
+- Fix: initialize only missing runtime-state slots before binding them in the application namespace. Existing locks and active remote-flush state are retained rather than replaced, while both hot processes and fresh starts receive the same complete state shape.
+- Regression: run-path state tests cover all remote, schema, and password-cache slots; the formal embedded application must render without an `AttributeError` after deployment.

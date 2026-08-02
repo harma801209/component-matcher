@@ -183,6 +183,29 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIs(app["_MEMBER_AUTH_SCHEMA_READY_PATHS"], member_auth_runtime.SCHEMA_READY_PATHS)
         self.assertIs(app["_MEMBER_PASSWORD_CACHE"], member_auth_runtime.PASSWORD_CACHE)
 
+        original_runtime_state = app["member_auth_runtime_state"]
+        legacy_runtime_state = type(
+            "LegacyMemberAuthRuntime",
+            (),
+            {
+                "REMOTE_LOCK": original_runtime_state.REMOTE_LOCK,
+                "REFRESH_LOCK": original_runtime_state.REFRESH_LOCK,
+                "REFRESH_CACHE": original_runtime_state.REFRESH_CACHE,
+                "FLUSH_CONDITION": original_runtime_state.FLUSH_CONDITION,
+                "FLUSH_STATE": original_runtime_state.FLUSH_STATE,
+            },
+        )()
+        try:
+            app["member_auth_runtime_state"] = legacy_runtime_state
+            app["ensure_member_auth_runtime_state_compatibility"]()
+            self.assertTrue(hasattr(legacy_runtime_state, "SCHEMA_LOCK"))
+            self.assertTrue(hasattr(legacy_runtime_state, "SCHEMA_READY_PATHS"))
+            self.assertTrue(hasattr(legacy_runtime_state, "PASSWORD_CACHE_LOCK"))
+            self.assertTrue(hasattr(legacy_runtime_state, "PASSWORD_CACHE_SECRET"))
+            self.assertTrue(hasattr(legacy_runtime_state, "PASSWORD_CACHE"))
+        finally:
+            app["member_auth_runtime_state"] = original_runtime_state
+
     def test_01_exact_model_categories_and_library_rows(self):
         models = [
             "AC0402KRX7R9BB103",

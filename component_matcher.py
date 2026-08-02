@@ -51,6 +51,23 @@ from fojan_resistor_catalog import get_fojan_special_resistor_series
 import member_auth_runtime as member_auth_runtime_state
 
 
+def ensure_member_auth_runtime_state_compatibility():
+    """Add new process-state slots without replacing locks held by an older hot reload."""
+    if not hasattr(member_auth_runtime_state, "SCHEMA_LOCK"):
+        member_auth_runtime_state.SCHEMA_LOCK = threading.RLock()
+    if not hasattr(member_auth_runtime_state, "SCHEMA_READY_PATHS"):
+        member_auth_runtime_state.SCHEMA_READY_PATHS = set()
+    if not hasattr(member_auth_runtime_state, "PASSWORD_CACHE_LOCK"):
+        member_auth_runtime_state.PASSWORD_CACHE_LOCK = threading.Lock()
+    if not hasattr(member_auth_runtime_state, "PASSWORD_CACHE_SECRET"):
+        member_auth_runtime_state.PASSWORD_CACHE_SECRET = secrets.token_bytes(32)
+    if not hasattr(member_auth_runtime_state, "PASSWORD_CACHE"):
+        member_auth_runtime_state.PASSWORD_CACHE = {}
+
+
+ensure_member_auth_runtime_state_compatibility()
+
+
 def quiet_nonessential_console_noise():
     warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"pandas(\.|$)")
     warnings.filterwarnings("ignore", category=FutureWarning, module=r"pandas(\.|$)")
