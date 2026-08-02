@@ -20,3 +20,6 @@ SCHEMA_READY_PATHS = set()
 PASSWORD_CACHE_LOCK = threading.Lock()
 PASSWORD_CACHE_SECRET = secrets.token_bytes(32)
 PASSWORD_CACHE = {}
+
+APP_CODE_LOCK = threading.Lock()
+APP_CODE_CACHE = {"key": None, "code": None}

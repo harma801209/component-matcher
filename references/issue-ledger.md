@@ -1071,3 +1071,11 @@
 - Root cause: Python keeps normally imported modules across Streamlit run-path reruns and hot deployments. Updating the module file does not retroactively add attributes to an already imported object.
 - Fix: initialize only missing runtime-state slots before binding them in the application namespace. Existing locks and active remote-flush state are retained rather than replaced, while both hot processes and fresh starts receive the same complete state shape.
 - Regression: run-path state tests cover all remote, schema, and password-cache slots; the formal embedded application must render without an `AttributeError` after deployment.
+
+## 2026-08-02 - Full application recompilation hid the authentication speedup
+
+- Symptom: the authentication function completed in roughly 0.02 seconds after password optimization, but the formal browser still needed about 2.9 seconds before the authenticated search page appeared.
+- Root cause: `streamlit_app.py` used `runpy.run_path` for every Streamlit rerun. Python therefore reparsed and recompiled the complete 40,000-line application after every login; local compile-only measurements took 3.3 to 4.6 seconds.
+- Fix: cache the compiled code object in the process-wide runtime module and execute it in a fresh application namespace on every rerun. Page logic, session checks, member status checks, and rendering still execute each time; only repeated source parsing and bytecode compilation are removed.
+- Hot-reload boundary: old formal processes receive missing code-cache slots without replacing existing authentication locks. The public release stamp is part of the cache key, so a new deployment cannot execute a code object from the previous release.
+- Regression: the normal application namespace remains fresh per rerun, while the immutable compiled code object persists for the process. Formal verification must measure from login submission until both the login form disappears and the search textarea returns.

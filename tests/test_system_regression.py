@@ -182,6 +182,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIs(app["MEMBER_AUTH_SCHEMA_LOCK"], member_auth_runtime.SCHEMA_LOCK)
         self.assertIs(app["_MEMBER_AUTH_SCHEMA_READY_PATHS"], member_auth_runtime.SCHEMA_READY_PATHS)
         self.assertIs(app["_MEMBER_PASSWORD_CACHE"], member_auth_runtime.PASSWORD_CACHE)
+        self.assertTrue(hasattr(member_auth_runtime, "APP_CODE_LOCK"))
+        self.assertTrue(hasattr(member_auth_runtime, "APP_CODE_CACHE"))
 
         original_runtime_state = app["member_auth_runtime_state"]
         legacy_runtime_state = type(
