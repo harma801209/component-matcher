@@ -1055,3 +1055,12 @@
 - Fix: move the locks, refresh cache, and flush coordination state into the normally imported `member_auth_runtime` module. Python keeps that module instance for the process, so all Streamlit reruns now share one refresh window and one serialized remote-write state.
 - Release: include the runtime module in the formal publish allowlist and advance the public release stamp so Streamlit Cloud cannot continue serving the earlier checkout.
 - Regression: system tests assert that the application namespace uses the process-wide runtime objects; browser verification must wait for the login form to disappear and the search textarea to return rather than matching the always-present navigation label.
+
+## 2026-08-02 - Password verification still dominated formal login time
+
+- Symptom: after removing remote snapshot waits, a correctly measured formal login still took about 2.9 seconds before the login form disappeared and the search page returned.
+- Root cause: each login repeated a 240,000-iteration PBKDF2 calculation. The operation took about 0.40 seconds locally and was amplified on the shared formal runtime. The same request also repeated schema initialization and re-read the member after creating the session.
+- Fix: new and changed passwords use the built-in memory-hard scrypt format. Existing PBKDF2 records remain fully supported and are upgraded only after a successful login. Successful checks receive a bounded process-local HMAC cache, schema readiness survives Streamlit run-path reruns, and authentication returns the already loaded member after creating the session.
+- Administrator path: the configured administrator password is already the authoritative runtime secret, so an exact constant-time comparison can authenticate that account without first recalculating its legacy database hash. A successful login upgrades the stored hash without changing the account or session record.
+- Safety boundary: failures are never cached; account status is checked before password acceptance; stored-hash changes invalidate cache keys; cache state is process-local and bounded; member IDs, profiles, approvals, sessions, and remote snapshot behavior are preserved.
+- Regression: tests cover configured-administrator KDF bypass, PBKDF2 backward compatibility, automatic scrypt upgrade, persistent run-path state, password changes, logout, and the 12-hour session lifetime.

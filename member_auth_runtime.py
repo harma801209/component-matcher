@@ -1,5 +1,6 @@
 """Process-wide member-auth synchronization state shared across Streamlit reruns."""
 
+import secrets
 import threading
 
 
@@ -12,3 +13,10 @@ FLUSH_STATE = {
     "running": False,
     "last_result": None,
 }
+
+SCHEMA_LOCK = threading.RLock()
+SCHEMA_READY_PATHS = set()
+
+PASSWORD_CACHE_LOCK = threading.Lock()
+PASSWORD_CACHE_SECRET = secrets.token_bytes(32)
+PASSWORD_CACHE = {}

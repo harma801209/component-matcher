@@ -179,6 +179,9 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIs(app["MEMBER_AUTH_REMOTE_REFRESH_LOCK"], member_auth_runtime.REFRESH_LOCK)
         self.assertIs(app["_MEMBER_AUTH_REMOTE_REFRESH_CACHE"], member_auth_runtime.REFRESH_CACHE)
         self.assertIs(app["_MEMBER_AUTH_REMOTE_FLUSH_STATE"], member_auth_runtime.FLUSH_STATE)
+        self.assertIs(app["MEMBER_AUTH_SCHEMA_LOCK"], member_auth_runtime.SCHEMA_LOCK)
+        self.assertIs(app["_MEMBER_AUTH_SCHEMA_READY_PATHS"], member_auth_runtime.SCHEMA_READY_PATHS)
+        self.assertIs(app["_MEMBER_PASSWORD_CACHE"], member_auth_runtime.PASSWORD_CACHE)
 
     def test_01_exact_model_categories_and_library_rows(self):
         models = [
@@ -269,7 +272,7 @@ class SystemRegressionTests(unittest.TestCase):
         admin, message = app["authenticate_member"]("TERRY46", "123456")
         self.assertEqual(message, "")
         self.assertEqual(admin["role"], "admin")
-        self.assertTrue(admin["password_hash"].startswith("pbkdf2_sha256$"))
+        self.assertTrue(admin["password_hash"].startswith("scrypt$"))
         self.assertNotIn("123456", admin["password_hash"])
 
         ok, message = app["create_member_account"](
@@ -334,6 +337,54 @@ class SystemRegressionTests(unittest.TestCase):
             trend = app["build_member_search_trend_dataframe"](summary, period=period)
             self.assertFalse(trend.empty)
             self.assertLessEqual(int(trend["排名"].max()), 10)
+
+    def test_02a_member_password_upgrade_and_configured_admin_fast_path(self):
+        app = self.app
+        app["ensure_configured_admin_member_account"]()
+
+        original_verify = app["verify_member_password"]
+        try:
+            def unexpected_admin_hash_verify(*_args, **_kwargs):
+                raise AssertionError("configured administrator login should not run password KDF")
+
+            app["verify_member_password"] = unexpected_admin_hash_verify
+            admin, message = app["authenticate_member"]("terry46", "123456")
+            self.assertIsNotNone(admin, message)
+        finally:
+            app["verify_member_password"] = original_verify
+
+        salt = b"legacy-member-salt"
+        iterations = 12000
+        digest = app["hashlib"].pbkdf2_hmac("sha256", b"legacy-secret", salt, iterations)
+        legacy_hash = "pbkdf2_sha256${}${}${}".format(
+            iterations,
+            app["base64"].b64encode(salt).decode("ascii"),
+            app["base64"].b64encode(digest).decode("ascii"),
+        )
+        now = app["current_timestamp_text"]()
+        with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+            conn.execute("DELETE FROM members WHERE lower(username)=lower(?)", ("LegacyHashUser",))
+            conn.execute(
+                """
+                INSERT INTO members (
+                    username, password_hash, display_name, role, status, created_at, updated_at
+                ) VALUES (?, ?, ?, 'member', 'active', ?, ?)
+                """,
+                ("LegacyHashUser", legacy_hash, "Legacy Hash User", now, now),
+            )
+            conn.commit()
+
+        member, message = app["authenticate_member"]("legacyhashuser", "legacy-secret")
+        self.assertIsNotNone(member, message)
+        self.assertTrue(member["password_hash"].startswith("scrypt$"))
+        self.assertTrue(
+            app["member_password_cache_contains"]("legacy-secret", member["password_hash"])
+        )
+        with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+            stored_hash = conn.execute(
+                "SELECT password_hash FROM members WHERE id=?", (int(member["id"]),)
+            ).fetchone()[0]
+        self.assertEqual(stored_hash, member["password_hash"])
 
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app

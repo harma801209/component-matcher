@@ -110,6 +110,11 @@ _MEMBER_AUTH_REMOTE_FLUSH_CONDITION = member_auth_runtime_state.FLUSH_CONDITION
 _MEMBER_AUTH_REMOTE_FLUSH_STATE = member_auth_runtime_state.FLUSH_STATE
 MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
+MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
+_MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
+MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
+MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
+_MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")
@@ -153,6 +158,11 @@ BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE = "login_complete"
 BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED = "upload_restored"
 BOM_POST_LOGIN_AUTO_RESUME_DELAY_SECONDS = 1.0
 MEMBER_PASSWORD_PBKDF2_ITERATIONS = 240000
+MEMBER_PASSWORD_SCRYPT_N = 32768
+MEMBER_PASSWORD_SCRYPT_R = 8
+MEMBER_PASSWORD_SCRYPT_P = 1
+MEMBER_PASSWORD_CACHE_TTL_SECONDS = 30 * 60
+MEMBER_PASSWORD_CACHE_MAX_ENTRIES = 256
 MEMBER_TIMESTAMP_TZ_MIGRATION_KEY = "member_timestamp_utc_to_shanghai_v1"
 APP_TIMEZONE_NAME = "Asia/Shanghai"
 APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME) if ZoneInfo is not None else timezone(timedelta(hours=8))
@@ -1552,11 +1562,15 @@ def migrate_member_timestamp_timezone_if_needed(conn):
 
 
 def ensure_member_auth_schema():
-    os.makedirs(os.path.dirname(MEMBER_AUTH_DB_PATH), exist_ok=True)
-    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS members (
+    db_path = os.path.abspath(MEMBER_AUTH_DB_PATH)
+    with MEMBER_AUTH_SCHEMA_LOCK:
+        if db_path in _MEMBER_AUTH_SCHEMA_READY_PATHS and os.path.exists(db_path):
+            return
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        with sqlite3.connect(db_path, timeout=30) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS members (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
@@ -1632,11 +1646,12 @@ def ensure_member_auth_schema():
 
             CREATE INDEX IF NOT EXISTS idx_member_search_logs_date_id
             ON member_search_logs(search_date, id DESC);
-            """
-        )
-        migrate_member_timestamp_timezone_if_needed(conn)
-        conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
-        conn.commit()
+                """
+            )
+            migrate_member_timestamp_timezone_if_needed(conn)
+            conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
+            conn.commit()
+        _MEMBER_AUTH_SCHEMA_READY_PATHS.add(db_path)
 
 
 def member_row_to_dict(row):
@@ -1647,36 +1662,133 @@ def member_row_to_dict(row):
 
 def hash_member_password(password):
     salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
+    digest = hashlib.scrypt(
         str(password or "").encode("utf-8"),
-        salt,
-        MEMBER_PASSWORD_PBKDF2_ITERATIONS,
+        salt=salt,
+        n=MEMBER_PASSWORD_SCRYPT_N,
+        r=MEMBER_PASSWORD_SCRYPT_R,
+        p=MEMBER_PASSWORD_SCRYPT_P,
+        dklen=32,
+        maxmem=128 * 1024 * 1024,
     )
-    return "pbkdf2_sha256${iterations}${salt}${digest}".format(
-        iterations=MEMBER_PASSWORD_PBKDF2_ITERATIONS,
+    return "scrypt${n}${r}${p}${salt}${digest}".format(
+        n=MEMBER_PASSWORD_SCRYPT_N,
+        r=MEMBER_PASSWORD_SCRYPT_R,
+        p=MEMBER_PASSWORD_SCRYPT_P,
         salt=base64.b64encode(salt).decode("ascii"),
         digest=base64.b64encode(digest).decode("ascii"),
     )
 
 
-def verify_member_password(password, stored_hash):
+def member_password_hash_needs_upgrade(stored_hash):
     try:
-        algo, iterations_text, salt_b64, digest_b64 = clean_text(stored_hash).split("$", 3)
-        if algo != "pbkdf2_sha256":
+        parts = clean_text(stored_hash).split("$")
+        return not (
+            len(parts) == 6
+            and parts[0] == "scrypt"
+            and int(parts[1]) >= MEMBER_PASSWORD_SCRYPT_N
+            and int(parts[2]) >= MEMBER_PASSWORD_SCRYPT_R
+            and int(parts[3]) >= MEMBER_PASSWORD_SCRYPT_P
+        )
+    except Exception:
+        return True
+
+
+def member_password_cache_key(password, stored_hash):
+    payload = (
+        clean_text(stored_hash).encode("utf-8")
+        + b"\0"
+        + str(password or "").encode("utf-8")
+    )
+    return hmac.new(MEMBER_PASSWORD_CACHE_SECRET, payload, hashlib.sha256).digest()
+
+
+def member_password_cache_contains(password, stored_hash):
+    cache_key = member_password_cache_key(password, stored_hash)
+    now = time.monotonic()
+    with MEMBER_PASSWORD_CACHE_LOCK:
+        expires_at = float(_MEMBER_PASSWORD_CACHE.get(cache_key) or 0.0)
+        if expires_at > now:
+            return True
+        _MEMBER_PASSWORD_CACHE.pop(cache_key, None)
+    return False
+
+
+def remember_valid_member_password(password, stored_hash):
+    cache_key = member_password_cache_key(password, stored_hash)
+    now = time.monotonic()
+    with MEMBER_PASSWORD_CACHE_LOCK:
+        expired_keys = [
+            key for key, expires_at in _MEMBER_PASSWORD_CACHE.items()
+            if float(expires_at or 0.0) <= now
+        ]
+        for key in expired_keys:
+            _MEMBER_PASSWORD_CACHE.pop(key, None)
+        if len(_MEMBER_PASSWORD_CACHE) >= MEMBER_PASSWORD_CACHE_MAX_ENTRIES:
+            oldest_key = min(_MEMBER_PASSWORD_CACHE, key=_MEMBER_PASSWORD_CACHE.get)
+            _MEMBER_PASSWORD_CACHE.pop(oldest_key, None)
+        _MEMBER_PASSWORD_CACHE[cache_key] = now + MEMBER_PASSWORD_CACHE_TTL_SECONDS
+
+
+def verify_member_password(password, stored_hash):
+    if member_password_cache_contains(password, stored_hash):
+        return True
+    try:
+        parts = clean_text(stored_hash).split("$")
+        algo = parts[0]
+        if algo == "pbkdf2_sha256" and len(parts) == 4:
+            iterations = int(parts[1])
+            salt = base64.b64decode(parts[2].encode("ascii"))
+            expected = base64.b64decode(parts[3].encode("ascii"))
+            actual = hashlib.pbkdf2_hmac(
+                "sha256",
+                str(password or "").encode("utf-8"),
+                salt,
+                iterations,
+            )
+        elif algo == "scrypt" and len(parts) == 6:
+            n_value, r_value, p_value = (int(parts[1]), int(parts[2]), int(parts[3]))
+            if n_value <= 1 or n_value > 2 ** 18 or r_value <= 0 or p_value <= 0:
+                return False
+            salt = base64.b64decode(parts[4].encode("ascii"))
+            expected = base64.b64decode(parts[5].encode("ascii"))
+            actual = hashlib.scrypt(
+                str(password or "").encode("utf-8"),
+                salt=salt,
+                n=n_value,
+                r=r_value,
+                p=p_value,
+                dklen=len(expected),
+                maxmem=256 * 1024 * 1024,
+            )
+        else:
             return False
-        iterations = int(iterations_text)
-        salt = base64.b64decode(salt_b64.encode("ascii"))
-        expected = base64.b64decode(digest_b64.encode("ascii"))
     except Exception:
         return False
-    actual = hashlib.pbkdf2_hmac(
-        "sha256",
-        str(password or "").encode("utf-8"),
-        salt,
-        iterations,
-    )
-    return hmac.compare_digest(actual, expected)
+    valid = hmac.compare_digest(actual, expected)
+    if valid:
+        remember_valid_member_password(password, stored_hash)
+    return valid
+
+
+def upgrade_member_password_hash(member, password):
+    if not isinstance(member, dict) or not member_password_hash_needs_upgrade(member.get("password_hash", "")):
+        return member
+    previous_hash = clean_text(member.get("password_hash", ""))
+    replacement_hash = hash_member_password(password)
+    now = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        cursor = conn.execute(
+            "UPDATE members SET password_hash=?, updated_at=? WHERE id=? AND password_hash=?",
+            (replacement_hash, now, int(member["id"]), previous_hash),
+        )
+        conn.commit()
+    if int(cursor.rowcount or 0) > 0:
+        member = dict(member)
+        member["password_hash"] = replacement_hash
+        member["updated_at"] = now
+        remember_valid_member_password(password, replacement_hash)
+    return member
 
 
 def member_username_is_valid(username):
@@ -2601,7 +2713,8 @@ def ensure_configured_admin_member_account():
             member = member_row_to_dict(row)
             updates = []
             values = []
-            if not verify_member_password(password_text, member.get("password_hash", "")):
+            password_valid = verify_member_password(password_text, member.get("password_hash", ""))
+            if not password_valid or member_password_hash_needs_upgrade(member.get("password_hash", "")):
                 updates.append("password_hash=?")
                 values.append(hash_member_password(password_text))
             if clean_text(member.get("username", "")) != username:
@@ -2946,10 +3059,13 @@ def authenticate_member(username, password):
         return None, "账号正在等待管理员审核，通过后才能登录。"
     if status_value != "active":
         return None, "账号尚未开通或已停用，请联系管理员。"
-    password_valid = verify_member_password(password, member.get("password_hash", ""))
-    if not password_valid and configured_admin_login and hmac.compare_digest(
+    configured_admin_password_valid = configured_admin_login and hmac.compare_digest(
         str(password or ""), str(configured_admin_password or "")
-    ):
+    )
+    password_valid = configured_admin_password_valid or verify_member_password(
+        password, member.get("password_hash", "")
+    )
+    if not password_valid and configured_admin_login:
         ensure_configured_admin_member_account()
         member = get_member_by_username(configured_admin_username)
         password_valid = bool(member) and verify_member_password(
@@ -2957,10 +3073,11 @@ def authenticate_member(username, password):
         )
     if not password_valid:
         return None, "账号或密码不正确。"
+    member = upgrade_member_password_hash(member, password)
     token = create_member_session(int(member["id"]))
-    member = get_member_by_id(int(member["id"]))
-    if member:
-        member["_session_token"] = token
+    member = dict(member)
+    member["last_login_at"] = current_timestamp_text()
+    member["_session_token"] = token
     return member, ""
 
 
