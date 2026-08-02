@@ -171,6 +171,15 @@ class SystemRegressionTests(unittest.TestCase):
             database_path = os.path.normcase(os.path.abspath(self.app[key]))
             self.assertEqual(os.path.commonpath([temp_root, database_path]), temp_root, key)
 
+    def test_00b_member_remote_state_survives_streamlit_runpy_reruns(self):
+        import member_auth_runtime
+
+        app = self.app
+        self.assertIs(app["MEMBER_AUTH_REMOTE_LOCK"], member_auth_runtime.REMOTE_LOCK)
+        self.assertIs(app["MEMBER_AUTH_REMOTE_REFRESH_LOCK"], member_auth_runtime.REFRESH_LOCK)
+        self.assertIs(app["_MEMBER_AUTH_REMOTE_REFRESH_CACHE"], member_auth_runtime.REFRESH_CACHE)
+        self.assertIs(app["_MEMBER_AUTH_REMOTE_FLUSH_STATE"], member_auth_runtime.FLUSH_STATE)
+
     def test_01_exact_model_categories_and_library_rows(self):
         models = [
             "AC0402KRX7R9BB103",

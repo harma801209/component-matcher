@@ -48,6 +48,7 @@ from mlcc_excel_importer import map_headers as importer_map_headers, ensure_stan
 from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 from fojan_resistor_catalog import get_fojan_special_resistor_series
+import member_auth_runtime as member_auth_runtime_state
 
 
 def quiet_nonessential_console_noise():
@@ -103,21 +104,12 @@ MEMBER_AUTH_DB_PATH = os.path.abspath(
 MEMBER_AUTH_REMOTE_STATE_PATH = os.path.join(BASE_DIR, "cache", "member_auth_remote_state.json")
 MEMBER_AUTH_REMOTE_API_URL_DEFAULT = "https://fruition-component.pages.dev/api/member-store/snapshot"
 MEMBER_AUTH_OUTER_SHELL_ORIGIN = "https://fruition-component.pages.dev"
-if "MEMBER_AUTH_REMOTE_LOCK" not in globals():
-    MEMBER_AUTH_REMOTE_LOCK = threading.Lock()
-if "MEMBER_AUTH_REMOTE_REFRESH_LOCK" not in globals():
-    MEMBER_AUTH_REMOTE_REFRESH_LOCK = threading.Lock()
-if "_MEMBER_AUTH_REMOTE_FLUSH_CONDITION" not in globals():
-    _MEMBER_AUTH_REMOTE_FLUSH_CONDITION = threading.Condition(threading.Lock())
-if "_MEMBER_AUTH_REMOTE_FLUSH_STATE" not in globals():
-    _MEMBER_AUTH_REMOTE_FLUSH_STATE = {
-        "generation": 0,
-        "running": False,
-        "last_result": None,
-    }
+MEMBER_AUTH_REMOTE_LOCK = member_auth_runtime_state.REMOTE_LOCK
+MEMBER_AUTH_REMOTE_REFRESH_LOCK = member_auth_runtime_state.REFRESH_LOCK
+_MEMBER_AUTH_REMOTE_FLUSH_CONDITION = member_auth_runtime_state.FLUSH_CONDITION
+_MEMBER_AUTH_REMOTE_FLUSH_STATE = member_auth_runtime_state.FLUSH_STATE
 MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
-if "_MEMBER_AUTH_REMOTE_REFRESH_CACHE" not in globals():
-    _MEMBER_AUTH_REMOTE_REFRESH_CACHE = {"checked_at": 0.0, "db_path": ""}
+_MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 COST_PRICE_DB_PATH = os.path.abspath(
     os.getenv("COST_PRICE_DB_PATH", os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")) or
     os.path.join(BASE_DIR, "cache", "cost_price_lists.sqlite")

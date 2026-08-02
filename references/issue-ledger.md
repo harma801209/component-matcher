@@ -1047,3 +1047,11 @@
 - Fix: establish the local session immediately, queue a coalesced background snapshot flush, and keep the remote write serialized with existing member-store operations. Ordinary logins no longer run administrator-account repair; the configured administrator is repaired only when that account actually needs it. The same-page remote refresh window is now 60 seconds.
 - Safety boundary: password hashing strength, account status checks, the 12-hour session lifetime, database schema, and protected runtime records are unchanged. Profile, approval, logout, and other member mutations retain synchronous persistence where their existing behavior requires it.
 - Regression: with the remote PUT intentionally delayed by two seconds, authentication returns before the 1.5-second threshold and the queued snapshot subsequently completes. Member login, logout, browser persistence, and remote restoration tests pass against isolated temporary databases.
+
+## 2026-08-02 - Streamlit reruns discarded the login synchronization state
+
+- Symptom: the first login-latency fix passed an isolated function test, but the formal browser still took about 10.3 seconds from submit until the search page returned.
+- Root cause: `streamlit_app.py` executes `component_matcher.py` through `runpy.run_path` on every rerun. Locks, refresh timestamps, and the background-flush state defined inside that run-path namespace were recreated after login, so the authenticated rerun performed another remote member-store read and could race the snapshot write.
+- Fix: move the locks, refresh cache, and flush coordination state into the normally imported `member_auth_runtime` module. Python keeps that module instance for the process, so all Streamlit reruns now share one refresh window and one serialized remote-write state.
+- Release: include the runtime module in the formal publish allowlist and advance the public release stamp so Streamlit Cloud cannot continue serving the earlier checkout.
+- Regression: system tests assert that the application namespace uses the process-wide runtime objects; browser verification must wait for the login form to disappear and the search textarea to return rather than matching the always-present navigation label.
