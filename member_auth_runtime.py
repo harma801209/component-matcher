@@ -22,4 +22,9 @@ PASSWORD_CACHE_SECRET = secrets.token_bytes(32)
 PASSWORD_CACHE = {}
 
 APP_CODE_LOCK = threading.Lock()
-APP_CODE_CACHE = {"key": None, "code": None}
+APP_CODE_CACHE = {
+    "key": None,
+    "base_namespace": None,
+    "page_shell_code": None,
+    "app_code": None,
+}

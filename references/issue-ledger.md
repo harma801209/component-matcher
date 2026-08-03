@@ -1079,3 +1079,19 @@
 - Fix: cache the compiled code object in the process-wide runtime module and execute it in a fresh application namespace on every rerun. Page logic, session checks, member status checks, and rendering still execute each time; only repeated source parsing and bytecode compilation are removed.
 - Hot-reload boundary: old formal processes receive missing code-cache slots without replacing existing authentication locks. The public release stamp is part of the cache key, so a new deployment cannot execute a code object from the previous release.
 - Regression: the normal application namespace remains fresh per rerun, while the immutable compiled code object persists for the process. Formal verification must measure from login submission until both the login form disappears and the search textarea returns.
+
+## 2026-08-03 - Login reruns still rebuilt static application definitions
+
+- Symptom: authentication itself completed quickly, but the formal page still paused for several seconds before the authenticated search controls appeared.
+- Root cause: caching the complete compiled code object removed parsing cost but every rerun still recreated tens of thousands of static function and constant definitions. Login routing also emitted separate query-parameter updates.
+- Fix: cache a persistent namespace containing static definitions, execute only the page shell and dynamic application tail on reruns, and update route plus member-token query parameters in one atomic operation.
+- Safety boundary: page rendering, member status checks, session validation, the 12-hour lifetime, protected databases, and remote snapshot behavior still execute normally. Only immutable definitions and the compiled segments are reused.
+- Regression: member state survives run-path reruns; login returns to the requesting page; logout revokes the session; the 35-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-03 - Hong Kong Resistors RCA models were parsed as generic resistor text
+
+- Symptom: `RCA031MFLF` displayed a blank brand and package, and `03` plus `1M` was incorrectly interpreted as `31MΩ`.
+- Root cause: the component library had neither an HKR brand alias nor an RCA-specific part-number decoder, so the generic resistor parser consumed the model before official size/value boundaries were known.
+- Fix: add the official RCA `series + size + value + tolerance + LF` decoder before generic parsing. Populate HKR brand, package, resistance, tolerance, rated power, working voltage, dimensions, temperature, lead-free status, reel quantity, source, and authority metadata.
+- Accuracy rule: only structurally valid RCA order numbers are decoded; values are never guessed from a partial model. Cross-brand candidates remain subject to the existing electrical and application matching rules.
+- Regression: official examples cover `RCA031MFLF`, `RCA0520KFLF`, and `RCA022R2JLF`; the original query resolves to `0603 / 1MΩ / ±1% / 1/10W / 75V / 5000PCS`. The 35-test release safety gate passes with protected runtime data unchanged.

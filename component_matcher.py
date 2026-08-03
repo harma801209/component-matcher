@@ -3326,7 +3326,7 @@ def render_member_auth_browser_persistence_bridge():
     components.html(script, height=0, scrolling=False)
 
 
-def set_current_member(member):
+def set_current_member(member, query_updates=None):
     if not isinstance(member, dict):
         return
     token = clean_text(member.get("_session_token", ""))
@@ -3334,15 +3334,18 @@ def set_current_member(member):
         st.session_state["_member_auth_token"] = token
         st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
         st.session_state.pop("_member_auth_prompt_action", None)
-        update_query_params(**{MEMBER_AUTH_QUERY_PARAM: token})
+        updates = dict(query_updates or {})
+        updates[MEMBER_AUTH_QUERY_PARAM] = token
+        update_query_params(**updates)
 
 
 def complete_member_login(member):
-    set_current_member(member)
+    route_updates = None
+    if is_member_page_requested():
+        route_updates = {"member": "", "admin": "", "bom": ""}
+    set_current_member(member, query_updates=route_updates)
     if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
         st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE
-    if is_member_page_requested():
-        update_query_params(member="", admin="", bom="")
 
 
 def set_current_member_from_admin_login(username, password):
@@ -6224,9 +6227,7 @@ def set_query_params_flat(params):
         if clean_text(key) != "" and clean_text(value) != ""
     }
     try:
-        st.query_params.clear()
-        for key, value in safe_params.items():
-            st.query_params[key] = value
+        st.query_params.from_dict(safe_params)
         return
     except Exception:
         pass
@@ -7532,6 +7533,7 @@ def clean_brand(x):
 
 BRAND_QUERY_ALIAS_GROUPS = (
     ("FOJAN(富捷)", ("富捷", "FOJAN")),
+    ("香港电阻HKR", ("香港电阻", "香港電阻", "HKR", "HONG KONG RESISTORS")),
     ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL")),
     ("VO(翔胜)", ("翔胜", "翔勝", "VO")),
     ("华新科Walsin", ("华新科", "華新科", "华科", "華科", "WALSIN")),
@@ -8194,7 +8196,7 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "特殊用途": "车规 | 电流检测",
 }
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|ASG|AS|AT|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RCA|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
     "01": "01005",
@@ -8248,6 +8250,56 @@ UNIROYAL_RESISTOR_SIZE_MAP = {
     "10": "1210",
     "12": "2010",
     "25": "2512",
+}
+HKR_RCA_SIZE_MAP = {
+    "01": "0201",
+    "02": "0402",
+    "03": "0603",
+    "05": "0805",
+    "06": "1206",
+    "10": "1210",
+    "20": "2010",
+    "25": "2512",
+}
+HKR_RCA_POWER_BY_SIZE = {
+    "0201": "1/20W",
+    "0402": "1/16W",
+    "0603": "1/10W",
+    "0805": "1/8W",
+    "1206": "1/4W",
+    "1210": "1/3W",
+    "2010": "3/4W",
+    "2512": "1W",
+}
+HKR_RCA_VOLTAGE_BY_SIZE = {
+    "0201": "25",
+    "0402": "50",
+    "0603": "75",
+    "0805": "150",
+    "1206": "200",
+    "1210": "200",
+    "2010": "200",
+    "2512": "200",
+}
+HKR_RCA_DIMENSIONS_MM = {
+    "0201": ("0.60", "0.30", "0.23"),
+    "0402": ("1.00", "0.50", "0.35"),
+    "0603": ("1.60", "0.80", "0.45"),
+    "0805": ("2.00", "1.25", "0.50"),
+    "1206": ("3.10", "1.55", "0.55"),
+    "1210": ("3.10", "2.60", "0.55"),
+    "2010": ("5.00", "2.50", "0.55"),
+    "2512": ("6.35", "3.20", "0.55"),
+}
+HKR_RCA_PACKAGING_BY_SIZE = {
+    "0201": "10000PCS",
+    "0402": "10000PCS",
+    "0603": "5000PCS",
+    "0805": "5000PCS",
+    "1206": "5000PCS",
+    "1210": "5000PCS",
+    "2010": "4000PCS",
+    "2512": "4000PCS",
 }
 
 RESISTOR_COMPONENT_TYPES = {"贴片电阻", "厚膜电阻", "薄膜电阻", "合金电阻", "碳膜电阻", "金属氧化膜电阻", "绕线电阻"}
@@ -10236,6 +10288,64 @@ def parse_resistor_value_code(code):
     return parse_eia96_resistor_code(token)
 
 
+def parse_hkr_rca_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model)
+    match = re.fullmatch(
+        r"RCA(?P<size>01|02|03|05|06|10|20|25)(?P<value>[0-9RKM]+?)(?P<tol>[FJ])LF",
+        compact,
+    )
+    if match is None:
+        return None
+
+    size = clean_size(HKR_RCA_SIZE_MAP.get(match.group("size"), ""))
+    value_code = clean_text(match.group("value")).upper()
+    resistance_ohm = parse_resistor_value_code(value_code)
+    tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
+    if size == "" or resistance_ohm is None or tol == "":
+        return None
+
+    length, width, height = HKR_RCA_DIMENSIONS_MM.get(size, ("", "", ""))
+    power_text = clean_text(HKR_RCA_POWER_BY_SIZE.get(size, ""))
+    voltage_text = clean_text(HKR_RCA_VOLTAGE_BY_SIZE.get(size, ""))
+    packaging = clean_text(HKR_RCA_PACKAGING_BY_SIZE.get(size, ""))
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    return {
+        "品牌": "香港电阻HKR",
+        "型号": compact,
+        "器件类型": "厚膜电阻",
+        "系列": "RCA",
+        "系列说明": "香港电阻 RCA 普通厚膜贴片电阻",
+        "尺寸（inch）": size,
+        "尺寸（mm）": "*".join(part for part in (length, width, height) if part),
+        "长度（mm）": length,
+        "宽度（mm）": width,
+        "高度（mm）": height,
+        "材质（介质）": "厚膜",
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "阻值@25C": f"{resistance_ohm:g}",
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "功率": power_text,
+        "耐压（V）": voltage_text,
+        "工作温度": "-55~155℃",
+        "安装方式": "贴片",
+        "环保/无卤": "无铅",
+        "封装数量": packaging,
+        "MOQ": packaging,
+        "MOQ来源": "HKR RCA 官方规格书",
+        "规格摘要": f"{size} {value_text}{unit_text} ±{tol}% {power_text} {voltage_text}V 无铅",
+        "资料来源": "https://uploadcdn.oneyac.com/attachments/files/brand_pdf/hkr/93/17/RCA.pdf",
+        "数据状态": "官方命名规则反推",
+        "_resistance_ohm": resistance_ohm,
+        "_power": power_text,
+        "_model_rule_authority": "hkr_rca_official_model",
+        "_value_code": value_code,
+        "_param_count": 5,
+    }
+
+
 def match_tai_resistor_prefix(model):
     compact = clean_model(model)
     if compact == "":
@@ -11081,6 +11191,7 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 
 def parse_resistor_model_rule(model, brand="", component_type=""):
     for parser in (
+        parse_hkr_rca_resistor_model,
         parse_murata_mhr_resistor_model,
         parse_milliohm_holr_alloy_resistor_model,
         parse_fojan_alloy_resistor_model,

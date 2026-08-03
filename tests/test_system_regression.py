@@ -428,22 +428,28 @@ class SystemRegressionTests(unittest.TestCase):
         fake_st = type("FakeStreamlit", (), {"session_state": {}})()
         try:
             app["st"] = fake_st
-            app["set_current_member"] = lambda member: member_calls.append(member)
+            app["set_current_member"] = lambda member, query_updates=None: member_calls.append(
+                (member, query_updates)
+            )
             app["update_query_params"] = lambda **updates: route_updates.append(updates)
             app["is_bom_page_requested"] = lambda: False
             app["is_member_page_requested"] = lambda: True
             app["complete_member_login"]({"id": 7})
-            self.assertEqual(member_calls, [{"id": 7}])
-            self.assertEqual(route_updates, [{"member": "", "admin": "", "bom": ""}])
+            self.assertEqual(
+                member_calls,
+                [({"id": 7}, {"member": "", "admin": "", "bom": ""})],
+            )
+            self.assertEqual(route_updates, [])
 
             app["is_member_page_requested"] = lambda: False
             app["complete_member_login"]({"id": 8})
-            self.assertEqual(member_calls[-1], {"id": 8})
-            self.assertEqual(len(route_updates), 1)
+            self.assertEqual(member_calls[-1], ({"id": 8}, None))
+            self.assertEqual(len(route_updates), 0)
 
             fake_st.session_state[app["BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY"]] = True
             app["is_bom_page_requested"] = lambda: True
             app["complete_member_login"]({"id": 9})
+            self.assertEqual(member_calls[-1], ({"id": 9}, None))
             self.assertEqual(
                 fake_st.session_state[app["BOM_POST_LOGIN_RESUME_STAGE_KEY"]],
                 app["BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE"],
@@ -1120,6 +1126,33 @@ class SystemRegressionTests(unittest.TestCase):
         code_106 = app["parse_resistor_model_rule"]("FRC0402J106 TS", brand="FOJAN(富捷)")
         self.assertAlmostEqual(float(code_105["_resistance_ohm"]), 1_000_000.0)
         self.assertAlmostEqual(float(code_106["_resistance_ohm"]), 10_000_000.0)
+
+        hkr_examples = [
+            ("RCA031MFLF", "0603", 1_000_000.0, "1", "1/10W", "75", "5000PCS"),
+            ("RCA0520KFLF", "0805", 20_000.0, "1", "1/8W", "150", "5000PCS"),
+            ("RCA022R2JLF", "0402", 2.2, "5", "1/16W", "50", "10000PCS"),
+        ]
+        for model, size, resistance, tolerance, power, voltage, moq in hkr_examples:
+            parsed_hkr = app["parse_resistor_model_rule"](model)
+            self.assertIsNotNone(parsed_hkr, model)
+            self.assertEqual(parsed_hkr["品牌"], "香港电阻HKR", model)
+            self.assertEqual(parsed_hkr["系列"], "RCA", model)
+            self.assertEqual(parsed_hkr["尺寸（inch）"], size, model)
+            self.assertAlmostEqual(float(parsed_hkr["_resistance_ohm"]), resistance, msg=model)
+            self.assertEqual(app["clean_tol_for_match"](parsed_hkr["容值误差"]), tolerance, model)
+            self.assertEqual(parsed_hkr["功率"], power, model)
+            self.assertEqual(parsed_hkr["耐压（V）"], voltage, model)
+            self.assertEqual(parsed_hkr["MOQ"], moq, model)
+            self.assertEqual(parsed_hkr["_model_rule_authority"], "hkr_rca_official_model", model)
+
+        self.assertEqual(app["extract_requested_brand_from_query"]("香港电阻 RCA031MFLF"), "香港电阻HKR")
+        resolved_hkr = app["resolve_search_query_dataframe_and_spec"]("RCA031MFLF")
+        self.assertNotEqual(resolved_hkr["resolution_path"], "full_dataframe")
+        self.assertFalse(resolved_hkr["query_df"].empty)
+        resolved_hkr_spec = resolved_hkr["spec"]
+        self.assertEqual(resolved_hkr_spec["品牌"], "香港电阻HKR")
+        self.assertEqual(resolved_hkr_spec["尺寸（inch）"], "0603")
+        self.assertAlmostEqual(float(resolved_hkr_spec["_resistance_ohm"]), 1_000_000.0)
 
         invalid = app["parse_resistor_spec_query"]("0420 10K 1% 1/16W")
         self.assertTrue(invalid.get("_unsupported_component"))
