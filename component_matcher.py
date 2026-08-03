@@ -1039,6 +1039,65 @@ def member_auth_remote_request(method="GET", payload=None):
         return None
 
 
+def capture_unexpired_member_sessions():
+    """Keep valid local sessions when a newer member snapshot is restored."""
+    if not os.path.exists(MEMBER_AUTH_DB_PATH):
+        return []
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT token, member_id, created_at, expires_at_ts
+                FROM member_sessions
+                WHERE expires_at_ts > ?
+                """,
+                (int(time.time()),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+    except Exception:
+        return []
+
+
+def restore_unexpired_member_sessions(session_rows):
+    """Merge captured sessions only for members that remain active remotely."""
+    if not session_rows or not os.path.exists(MEMBER_AUTH_DB_PATH):
+        return 0
+    now_ts = int(time.time())
+    restored = 0
+    try:
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.row_factory = sqlite3.Row
+            members = conn.execute("SELECT id, status FROM members").fetchall()
+            active_member_ids = {
+                int(row["id"])
+                for row in members
+                if normalize_member_status(row["status"]) == "active"
+            }
+            for session in session_rows:
+                member_id = int(session.get("member_id") or 0)
+                expires_at_ts = int(session.get("expires_at_ts") or 0)
+                token = clean_text(session.get("token", ""))
+                if member_id not in active_member_ids or expires_at_ts <= now_ts or token == "":
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO member_sessions (token, member_id, created_at, expires_at_ts)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(token) DO UPDATE SET
+                        member_id=excluded.member_id,
+                        expires_at_ts=MAX(member_sessions.expires_at_ts, excluded.expires_at_ts)
+                    """,
+                    (token, member_id, clean_text(session.get("created_at", "")), expires_at_ts),
+                )
+                restored += 1
+            conn.commit()
+    except Exception as exc:
+        logging.warning("member auth local session restore failed: %s", type(exc).__name__)
+        return 0
+    return restored
+
+
 def pull_member_auth_remote_snapshot():
     with MEMBER_AUTH_REMOTE_LOCK:
         remote = member_auth_remote_request("GET")
@@ -1058,6 +1117,7 @@ def pull_member_auth_remote_snapshot():
             return "checksum_mismatch"
         if not payload.startswith(b"SQLite format 3\x00"):
             return "invalid_sqlite"
+        local_sessions = capture_unexpired_member_sessions()
         state = load_member_auth_remote_state()
         local_sha = ""
         if os.path.exists(MEMBER_AUTH_DB_PATH):
@@ -1082,8 +1142,9 @@ def pull_member_auth_remote_snapshot():
                 os.remove(temp_path)
             except OSError:
                 pass
+        restored_sessions = restore_unexpired_member_sessions(local_sessions)
         save_member_auth_remote_state(remote_version, calculated_sha)
-        return "restored"
+        return "restored_with_local_sessions" if restored_sessions else "restored"
 
 
 def flush_member_auth_remote_snapshot():
@@ -1198,6 +1259,8 @@ def refresh_member_auth_remote_snapshot(force=False):
         status = pull_member_auth_remote_snapshot()
         _MEMBER_AUTH_REMOTE_REFRESH_CACHE["checked_at"] = time.monotonic()
         _MEMBER_AUTH_REMOTE_REFRESH_CACHE["db_path"] = db_path
+    if status == "restored_with_local_sessions":
+        queue_member_auth_remote_snapshot_flush()
     return status
 
 
@@ -3394,7 +3457,13 @@ def logout_member():
         remote_status = refresh_member_auth_remote_snapshot(force=True)
     except Exception:
         remote_status = "disabled_or_unavailable"
-    remote_snapshot_ready = remote_status in {"disabled", "recent", "current", "restored"}
+    remote_snapshot_ready = remote_status in {
+        "disabled",
+        "recent",
+        "current",
+        "restored",
+        "restored_with_local_sessions",
+    }
 
     session_deleted = False
     try:

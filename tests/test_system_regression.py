@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import logging
 import json
 import os
@@ -2976,6 +2978,32 @@ class SystemRegressionTests(unittest.TestCase):
             for _ in range(3):
                 self.assertIsNotNone(app["get_member_by_session_token"](restored["_session_token"]))
             self.assertEqual(request_counts, requests_after_login)
+
+            remote_without_session_path = os.path.join(self.temp_dir, "remote-without-current-session.sqlite")
+            with open(remote_without_session_path, "wb") as handle:
+                handle.write(base64.b64decode(snapshot["payload_base64"]))
+            with sqlite3.connect(remote_without_session_path) as conn:
+                conn.execute(
+                    "DELETE FROM member_sessions WHERE token=?",
+                    (restored["_session_token"],),
+                )
+                conn.commit()
+            with open(remote_without_session_path, "rb") as handle:
+                stale_session_payload = handle.read()
+            snapshot.update(
+                {
+                    "version": int(snapshot["version"]) + 1,
+                    "sha256": hashlib.sha256(stale_session_payload).hexdigest(),
+                    "payload_base64": base64.b64encode(stale_session_payload).decode("ascii"),
+                    "updated_at": "2026-06-29T00:01:00Z",
+                }
+            )
+            app["reset_member_auth_remote_refresh_cache"]()
+            self.assertIsNotNone(
+                app["get_member_by_session_token"](restored["_session_token"]),
+                "a newer remote member snapshot must not erase an unexpired local login session",
+            )
+            self.assertTrue(app["wait_for_member_auth_remote_snapshot_flush"](timeout=5.0))
 
             stale_path = os.path.join(self.temp_dir, "member-stale.sqlite")
             shutil.copy2(app["MEMBER_AUTH_DB_PATH"], stale_path)

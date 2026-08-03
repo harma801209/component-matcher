@@ -1095,3 +1095,11 @@
 - Fix: add the official RCA `series + size + value + tolerance + LF` decoder before generic parsing. Populate HKR brand, package, resistance, tolerance, rated power, working voltage, dimensions, temperature, lead-free status, reel quantity, source, and authority metadata.
 - Accuracy rule: only structurally valid RCA order numbers are decoded; values are never guessed from a partial model. Cross-brand candidates remain subject to the existing electrical and application matching rules.
 - Regression: official examples cover `RCA031MFLF`, `RCA0520KFLF`, and `RCA022R2JLF`; the original query resolves to `0603 / 1MΩ / ±1% / 1/10W / 75V / 5000PCS`. The 35-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-03 - Newer remote member snapshots erased unexpired login sessions
+
+- Symptom: members were asked to log in again even though both the browser token and server-side session were configured for a rolling 12-hour lifetime.
+- Root cause: member profiles and active sessions shared one remotely synchronized SQLite snapshot. When another instance published a newer snapshot that did not yet contain a recently created or renewed token, the next 60-second refresh restored that snapshot over the local database. Session lookup then treated the still-valid browser token as invalid and cleared it.
+- Fix: capture unexpired local sessions before restoring a newer remote member snapshot, then merge back only sessions whose members remain active in the restored authoritative member table. Re-synchronize a merged snapshot in the existing serialized background worker. Disabled or deleted members are never restored.
+- Logout boundary: the merged-restore status is treated as a valid remote state so explicit logout still deletes and synchronizes the current token.
+- Regression: the remote-snapshot test now advances the remote version with a valid member database that deliberately omits the current token. The active session must remain valid and be queued for remote persistence.
