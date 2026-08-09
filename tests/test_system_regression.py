@@ -1324,12 +1324,12 @@ class SystemRegressionTests(unittest.TestCase):
                 (
                     "10KΩ;/;±5%;1/16W;0402;FENGHUA;RC-02K103JT;无卤",
                     "RC-02K103JT",
-                    "FRC0402J103TS",
+                    "FRC0402J103 TS",
                 ),
                 (
                     "510Ω;±5%;1/16W;0402;FENGHUA;RC-02K511JT;无卤",
                     "RC-02K511JT",
-                    "FRC0402J511TS",
+                    "FRC0402J511 TS",
                 ),
             ]
             for query, source_model, expected_fojan_model in explicit_part_cases:
@@ -1561,6 +1561,10 @@ class SystemRegressionTests(unittest.TestCase):
                 "FRC0402J102 TS",
             )
             self.assertEqual(
+                app["normalize_fojan_frc_model_display"]("FRC0201J103TS", "FOJAN(富捷)"),
+                "FRC0201J103 TS",
+            )
+            self.assertEqual(
                 app["normalize_fojan_frc_model_display"]("FRC0402F1003 TS", "OtherBrand"),
                 "FRC0402F1003 TS",
             )
@@ -1585,13 +1589,18 @@ class SystemRegressionTests(unittest.TestCase):
                                 "型号": "FRC0402J102TS",
                                 "器件类型": "厚膜电阻",
                             },
+                            {
+                                "品牌": "FOJAN(富捷)",
+                                "型号": "FRC0201J103TS",
+                                "器件类型": "",
+                            },
                         ]
                     )
                 )
             )
             self.assertEqual(
                 normalized_suffix["型号"].tolist(),
-                ["FRC0201F1003TS", "FRC0402F1001TS", "FRC0402J102 TS"],
+                ["FRC0201F1003TS", "FRC0402F1001TS", "FRC0402J102 TS", "FRC0201J103 TS"],
             )
             rs_only_export_slots = app["build_bom_own_brand_export_slots"](
                 prepared_suffix[prepared_suffix["型号"].eq("FRC0402F1001RS")].copy(),
@@ -1614,6 +1623,29 @@ class SystemRegressionTests(unittest.TestCase):
 
         fojan_no_power = app["parse_resistor_spec_query"]("0805 910R ±1%")
         self.assertEqual(app["build_fojan_resistor_model_from_spec"](fojan_no_power), "FRC0805F9100TS")
+        for query, expected_model in (
+            ("0201 10R ±5% 1/20W", "FRC0201J100 TS"),
+            ("0201 33R ±5% 1/20W", "FRC0201J330 TS"),
+            ("0201 1K ±5% 1/20W", "FRC0201J102 TS"),
+            ("0201 10K ±5% 1/20W", "FRC0201J103 TS"),
+            ("0201 1M ±5% 1/20W", "FRC0201J105 TS"),
+        ):
+            fojan_0201_5pct = app["parse_resistor_spec_query"](query)
+            self.assertEqual(
+                app["build_fojan_resistor_model_from_spec"](fojan_0201_5pct),
+                expected_model,
+            )
+            fojan_0201_candidates = app["build_fojan_rule_candidate_from_spec"](fojan_0201_5pct)
+            self.assertEqual(fojan_0201_candidates["型号"].tolist(), [expected_model])
+            fojan_0201_slots = app["build_bom_own_brand_export_slots"](
+                fojan_0201_candidates,
+                spec=fojan_0201_5pct,
+                export_settings={
+                    "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                    "brands": ["富捷"],
+                },
+            )
+            self.assertEqual(fojan_0201_slots["自有型号"], expected_model)
         fojan_low_ohm_no_power = app["parse_resistor_spec_query"]("1206 10mΩ ±1%")
         self.assertEqual(app["build_fojan_resistor_model_from_spec"](fojan_low_ohm_no_power), "FRL1206FR010TS")
         fojan_wrong_power = app["parse_resistor_spec_query"]("1206 10mΩ ±1% 1W")

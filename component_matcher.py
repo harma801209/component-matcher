@@ -190,7 +190,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 113
+QUERY_RESULT_CACHE_VERSION = 114
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -11587,7 +11587,10 @@ def normalize_fojan_resistor_series_display_fields(df):
         resistor_mask = out["器件类型"].astype(str).apply(normalize_component_type).isin(RESISTOR_COMPONENT_TYPES)
     else:
         resistor_mask = pd.Series([True] * len(out), index=out.index)
-    target_mask = brand_mask & resistor_mask
+    model_mask = out["型号"].astype(str).apply(clean_model).apply(
+        lambda value: FOJAN_FRC_DISPLAY_MODEL_PATTERN.fullmatch(value) is not None
+    )
+    target_mask = brand_mask & (resistor_mask | model_mask)
     if not target_mask.any():
         return out
     for idx, row in out.loc[target_mask].iterrows():
@@ -31510,7 +31513,9 @@ def build_fojan_resistor_model_from_spec(spec):
     if tolerance_code == "" or value_code == "":
         return ""
     model = f"{series}{size}{tolerance_code}{value_code}TS"
-    return model if parse_valid_fojan_resistor_model(model) is not None else ""
+    if parse_valid_fojan_resistor_model(model) is None:
+        return ""
+    return normalize_fojan_frc_model_display(model, "FOJAN(富捷)")
 
 
 def fojan_brand_requested_or_unset(spec):
@@ -31654,6 +31659,8 @@ def build_rule_fallback_row_from_model(model, brand=""):
             fallback = prepare_search_dataframe(fallback)
         except Exception:
             pass
+    if resolved_brand == "FOJAN(富捷)" and not fallback.empty:
+        fallback = normalize_fojan_resistor_series_display_fields(fallback)
     if (
         resolved_brand == "FOJAN(富捷)"
         and not fallback.empty

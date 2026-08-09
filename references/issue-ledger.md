@@ -1103,3 +1103,10 @@
 - Fix: capture unexpired local sessions before restoring a newer remote member snapshot, then merge back only sessions whose members remain active in the restored authoritative member table. Re-synchronize a merged snapshot in the existing serialized background worker. Disabled or deleted members are never restored.
 - Logout boundary: the merged-restore status is treated as a valid remote state so explicit logout still deletes and synchronizes the current token.
 - Regression: the remote-snapshot test now advances the remote version with a valid member database that deliberately omits the current token. The active session must remain valid and be queued for remote persistence.
+
+## 2026-08-09 - FOJAN 0201 5% BOM models could lose the standard space before TS
+
+- Symptom: some BOM paths displayed generated FOJAN 0201 5% ordinary thick-film resistor models as `FRC0201J103TS` instead of the standard `FRC0201J103 TS` form.
+- Root cause: the rule-based candidate generator emitted a compact model and relied on a later display-normalization pass. Paths that consumed the generated candidate before that pass could leak the compact form.
+- Fix: canonicalize generated FOJAN FRC models at their source. `J` tolerance models now always use a three-character resistance code followed by ` TS`; `F` tolerance models retain their four-character code directly followed by `TS`. Strict FRC-shaped FOJAN rows are also normalized when their component-type field is blank.
+- Regression: representative 0201 5% values from 10 ohm through 1 Mohm are checked at generation, candidate, and BOM export stages; all return the canonical spaced model while 0201 1% output remains unchanged.
