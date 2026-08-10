@@ -1139,3 +1139,10 @@
 - Root cause: Walsin `WA` resistor-array models were absent from the resistor model decoder, and the ordinary FOJAN `FRA` array series was missing from the rule catalog.
 - Fix: decode `WA04X680JTL` as a four-element 0402 array (`044R`), 68 ohm per element, 5%, and 1/16W per element. Add the ordinary FOJAN FRA catalog profile so the compatible output model is `FRA044RJ680TS`.
 - Regression: an isolated exact-model test verifies the Walsin parameters and the generated FOJAN FRA model. The 42-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-10 - Walsin WA array display omitted the package separator
+
+- Symptom: `WA04X680JTL` was shown as one compact token even though the standard customer-facing form is `WA04X680 JTL`.
+- Root cause: the space-insensitive lookup identity was reused as the display value, so the `JTL` tolerance/package suffix lost its separator.
+- Fix: retain compact normalization for matching while applying a Walsin WA display formatter to parsed rows, search tables, and BOM output. The component remains a thick-film resistor array; only the model presentation changes.
+- Regression: both spaced and compact inputs resolve to the same 68-ohm, 5%, 1/16W array and display as `WA04X680 JTL`; FOJAN replacement remains `FRA044RJ680TS`. The 42-test release safety gate passes with protected runtime data unchanged.

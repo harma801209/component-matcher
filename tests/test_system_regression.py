@@ -1962,11 +1962,21 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
-        walsin_array = app["parse_resistor_model_rule"](
-            "WA04X680JTL",
-            brand="华新科Walsin",
-            component_type="厚膜电阻",
+        parsed_models = [
+            app["parse_resistor_model_rule"](
+                model,
+                brand="华新科Walsin",
+                component_type="厚膜电阻",
+            )
+            for model in ("WA04X680JTL", "WA04X680 JTL")
+        ]
+        self.assertTrue(all(item is not None for item in parsed_models))
+        self.assertEqual(
+            {app["clean_model"](item["型号"]) for item in parsed_models},
+            {"WA04X680JTL"},
         )
+        self.assertEqual({item["型号"] for item in parsed_models}, {"WA04X680 JTL"})
+        walsin_array = parsed_models[0]
         self.assertIsNotNone(walsin_array)
         self.assertEqual(walsin_array["尺寸（inch）"], "044R")
         self.assertAlmostEqual(float(walsin_array["_resistance_ohm"]), 68.0)
@@ -1985,6 +1995,12 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(app["clean_tol_for_match"](fra["容值误差"]), "5")
         self.assertEqual(fra["功率"], "1/16W")
         self.assertIn("排阻", app["clean_text"](fra["特殊用途"]))
+
+        display_frame = pd.DataFrame(
+            [{"品牌": "华新科Walsin", "型号": "WA04X680JTL", "器件类型": "厚膜电阻"}]
+        )
+        normalized = app["normalize_resistor_model_display_fields"](display_frame)
+        self.assertEqual(normalized.iloc[0]["型号"], "WA04X680 JTL")
 
     def test_03aa_customer_kr_suffix_and_spaced_decimal_parse(self):
         app = self.app

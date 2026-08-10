@@ -10868,7 +10868,7 @@ def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
 
     return {
         "品牌": clean_brand(brand),
-        "型号": compact,
+        "型号": normalize_walsin_resistor_model_display(compact, brand),
         "器件类型": resolved_component_type,
         "系列": clean_text(series_profile.get("系列", "")) or series_code,
         "系列说明": clean_text(series_profile.get("系列说明", "")),
@@ -11708,6 +11708,19 @@ FOJAN_FRC_DISPLAY_MODEL_PATTERN = re.compile(
     r"(?P<tolerance>[FJP])(?P<value>[0-9R]+)(?P<suffix>TS|RS)$"
 )
 
+WALSIN_WA_DISPLAY_MODEL_PATTERN = re.compile(
+    r"^(?P<body>WA(?:04|06)X(?:R\d+|\d+[RKM]\d*|\d{3,4}))(?P<suffix>[BCDFGJKM]TL)$"
+)
+
+
+def normalize_walsin_resistor_model_display(model, brand=""):
+    raw = clean_text(model)
+    compact = clean_model(raw)
+    match = WALSIN_WA_DISPLAY_MODEL_PATTERN.fullmatch(compact)
+    if match is None:
+        return raw
+    return f"{match.group('body')} {match.group('suffix')}"
+
 
 def normalize_fojan_frc_model_display(model, brand=""):
     raw = clean_text(model)
@@ -11771,6 +11784,29 @@ def normalize_fojan_resistor_series_display_fields(df):
             if special_use != "" and (current_special == "" or current_special != special_use):
                 out.at[idx, "特殊用途"] = special_use
     return out
+
+
+def normalize_walsin_resistor_model_display_fields(df):
+    if df is None or df.empty or "型号" not in df.columns:
+        return df
+    out = df.copy()
+    model_mask = out["型号"].astype(str).apply(clean_model).apply(
+        lambda value: WALSIN_WA_DISPLAY_MODEL_PATTERN.fullmatch(value) is not None
+    )
+    if not model_mask.any():
+        return out
+    brand_values = out["品牌"] if "品牌" in out.columns else pd.Series("", index=out.index)
+    for idx in out.index[model_mask]:
+        out.at[idx, "型号"] = normalize_walsin_resistor_model_display(
+            out.at[idx, "型号"],
+            brand_values.at[idx],
+        )
+    return out
+
+
+def normalize_resistor_model_display_fields(df):
+    out = normalize_fojan_resistor_series_display_fields(df)
+    return normalize_walsin_resistor_model_display_fields(out)
 
 
 def normalize_joyin_ntc_series_display_fields(df):
@@ -20920,7 +20956,7 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     out = enrich_timing_model_granularity(out)
     display_component_type = resolve_component_display_type(spec_or_type)
     if display_component_type in RESISTOR_COMPONENT_TYPES:
-        out = normalize_fojan_resistor_series_display_fields(out)
+        out = normalize_resistor_model_display_fields(out)
         out = enrich_resistor_pricing_columns(out)
     out = enrich_component_cost_columns(out)
     if display_component_type == "热敏电阻":
@@ -25175,7 +25211,7 @@ def prepare_bom_own_brand_candidate_frame(
             return work
     ctype = normalize_component_type(component_type)
     if ctype in RESISTOR_COMPONENT_TYPES:
-        work = normalize_fojan_resistor_series_display_fields(work)
+        work = normalize_resistor_model_display_fields(work)
         work = (
             enrich_resistor_pricing_columns(work)
             if resistor_pricing_rules is None
@@ -31827,7 +31863,7 @@ def build_rule_fallback_row_from_model(model, brand=""):
         except Exception:
             pass
     if resolved_brand == "FOJAN(富捷)" and not fallback.empty:
-        fallback = normalize_fojan_resistor_series_display_fields(fallback)
+        fallback = normalize_resistor_model_display_fields(fallback)
     if (
         resolved_brand == "FOJAN(富捷)"
         and not fallback.empty
@@ -33636,7 +33672,7 @@ def normalize_pdc_series_description_display_fields(df):
 
 def format_display_df(show_df):
     show_df = show_df.copy()
-    show_df = normalize_fojan_resistor_series_display_fields(show_df)
+    show_df = normalize_resistor_model_display_fields(show_df)
     show_df = normalize_joyin_ntc_series_display_fields(show_df)
     show_df = normalize_pdc_series_description_display_fields(show_df)
     for col in [
@@ -34802,7 +34838,7 @@ def render_clickable_result_table(show_df, hide_columns=None, wrapper_class="res
             display_df["_量产状态链接"] = ""
     else:
         display_df = show_df.copy()
-    display_df = normalize_fojan_resistor_series_display_fields(display_df)
+    display_df = normalize_resistor_model_display_fields(display_df)
     display_df = normalize_joyin_ntc_series_display_fields(display_df)
     display_df = normalize_timing_model_display_fields(display_df)
 
@@ -34944,7 +34980,7 @@ def build_part_info_df(df, spec, query_model):
         show_df["容值误差"] = show_df["容值误差"].apply(clean_tol_for_match)
         show_df["耐压（V）"] = show_df["耐压（V）"].apply(clean_voltage)
         show_df = fill_component_display_blanks(show_df, spec)
-        show_df = normalize_fojan_resistor_series_display_fields(show_df)
+        show_df = normalize_resistor_model_display_fields(show_df)
         show_df = normalize_joyin_ntc_series_display_fields(show_df)
         prioritized_hit = prioritize_component_rows_for_lookup(show_df)
         display_target = prioritized_hit.iloc[0].to_dict() if prioritized_hit is not None and not prioritized_hit.empty else spec
@@ -34979,7 +35015,7 @@ def build_part_info_df(df, spec, query_model):
         "型号": spec.get("型号", query_model),
         **build_component_display_row(spec),
     }])
-    row = normalize_fojan_resistor_series_display_fields(row)
+    row = normalize_resistor_model_display_fields(row)
     row = normalize_joyin_ntc_series_display_fields(row)
     row_target = row.iloc[0].to_dict() if not row.empty else spec
     row = select_component_display_columns(
@@ -38298,7 +38334,7 @@ def build_bom_result_row(df, line, export_settings=None):
         return row
 
     matched = matched.copy()
-    matched = normalize_fojan_resistor_series_display_fields(matched)
+    matched = normalize_resistor_model_display_fields(matched)
     matched["品牌"] = matched["品牌"].astype(str).fillna("")
     matched["型号"] = matched["型号"].astype(str).fillna("")
     recommendation = build_procurement_recommendation(matched, spec)
@@ -38450,7 +38486,7 @@ def build_bom_upload_result_row(
     matched = best.get("matched")
     if isinstance(matched, pd.DataFrame) and not matched.empty:
         matched = matched.copy()
-        matched = normalize_fojan_resistor_series_display_fields(matched)
+        matched = normalize_resistor_model_display_fields(matched)
         matched["品牌"] = matched["品牌"].astype(str).fillna("")
         matched["型号"] = matched["型号"].astype(str).fillna("")
         recommendation = best.get("recommendation") or build_procurement_recommendation(matched, spec)
