@@ -49,6 +49,67 @@ from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 from fojan_resistor_catalog import get_fojan_special_resistor_series
 import member_auth_runtime as member_auth_runtime_state
+from bom_job_store import (
+    create_or_update_job as _create_or_update_bom_job,
+    get_job as _get_bom_job,
+    metric_summary as _runtime_metric_summary,
+    record_metric as _record_runtime_metric,
+    reset_failed_rows as _reset_bom_job_failed_rows,
+    save_checkpoint as _save_bom_job_checkpoint,
+)
+from component_quality import build_quality_report as _build_quality_report
+
+
+def create_or_update_bom_job(**kwargs):
+    try:
+        return _create_or_update_bom_job(**kwargs)
+    except Exception:
+        return None
+
+
+def get_bom_job(*args, **kwargs):
+    try:
+        return _get_bom_job(*args, **kwargs)
+    except Exception:
+        return None
+
+
+def save_bom_job_checkpoint(*args, **kwargs):
+    try:
+        _save_bom_job_checkpoint(*args, **kwargs)
+        return True
+    except Exception:
+        return False
+
+
+def reset_bom_job_failed_rows(*args, **kwargs):
+    try:
+        return _reset_bom_job_failed_rows(*args, **kwargs)
+    except Exception:
+        return {}
+
+
+def record_runtime_metric(*args, **kwargs):
+    try:
+        _record_runtime_metric(*args, **kwargs)
+        return True
+    except Exception:
+        return False
+
+
+def runtime_metric_summary(*args, **kwargs):
+    try:
+        return _runtime_metric_summary(*args, **kwargs)
+    except Exception:
+        return {"runs": 0, "p50_ms": 0, "p95_ms": 0, "rows_per_second": 0.0,
+                "dedupe_rate": 0.0, "failed_rows": 0}
+
+
+def build_quality_report(*args, **kwargs):
+    try:
+        return _build_quality_report(*args, **kwargs)
+    except Exception:
+        return {"summary": {"rows": 0, "groups": 0, "complete_rate": 0.0}, "rows": []}
 
 
 def ensure_member_auth_runtime_state_compatibility():
@@ -159,6 +220,7 @@ NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
+BOM_JOB_QUERY_PARAM = "bom_job"
 MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
 ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY = "_admin_route_clear_outer_shell"
 MEMBER_AUTH_BROWSER_STORAGE_KEY = "fruition_member_auth_token"
@@ -215,7 +277,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-01T20:10:00+08:00"
+PUBLIC_CODE_STAMP = "2026-08-10T09:18:28+08:00"
 
 
 def startup_trace(message):
@@ -38794,6 +38856,32 @@ def build_bom_preview_notice_html(message, workbook_signature):
 </div>
 '''
 
+
+def build_bom_record_match_signature(record, column_mapping, export_settings=None):
+    """Return a stable signature for fields that can change matching output."""
+    payload = {
+        role: get_bom_selected_value(record, column_mapping.get(role))
+        for role in ("model", "spec", "name")
+    }
+    payload["extra_values"] = collect_bom_extra_spec_values(record, column_mapping)
+    payload["export_settings"] = normalize_bom_export_settings(export_settings)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def clone_bom_result_for_source_row(result_row, row_index, record, column_mapping):
+    """Reuse a match while preserving the identity and quantity of the source row."""
+    cloned = dict(result_row or {})
+    cloned["BOM行号"] = int(row_index) + 2
+    cloned["BOM型号"] = get_bom_selected_value(record, column_mapping.get("model"))
+    cloned["BOM规格"] = get_bom_selected_value(record, column_mapping.get("spec"))
+    cloned["BOM品名"] = get_bom_selected_value(record, column_mapping.get("name"))
+    cloned["BOM数量"] = format_bom_quantity(
+        get_bom_selected_value(record, column_mapping.get("quantity"))
+    )
+    return cloned
+
 def bom_dataframe_from_upload(
     df,
     upload_df,
@@ -38861,6 +38949,22 @@ def bom_dataframe_from_upload(
         for row_index, row_value in (resume_rows or {}).items()
         if isinstance(row_value, dict) and 0 <= int(row_index) < total_rows
     }
+    signature_groups = {}
+    for idx, record in enumerate(records):
+        signature = build_bom_record_match_signature(
+            record, column_mapping, export_settings=export_settings
+        )
+        signature_groups.setdefault(signature, []).append(idx)
+    for group_indexes in signature_groups.values():
+        completed_index = next((idx for idx in group_indexes if idx in completed_rows), None)
+        if completed_index is None:
+            continue
+        representative = completed_rows[completed_index]
+        for idx in group_indexes:
+            if idx not in completed_rows:
+                completed_rows[idx] = clone_bom_result_for_source_row(
+                    representative, idx, records[idx], column_mapping
+                )
     rows = []
     exact_count = 0
     partial_count = 0
@@ -38977,16 +39081,20 @@ def bom_dataframe_from_upload(
             )
         return idx, result_row
 
-    pending_items = [
-        (idx, record)
-        for idx, record in enumerate(records)
-        if idx not in completed_rows
-    ]
+    pending_items = []
+    pending_group_indexes = {}
+    for group_indexes in signature_groups.values():
+        if all(idx in completed_rows for idx in group_indexes):
+            continue
+        representative_index = next(idx for idx in group_indexes if idx not in completed_rows)
+        pending_items.append((representative_index, records[representative_index]))
+        pending_group_indexes[representative_index] = group_indexes
     worker_count = max_workers
     if worker_count is None:
         worker_count = min(6, max(1, len(pending_items)))
     worker_count = max(1, min(int(worker_count or 1), 6))
     checkpoint_every = max(1, min(10, total_rows // 40 if total_rows >= 40 else 1))
+    last_checkpoint_count = len(completed_rows)
 
     emit_progress(
         len(completed_rows),
@@ -38999,13 +39107,22 @@ def bom_dataframe_from_upload(
             futures[executor.submit(process_record, idx, record)] = idx
         for future in as_completed(futures):
             idx, result_row = future.result()
-            completed_rows[idx] = result_row
-            update_status_counts(result_row)
+            group_indexes = pending_group_indexes.get(idx, [idx])
+            for group_idx in group_indexes:
+                if group_idx in completed_rows:
+                    continue
+                cloned_row = clone_bom_result_for_source_row(
+                    result_row, group_idx, records[group_idx], column_mapping
+                )
+                completed_rows[group_idx] = cloned_row
+                update_status_counts(cloned_row)
             processed_rows = len(completed_rows)
             if checkpoint_callback is not None and (
-                processed_rows == total_rows or processed_rows % checkpoint_every == 0
+                processed_rows == total_rows
+                or processed_rows - last_checkpoint_count >= checkpoint_every
             ):
                 checkpoint_callback(dict(completed_rows))
+                last_checkpoint_count = processed_rows
             now_ts = time.perf_counter()
             if processed_rows == 1 or processed_rows == total_rows or (processed_rows - last_emit_index) >= emit_every or (now_ts - last_emit_ts) >= 0.2:
                 emit_progress(processed_rows, result_row=result_row, done=False)
@@ -39013,8 +39130,16 @@ def bom_dataframe_from_upload(
                 last_emit_index = processed_rows
     rows = [completed_rows[idx] for idx in range(total_rows) if idx in completed_rows]
     result_df = pd.DataFrame(rows)
+    metrics = {
+        "total_rows": total_rows,
+        "unique_rows": len(signature_groups),
+        "deduped_rows": max(0, total_rows - len(signature_groups)),
+        "elapsed_ms": int(max(0.0, time.perf_counter() - start_ts) * 1000),
+    }
     emit_progress(total_rows, result_row=rows[-1] if rows else {"BOM行号": "", "解析输入": "BOM 匹配已完成"}, done=True)
-    return move_reference_model_columns_after_rank(result_df)
+    result_df = move_reference_model_columns_after_rank(result_df)
+    result_df.attrs["bom_metrics"] = metrics
+    return result_df
 
 def style_bom_result_rows(df):
     def row_style(row):

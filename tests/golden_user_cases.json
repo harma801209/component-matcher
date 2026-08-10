@@ -1,0 +1,7 @@
+[
+  {"query": "2010 100K士1%", "expected": {"尺寸（inch）": "2010", "_resistance_ohm": 100000, "容值误差": "1"}},
+  {"query": "0402 1/16W 1KΩ ±1%", "expected": {"尺寸（inch）": "0402", "_resistance_ohm": 1000, "_power": "1/16W", "容值误差": "1"}},
+  {"query": "1206,3.3R,1%", "expected": {"尺寸（inch）": "1206", "_resistance_ohm": 3.3, "容值误差": "1"}},
+  {"query": "DIP_470uF±20%/16V/D6.3*L12mm/105℃", "expected": {"容值_pf": 470000000, "耐压（V）": "16", "安装方式": "插件"}},
+  {"query": "Thermistor NTC 10K OHM 240mW 1% 0402 SMD", "expected": {"尺寸（inch）": "0402"}}
+]

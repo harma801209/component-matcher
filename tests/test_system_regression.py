@@ -2912,8 +2912,41 @@ class SystemRegressionTests(unittest.TestCase):
             )
             self.assertEqual(calls, [])
             self.assertEqual(resumed["BOM型号"].tolist(), source["型号"].tolist())
+
+            calls.clear()
+            duplicate_source = pd.DataFrame([
+                {"型号": "RC0402FR-071KL", "数量": 100},
+                {"型号": "RC0402FR-071KL", "数量": 200},
+                {"型号": "RC0402FR-071KL", "数量": 300},
+            ])
+            deduped = app["bom_dataframe_from_upload"](
+                None, duplicate_source,
+                {"model": "型号", "spec": None, "name": None, "quantity": "数量"},
+                max_workers=4,
+            )
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(deduped["BOM数量"].tolist(), ["100", "200", "300"])
+            self.assertEqual(deduped.attrs["bom_metrics"]["unique_rows"], 1)
+            self.assertEqual(deduped.attrs["bom_metrics"]["deduped_rows"], 2)
         finally:
             app["build_bom_upload_result_row"] = original_builder
+
+    def test_06e_user_reported_golden_queries_remain_parseable(self):
+        golden_path = os.path.join(self.base_dir, "tests", "golden_user_cases.json")
+        with open(golden_path, "r", encoding="utf-8") as handle:
+            cases = json.load(handle)
+        for case in cases:
+            with self.subTest(query=case["query"]):
+                mode, spec = self.app["detect_query_mode_and_spec"](None, case["query"])
+                self.assertNotIn(mode, {"无法识别", "暂不支持"})
+                self.assertIsNotNone(spec)
+                for field_name, expected_value in case.get("expected", {}).items():
+                    actual_value = (spec or {}).get(field_name, "")
+                    if isinstance(expected_value, (int, float)):
+                        self.assertAlmostEqual(float(actual_value), float(expected_value))
+                    else:
+                        actual = self.app["clean_text"](actual_value)
+                        self.assertEqual(actual.upper(), str(expected_value).upper())
 
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
         app = self.app
