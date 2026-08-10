@@ -8412,7 +8412,7 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "特殊用途": "车规 | 电流检测",
 }
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
-    r"^(AA|AC|AF|AR|ASG|AS|AT|RCA|RC|RT|WR|WF|MR|WW|WK|WM|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
+    r"^(AA|AC|AF|AR|ASG|AS|AT|RCA|RC|RT|WR|WF|MR|WW|WK|WM|WA|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
 WALSIN_RESISTOR_SIZE_MAP = {
     "01": "01005",
@@ -8435,7 +8435,7 @@ def resolve_walsin_resistor_series_code_from_model(model):
     pattern_candidates = [
         r"^(?P<series>WW\d{2}[A-Z]{2})(?=\d|[A-Z]|-|_|$)",
         r"^(?P<series>FVF\d{2}F)(?=\d|[A-Z]|-|_|$)",
-        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM|WA)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
     ]
     for pattern in pattern_candidates:
         match = re.match(pattern, compact)
@@ -10672,6 +10672,9 @@ def infer_resistor_size_from_model(model):
             return mapped
     walsin_series_code = resolve_walsin_resistor_series_code_from_model(compact)
     if walsin_series_code != "":
+        array_match = re.match(r"^WA(?P<size>04|06)X", walsin_series_code)
+        if array_match is not None:
+            return {"04": "044R", "06": "064R"}.get(array_match.group("size"), "")
         if walsin_series_code.startswith("WM04B"):
             return "0204"
         if walsin_series_code.startswith("FVF06F"):
@@ -10812,7 +10815,7 @@ def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
     series_code = resolve_walsin_resistor_series_code_from_model(compact)
     if series_code == "":
         return None
-    if not re.match(r"^(?:WW|WR|WF|MR|SR|WK|WM|FVF)\d", series_code):
+    if not re.match(r"^(?:WW|WR|WF|MR|SR|WK|WM|WA|FVF)\d", series_code):
         return None
 
     tail = compact[len(series_code):].lstrip("-_")
@@ -10858,7 +10861,10 @@ def parse_walsin_chip_resistor_model(model, brand="", component_type=""):
     resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type) or "厚膜电阻"
     resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(tolerance_code, ""))
-    power_text = RESISTOR_POWER_BY_SIZE.get(size, "")
+    power_text = {
+        "044R": "1/16W",
+        "064R": "1/10W",
+    }.get(size, RESISTOR_POWER_BY_SIZE.get(size, ""))
 
     return {
         "品牌": clean_brand(brand),
@@ -16807,6 +16813,20 @@ def normalize_resistor_value_tolerance_separator(text):
     value = clean_text(text)
     if value == "":
         return ""
+    # Customer BOMs often use KR/MR as a unit suffix (for example 10KR =
+    # 10K ohm) and may contain spaces around the decimal point. Normalize
+    # only standalone numeric resistor tokens so manufacturer models such as
+    # CC0603KRX7R... remain untouched.
+    value = re.sub(
+        r"(?<![A-Z0-9])(\d+)\s*\.\s*(\d+)\s*([KkM])\s*[Rr](?![A-Z0-9])",
+        r"\1.\2\3",
+        value,
+    )
+    value = re.sub(
+        r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*([KkM])\s*[Rr](?![A-Z0-9])",
+        r"\1\2",
+        value,
+    )
     return re.sub(
         r"(?<![A-Z0-9.])(\d+(?:\.\d+)?[RKM])\s*\.\s*(\d+(?:\.\d+)?)\s*%",
         r"\1,\2%",

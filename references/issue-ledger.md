@@ -1125,3 +1125,17 @@
 - Root cause: no-match and no-alternate report-button keys were derived only from the query content and result reason. Repeated input lines therefore created identical Streamlit widget keys in one page render.
 - Fix: include the input line index in every report-button key path, covering unrecognized input, insufficient specifications, original-part-only results, part-number no-match results, and empty matched results.
 - Regression: the widget regression renders the same part number twice with distinct line instances and asserts that both generated keys are unique.
+
+## 2026-08-10 - Customer BOM KR suffixes and spaced decimals were not parsed
+
+- Symptom: resistor descriptions such as `11.3KR`, `4. 7KR`, `3. 9KR`, and `196KR` were reported as unmatched even though the corresponding FOJAN values exist. The failure appeared frequently on a second BOM worksheet but was not caused by worksheet selection.
+- Root cause: the resistor parser did not normalize customer-style `KR`/`MR` unit suffixes or spaces around decimal points before extracting resistance values.
+- Fix: normalize standalone numeric `KR`/`kR` and uppercase `MR` suffixes while preserving manufacturer model strings. Lowercase `mR` remains milliohm and is never converted to megaohm.
+- Regression: customer BOM samples now resolve to the expected FOJAN FRC models, manufacturer strings such as `CC0603KRX7R9BB103` remain unchanged, and the alloy-resistor milliohm matrix continues to pass.
+
+## 2026-08-10 - Walsin WA resistor arrays had no FOJAN equivalent path
+
+- Symptom: exact search for `WA04X680JTL` with FOJAN as the requested output brand returned no result.
+- Root cause: Walsin `WA` resistor-array models were absent from the resistor model decoder, and the ordinary FOJAN `FRA` array series was missing from the rule catalog.
+- Fix: decode `WA04X680JTL` as a four-element 0402 array (`044R`), 68 ohm per element, 5%, and 1/16W per element. Add the ordinary FOJAN FRA catalog profile so the compatible output model is `FRA044RJ680TS`.
+- Regression: an isolated exact-model test verifies the Walsin parameters and the generated FOJAN FRA model. The 42-test release safety gate passes with protected runtime data unchanged.

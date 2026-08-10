@@ -139,6 +139,7 @@ SAMSUNG_OFFICIAL_SERIES_PROFILES = {
 }
 
 WALSIN_OFFICIAL_SERIES_PROFILES = {
+    "WA": {"系列说明": "厚膜贴片排阻/电阻网络", "器件类型": "厚膜电阻", "特殊用途": "排阻"},
     "WR": {"系列说明": "通用厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": ""},
     "MR": {"系列说明": "车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规"},
     "SR": {"系列说明": "抗硫化车规级厚膜贴片电阻", "器件类型": "厚膜电阻", "特殊用途": "车规 | 抗硫化"},
@@ -336,7 +337,7 @@ def _resolve_walsin_series_code_from_model(compact: str) -> str:
     pattern_candidates = [
         r"^(?P<series>WW\d{2}[A-Z]{2})(?=\d|[A-Z]|-|_|$)",
         r"^(?P<series>FVF\d{2}F)(?=\d|[A-Z]|-|_|$)",
-        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
+        r"^(?P<series>(?:WR|WF|MR|SR|WK|WM|WA)\d{2}[A-Z]{1,2})(?=\d|[A-Z]|-|_|$)",
     ]
     for pattern in pattern_candidates:
         match = re.match(pattern, compact)

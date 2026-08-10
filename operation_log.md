@@ -3811,3 +3811,16 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 
 - Added the source-line instance to all no-match report widget keys so repeated identical part numbers cannot crash Streamlit result rendering.
 - Added a regression that renders duplicate `FRC0402F3242TS` report controls and verifies unique widget keys.
+
+### 2026-08-10 [BOM resistor parsing] Support customer KR notation without breaking milliohm values
+
+- Added standalone resistor-value normalization for `KR`/`kR`, uppercase `MR`, and spaces around decimal points.
+- Verified representative two-sheet BOM descriptions including `11.3KR`, `4. 7KR`, `3. 9KR`, `10KR`, `100KR`, and `196KR` against their expected FOJAN FRC models.
+- Kept lowercase `mR` as milliohm and retained manufacturer model text such as `CC0603KRX7R9BB103` unchanged.
+
+### 2026-08-10 [Resistor arrays] Map Walsin WA04X models to FOJAN FRA
+
+- Added the Walsin WA resistor-array series decoder and official array size/power interpretation.
+- Added the ordinary FOJAN FRA array-series profile alongside the existing automotive array variants.
+- `WA04X680JTL` now resolves as `044R / 68 ohm / 5% / 1/16W` and produces `FRA044RJ680TS` when FOJAN output is requested.
+- Two focused regressions and the complete 42-test release safety gate pass; protected runtime databases are unchanged.

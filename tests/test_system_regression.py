@@ -1960,6 +1960,65 @@ class SystemRegressionTests(unittest.TestCase):
             ["FRC0603F1002TS"],
         )
 
+    def test_03a_walsin_array_maps_to_fojan_fra(self):
+        app = self.app
+        walsin_array = app["parse_resistor_model_rule"](
+            "WA04X680JTL",
+            brand="华新科Walsin",
+            component_type="厚膜电阻",
+        )
+        self.assertIsNotNone(walsin_array)
+        self.assertEqual(walsin_array["尺寸（inch）"], "044R")
+        self.assertAlmostEqual(float(walsin_array["_resistance_ohm"]), 68.0)
+        self.assertEqual(app["clean_tol_for_match"](walsin_array["容值误差"]), "5")
+        self.assertEqual(walsin_array["_power"], "1/16W")
+        self.assertIn("排阻", walsin_array["特殊用途"])
+
+        walsin_array_candidates = app["build_fojan_rule_candidate_from_spec"](walsin_array)
+        models = set(walsin_array_candidates["型号"].astype(str).map(app["clean_model"]))
+        self.assertIn("FRA044RJ680TS", models)
+        fra = walsin_array_candidates[
+            walsin_array_candidates["型号"].astype(str).map(app["clean_model"]).eq("FRA044RJ680TS")
+        ].iloc[0]
+        self.assertEqual(fra["尺寸（inch）"], "044R")
+        self.assertAlmostEqual(float(fra["_resistance_ohm"]), 68.0)
+        self.assertEqual(app["clean_tol_for_match"](fra["容值误差"]), "5")
+        self.assertEqual(fra["功率"], "1/16W")
+        self.assertIn("排阻", app["clean_text"](fra["特殊用途"]))
+
+    def test_03aa_customer_kr_suffix_and_spaced_decimal_parse(self):
+        app = self.app
+        customer_kr_specs = [
+            ("厚膜电阻, 0402, 11.3KR, ±1%, 1/16W, RoHS", 11_300.0, "FRC0402F1132TS"),
+            ("厚膜电阻, 0402, 1KR, ±1%, 1/16W, RoHS", 1_000.0, "FRC0402F1001TS"),
+            ("厚膜电阻, 0402, 2KR, ±1%, 1/16W, RoHS", 2_000.0, "FRC0402F2001TS"),
+            ("厚膜电阻, 4. 7KR, ±1%, 0402, 1/16W, RoHS", 4_700.0, "FRC0402F4701TS"),
+            ("厚膜电阻, 0402, 10KR, ±1%, 1/16W, RoHS", 10_000.0, "FRC0402F1002TS"),
+            ("厚膜电阻, 0402, 20KR, ±1%, 1/16W, RoHS", 20_000.0, "FRC0402F2002TS"),
+            ("厚膜电阻, 0402, 33KR, ±1%, 1/16W, RoHS", 33_000.0, "FRC0402F3302TS"),
+            ("厚膜电阻, 0402, 100KR, ±1%, 1/16W, RoHS", 100_000.0, "FRC0402F1003TS"),
+            ("厚膜电阻, 0603, 3. 9KR, ±1%, 1/10W, RoHS", 3_900.0, "FRC0603F3901TS"),
+            ("厚膜电阻, 1206, 196KR, ±1%, 1/4W, RoHS", 196_000.0, "FRC1206F1963TS"),
+            ("厚膜电阻, 0402, 22R, 1%, 1/16W, RoHS", 22.0, "FRC0402F22R0TS"),
+        ]
+        for query, expected_ohm, expected_model in customer_kr_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["_param_count"], 4, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            self.assertEqual(app["build_fojan_resistor_model_from_spec"](parsed), expected_model, query)
+
+        self.assertEqual(
+            app["normalize_resistor_value_tolerance_separator"]("CC0603KRX7R9BB103"),
+            "CC0603KRX7R9BB103",
+        )
+        self.assertEqual(
+            app["normalize_resistor_value_tolerance_separator"]("1206 50mR 1% 0.5W"),
+            "1206 50mR 1% 0.5W",
+        )
+        milliohm = app["parse_resistor_spec_query"]("1206 50mR 1% 0.5W 合金电阻")
+        self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.05)
+
     def test_03b_common_parts_keep_cross_brand_candidates_with_compliance_confirmation(self):
         app = self.app
         query = "39KΩ ±1% 0805 1/8W 0805W8F3902T5E 无卤 品牌:厚声/翔胜/华科/国巨"

@@ -139,6 +139,22 @@ def _series(
 
 
 FOJAN_SPECIAL_RESISTOR_SERIES = {
+    "FRA": _series(
+        "厚膜贴片排列电阻",
+        "排阻 | 无卤",
+        {
+            size: {
+                "power": power,
+                "voltage": ARRAY_VOLTAGE[size],
+                "min_ohm": 10.0,
+                "max_ohm": 1_000_000.0,
+            }
+            for size, power in ARRAY_POWER.items()
+        },
+        "FRA系列厚膜片式排列电阻.pdf",
+        tolerances=("1", "5"),
+        value_encoding="e24_3digit",
+    ),
     "FQA": _series(
         "车规厚膜贴片排列电阻",
         "车规 | 排阻 | 无卤",
