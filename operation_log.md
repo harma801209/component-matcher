@@ -3797,3 +3797,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Aluminum-electrolytic cross-brand results now require capacitance, tolerance, voltage, mounting style, operating temperature, exact body diameter and length, and rated lifetime before they can be marked complete. Sparse requests remain partial instead of appearing interchangeable.
 - Broad distributor refreshes now preserve higher-authority official timing rows when an exact manufacturer part number overlaps, preventing incomplete distributor records from replacing detailed Epson data.
 - Verified exact-MPN reverse lookup and complete/sparse specification queries against real Epson, Abracon, AISHI, ChuangHui, and Ymin records. All 77 focused timing/electrolytic/import regressions and the 33-test release safety gate pass with isolated databases; protected runtime data remains unchanged.
+
+### 2026-08-10 [System hardening] Persist large BOM jobs and add quality observability
+
+- Added a member-scoped BOM task store that keeps the uploaded file, output-brand settings, column mappings, incremental row checkpoints, completion state, and failure details for 72 hours. Refreshing or reopening the task URL can resume unfinished work without sharing jobs across member accounts.
+- Large BOM runs now group identical matching inputs, execute each unique specification once, then restore the original row order and row-specific quantity/source fields. Accuracy rules and candidate ranking are unchanged; only duplicate computation is removed.
+- Added result-review filters for status and keyword, plus owner-scoped retry of only `解析失败` and `无匹配` rows. Review filters never remove rows from the downloaded workbook.
+- Added a read-only backend data-quality page grouped by brand and component category, and runtime P50/P95, throughput, duplicate-reuse, and failed-row metrics for search and BOM flows.
+- Added a JSON golden regression corpus for previously reported resistor, electrolytic, and NTC queries, plus persistence, owner-isolation, retry, and quality-report tests.
+- The release safety gate now isolates the BOM task database and validates the new modules. All 39 regressions passed; member, cost-list, and no-match runtime database fingerprints remained unchanged. No cost-management behavior or component cost data was changed.

@@ -1110,3 +1110,11 @@
 - Root cause: the rule-based candidate generator emitted a compact model and relied on a later display-normalization pass. Paths that consumed the generated candidate before that pass could leak the compact form.
 - Fix: canonicalize generated FOJAN FRC models at their source. `J` tolerance models now always use a three-character resistance code followed by ` TS`; `F` tolerance models retain their four-character code directly followed by `TS`. Strict FRC-shaped FOJAN rows are also normalized when their component-type field is blank.
 - Regression: representative 0201 5% values from 10 ohm through 1 Mohm are checked at generation, candidate, and BOM export stages; all return the canonical spaced model while 0201 1% output remains unchanged.
+
+## 2026-08-10 - Large BOM work was session-bound and lacked operational visibility
+
+- Symptom: a long BOM could lose unfinished work after a page refresh, repeated specifications were recalculated, failed rows required rerunning the whole file, and administrators had no latency or component-data completeness view.
+- Root cause: checkpoints lived only in Streamlit session state, matching was keyed by source row instead of normalized matching input, and runtime quality/latency information was not persisted.
+- Fix: add an isolated member-scoped BOM task database with compressed checkpoints and 72-hour retention; reuse one result per unique matching signature while preserving every original row; expose review filters and failed-row retry; record runtime metrics; add a read-only brand/category quality report.
+- Accuracy boundary: deduplication reuses results only when model, specification, name, supplemental fields, and output-brand settings are identical. Quantity and source-row identity are reapplied after matching. Existing parsing, compatibility, ranking, and cost lookup rules are unchanged.
+- Data boundary: BOM task and metrics data use a separate SQLite path. Member, active cost-list, and no-match databases are never migrated or written by this feature. The 39-test release gate passed with protected fingerprints unchanged.
