@@ -1118,3 +1118,10 @@
 - Fix: add an isolated member-scoped BOM task database with compressed checkpoints and 72-hour retention; reuse one result per unique matching signature while preserving every original row; expose review filters and failed-row retry; record runtime metrics; add a read-only brand/category quality report.
 - Accuracy boundary: deduplication reuses results only when model, specification, name, supplemental fields, and output-brand settings are identical. Quantity and source-row identity are reapplied after matching. Existing parsing, compatibility, ranking, and cost lookup rules are unchanged.
 - Data boundary: BOM task and metrics data use a separate SQLite path. Member, active cost-list, and no-match databases are never migrated or written by this feature. The 39-test release gate passed with protected fingerprints unchanged.
+
+## 2026-08-10 - Duplicate search lines crashed result rendering
+
+- Symptom: searching a batch that repeated the same part number, such as `FRC0402F3242TS`, rendered the first result and then stopped with `StreamlitDuplicateElementKey` for a `no_alt_report` button.
+- Root cause: no-match and no-alternate report-button keys were derived only from the query content and result reason. Repeated input lines therefore created identical Streamlit widget keys in one page render.
+- Fix: include the input line index in every report-button key path, covering unrecognized input, insufficient specifications, original-part-only results, part-number no-match results, and empty matched results.
+- Regression: the widget regression renders the same part number twice with distinct line instances and asserts that both generated keys are unique.

@@ -173,6 +173,25 @@ class SystemRegressionTests(unittest.TestCase):
             database_path = os.path.normcase(os.path.abspath(self.app[key]))
             self.assertEqual(os.path.commonpath([temp_root, database_path]), temp_root, key)
 
+    def test_00a_duplicate_search_rows_use_unique_report_button_keys(self):
+        captured_keys = []
+        original_button = self.app["st"].button
+        self.app["st"].button = lambda *args, **kwargs: captured_keys.append(kwargs["key"])
+        try:
+            for line_index in (1, 2):
+                self.app["render_no_match_report_button"](
+                    query_text="FRC0402F3242TS",
+                    mode="part_number",
+                    reason="no alternate",
+                    key_prefix="no_alt_report",
+                    instance_key=line_index,
+                )
+        finally:
+            self.app["st"].button = original_button
+
+        self.assertEqual(len(captured_keys), 2)
+        self.assertNotEqual(captured_keys[0], captured_keys[1])
+
     def test_00b_member_remote_state_survives_streamlit_runpy_reruns(self):
         import member_auth_runtime
 

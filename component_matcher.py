@@ -4105,6 +4105,7 @@ def render_no_match_report_button(
     candidate_rows=0,
     matched_rows=0,
     key_prefix="no_match_report",
+    instance_key="",
 ):
     key_source = json.dumps(
         {
@@ -4112,6 +4113,7 @@ def render_no_match_report_button(
             "mode": clean_text(mode),
             "reason": clean_text(reason),
             "resolution_path": clean_text(resolution_path),
+            "instance_key": clean_text(instance_key),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -5247,6 +5249,7 @@ def render_no_alt_match_report_row(
     resolution_path="",
     candidate_rows=0,
     matched_rows=0,
+    instance_key="",
 ):
     left_col, right_col = st.columns([0.78, 0.22], gap="small")
     with left_col:
@@ -5265,6 +5268,7 @@ def render_no_alt_match_report_row(
             candidate_rows=candidate_rows,
             matched_rows=matched_rows,
             key_prefix="no_alt_report",
+            instance_key=instance_key,
         )
 
 
@@ -41538,6 +41542,7 @@ if search_requested:
                     candidate_rows=candidate_rows,
                     matched_rows=0,
                     key_prefix="unrecognized_report",
+                    instance_key=line_index,
                 )
                 search_stats["warning"] += 1
                 continue
@@ -41561,6 +41566,7 @@ if search_requested:
                     candidate_rows=candidate_rows,
                     matched_rows=0,
                     key_prefix="insufficient_report",
+                    instance_key=line_index,
                 )
                 search_stats["warning"] += 1
                 continue
@@ -41675,6 +41681,7 @@ if search_requested:
                             resolution_path=resolution_path,
                             candidate_rows=candidate_rows,
                             matched_rows=0,
+                            instance_key=line_index,
                         )
                         st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
                         search_stats["success"] += 1
@@ -41689,6 +41696,7 @@ if search_requested:
                             candidate_rows=candidate_rows,
                             matched_rows=0,
                             key_prefix="part_no_match_report",
+                            instance_key=line_index,
                         )
                         search_stats["no_match"] += 1
                 continue
@@ -41795,6 +41803,7 @@ if search_requested:
                     candidate_rows=candidate_rows,
                     matched_rows=0,
                     key_prefix="matched_empty_report",
+                    instance_key=line_index,
                 )
                 search_stats["no_match"] += 1
 

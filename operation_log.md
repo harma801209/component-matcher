@@ -3806,3 +3806,8 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added a read-only backend data-quality page grouped by brand and component category, and runtime P50/P95, throughput, duplicate-reuse, and failed-row metrics for search and BOM flows.
 - Added a JSON golden regression corpus for previously reported resistor, electrolytic, and NTC queries, plus persistence, owner-isolation, retry, and quality-report tests.
 - The release safety gate now isolates the BOM task database and validates the new modules. All 39 regressions passed; member, cost-list, and no-match runtime database fingerprints remained unchanged. No cost-management behavior or component cost data was changed.
+
+### 2026-08-10 [Search stability] Handle repeated part numbers in one batch
+
+- Added the source-line instance to all no-match report widget keys so repeated identical part numbers cannot crash Streamlit result rendering.
+- Added a regression that renders duplicate `FRC0402F3242TS` report controls and verifies unique widget keys.
