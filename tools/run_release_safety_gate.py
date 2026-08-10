@@ -76,6 +76,7 @@ def main() -> int:
                 "MEMBER_AUTH_DB_PATH": str(temp_root / "member.sqlite"),
                 "COST_PRICE_DB_PATH": str(temp_root / "cost.sqlite"),
                 "NO_MATCH_REPORT_DB_PATH": str(temp_root / "reports.sqlite"),
+                "BOM_JOB_DB_PATH": str(temp_root / "bom_jobs.sqlite"),
                 "COMPONENT_MATCHER_BUILD_MODE": "1",
                 "COMPONENT_MATCHER_STARTUP_MAINTENANCE": "0",
                 "MEMBER_AUTH_REMOTE_FORCE": "0",
@@ -88,13 +89,21 @@ def main() -> int:
                 "-m",
                 "py_compile",
                 "component_matcher.py",
+                "bom_job_store.py",
+                "component_quality.py",
                 "streamlit_app.py",
                 "sync_local_and_public.py",
             ],
             env,
         )
         run_checked(
-            [sys.executable, "-m", "unittest", "tests.test_system_regression"],
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "tests.test_bom_resilience",
+                "tests.test_system_regression",
+            ],
             env,
         )
     after = protected_runtime_snapshot()

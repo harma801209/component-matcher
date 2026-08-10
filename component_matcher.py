@@ -5667,6 +5667,24 @@ def render_runtime_status_admin_page():
     ]
     st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
 
+    st.markdown("#### 匹配性能")
+    bom_metrics = runtime_metric_summary("bom")
+    search_metrics = runtime_metric_summary("search")
+    performance_rows = []
+    for label, metrics in [("BOM 批量匹配", bom_metrics), ("料号搜索", search_metrics)]:
+        performance_rows.append(
+            {
+                "流程": label,
+                "样本次数": int(metrics.get("runs", 0) or 0),
+                "P50": f"{float(metrics.get('p50_ms', 0) or 0) / 1000:.2f} 秒",
+                "P95": f"{float(metrics.get('p95_ms', 0) or 0) / 1000:.2f} 秒",
+                "处理速度": f"{float(metrics.get('rows_per_second', 0) or 0):.2f} 行/秒",
+                "重复复用率": f"{float(metrics.get('dedupe_rate', 0) or 0) * 100:.1f}%",
+                "失败行": int(metrics.get("failed_rows", 0) or 0),
+            }
+        )
+    st.dataframe(pd.DataFrame(performance_rows), use_container_width=True, hide_index=True)
+
     st.markdown("#### 公网连通性")
     st.caption("仅在点击检查时访问公网地址，不会影响平常搜索和登录速度。")
     if st.button("立即检查公网", key="admin_runtime_probe", use_container_width=False):
@@ -5691,11 +5709,71 @@ def render_runtime_status_admin_page():
         st.dataframe(pd.DataFrame(probe_rows), use_container_width=True, hide_index=True)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_component_quality_report(database_path, database_mtime_ns):
+    del database_mtime_ns
+    return build_quality_report(database_path)
+
+
+def render_component_quality_admin_page():
+    render_admin_section_header(
+        "元器件资料质量",
+        "按品牌和器件类别检查关键参数完整度。此页面只读，不会修改元器件库或业务记录。",
+        "资料治理",
+    )
+    try:
+        database_mtime_ns = os.stat(DB_PATH).st_mtime_ns
+    except OSError:
+        database_mtime_ns = 0
+    report = cached_component_quality_report(DB_PATH, database_mtime_ns)
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("rows", []) if isinstance(report, dict) else []
+    render_admin_metric_cards(
+        [
+            {"label": "资料行数", "value": f"{int(summary.get('rows', 0) or 0):,}", "note": "纳入检查", "tone": "neutral"},
+            {"label": "品牌/类别组", "value": int(summary.get("groups", 0) or 0), "note": "质量分组", "tone": "neutral"},
+            {"label": "关键参数完整率", "value": f"{float(summary.get('complete_rate', 0) or 0) * 100:.1f}%", "note": "型号及类别关键参数", "tone": "green"},
+        ]
+    )
+    if not rows:
+        render_admin_empty_state("尚无可检查的数据", "请确认当前元器件数据库已加载。")
+        return
+    quality_df = pd.DataFrame(rows)
+    brand_options = sorted(quality_df["brand"].dropna().astype(str).unique().tolist())
+    type_options = sorted(quality_df["component_type"].dropna().astype(str).unique().tolist())
+    filter_cols = st.columns([0.4, 0.4, 0.2], gap="small")
+    selected_brands = filter_cols[0].multiselect("品牌", brand_options, placeholder="全部品牌")
+    selected_types = filter_cols[1].multiselect("器件类别", type_options, placeholder="全部类别")
+    incomplete_only = filter_cols[2].checkbox("仅看不完整", value=True)
+    if selected_brands:
+        quality_df = quality_df[quality_df["brand"].isin(selected_brands)]
+    if selected_types:
+        quality_df = quality_df[quality_df["component_type"].isin(selected_types)]
+    if incomplete_only:
+        quality_df = quality_df[quality_df["incomplete_rows"] > 0]
+    quality_df = quality_df.rename(
+        columns={
+            "brand": "品牌",
+            "component_type": "器件类别",
+            "rows": "资料行数",
+            "incomplete_rows": "关键参数不完整",
+            "complete_rate": "完整率",
+            "critical_fields": "检查字段",
+            "missing_model": "缺少型号",
+            "source_incomplete": "来源标记不完整",
+        }
+    )
+    if "完整率" in quality_df.columns:
+        quality_df["完整率"] = quality_df["完整率"].map(lambda value: f"{float(value or 0) * 100:.1f}%")
+    st.caption(f"当前显示 {len(quality_df)} 个品牌/类别组合。")
+    st.dataframe(quality_df, use_container_width=True, hide_index=True)
+
+
 def render_no_match_report_admin_page():
     if not require_no_match_admin_login():
         return
 
-    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理", "运行状态"]
+    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理", "数据质量", "运行状态"]
     active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
     nav_cols = st.columns([0.76, 0.24], gap="small")
     with nav_cols[0]:
@@ -5719,6 +5797,9 @@ def render_no_match_report_admin_page():
         return
     if backend_module == "成本清单":
         render_cost_price_admin_page()
+        return
+    if backend_module == "数据质量":
+        render_component_quality_admin_page()
         return
     if backend_module == "运行状态":
         render_runtime_status_admin_page()
@@ -36395,6 +36476,54 @@ def get_effective_bom_uploaded_file(uploaded_file):
     return None
 
 
+def current_bom_job_member_key(member=None):
+    member = member if isinstance(member, dict) else current_member()
+    if not isinstance(member, dict):
+        return ""
+    member_id = clean_text(member.get("id", ""))
+    if member_id:
+        return f"id:{member_id}"
+    username = clean_text(member.get("username", "")).lower()
+    return f"user:{username}" if username else ""
+
+
+def restore_persisted_bom_job_upload():
+    member_key = current_bom_job_member_key()
+    if not member_key:
+        return None
+    job_id = clean_text(get_query_param_value(BOM_JOB_QUERY_PARAM)) or clean_text(
+        st.session_state.get("_active_bom_job_id", "")
+    )
+    if not job_id:
+        return None
+    job = get_bom_job(job_id, member_key=member_key)
+    if not isinstance(job, dict):
+        update_query_params(**{BOM_JOB_QUERY_PARAM: ""})
+        st.session_state.pop("_active_bom_job_id", None)
+        return None
+    raw_bytes = job.get("file_bytes", b"")
+    if not isinstance(raw_bytes, (bytes, bytearray)) or not raw_bytes:
+        return None
+    file_cache = {
+        "name": clean_text(job.get("file_name", "")) or "uploaded_bom",
+        "type": clean_text(job.get("file_type", "")),
+        "size": len(raw_bytes),
+        "sha256": clean_text(job.get("file_sha256", "")) or hashlib.sha256(raw_bytes).hexdigest(),
+        "bytes": bytes(raw_bytes),
+    }
+    st.session_state[BOM_PENDING_UPLOAD_CACHE_KEY] = file_cache
+    st.session_state["_active_bom_job_id"] = job_id
+    st.session_state["_bom_restored_job"] = job
+    checkpoint = job.get("checkpoint") if isinstance(job.get("checkpoint"), dict) else {}
+    sheet_rows = checkpoint.get("sheet_rows", checkpoint)
+    if isinstance(sheet_rows, dict) and sheet_rows:
+        st.session_state["_bom_match_checkpoint"] = {
+            "signature": clean_text(job.get("run_signature", "")),
+            "sheet_rows": sheet_rows,
+        }
+    return SessionCachedUploadedFile(file_cache)
+
+
 def resolve_bom_post_login_resume_action(waiting_for_login, stage, member_logged_in, upload_available):
     if not member_logged_in:
         return ""
@@ -39333,6 +39462,32 @@ def build_bom_workbook_run_signature(uploaded_file, sheet_mappings, export_setti
     )
 
 
+def create_persisted_bom_job(uploaded_file, run_signature, sheet_mappings,
+                             export_settings, total_rows):
+    member_key = current_bom_job_member_key()
+    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    if not member_key or not raw_bytes:
+        return None
+    job = create_or_update_bom_job(
+        member_key=member_key,
+        run_signature=run_signature,
+        file_name=clean_text(getattr(uploaded_file, "name", "")) or "uploaded_bom",
+        file_type=clean_text(getattr(uploaded_file, "type", "")),
+        file_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        file_bytes=raw_bytes,
+        settings=normalize_bom_export_settings(export_settings),
+        mappings=sheet_mappings or {},
+        total_rows=total_rows,
+    )
+    if isinstance(job, dict):
+        job_id = clean_text(job.get("job_id", ""))
+        st.session_state["_active_bom_job_id"] = job_id
+        st.session_state["_bom_restored_job"] = job
+        if job_id:
+            update_query_params(**{BOM_JOB_QUERY_PARAM: job_id})
+    return job
+
+
 def append_export_columns_to_worksheet(ws, source_df, append_columns):
     if ws is None or not append_columns:
         return
@@ -40190,6 +40345,8 @@ def render_bom_upload_page():
     uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
     startup_trace("after_file_uploader")
     effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
+    if effective_uploaded_file is None:
+        effective_uploaded_file = restore_persisted_bom_job_upload()
     render_bom_post_login_resume_transition(effective_uploaded_file)
 
     if effective_uploaded_file is not None:
@@ -40199,6 +40356,7 @@ def render_bom_upload_page():
         st.session_state[BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY] = False
         uploaded_file = effective_uploaded_file
         progress_placeholder = st.empty()
+        active_bom_job = None
         try:
             render_bom_progress_card(
                 progress_placeholder,
@@ -40301,8 +40459,16 @@ def render_bom_upload_page():
                     st.session_state["_bom_manual_mapping_open"] = False
 
                 st.session_state["_bom_workbook_state"] = bom_workbook
+                restored_bom_job = st.session_state.get("_bom_restored_job")
+                restored_mappings = (
+                    restored_bom_job.get("mappings", {})
+                    if isinstance(restored_bom_job, dict)
+                    else {}
+                )
                 if "_bom_sheet_mappings" not in st.session_state:
-                    st.session_state["_bom_sheet_mappings"] = {}
+                    st.session_state["_bom_sheet_mappings"] = (
+                        restored_mappings if isinstance(restored_mappings, dict) else {}
+                    )
                 if "_bom_sheet_results" not in st.session_state:
                     st.session_state["_bom_sheet_results"] = {}
 
@@ -40323,6 +40489,14 @@ def render_bom_upload_page():
 
                 st.markdown('<div class="section-title">输出设置</div>', unsafe_allow_html=True)
                 export_mode_key = f"bom_export_mode_{workbook_signature}"
+                restored_settings = (
+                    restored_bom_job.get("settings", {})
+                    if isinstance(restored_bom_job, dict)
+                    else {}
+                )
+                restored_mode = clean_text(restored_settings.get("mode", ""))
+                if restored_mode in {BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM} and export_mode_key not in st.session_state:
+                    st.session_state[export_mode_key] = restored_mode
                 if hasattr(st, "segmented_control"):
                     bom_export_mode = st.segmented_control(
                         "输出品牌",
@@ -40343,6 +40517,9 @@ def render_bom_upload_page():
                 match_start_clicked = False
                 if bom_export_mode == BOM_EXPORT_MODE_CUSTOM:
                     custom_brand_key = f"bom_export_brands_{workbook_signature}"
+                    restored_brands = list(restored_settings.get("brands", []) or [])
+                    if restored_brands and custom_brand_key not in st.session_state:
+                        st.session_state[custom_brand_key] = restored_brands
                     selected_export_brands = st.multiselect(
                         "选择输出品牌",
                         bom_export_brand_options(),
@@ -40548,16 +40725,40 @@ def render_bom_upload_page():
                         and clean_text(pending_checkpoint.get("signature", "")) == current_bom_signature
                         and bool(pending_checkpoint.get("sheet_rows", {}))
                     )
+                    retry_requested = clean_text(
+                        st.session_state.get("_bom_retry_requested_signature", "")
+                    ) == current_bom_signature
                     start_bom_matching = should_start_bom_matching(
                         stored_bom_signature,
                         current_bom_signature,
                         bom_export_mode,
                         start_clicked=match_start_clicked,
-                    ) or checkpoint_available
+                    ) or checkpoint_available or retry_requested
+                    if start_bom_matching:
+                        st.session_state.pop("_bom_retry_requested_signature", None)
                     force_requested_rerun = (
                         bool(match_start_clicked)
                         and stored_bom_signature == current_bom_signature
                     )
+                    active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))
+                    if active_job_id:
+                        active_bom_job = get_bom_job(
+                            active_job_id,
+                            member_key=current_bom_job_member_key(),
+                        )
+                        if (
+                            not isinstance(active_bom_job, dict)
+                            or clean_text(active_bom_job.get("run_signature", "")) != current_bom_signature
+                        ):
+                            active_bom_job = None
+                    if start_bom_matching and active_bom_job is None:
+                        active_bom_job = create_persisted_bom_job(
+                            uploaded_file,
+                            current_bom_signature,
+                            sheet_mapping_store,
+                            bom_export_settings,
+                            total_workbook_rows,
+                        )
                     if start_bom_matching and (stored_bom_signature != current_bom_signature or force_requested_rerun):
                         st.session_state.pop("_bom_result_signature", None)
                         st.session_state.pop("_bom_result_df", None)
@@ -40565,6 +40766,14 @@ def render_bom_upload_page():
                         st.session_state.pop("_bom_sheet_results", None)
                         if force_requested_rerun:
                             st.session_state.pop("_bom_match_checkpoint", None)
+                            if isinstance(active_bom_job, dict):
+                                save_bom_job_checkpoint(
+                                    active_bom_job.get("job_id", ""),
+                                    {"sheet_rows": {}},
+                                    processed_rows=0,
+                                    unique_rows=0,
+                                    status="ready",
+                                )
                         stored_bom_signature = ""
 
                     if len(parse_columns) != len(set(parse_columns)):
@@ -40613,6 +40822,13 @@ def render_bom_upload_page():
                                     "signature": current_bom_signature,
                                     "sheet_rows": sheet_rows,
                                 }
+                                if isinstance(active_bom_job, dict):
+                                    save_bom_job_checkpoint(
+                                        active_bom_job.get("job_id", ""),
+                                        {"sheet_rows": sheet_rows},
+                                        processed_rows=sum(len(rows or {}) for rows in (sheet_rows or {}).values()),
+                                        status="running",
+                                    )
 
                             update_bom_progress({
                                 "title": "BOM 正在匹配",
@@ -40629,6 +40845,7 @@ def render_bom_upload_page():
                                     {"label": "当前", "value": selected_sheet_name, "tone": "warn"},
                                 ],
                             })
+                            bom_match_started_at = time.perf_counter()
                             sheet_results = build_bom_workbook_sheet_results(
                                 bom_workbook,
                                 sheet_mapping_store,
@@ -40638,6 +40855,7 @@ def render_bom_upload_page():
                                 checkpoint_callback=save_bom_checkpoint,
                             )
                             sheet_result_map = {item["sheet_name"]: item.get("result_df", pd.DataFrame()) for item in sheet_results}
+                            bom_match_duration_ms = int(round((time.perf_counter() - bom_match_started_at) * 1000))
 
                             final_match_state = dict(progress_state_holder["state"] or {})
                             base_match_chips = [
@@ -40668,11 +40886,39 @@ def render_bom_upload_page():
                                 source_workbook=bom_workbook,
                                 sheet_results=sheet_results,
                             )
+                            persisted_checkpoint = st.session_state.get("_bom_match_checkpoint", {})
+                            persisted_sheet_rows = (
+                                persisted_checkpoint.get("sheet_rows", {})
+                                if isinstance(persisted_checkpoint, dict)
+                                else {}
+                            )
+                            unique_rows = 0
+                            for result_frame in sheet_result_map.values():
+                                metrics = result_frame.attrs.get("bom_metrics", {}) if isinstance(result_frame, pd.DataFrame) else {}
+                                unique_rows += int(metrics.get("unique_rows", len(result_frame)) or 0)
+                            if isinstance(active_bom_job, dict):
+                                save_bom_job_checkpoint(
+                                    active_bom_job.get("job_id", ""),
+                                    {"sheet_rows": persisted_sheet_rows},
+                                    processed_rows=total_workbook_rows,
+                                    unique_rows=unique_rows,
+                                    status="complete",
+                                )
                             st.session_state.pop("_bom_match_checkpoint", None)
                             component_distribution_text = build_bom_component_distribution_text(
                                 current_bom_result_df
                             )
                             status_counts = count_bom_recommendation_statuses(current_bom_result_df) if isinstance(current_bom_result_df, pd.DataFrame) else count_bom_recommendation_statuses(pd.DataFrame())
+                            record_runtime_metric(
+                                "bom",
+                                duration_ms=bom_match_duration_ms,
+                                total_rows=total_workbook_rows,
+                                unique_rows=unique_rows,
+                                success_rows=status_counts["可推荐"],
+                                warning_rows=status_counts["需确认"] + status_counts["参数冲突"],
+                                failed_rows=status_counts["解析失败"] + status_counts["无匹配"],
+                                metadata={"sheets": len(bom_sheet_frames), "mode": bom_export_settings.get("mode", "")},
+                            )
                             final_done_state = dict(progress_state_holder["state"] or {})
                             base_done_chips = [
                                 chip for chip in (progress_state_holder["state"] or {}).get("chips", [])
@@ -40706,15 +40952,61 @@ def render_bom_upload_page():
                     bom_result_df = bom_sheet_results.get(selected_sheet_name, st.session_state.get("_bom_result_df", pd.DataFrame()))
                     if isinstance(bom_result_df, pd.DataFrame) and not bom_result_df.empty:
                         bom_display_df = build_bom_display_df(bom_result_df)
+                        status_options = [
+                            value for value in ["可推荐", "需确认", "参数冲突", "无匹配", "解析失败"]
+                            if value in set(bom_display_df.get("状态", pd.Series(dtype=str)).astype(str))
+                        ]
+                        review_cols = st.columns([0.48, 0.38, 0.14], gap="small")
+                        selected_statuses = review_cols[0].multiselect(
+                            "复核状态",
+                            status_options,
+                            key=f"bom_review_status_{workbook_signature}_{selected_sheet_name}",
+                            placeholder="全部状态",
+                        )
+                        review_keyword = review_cols[1].text_input(
+                            "查找结果",
+                            key=f"bom_review_keyword_{workbook_signature}_{selected_sheet_name}",
+                            placeholder="型号、品牌或备注",
+                        )
+                        active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))
+                        retry_failed = review_cols[2].button(
+                            "重试失败项",
+                            key=f"bom_retry_failed_{workbook_signature}_{selected_sheet_name}",
+                            disabled=not active_job_id,
+                            use_container_width=True,
+                        )
+                        if retry_failed:
+                            retry_checkpoint = reset_bom_job_failed_rows(
+                                active_job_id,
+                                member_key=current_bom_job_member_key(),
+                            )
+                            if retry_checkpoint:
+                                st.session_state["_bom_match_checkpoint"] = {
+                                    "signature": current_bom_signature,
+                                    "sheet_rows": retry_checkpoint.get("sheet_rows", {}),
+                                }
+                                for key in ["_bom_result_signature", "_bom_result_df", "_bom_export_bytes", "_bom_sheet_results"]:
+                                    st.session_state.pop(key, None)
+                                st.session_state["_bom_retry_requested_signature"] = current_bom_signature
+                                st.rerun()
                         bom_view_df = bom_display_df.copy()
-                        styled_bom_result_df = style_bom_result_rows(bom_view_df)
+                        if selected_statuses and "状态" in bom_view_df.columns:
+                            bom_view_df = bom_view_df[bom_view_df["状态"].isin(selected_statuses)]
+                        if clean_text(review_keyword):
+                            keyword = clean_text(review_keyword).lower()
+                            text_mask = bom_view_df.astype(str).apply(
+                                lambda column: column.str.lower().str.contains(re.escape(keyword), na=False)
+                            ).any(axis=1)
+                            bom_view_df = bom_view_df[text_mask]
+                        st.caption(f"复核视图显示 {len(bom_view_df)}/{len(bom_display_df)} 行；下载文件仍包含完整结果。")
 
                         status_counts = count_bom_recommendation_statuses(bom_result_df)
                         component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
-                        display_bom_result_df = format_display_df(
-                            build_bom_matched_export_df(bom_df, bom_result_df)
-                        )
+                        full_display_bom_result_df = build_bom_matched_export_df(bom_df, bom_result_df)
+                        if len(full_display_bom_result_df) == len(bom_display_df):
+                            full_display_bom_result_df = full_display_bom_result_df.loc[bom_view_df.index]
+                        display_bom_result_df = format_display_df(full_display_bom_result_df)
                         upload_file_name = clean_text(getattr(uploaded_file, "name", "bom")) or "bom"
                         legacy_xls_export = is_legacy_xls_file_name(upload_file_name)
                         export_name_root = os.path.splitext(upload_file_name)[0] or "bom"
@@ -40768,6 +41060,23 @@ def render_bom_upload_page():
                             )
 
         except Exception as e:
+            active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))
+            if active_job_id:
+                checkpoint_state = st.session_state.get("_bom_match_checkpoint", {})
+                save_bom_job_checkpoint(
+                    active_job_id,
+                    {"sheet_rows": checkpoint_state.get("sheet_rows", {}) if isinstance(checkpoint_state, dict) else {}},
+                    processed_rows=sum(
+                        len(rows or {})
+                        for rows in (
+                            checkpoint_state.get("sheet_rows", {}).values()
+                            if isinstance(checkpoint_state, dict)
+                            else []
+                        )
+                    ),
+                    status="failed",
+                    error_text=str(e),
+                )
             try:
                 render_bom_progress_card(
                     progress_placeholder,
@@ -41513,6 +41822,16 @@ if search_requested:
             ],
             done=True,
             summary_lines=summary_lines,
+        )
+        record_runtime_metric(
+            "search",
+            duration_ms=int(round((time.time() - search_started_at) * 1000)),
+            total_rows=len(lines),
+            unique_rows=len(set(lines)),
+            success_rows=search_stats["success"],
+            warning_rows=search_stats["warning"],
+            failed_rows=search_stats["no_match"] + remaining_queries,
+            metadata={"brand_mode": search_brand_mode},
         )
         clear_pending_member_search()
 
