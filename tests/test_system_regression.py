@@ -3312,6 +3312,8 @@ class SystemRegressionTests(unittest.TestCase):
         app = self.app
         self.assertEqual(app["normalize_cost_price_tolerance_header"](1), "1")
         self.assertEqual(app["normalize_cost_price_tolerance_header"](0.01), "1")
+        self.assertEqual(app["normalize_resistor_pricing_type_dimension"]("25121W"), "2512 1W")
+        self.assertEqual(app["normalize_resistor_pricing_type_dimension"]("06031/10W"), "0603 1/10W")
         self.assertEqual(app["normalize_cost_price_tolerance_header"]("0.5%（D）"), "0.5")
         app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-multi-sheet-cost.sqlite")
         app["clear_cost_price_lookup_cache"]()

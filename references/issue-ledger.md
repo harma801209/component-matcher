@@ -1167,3 +1167,10 @@
 - Root cause: every member update stored another complete SQLite snapshot without retention. The remote D1 database accumulated 909 member-history rows using 496,742,060 base64 bytes and reached its storage limit, so unrelated cost-snapshot writes failed.
 - Fix: retain the current authoritative snapshot separately and cap member and per-store runtime history at the latest 20 versions after each successful write. A one-time, backup-first cleanup removes only obsolete member-history versions.
 - Regression: the worker contract test requires retention deletes for both member and runtime histories while preserving current snapshot tables and versioned retrieval.
+
+## 2026-08-11 - Compact size and power text made valid cost rules unreachable
+
+- Symptom: the latest three-sheet FOJAN workbook imported all 200 price rules, but the `FRH` worksheet's `25121W` rows could not be selected for 2512-size searches.
+- Root cause: the source cell omitted the separator between the four-digit package and power. Runtime normalization only accepted forms such as `2512 1W`, so the two valid FRH prices remained stored but unreachable.
+- Fix: normalize compact four-digit package plus wattage forms such as `25121W` and `06031/10W` to the canonical spaced representation before lookup. Costs, tolerances, ranges, and MOQ remain unchanged from the workbook.
+- Regression: the complete active workbook matches the source `200/200`; 677 lower-bound, midpoint, upper-bound, and FRC 1% zero-ohm checks pass with no failures or ambiguous price overlaps.
