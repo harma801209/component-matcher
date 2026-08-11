@@ -1146,3 +1146,10 @@
 - Root cause: the space-insensitive lookup identity was reused as the display value, so the `JTL` tolerance/package suffix lost its separator.
 - Fix: retain compact normalization for matching while applying a Walsin WA display formatter to parsed rows, search tables, and BOM output. The component remains a thick-film resistor array; only the model presentation changes.
 - Regression: both spaced and compact inputs resolve to the same 68-ohm, 5%, 1/16W array and display as `WA04X680 JTL`; FOJAN replacement remains `FRA044RJ680TS`. The 42-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-11 - Multi-sheet FOJAN cost workbooks silently skipped special-series tabs
+
+- Symptom: uploading a FOJAN series-price workbook appeared successful, but only the `FRC/FRL` tab affected matching. `FRH` high-precision and `FRQ` automotive prices were absent, including `0.5%` and `0.1%` price columns.
+- Root cause: the workbook reader iterated every sheet but explicitly accepted only `FRC` and `FRL`, recognized only `5%` and `1%` subheaders, and the runtime lookup repeated the same two-series/two-tolerance restriction.
+- Fix: recognize every official FOJAN resistor series on every worksheet, dynamically capture the first price column for each tolerance subheader, and allow exact normalized tolerance matching during runtime cost lookup. Upload confirmation now reports the number of covered worksheets.
+- Regression: an isolated three-sheet workbook covers `FRC`, `FRH`, and `FRQ` with `5%`, `1%`, `0.5%`, and `0.1%` prices. The real 701 workbook parses 200 rules across all three sheets (`136 + 16 + 48`). The 43-test release safety gate passes with protected runtime data unchanged.

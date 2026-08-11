@@ -4277,21 +4277,19 @@ def cost_price_header_matches(header, keywords):
 def normalize_cost_price_tolerance_header(value):
     text = clean_text(value).replace("％", "%").strip()
     compact = text.replace(" ", "")
-    if compact in {"5%", "5.0%"}:
-        return "5"
-    if compact in {"1%", "1.0%"}:
-        return "1"
-    try:
-        numeric = float(compact.rstrip("%"))
-    except Exception:
+    percent_match = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)%", compact)
+    if percent_match is not None:
+        numeric = float(percent_match.group(1))
+    else:
+        try:
+            numeric = float(compact)
+        except Exception:
+            return ""
+        if 0 < numeric < 1:
+            numeric *= 100.0
+    if numeric <= 0:
         return ""
-    if compact.endswith("%"):
-        numeric /= 100.0
-    if abs(numeric - 0.05) <= 1e-9:
-        return "5"
-    if abs(numeric - 0.01) <= 1e-9:
-        return "1"
-    return ""
+    return f"{numeric:.8f}".rstrip("0").rstrip(".")
 
 
 def find_cost_price_column(columns, include_keywords, exclude_keywords=()):
@@ -4897,17 +4895,18 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             if None in {series_col, type_col, range_col, package_col} or idx + 1 >= len(raw_df):
                 continue
             subheaders = [normalize_cost_price_tolerance_header(value) for value in raw_df.iloc[idx + 1].tolist()]
-            price_5_col = next((i for i, value in enumerate(subheaders) if value == "5"), None)
-            price_1_col = next((i for i, value in enumerate(subheaders) if value == "1"), None)
-            if price_5_col is None and price_1_col is None:
+            price_columns = {}
+            for column_index, tolerance in enumerate(subheaders):
+                if tolerance != "":
+                    price_columns.setdefault(tolerance, column_index)
+            if not price_columns:
                 continue
             header_index = idx
             column_map = {
                 "series": series_col,
                 "type_dimension": type_col,
                 "range": range_col,
-                "price_5": price_5_col,
-                "price_1": price_1_col,
+                "price_columns": price_columns,
                 "package": package_col,
             }
             break
@@ -4921,16 +4920,17 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
                 last_series = series
             else:
                 series = last_series
-            if series not in {"FRC", "FRL"}:
+            series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
+            if not series_profile:
                 continue
+            series = clean_text(series_profile.get("系列", series)).upper()
             type_dimension = clean_text(values[column_map["type_dimension"]])
             resistance_range = clean_text(values[column_map["range"]])
             package = clean_text(values[column_map["package"]])
             if type_dimension == "" or resistance_range == "":
                 continue
-            for tolerance, price_key in (("5", "price_5"), ("1", "price_1")):
-                price_col = column_map.get(price_key)
-                price = clean_text(values[price_col]) if price_col is not None else ""
+            for tolerance, price_col in column_map.get("price_columns", {}).items():
+                price = clean_text(values[price_col]) if price_col < len(values) else ""
                 if price == "":
                     continue
                 rule_data = {
@@ -5066,7 +5066,9 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
     synced = flush_runtime_store_remote_snapshot("cost-price")
     _, _, remote_enabled = get_runtime_store_remote_config()
     suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
-    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{suffix}。", list_id
+    imported_sheets = {clean_text(item.get("sheet_name", "")) for item in items if clean_text(item.get("sheet_name", ""))}
+    sheet_summary = f"，覆盖 {len(imported_sheets)} 个分页" if imported_sheets else ""
+    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{sheet_summary}{suffix}。", list_id
 
 
 def get_cost_price_lookup_signature():
@@ -5186,7 +5188,7 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     power = format_power_display(infer_resistor_power_text_from_record(row) or row.get("功率", "") or row.get("_power", ""))
     resistance_ohm = get_row_resistance_for_pricing(row)
     tolerance = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
-    if size == "" or power == "" or resistance_ohm is None or tolerance not in {"1", "5"}:
+    if size == "" or power == "" or resistance_ohm is None or tolerance == "":
         return {}
     pricing_resistance_ohm = resistance_ohm
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
@@ -16976,11 +16978,10 @@ def normalize_resistor_pricing_series(row):
         return ""
     series_text = clean_text(row.get("系列", "")).upper()
     model_text = clean_model(row.get("型号", "")).upper()
-    for prefix in ("FRC", "FRL"):
-        if series_text == prefix or series_text.startswith(prefix):
-            return prefix
-        if model_text.startswith(prefix):
-            return prefix
+    for value in (series_text, model_text):
+        profile = lookup_official_resistor_series_profile_by_model(value, "FOJAN(富捷)")
+        if profile:
+            return clean_text(profile.get("系列", "")).upper()
     return ""
 
 

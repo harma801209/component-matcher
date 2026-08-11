@@ -122,6 +122,25 @@ def fojan_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_multi_sheet_quote_xlsx_bytes():
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+
+    def add_sheet(name, series, tolerance_headers, prices):
+        sheet = workbook.create_sheet(name)
+        sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+        sheet.append(["", "", "Ω (ohms)", *tolerance_headers, ""])
+        sheet.append([series, "0603 1/10W", "10R-1M", *prices, "5000PCS"])
+
+    add_sheet("FRC&FRL", "FRC", ["5%（J）", "1%（F）"], ["2.80", "3.10"])
+    add_sheet("FRH", "FRH", ["0.5%（D）", "0.1%（B）"], ["7.90", "19.00"])
+    add_sheet("FRQ", "FRQ", ["5%（J）", "1%（F）"], ["4.20", "5.40"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 class SystemRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -3288,6 +3307,47 @@ class SystemRegressionTests(unittest.TestCase):
         )
         spec_price = app["lookup_resistor_series_pricing"](spec_fojan.iloc[0].to_dict())
         self.assertEqual(spec_price["\u6210\u672c"], "1.7")
+
+    def test_08a_fojan_multi_sheet_quote_imports_every_series_and_tolerance(self):
+        app = self.app
+        self.assertEqual(app["normalize_cost_price_tolerance_header"](1), "1")
+        self.assertEqual(app["normalize_cost_price_tolerance_header"](0.01), "1")
+        self.assertEqual(app["normalize_cost_price_tolerance_header"]("0.5%（D）"), "0.5")
+        app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-multi-sheet-cost.sqlite")
+        app["clear_cost_price_lookup_cache"]()
+        upload = UploadedBytes("fojan-multi-sheet-quote.xlsx", fojan_multi_sheet_quote_xlsx_bytes())
+        items, error = app["build_cost_price_items_from_workbook"](upload)
+        self.assertEqual(error, "")
+        self.assertEqual(len(items), 6)
+        self.assertEqual({item["sheet_name"] for item in items}, {"FRC&FRL", "FRH", "FRQ"})
+        rules = [json.loads(item["raw_json"]) for item in items]
+        self.assertEqual({rule["series"] for rule in rules}, {"FRC", "FRH", "FRQ"})
+        self.assertEqual({rule["tolerance"] for rule in rules}, {"5", "1", "0.5", "0.1"})
+
+        ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+        self.assertTrue(ok, message)
+        self.assertIn("覆盖 3 个分页", message)
+        lookup = app["load_active_cost_price_lookup"]()
+
+        def price(series, tolerance):
+            return app["lookup_active_cost_price_for_row"](
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": f"{series}0603F1002TS",
+                    "器件类型": "厚膜电阻",
+                    "系列": series,
+                    "尺寸（inch）": "0603",
+                    "功率": "1/10W",
+                    "_resistance_ohm": 10000.0,
+                    "容值误差": tolerance,
+                },
+                lookup=lookup,
+            ).get("cost", "")
+
+        self.assertEqual(price("FRC", "1"), "3.10")
+        self.assertEqual(price("FRH", "0.5"), "7.90")
+        self.assertEqual(price("FRH", "0.1"), "19.00")
+        self.assertEqual(price("FRQ", "5"), "4.20")
 
     def test_09_pdc_series_descriptions_do_not_repeat_vendor_and_series(self):
         app = self.app
