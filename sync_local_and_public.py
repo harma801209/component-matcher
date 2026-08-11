@@ -599,9 +599,11 @@ def main() -> int:
     commit_message = args.commit_message.strip() or f"Sync local and public release {time.strftime('%Y-%m-%d %H:%M')}"
 
     run_release_safety_gate(python_cmd)
-    bundle_rebuilt = build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
-    if bundle_rebuilt:
-        refresh_public_release_stamp()
+    build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
+    # A code-only release must also invalidate Streamlit's cached runtime.
+    # Tying the stamp to bundle changes left formal deployments on stale code
+    # whenever the search data bundle itself was unchanged.
+    refresh_public_release_stamp()
     validate_python_files(python_cmd)
 
     token = get_github_token()

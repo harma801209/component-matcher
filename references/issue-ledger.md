@@ -1153,3 +1153,10 @@
 - Root cause: the workbook reader iterated every sheet but explicitly accepted only `FRC` and `FRL`, recognized only `5%` and `1%` subheaders, and the runtime lookup repeated the same two-series/two-tolerance restriction.
 - Fix: recognize every official FOJAN resistor series on every worksheet, dynamically capture the first price column for each tolerance subheader, and allow exact normalized tolerance matching during runtime cost lookup. Upload confirmation now reports the number of covered worksheets.
 - Regression: an isolated three-sheet workbook covers `FRC`, `FRH`, and `FRQ` with `5%`, `1%`, `0.5%`, and `0.1%` prices. The real 701 workbook parses 200 rules across all three sheets (`136 + 16 + 48`). The 43-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-11 - Code-only releases could leave the formal Streamlit app on stale code
+
+- Symptom: the multi-sheet cost importer was committed and pushed, but the formal page still imported only 136 rows and its confirmation omitted the new covered-sheet count.
+- Root cause: the release script refreshed `PUBLIC_RELEASE_STAMP` only when the large search-data bundle was rebuilt. A code-only release with an unchanged bundle therefore did not invalidate the formal Streamlit runtime cache.
+- Fix: refresh the public release stamp for every formal synchronization, independently of whether the search-data bundle changed.
+- Regression: the release-script test verifies that bundle handling is followed by an unconditional stamp refresh before syntax validation. The 43-test release safety gate passes with protected runtime data unchanged.
