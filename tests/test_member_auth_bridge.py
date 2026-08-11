@@ -80,6 +80,11 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn("member_auth_snapshot_history", self.worker)
         self.assertIn('searchParams.get("version")', self.worker)
         self.assertIn("INSERT OR REPLACE INTO member_auth_snapshot_history", self.worker)
+        self.assertIn(
+            'DELETE FROM member_auth_snapshot_history WHERE version < ?',
+            self.worker,
+        )
+        self.assertIn("Math.max(1, nextVersion - 19)", self.worker)
 
     def test_runtime_snapshot_api_separates_cost_and_no_match_stores(self):
         self.assertIn('dispatchPath === "/api/runtime-store/snapshot"', self.worker)
@@ -87,6 +92,10 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn("runtime_store_snapshots", self.worker)
         self.assertIn("runtime_store_snapshot_history", self.worker)
         self.assertIn("PRIMARY KEY (store_key, version)", self.worker)
+        self.assertIn(
+            'DELETE FROM runtime_store_snapshot_history WHERE store_key = ? AND version < ?',
+            self.worker,
+        )
 
     def test_member_auth_controls_do_not_use_nested_forms(self):
         function_start = self.matcher.index("def render_member_auth_panel(")

@@ -1160,3 +1160,10 @@
 - Root cause: the release script refreshed `PUBLIC_RELEASE_STAMP` only when the large search-data bundle was rebuilt. A code-only release with an unchanged bundle therefore did not invalidate the formal Streamlit runtime cache.
 - Fix: refresh the public release stamp for every formal synchronization, independently of whether the search-data bundle changed.
 - Regression: the release-script test verifies that bundle handling is followed by an unconditional stamp refresh before syntax validation. The 43-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-11 - Remote runtime backups failed after snapshot history filled D1
+
+- Symptom: a cost workbook could be imported and activated locally, but the confirmation ended with `远端备份失败，请稍后重试`, leaving the remote cost snapshot on an older version.
+- Root cause: every member update stored another complete SQLite snapshot without retention. The remote D1 database accumulated 909 member-history rows using 496,742,060 base64 bytes and reached its storage limit, so unrelated cost-snapshot writes failed.
+- Fix: retain the current authoritative snapshot separately and cap member and per-store runtime history at the latest 20 versions after each successful write. A one-time, backup-first cleanup removes only obsolete member-history versions.
+- Regression: the worker contract test requires retention deletes for both member and runtime histories while preserving current snapshot tables and versioned retrieval.

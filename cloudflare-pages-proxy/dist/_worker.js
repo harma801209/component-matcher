@@ -242,6 +242,9 @@ async function handleMemberStoreSnapshot(request, env) {
   await env.MEMBER_DB.prepare(
     "INSERT OR REPLACE INTO member_auth_snapshot_history (version, sha256, payload_base64, updated_at) VALUES (?, ?, ?, ?)",
   ).bind(nextVersion, suppliedSha, payloadBase64, updatedAt).run();
+  await env.MEMBER_DB.prepare(
+    "DELETE FROM member_auth_snapshot_history WHERE version < ?",
+  ).bind(Math.max(1, nextVersion - 19)).run();
   return memberStoreJson({ ok: true, version: nextVersion, sha256: suppliedSha, updated_at: updatedAt });
 }
 
@@ -360,6 +363,9 @@ async function handleRuntimeStoreSnapshot(request, env) {
   await env.MEMBER_DB.prepare(
     "INSERT OR REPLACE INTO runtime_store_snapshot_history (store_key, version, sha256, payload_base64, updated_at) VALUES (?, ?, ?, ?, ?)",
   ).bind(storeKey, nextVersion, suppliedSha, payloadBase64, updatedAt).run();
+  await env.MEMBER_DB.prepare(
+    "DELETE FROM runtime_store_snapshot_history WHERE store_key = ? AND version < ?",
+  ).bind(storeKey, Math.max(1, nextVersion - 19)).run();
   return memberStoreJson({ ok: true, store: storeKey, version: nextVersion, sha256: suppliedSha, updated_at: updatedAt });
 }
 
