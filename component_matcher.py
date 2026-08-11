@@ -16925,6 +16925,12 @@ def normalize_resistor_pricing_type_dimension(value):
     raw = re.sub(r"\s+", " ", raw).strip()
     if raw == "":
         return ""
+    compact_match = re.fullmatch(r"(\d{4})(\d+(?:/\d+)?W)", raw, flags=re.I)
+    if compact_match:
+        compact_size = clean_size(compact_match.group(1))
+        compact_power = format_power_display(compact_match.group(2))
+        if compact_size != "" and compact_power != "":
+            return f"{compact_size} {compact_power}"
     parts = raw.split(" ")
     size = clean_size(parts[0]) if parts else ""
     power = format_power_display(parts[-1]) if len(parts) >= 2 else ""
