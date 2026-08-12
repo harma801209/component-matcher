@@ -1174,3 +1174,10 @@
 - Root cause: the source cell omitted the separator between the four-digit package and power. Runtime normalization only accepted forms such as `2512 1W`, so the two valid FRH prices remained stored but unreachable.
 - Fix: normalize compact four-digit package plus wattage forms such as `25121W` and `06031/10W` to the canonical spaced representation before lookup. Costs, tolerances, ranges, and MOQ remain unchanged from the workbook.
 - Regression: the complete active workbook matches the source `200/200`; 677 lower-bound, midpoint, upper-bound, and FRC 1% zero-ohm checks pass with no failures or ambiguous price overlaps.
+
+## 2026-08-12 - Customer quotations shared one global active price list
+
+- Symptom: sales searches and BOM exports had no customer context, so activating a quotation for one customer replaced the cost source used for every other customer.
+- Root cause: uploaded lists, manual quotations, lookup caches, and BOM job signatures were all keyed globally instead of by customer scope.
+- Fix: add backward-compatible customer ownership to uploaded and manual prices; preserve existing data as the new-customer general price; isolate activation, exact lookup, manual overrides, caches, and BOM jobs by customer; require sales and BOM users to choose new or existing customer before matching.
+- Regression: isolated tests verify different prices for general, customer A, and customer B; no cross-customer fallback; scoped manual overrides; customer-aware BOM signatures; and lossless migration of a legacy price database. The 45-test release safety gate passes with protected runtime data unchanged.

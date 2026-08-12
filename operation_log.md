@@ -3824,3 +3824,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added the ordinary FOJAN FRA array-series profile alongside the existing automotive array variants.
 - `WA04X680JTL` now resolves as `044R / 68 ohm / 5% / 1/16W` and produces `FRA044RJ680TS` when FOJAN output is requested.
 - Two focused regressions and the complete 42-test release safety gate pass; protected runtime databases are unchanged.
+
+### 2026-08-12 [Customer pricing] Isolate quotations by sales customer
+
+- Added new-customer general pricing and existing-customer dedicated pricing without replacing legacy price data.
+- Sales search and BOM matching now require customer selection; existing customers must choose a customer with dedicated pricing.
+- Active lists, manual quotes, lookup caches, and BOM job signatures are isolated per customer, with no fallback to another customer's price.
+- Legacy price records migrate in place as new-customer general prices. All 45 safety-gate regressions pass and protected runtime database fingerprints are unchanged.

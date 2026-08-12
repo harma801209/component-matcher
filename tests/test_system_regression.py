@@ -2372,6 +2372,148 @@ class SystemRegressionTests(unittest.TestCase):
             app["current_timestamp_text"] = original_timestamp
             app["clear_cost_price_lookup_cache"]()
 
+    def test_05c_cost_prices_are_isolated_by_customer(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-cost-test.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+
+            def upload_cost(file_name, cost, customer_type="new", customer_name=""):
+                frame = pd.DataFrame(
+                    [{"brand": "FOJAN", "model": "FRC0603F1002TS", "cost": cost}]
+                )
+                return app["import_cost_price_list_from_upload"](
+                    UploadedBytes(file_name, dataframe_to_xlsx_bytes(frame)),
+                    "regression",
+                    customer_type=customer_type,
+                    customer_name=customer_name,
+                )
+
+            ok, message, base_id = upload_cost("base.xlsx", "1.00")
+            self.assertTrue(ok, message)
+            ok, message, customer_a_id = upload_cost("customer-a.xlsx", "1.20", "existing", "客户A")
+            self.assertTrue(ok, message)
+            ok, message, customer_b_id = upload_cost("customer-b.xlsx", "1.30", "existing", "客户B")
+            self.assertTrue(ok, message)
+
+            row = {"品牌": "FOJAN", "型号": "FRC0603F1002TS"}
+            base = app["lookup_active_cost_price_for_row"](
+                row,
+                lookup=app["load_active_cost_price_lookup"]("new", ""),
+            )
+            customer_a = app["lookup_active_cost_price_for_row"](
+                row,
+                lookup=app["load_active_cost_price_lookup"]("existing", "客户A"),
+            )
+            customer_b = app["lookup_active_cost_price_for_row"](
+                row,
+                lookup=app["load_active_cost_price_lookup"]("existing", "客户B"),
+            )
+            self.assertEqual(app["normalize_cost_value_for_compare"](base["cost"]), "1")
+            self.assertEqual(app["normalize_cost_value_for_compare"](customer_a["cost"]), "1.2")
+            self.assertEqual(app["normalize_cost_value_for_compare"](customer_b["cost"]), "1.3")
+            self.assertEqual(app["get_active_cost_price_list"]("new", "")["id"], base_id)
+            self.assertEqual(app["get_active_cost_price_list"]("existing", "客户A")["id"], customer_a_id)
+            self.assertEqual(app["get_active_cost_price_list"]("existing", "客户B")["id"], customer_b_id)
+
+            ok, message, manual_id = app["save_manual_cost_price_item"](
+                "FOJAN", "FRC0603F1002TS", "1.15",
+                customer_type="existing", customer_name="客户A",
+            )
+            self.assertTrue(ok, message)
+            self.assertIsNotNone(manual_id)
+            customer_a_manual = app["lookup_active_cost_price_for_row"](
+                row,
+                lookup=app["load_active_cost_price_lookup"]("existing", "客户A"),
+            )
+            self.assertEqual(customer_a_manual["cost"], "1.15")
+            self.assertEqual(
+                app["lookup_active_cost_price_for_row"](
+                    row,
+                    lookup=app["load_active_cost_price_lookup"]("existing", "未报价客户"),
+                ),
+                {},
+            )
+            self.assertEqual(set(app["list_existing_cost_customers"]()), {"客户A", "客户B"})
+
+            signature_a = app["build_bom_workbook_run_signature"](
+                UploadedBytes("same.xlsx", b"same"),
+                {"Sheet1": {"model": "model"}},
+                {"mode": app["BOM_EXPORT_MODE_AUTO"], "customer_type": "existing", "customer_name": "客户A"},
+            )
+            signature_b = app["build_bom_workbook_run_signature"](
+                UploadedBytes("same.xlsx", b"same"),
+                {"Sheet1": {"model": "model"}},
+                {"mode": app["BOM_EXPORT_MODE_AUTO"], "customer_type": "existing", "customer_name": "客户B"},
+            )
+            self.assertNotEqual(signature_a, signature_b)
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_05d_legacy_cost_database_migrates_without_losing_rows(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            legacy_path = os.path.join(self.temp_dir, "legacy-customer-cost.sqlite")
+            app["COST_PRICE_DB_PATH"] = legacy_path
+            with sqlite3.connect(legacy_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE cost_price_lists (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_name TEXT NOT NULL, file_sha256 TEXT NOT NULL DEFAULT '',
+                        file_size INTEGER NOT NULL DEFAULT 0, uploaded_at TEXT NOT NULL,
+                        uploaded_by TEXT NOT NULL DEFAULT '', row_count INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE TABLE cost_price_manual_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        brand TEXT NOT NULL DEFAULT '', brand_key TEXT NOT NULL DEFAULT '',
+                        model TEXT NOT NULL DEFAULT '', model_clean TEXT NOT NULL DEFAULT '',
+                        spec_text TEXT NOT NULL DEFAULT '', cost TEXT NOT NULL DEFAULT '',
+                        moq TEXT NOT NULL DEFAULT '', lead_time TEXT NOT NULL DEFAULT '',
+                        note TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
+                        cost_updated_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
+                        created_by TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+                        updated_by TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE UNIQUE INDEX idx_cost_price_manual_brand_model
+                    ON cost_price_manual_items(brand_key, model_clean);
+                    INSERT INTO cost_price_lists
+                        (file_name, uploaded_at, row_count, active)
+                    VALUES ('legacy.xlsx', '2026-01-01 00:00:00', 10, 1);
+                    INSERT INTO cost_price_manual_items
+                        (brand, brand_key, model, model_clean, cost, active)
+                    VALUES ('FOJAN', 'FOJAN', 'FRC0603F1002TS', 'FRC0603F1002TS', '1.00', 1);
+                    """
+                )
+            app["init_cost_price_db"]()
+            with sqlite3.connect(legacy_path) as conn:
+                list_row = conn.execute(
+                    "SELECT file_name, customer_type, customer_name, customer_key FROM cost_price_lists"
+                ).fetchone()
+                manual_row = conn.execute(
+                    "SELECT model, cost, customer_type, customer_name, customer_key FROM cost_price_manual_items"
+                ).fetchone()
+                old_index = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_cost_price_manual_brand_model'"
+                ).fetchone()
+            self.assertEqual(list_row, ("legacy.xlsx", "new", "", ""))
+            self.assertEqual(manual_row, ("FRC0603F1002TS", "1.00", "new", "", ""))
+            self.assertIsNone(old_index)
+            ok, message, customer_record_id = app["save_manual_cost_price_item"](
+                "FOJAN", "FRC0603F1002TS", "1.20",
+                customer_type="existing", customer_name="客户A",
+            )
+            self.assertTrue(ok, message)
+            self.assertIsNotNone(customer_record_id)
+            self.assertEqual(len(app["list_manual_cost_price_items"](None, 10)), 2)
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
     def test_06_bom_full_read_export_and_display_columns(self):
         app = self.app
         bom = pd.DataFrame(

@@ -229,6 +229,10 @@ MEMBER_AUTH_COOKIE_NAME = "fruition_member_token"
 MEMBER_PENDING_SEARCH_QUERY_KEY = "_member_pending_search_query"
 MEMBER_PENDING_SEARCH_BRAND_MODE_KEY = "_member_pending_search_brand_mode"
 MEMBER_PENDING_SEARCH_BRANDS_KEY = "_member_pending_search_brands"
+MEMBER_PENDING_SEARCH_CUSTOMER_TYPE_KEY = "_member_pending_search_customer_type"
+MEMBER_PENDING_SEARCH_CUSTOMER_NAME_KEY = "_member_pending_search_customer_name"
+SALES_COST_CUSTOMER_TYPE_KEY = "_sales_cost_customer_type"
+SALES_COST_CUSTOMER_NAME_KEY = "_sales_cost_customer_name"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 BOM_POST_LOGIN_RESUME_STAGE_KEY = "_bom_post_login_resume_stage"
@@ -278,6 +282,13 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
 PUBLIC_CODE_STAMP = "2026-08-10T09:18:28+08:00"
+
+COST_CUSTOMER_TYPE_NEW = "new"
+COST_CUSTOMER_TYPE_EXISTING = "existing"
+COST_CUSTOMER_TYPE_LABELS = {
+    COST_CUSTOMER_TYPE_NEW: "新客户",
+    COST_CUSTOMER_TYPE_EXISTING: "旧有客户",
+}
 
 
 def startup_trace(message):
@@ -4060,7 +4071,13 @@ def require_member_login_for_action(action_text):
     return False
 
 
-def remember_pending_member_search(query_text, brand_mode="", selected_brands=None):
+def remember_pending_member_search(
+    query_text,
+    brand_mode="",
+    selected_brands=None,
+    customer_type="",
+    customer_name="",
+):
     query_text = clean_text(query_text)
     if query_text:
         st.session_state[MEMBER_PENDING_SEARCH_QUERY_KEY] = query_text
@@ -4068,6 +4085,11 @@ def remember_pending_member_search(query_text, brand_mode="", selected_brands=No
         st.session_state[MEMBER_PENDING_SEARCH_BRANDS_KEY] = [
             clean_brand(value) for value in (selected_brands or []) if clean_brand(value)
         ]
+        st.session_state[MEMBER_PENDING_SEARCH_CUSTOMER_TYPE_KEY] = normalize_cost_customer_type(
+            customer_type,
+            default="",
+        )
+        st.session_state[MEMBER_PENDING_SEARCH_CUSTOMER_NAME_KEY] = normalize_cost_customer_name(customer_name)
 
 
 def resumable_member_search_query():
@@ -4089,10 +4111,24 @@ def resumable_member_search_brand_settings():
     return mode, brands
 
 
+def resumable_member_search_customer_context():
+    if not current_member() or not clean_text(st.session_state.get(MEMBER_PENDING_SEARCH_QUERY_KEY, "")):
+        return "", ""
+    return (
+        normalize_cost_customer_type(
+            st.session_state.get(MEMBER_PENDING_SEARCH_CUSTOMER_TYPE_KEY, ""),
+            default="",
+        ),
+        normalize_cost_customer_name(st.session_state.get(MEMBER_PENDING_SEARCH_CUSTOMER_NAME_KEY, "")),
+    )
+
+
 def clear_pending_member_search():
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_BRAND_MODE_KEY, None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_BRANDS_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_CUSTOMER_TYPE_KEY, None)
+    st.session_state.pop(MEMBER_PENDING_SEARCH_CUSTOMER_NAME_KEY, None)
 
 
 def render_no_match_report_button(
@@ -4332,7 +4368,10 @@ def init_cost_price_db():
                 uploaded_by TEXT NOT NULL DEFAULT '',
                 row_count INTEGER NOT NULL DEFAULT 0,
                 active INTEGER NOT NULL DEFAULT 0,
-                note TEXT NOT NULL DEFAULT ''
+                note TEXT NOT NULL DEFAULT '',
+                customer_type TEXT NOT NULL DEFAULT 'new',
+                customer_name TEXT NOT NULL DEFAULT '',
+                customer_key TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS cost_price_items (
@@ -4368,7 +4407,10 @@ def init_cost_price_db():
                 created_at TEXT NOT NULL DEFAULT '',
                 created_by TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT '',
-                updated_by TEXT NOT NULL DEFAULT ''
+                updated_by TEXT NOT NULL DEFAULT '',
+                customer_type TEXT NOT NULL DEFAULT 'new',
+                customer_name TEXT NOT NULL DEFAULT '',
+                customer_key TEXT NOT NULL DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_lists_active
@@ -4376,9 +4418,6 @@ def init_cost_price_db():
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_items_model
             ON cost_price_items(model_clean, list_id);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_price_manual_brand_model
-            ON cost_price_manual_items(brand_key, model_clean);
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_manual_active_updated
             ON cost_price_manual_items(active, updated_at, id);
@@ -4394,6 +4433,40 @@ def init_cost_price_db():
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
+        for table_name in ("cost_price_lists", "cost_price_manual_items"):
+            existing_columns = {
+                clean_text(row[1])
+                for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                if len(row) > 1
+            }
+            for column_name, column_sql in (
+                ("customer_type", "TEXT NOT NULL DEFAULT 'new'"),
+                ("customer_name", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_key", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if column_name not in existing_columns:
+                    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+        conn.execute("DROP INDEX IF EXISTS idx_cost_price_manual_brand_model")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_price_manual_scope_brand_model
+            ON cost_price_manual_items(customer_type, customer_key, brand_key, model_clean)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_cost_price_lists_scope_active
+            ON cost_price_lists(customer_type, customer_key, active, uploaded_at)
+            """
+        )
+        conn.execute(
+            "UPDATE cost_price_lists SET customer_type='new', customer_name='', customer_key='' "
+            "WHERE IFNULL(customer_type, '')=''"
+        )
+        conn.execute(
+            "UPDATE cost_price_manual_items SET customer_type='new', customer_name='', customer_key='' "
+            "WHERE IFNULL(customer_type, '')=''"
+        )
         conn.execute(
             """
             UPDATE cost_price_items
@@ -4468,6 +4541,132 @@ def normalize_cost_price_brand_key(value):
     return re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", brand)
 
 
+def normalize_cost_customer_type(value, default=COST_CUSTOMER_TYPE_NEW):
+    text = clean_text(value).lower()
+    if text in {COST_CUSTOMER_TYPE_NEW, "新客户", "新客", "通用", "通用价"}:
+        return COST_CUSTOMER_TYPE_NEW
+    if text in {COST_CUSTOMER_TYPE_EXISTING, "旧有客户", "旧客户", "老客户", "客户专属"}:
+        return COST_CUSTOMER_TYPE_EXISTING
+    return default
+
+
+def normalize_cost_customer_name(value):
+    return re.sub(r"\s+", " ", clean_text(value)).strip()
+
+
+def normalize_cost_customer_key(value):
+    return re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", normalize_cost_customer_name(value).upper())
+
+
+def normalize_cost_customer_context(customer_type=None, customer_name="", default=COST_CUSTOMER_TYPE_NEW):
+    customer_type = normalize_cost_customer_type(customer_type, default=default)
+    customer_name = normalize_cost_customer_name(customer_name)
+    if customer_type == COST_CUSTOMER_TYPE_NEW:
+        customer_name = ""
+    return customer_type, customer_name, normalize_cost_customer_key(customer_name)
+
+
+def cost_customer_context_label(customer_type, customer_name=""):
+    customer_type, customer_name, _ = normalize_cost_customer_context(customer_type, customer_name)
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+        return f"旧有客户：{customer_name}" if customer_name else "旧有客户"
+    return "新客户通用价"
+
+
+def selected_sales_cost_customer_context():
+    try:
+        customer_type = normalize_cost_customer_type(
+            st.session_state.get(SALES_COST_CUSTOMER_TYPE_KEY, ""),
+            default="",
+        )
+        customer_name = normalize_cost_customer_name(st.session_state.get(SALES_COST_CUSTOMER_NAME_KEY, ""))
+    except Exception:
+        customer_type, customer_name = "", ""
+    if customer_type == "":
+        return COST_CUSTOMER_TYPE_NEW, "", ""
+    return normalize_cost_customer_context(customer_type, customer_name)
+
+
+def list_existing_cost_customers():
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        rows = conn.execute(
+            """
+            SELECT customer_name, MAX(updated_at) AS updated_at
+            FROM (
+                SELECT customer_name, uploaded_at AS updated_at
+                FROM cost_price_lists
+                WHERE customer_type=? AND customer_key<>''
+                UNION ALL
+                SELECT customer_name, updated_at
+                FROM cost_price_manual_items
+                WHERE customer_type=? AND customer_key<>''
+            )
+            WHERE IFNULL(customer_name, '')<>''
+            GROUP BY customer_name
+            ORDER BY updated_at DESC, customer_name ASC
+            """,
+            (COST_CUSTOMER_TYPE_EXISTING, COST_CUSTOMER_TYPE_EXISTING),
+        ).fetchall()
+    return [normalize_cost_customer_name(row[0]) for row in rows if normalize_cost_customer_name(row[0])]
+
+
+def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", restored_name=""):
+    type_key = f"{key_prefix}_cost_customer_type"
+    name_key = f"{key_prefix}_cost_customer_name"
+    if restored_type and type_key not in st.session_state:
+        restored_label = COST_CUSTOMER_TYPE_LABELS.get(
+            normalize_cost_customer_type(restored_type, default=""),
+            "",
+        )
+        if restored_label:
+            st.session_state[type_key] = restored_label
+    if restored_name and name_key not in st.session_state:
+        st.session_state[name_key] = normalize_cost_customer_name(restored_name)
+    labels = [COST_CUSTOMER_TYPE_LABELS[COST_CUSTOMER_TYPE_NEW], COST_CUSTOMER_TYPE_LABELS[COST_CUSTOMER_TYPE_EXISTING]]
+    if hasattr(st, "segmented_control"):
+        selected_label = st.segmented_control(
+            "客户价格类型",
+            labels,
+            key=type_key,
+            selection_mode="single",
+            width="stretch",
+        )
+    else:
+        selected_label = st.radio("客户价格类型", labels, key=type_key, index=None, horizontal=True)
+    customer_type = {
+        labels[0]: COST_CUSTOMER_TYPE_NEW,
+        labels[1]: COST_CUSTOMER_TYPE_EXISTING,
+    }.get(selected_label, "")
+    customer_name = ""
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+        customer_options = list_existing_cost_customers()
+        customer_name = st.selectbox(
+            "选择旧有客户",
+            customer_options,
+            key=name_key,
+            index=None,
+            placeholder="请选择客户；不同客户报价彼此隔离",
+        ) if customer_options else ""
+        if not customer_options:
+            st.warning("后台尚未建立旧有客户专属报价，请先在成本维护中上传或新增。")
+    ready = customer_type == COST_CUSTOMER_TYPE_NEW or (
+        customer_type == COST_CUSTOMER_TYPE_EXISTING and normalize_cost_customer_name(customer_name) != ""
+    )
+    if customer_type:
+        normalized_type, normalized_name, _ = normalize_cost_customer_context(customer_type, customer_name)
+        st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = normalized_type
+        st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = normalized_name
+        if ready:
+            st.caption(f"本次成本来源：{cost_customer_context_label(normalized_type, normalized_name)}。不会读取其他客户的价格。")
+    else:
+        st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
+        st.session_state.pop(SALES_COST_CUSTOMER_NAME_KEY, None)
+        st.info("请先选择新客户或旧有客户，系统才会执行匹配。")
+    return customer_type, normalize_cost_customer_name(customer_name), ready
+
+
 def cost_price_item_change_key(item):
     if not isinstance(item, dict):
         return None
@@ -4481,7 +4680,8 @@ def cost_price_item_change_key(item):
     return None
 
 
-def load_active_cost_price_change_map(conn):
+def load_active_cost_price_change_map(conn, customer_type=COST_CUSTOMER_TYPE_NEW, customer_name=""):
+    customer_type, _, customer_key = normalize_cost_customer_context(customer_type, customer_name)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """
@@ -4490,9 +4690,10 @@ def load_active_cost_price_change_map(conn):
             l.uploaded_at AS list_uploaded_at
         FROM cost_price_items i
         JOIN cost_price_lists l ON l.id = i.list_id
-        WHERE l.active = 1
+        WHERE l.active = 1 AND l.customer_type=? AND l.customer_key=?
         ORDER BY i.id ASC
-        """
+        """,
+        (customer_type, customer_key),
     ).fetchall()
     change_map = {}
     for row in rows:
@@ -4523,11 +4724,12 @@ def apply_cost_price_item_update_times(items, previous_change_map, now_text):
 
 def cost_price_list_summary_dataframe(rows):
     if not rows:
-        return pd.DataFrame(columns=["ID", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
+        return pd.DataFrame(columns=["ID", "价格归属", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
     return pd.DataFrame(
         [
             {
                 "ID": row.get("id", ""),
+                "价格归属": cost_customer_context_label(row.get("customer_type", "new"), row.get("customer_name", "")),
                 "当前使用": "是" if int(row.get("active", 0) or 0) == 1 else "",
                 "文件名": row.get("file_name", ""),
                 "上传时间": row.get("uploaded_at", ""),
@@ -4540,22 +4742,31 @@ def cost_price_list_summary_dataframe(rows):
     )
 
 
-def list_cost_price_lists():
+def list_cost_price_lists(customer_type=None, customer_name=""):
     refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
+        params = []
+        where_sql = ""
+        if customer_type is not None:
+            normalized_type, _, customer_key = normalize_cost_customer_context(customer_type, customer_name)
+            where_sql = "WHERE customer_type=? AND customer_key=?"
+            params = [normalized_type, customer_key]
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM cost_price_lists
+            {where_sql}
             ORDER BY active DESC, uploaded_at DESC, id DESC
-            """
+            """,
+            params,
         ).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_active_cost_price_list():
+def get_active_cost_price_list(customer_type=COST_CUSTOMER_TYPE_NEW, customer_name=""):
+    customer_type, _, customer_key = normalize_cost_customer_context(customer_type, customer_name)
     refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
@@ -4564,10 +4775,11 @@ def get_active_cost_price_list():
             """
             SELECT *
             FROM cost_price_lists
-            WHERE active = 1
+            WHERE active = 1 AND customer_type=? AND customer_key=?
             ORDER BY uploaded_at DESC, id DESC
             LIMIT 1
-            """
+            """,
+            (customer_type, customer_key),
         ).fetchone()
     return dict(row) if row is not None else None
 
@@ -4580,10 +4792,17 @@ def set_cost_price_list_active(list_id):
     except Exception:
         return False, "清单 ID 无效。"
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
-        exists = conn.execute("SELECT id FROM cost_price_lists WHERE id=?", (list_id,)).fetchone()
-        if exists is None:
+        conn.row_factory = sqlite3.Row
+        selected = conn.execute(
+            "SELECT id, customer_type, customer_key FROM cost_price_lists WHERE id=?",
+            (list_id,),
+        ).fetchone()
+        if selected is None:
             return False, "清单不存在。"
-        conn.execute("UPDATE cost_price_lists SET active=0")
+        conn.execute(
+            "UPDATE cost_price_lists SET active=0 WHERE customer_type=? AND customer_key=?",
+            (selected["customer_type"], selected["customer_key"]),
+        )
         conn.execute("UPDATE cost_price_lists SET active=1 WHERE id=?", (list_id,))
         conn.commit()
     clear_cost_price_lookup_cache()
@@ -4641,14 +4860,19 @@ def cost_price_items_preview_dataframe(items):
     )
 
 
-def list_manual_cost_price_items(active_only=None, limit=500):
+def list_manual_cost_price_items(active_only=None, limit=500, customer_type=None, customer_name=""):
     refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
     params = []
-    where_sql = ""
+    where_parts = []
     if active_only is not None:
-        where_sql = "WHERE active=?"
+        where_parts.append("active=?")
         params.append(1 if bool(active_only) else 0)
+    if customer_type is not None:
+        normalized_type, _, customer_key = normalize_cost_customer_context(customer_type, customer_name)
+        where_parts.extend(["customer_type=?", "customer_key=?"])
+        params.extend([normalized_type, customer_key])
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     params.append(max(1, int(limit or 500)))
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -4656,7 +4880,8 @@ def list_manual_cost_price_items(active_only=None, limit=500):
             f"""
             SELECT
                 id, brand, model, model_clean, spec_text, cost, moq, lead_time,
-                note, active, cost_updated_at, created_at, created_by, updated_at, updated_by
+                note, active, cost_updated_at, created_at, created_by, updated_at, updated_by,
+                customer_type, customer_name, customer_key
             FROM cost_price_manual_items
             {where_sql}
             ORDER BY active DESC, updated_at DESC, id DESC
@@ -4667,18 +4892,23 @@ def list_manual_cost_price_items(active_only=None, limit=500):
     return [dict(row) for row in rows]
 
 
-def count_manual_cost_price_items(active_only=True):
+def count_manual_cost_price_items(active_only=True, customer_type=None, customer_name=""):
     refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
-    params = ()
-    where_sql = ""
+    params = []
+    where_parts = []
     if active_only is not None:
-        where_sql = "WHERE active=?"
-        params = (1 if bool(active_only) else 0,)
+        where_parts.append("active=?")
+        params.append(1 if bool(active_only) else 0)
+    if customer_type is not None:
+        normalized_type, _, customer_key = normalize_cost_customer_context(customer_type, customer_name)
+        where_parts.extend(["customer_type=?", "customer_key=?"])
+        params.extend([normalized_type, customer_key])
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         row = conn.execute(
             f"SELECT COUNT(*) FROM cost_price_manual_items {where_sql}",
-            params,
+            tuple(params),
         ).fetchone()
     return int(row[0] or 0) if row else 0
 
@@ -4686,11 +4916,12 @@ def count_manual_cost_price_items(active_only=True):
 def manual_cost_price_items_dataframe(items):
     if not items:
         return pd.DataFrame(
-            columns=["状态", "品牌", "型号", "成本", "更新时间", "MOQ", "L&T", "规格参数", "询价备注", "操作人"]
+            columns=["价格归属", "状态", "品牌", "型号", "成本", "更新时间", "MOQ", "L&T", "规格参数", "询价备注", "操作人"]
         )
     return pd.DataFrame(
         [
             {
+                "价格归属": cost_customer_context_label(row.get("customer_type", "new"), row.get("customer_name", "")),
                 "状态": "使用中" if int(row.get("active", 0) or 0) == 1 else "已停用",
                 "品牌": row.get("brand", ""),
                 "型号": row.get("model", ""),
@@ -4717,6 +4948,8 @@ def save_manual_cost_price_item(
     note="",
     updated_by="",
     item_id=None,
+    customer_type=COST_CUSTOMER_TYPE_NEW,
+    customer_name="",
 ):
     refresh_runtime_store_remote_snapshot("cost-price", force=True)
     init_cost_price_db()
@@ -4726,12 +4959,15 @@ def save_manual_cost_price_item(
     model_clean = clean_model(model)
     brand_key = normalize_cost_price_brand_key(brand)
     cost = clean_text(cost)
+    customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name)
     if brand == "":
         return False, "请填写品牌。", None
     if model_clean == "":
         return False, "请填写准确型号/料号。", None
     if cost == "":
         return False, "请填写成本。", None
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING and customer_key == "":
+        return False, "旧有客户专属价必须填写客户名称。", None
     now_text = current_timestamp_text()
     updated_by = clean_text(updated_by)
     try:
@@ -4754,10 +4990,10 @@ def save_manual_cost_price_item(
                     """
                     SELECT id
                     FROM cost_price_manual_items
-                    WHERE brand_key=? AND model_clean=? AND id<>?
+                    WHERE customer_type=? AND customer_key=? AND brand_key=? AND model_clean=? AND id<>?
                     LIMIT 1
                     """,
-                    (brand_key, model_clean, parsed_item_id),
+                    (customer_type, customer_key, brand_key, model_clean, parsed_item_id),
                 ).fetchone()
                 if conflict is not None:
                     return False, "相同品牌和型号的单笔成本已经存在，请选择原记录修改。", None
@@ -4767,10 +5003,10 @@ def save_manual_cost_price_item(
                     """
                     SELECT *
                     FROM cost_price_manual_items
-                    WHERE brand_key=? AND model_clean=?
+                    WHERE customer_type=? AND customer_key=? AND brand_key=? AND model_clean=?
                     LIMIT 1
                     """,
-                    (brand_key, model_clean),
+                    (customer_type, customer_key, brand_key, model_clean),
                 ).fetchone()
                 if existing is not None:
                     parsed_item_id = int(existing["id"])
@@ -4781,7 +5017,8 @@ def save_manual_cost_price_item(
                     UPDATE cost_price_manual_items
                     SET brand=?, brand_key=?, model=?, model_clean=?, spec_text=?,
                         cost=?, moq=?, lead_time=?, note=?, active=1,
-                        cost_updated_at=?, updated_at=?, updated_by=?
+                        cost_updated_at=?, updated_at=?, updated_by=?, customer_type=?,
+                        customer_name=?, customer_key=?
                     WHERE id=?
                     """,
                     (
@@ -4797,6 +5034,9 @@ def save_manual_cost_price_item(
                         now_text,
                         now_text,
                         updated_by,
+                        customer_type,
+                        customer_name,
+                        customer_key,
                         parsed_item_id,
                     ),
                 )
@@ -4808,9 +5048,9 @@ def save_manual_cost_price_item(
                     INSERT INTO cost_price_manual_items (
                         brand, brand_key, model, model_clean, spec_text, cost, moq,
                         lead_time, note, active, cost_updated_at, created_at, created_by,
-                        updated_at, updated_by
+                        updated_at, updated_by, customer_type, customer_name, customer_key
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         brand,
@@ -4827,6 +5067,9 @@ def save_manual_cost_price_item(
                         updated_by,
                         now_text,
                         updated_by,
+                        customer_type,
+                        customer_name,
+                        customer_key,
                     ),
                 )
                 record_id = int(cur.lastrowid)
@@ -4838,7 +5081,10 @@ def save_manual_cost_price_item(
     synced = flush_runtime_store_remote_snapshot("cost-price")
     _, _, remote_enabled = get_runtime_store_remote_config()
     suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
-    return True, f"已{action}单笔成本：{brand} / {model}{suffix}。", record_id
+    return True, (
+        f"已{action}{cost_customer_context_label(customer_type, customer_name)}单笔成本："
+        f"{brand} / {model}{suffix}。"
+    ), record_id
 
 
 def set_manual_cost_price_item_active(item_id, active, updated_by=""):
@@ -5006,7 +5252,12 @@ def build_cost_price_items_from_workbook(uploaded_file):
     return items, ""
 
 
-def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
+def import_cost_price_list_from_upload(
+    uploaded_file,
+    uploaded_by="",
+    customer_type=COST_CUSTOMER_TYPE_NEW,
+    customer_name="",
+):
     if uploaded_file is None:
         return False, "请先选择要上传的成本清单。", None
     refresh_runtime_store_remote_snapshot("cost-price", force=True)
@@ -5019,20 +5270,30 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
     if not items:
         return False, error or "未识别到可导入的成本数据。", None
     now_text = current_timestamp_text()
+    customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name)
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING and customer_key == "":
+        return False, "旧有客户专属价必须填写客户名称。", None
     file_sha = cost_price_file_signature(raw_bytes)
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.execute("PRAGMA busy_timeout = 30000")
-        previous_change_map = load_active_cost_price_change_map(conn)
+        previous_change_map = load_active_cost_price_change_map(conn, customer_type, customer_name)
         items = apply_cost_price_item_update_times(items, previous_change_map, now_text)
-        conn.execute("UPDATE cost_price_lists SET active=0")
+        conn.execute(
+            "UPDATE cost_price_lists SET active=0 WHERE customer_type=? AND customer_key=?",
+            (customer_type, customer_key),
+        )
         cur = conn.execute(
             """
             INSERT INTO cost_price_lists (
-                file_name, file_sha256, file_size, uploaded_at, uploaded_by, row_count, active
+                file_name, file_sha256, file_size, uploaded_at, uploaded_by, row_count, active,
+                customer_type, customer_name, customer_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             """,
-            (file_name, file_sha, len(raw_bytes), now_text, clean_text(uploaded_by), len(items)),
+            (
+                file_name, file_sha, len(raw_bytes), now_text, clean_text(uploaded_by), len(items),
+                customer_type, customer_name, customer_key,
+            ),
         )
         list_id = int(cur.lastrowid)
         conn.executemany(
@@ -5068,19 +5329,24 @@ def import_cost_price_list_from_upload(uploaded_file, uploaded_by=""):
     suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
     imported_sheets = {clean_text(item.get("sheet_name", "")) for item in items if clean_text(item.get("sheet_name", ""))}
     sheet_summary = f"，覆盖 {len(imported_sheets)} 个分页" if imported_sheets else ""
-    return True, f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{sheet_summary}{suffix}。", list_id
+    return True, (
+        f"已上传并启用{cost_customer_context_label(customer_type, customer_name)}成本清单："
+        f"{file_name}，导入 {len(items)} 行{sheet_summary}{suffix}。"
+    ), list_id
 
 
-def get_cost_price_lookup_signature():
-    active = get_active_cost_price_list()
+def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, customer_name=""):
+    customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name)
+    active = get_active_cost_price_list(customer_type, customer_name)
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         manual_row = conn.execute(
             """
             SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(updated_at), '')
             FROM cost_price_manual_items
-            WHERE active=1
-            """
+            WHERE active=1 AND customer_type=? AND customer_key=?
+            """,
+            (customer_type, customer_key),
         ).fetchone()
     manual_count = int(manual_row[0] or 0) if manual_row else 0
     manual_max_id = int(manual_row[1] or 0) if manual_row else 0
@@ -5095,6 +5361,8 @@ def get_cost_price_lookup_signature():
         int((active or {}).get("id", 0) or 0),
         int((active or {}).get("row_count", 0) or 0),
         clean_text((active or {}).get("uploaded_at", "")),
+        customer_type,
+        customer_key,
         manual_count,
         manual_max_id,
         manual_updated_at,
@@ -5102,13 +5370,17 @@ def get_cost_price_lookup_signature():
     )
 
 
-def load_active_cost_price_lookup():
-    signature = get_cost_price_lookup_signature()
+def load_active_cost_price_lookup(customer_type=None, customer_name=None):
+    if customer_type is None:
+        customer_type, selected_name, _ = selected_sales_cost_customer_context()
+        customer_name = selected_name
+    customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name or "")
+    signature = get_cost_price_lookup_signature(customer_type, customer_name)
     if signature is None:
         return {}
     if _COST_PRICE_LOOKUP_CACHE.get("signature") == signature and isinstance(_COST_PRICE_LOOKUP_CACHE.get("lookup"), dict):
         return _COST_PRICE_LOOKUP_CACHE["lookup"]
-    active = get_active_cost_price_list()
+    active = get_active_cost_price_list(customer_type, customer_name)
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         rows = []
@@ -5128,21 +5400,30 @@ def load_active_cost_price_lookup():
                 brand, model, model_clean, spec_text, cost,
                 cost_updated_at, moq, lead_time
             FROM cost_price_manual_items
-            WHERE active=1
+            WHERE active=1 AND customer_type=? AND customer_key=?
             ORDER BY updated_at DESC, id DESC
-            """
+            """,
+            (customer_type, customer_key),
         ).fetchall()
     lookup = {}
     for row in manual_rows:
         item = dict(row)
-        item["cost_source"] = "单笔成本"
+        item["cost_source"] = (
+            "单笔成本"
+            if customer_type == COST_CUSTOMER_TYPE_NEW
+            else f"{cost_customer_context_label(customer_type, customer_name)} · 单笔成本"
+        )
         item["raw_json"] = ""
         model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
         if model_clean != "":
             lookup.setdefault(model_clean, []).append(item)
     for row in rows:
         item = dict(row)
-        item["cost_source"] = "当前启用成本清单"
+        item["cost_source"] = (
+            "当前启用成本清单"
+            if customer_type == COST_CUSTOMER_TYPE_NEW
+            else f"{cost_customer_context_label(customer_type, customer_name)} · 当前启用成本清单"
+        )
         model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
         if model_clean != "":
             lookup.setdefault(model_clean, []).append(item)
@@ -5319,6 +5600,26 @@ def render_manual_cost_price_admin_section(updated_by):
     selected = option_rows.get(selected_label)
     selected_id = int(selected.get("id", 0) or 0) if selected else None
 
+    ownership_labels = ["新客户通用价", "旧有客户专属价"]
+    selected_customer_type = normalize_cost_customer_type((selected or {}).get("customer_type", "new"))
+    selected_ownership_index = 1 if selected_customer_type == COST_CUSTOMER_TYPE_EXISTING else 0
+    ownership = st.radio(
+        "价格归属",
+        ownership_labels,
+        horizontal=True,
+        index=selected_ownership_index,
+        key=f"manual_cost_ownership_{selected_id or 'new'}",
+    )
+    customer_type = COST_CUSTOMER_TYPE_EXISTING if ownership == ownership_labels[1] else COST_CUSTOMER_TYPE_NEW
+    customer_name = ""
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+        customer_name = st.text_input(
+            "客户名称",
+            value=normalize_cost_customer_name((selected or {}).get("customer_name", "")),
+            key=f"manual_cost_customer_{selected_id or 'new'}",
+            placeholder="必须填写；同一客户请保持名称一致",
+        )
+
     with st.form(
         f"cost_price_manual_form_{selected_id or 'new'}",
         clear_on_submit=selected is None,
@@ -5376,6 +5677,8 @@ def render_manual_cost_price_admin_section(updated_by):
             note=note,
             updated_by=updated_by,
             item_id=selected_id,
+            customer_type=customer_type,
+            customer_name=customer_name,
         )
         if ok:
             st.session_state["cost_price_admin_flash"] = message
@@ -5419,13 +5722,32 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     with st.container(border=True):
         st.subheader("上传新成本清单")
         st.caption("支持 Excel/CSV。系统会自动识别 品牌、型号/料号、规格参数、成本、MOQ、L&T/交期 等列；上传成功后自动设为当前使用清单。")
+        ownership = st.radio(
+            "价格归属",
+            ["新客户通用价", "旧有客户专属价"],
+            horizontal=True,
+            key="cost_price_upload_ownership",
+        )
+        upload_customer_type = COST_CUSTOMER_TYPE_EXISTING if ownership == "旧有客户专属价" else COST_CUSTOMER_TYPE_NEW
+        upload_customer_name = ""
+        if upload_customer_type == COST_CUSTOMER_TYPE_EXISTING:
+            upload_customer_name = st.text_input(
+                "客户名称",
+                key="cost_price_upload_customer_name",
+                placeholder="必须填写；该清单只供此客户查询",
+            )
         uploaded_file = st.file_uploader(
             "选择成本清单",
             type=["xlsx", "xls", "csv"],
             key="cost_price_admin_upload",
         )
         if st.button("上传并启用", key="cost_price_admin_upload_submit", use_container_width=True):
-            ok, message, _ = import_cost_price_list_from_upload(uploaded_file, uploaded_by=uploaded_by)
+            ok, message, _ = import_cost_price_list_from_upload(
+                uploaded_file,
+                uploaded_by=uploaded_by,
+                customer_type=upload_customer_type,
+                customer_name=upload_customer_name,
+            )
             if ok:
                 st.session_state["cost_price_admin_flash"] = message
                 st.rerun()
@@ -5438,6 +5760,7 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
         for row in lists:
             with st.expander(
                 f"#{row.get('id')} · {row.get('file_name')} · {row.get('uploaded_at')}"
+                + f" · {cost_customer_context_label(row.get('customer_type', 'new'), row.get('customer_name', ''))}"
                 + (" · 当前使用" if int(row.get("active", 0) or 0) == 1 else ""),
                 expanded=int(row.get("active", 0) or 0) == 1,
             ):
@@ -25122,7 +25445,16 @@ def normalize_bom_export_settings(export_settings=None):
         brands.append(brand)
         if len(brands) >= BOM_EXPORT_BRAND_MAX_SELECTIONS:
             break
-    return {"mode": mode, "brands": brands}
+    customer_type = normalize_cost_customer_type(settings.get("customer_type", ""), default="")
+    customer_name = normalize_cost_customer_name(settings.get("customer_name", ""))
+    if customer_type:
+        customer_type, customer_name, _ = normalize_cost_customer_context(customer_type, customer_name)
+    return {
+        "mode": mode,
+        "brands": brands,
+        "customer_type": customer_type,
+        "customer_name": customer_name,
+    }
 
 
 def bom_output_selection_ready(export_mode, selected_brands=None):
@@ -39137,7 +39469,11 @@ def bom_dataframe_from_upload(
         if exact_model_queries
         else {}
     )
-    cost_lookup = load_active_cost_price_lookup()
+    normalized_export_settings = normalize_bom_export_settings(export_settings)
+    cost_lookup = load_active_cost_price_lookup(
+        normalized_export_settings.get("customer_type") or COST_CUSTOMER_TYPE_NEW,
+        normalized_export_settings.get("customer_name", ""),
+    )
     resistor_pricing_rules = load_resistor_series_pricing_rules()
     total_rows = len(records)
     completed_rows = {
@@ -40395,11 +40731,12 @@ def build_uploaded_file_signature(uploaded_file):
     )
 
 
-def build_bom_run_signature(uploaded_file, selected_mapping):
+def build_bom_run_signature(uploaded_file, selected_mapping, export_settings=None):
     return json.dumps(
         {
             "file": build_uploaded_file_signature(uploaded_file),
             "mapping": selected_mapping or {},
+            "export_settings": normalize_bom_export_settings(export_settings),
         },
         sort_keys=True,
         ensure_ascii=True,
@@ -40554,13 +40891,19 @@ def render_bom_upload_page():
                 total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
                 bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
 
-                st.markdown('<div class="section-title">输出设置</div>', unsafe_allow_html=True)
-                export_mode_key = f"bom_export_mode_{workbook_signature}"
                 restored_settings = (
                     restored_bom_job.get("settings", {})
                     if isinstance(restored_bom_job, dict)
                     else {}
                 )
+                st.markdown('<div class="section-title">客户价格</div>', unsafe_allow_html=True)
+                bom_customer_type, bom_customer_name, bom_customer_ready = render_sales_cost_customer_selector(
+                    key_prefix=f"bom_{workbook_signature}",
+                    restored_type=restored_settings.get("customer_type", ""),
+                    restored_name=restored_settings.get("customer_name", ""),
+                )
+                st.markdown('<div class="section-title">输出设置</div>', unsafe_allow_html=True)
+                export_mode_key = f"bom_export_mode_{workbook_signature}"
                 restored_mode = clean_text(restored_settings.get("mode", ""))
                 if restored_mode in {BOM_EXPORT_MODE_AUTO, BOM_EXPORT_MODE_CUSTOM} and export_mode_key not in st.session_state:
                     st.session_state[export_mode_key] = restored_mode
@@ -40601,7 +40944,7 @@ def render_bom_upload_page():
                         key=f"bom_custom_match_start_{workbook_signature}",
                         type="primary",
                         use_container_width=True,
-                        disabled=not selected_export_brands,
+                        disabled=not selected_export_brands or not bom_customer_ready,
                     )
                 elif bom_export_mode == BOM_EXPORT_MODE_AUTO:
                     match_start_clicked = st.button(
@@ -40609,21 +40952,38 @@ def render_bom_upload_page():
                         key=f"bom_auto_match_start_{workbook_signature}",
                         type="primary",
                         use_container_width=True,
+                        disabled=not bom_customer_ready,
                     )
                 else:
                     st.info("请先选择“主营品牌自动匹配”或“指定品牌”，系统不会在上传后自动开始匹配。")
                 if bom_output_selection_ready(bom_export_mode, selected_export_brands):
                     st.caption("输出方式只在点击开始匹配后生效；切换品牌不会自动重跑整份 BOM。")
                     bom_export_settings = normalize_bom_export_settings(
-                        {"mode": bom_export_mode, "brands": selected_export_brands}
+                        {
+                            "mode": bom_export_mode,
+                            "brands": selected_export_brands,
+                            "customer_type": bom_customer_type,
+                            "customer_name": bom_customer_name,
+                        }
                     )
                 else:
-                    bom_export_settings = {"mode": "", "brands": []}
+                    bom_export_settings = {
+                        "mode": "",
+                        "brands": [],
+                        "customer_type": bom_customer_type,
+                        "customer_name": bom_customer_name,
+                    }
 
                 cached_bom_result_df = pd.DataFrame()
                 cached_bom_sheet_results = st.session_state.get("_bom_sheet_results", {})
+                cached_expected_signature = build_bom_workbook_run_signature(
+                    uploaded_file,
+                    st.session_state.get("_bom_sheet_mappings", {}),
+                    export_settings=bom_export_settings,
+                )
                 if (
                     st.session_state.get("_bom_workbook_signature") == workbook_signature
+                    and st.session_state.get("_bom_result_signature") == cached_expected_signature
                     and isinstance(cached_bom_sheet_results, dict)
                     and cached_bom_sheet_results
                 ):
@@ -41286,6 +41646,12 @@ if is_bom_page_requested():
 
 pending_search_after_login = resumable_member_search_query()
 pending_brand_mode, pending_search_brands = resumable_member_search_brand_settings()
+pending_customer_type, pending_customer_name = resumable_member_search_customer_context()
+search_customer_type, search_customer_name, search_customer_ready = render_sales_cost_customer_selector(
+    key_prefix="sales_search",
+    restored_type=pending_customer_type,
+    restored_name=pending_customer_name,
+)
 search_brand_mode_key = "search_brand_mode"
 search_selected_brands_key = "search_selected_brands"
 if pending_search_after_login and pending_brand_mode in {SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM}:
@@ -41333,7 +41699,10 @@ if "search_query_input" not in st.session_state:
 query_input = st.text_area(**search_text_area_kwargs)
 search_clicked = st.button(
     "搜索",
-    disabled=search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands,
+    disabled=(
+        not search_customer_ready
+        or (search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands)
+    ),
 )
 restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
 if restore_search_after_report and not query_input.strip():
@@ -41353,8 +41722,17 @@ if pending_member_action and not current_member() and not search_requested:
 
 if search_requested:
     if not current_member():
-        remember_pending_member_search(query_input, search_brand_mode, selected_search_brands)
+        remember_pending_member_search(
+            query_input,
+            search_brand_mode,
+            selected_search_brands,
+            customer_type=search_customer_type,
+            customer_name=search_customer_name,
+        )
     if not require_member_login_for_action("搜索匹配"):
+        st.stop()
+    if not search_customer_ready:
+        st.warning("请先选择新客户或旧有客户；旧有客户还必须选择客户名称。")
         st.stop()
     if not query_input.strip():
         clear_pending_member_search()
