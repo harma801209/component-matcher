@@ -1205,3 +1205,12 @@
 - Fix: add an additive customer master with company name, customer code, group, active state, and note; add backend maintenance/template import; parse worksheet `A1=客户代码` and `B1=通用` or one/multiple codes; rank prices as exact code, same-group code, then general. Prices from any other group are excluded.
 - Compatibility: worksheets without the explicit `A1` marker remain general, preserving older workbooks. Legacy name-scoped dedicated quotations retain higher exact-customer priority. Unquoted or unmaintained customers may use general prices but never another group's code-scoped price.
 - Regression: a synthetic workbook verifies `F0001` pricing is shared by `F0002` in the same group, excluded from `B0001`, and falls back to the general price for that other group. The complete 47-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-13 - Ordinary members could enumerate and change customer bindings
+
+- Symptom: an approved member without a customer binding could open a selector containing the active customer master, including company names and codes, and could bind or later change the account to another customer without administrator approval.
+- Risk: customer identity data could be disclosed to an ordinary member, and a sales-role account could switch its customer context to probe another customer's dedicated quotation.
+- Root cause: the same customer selector and profile update path served both administrator maintenance and member self-service.
+- Fix: remove customer-master enumeration from member pages, make the member-facing binding read-only, reject forged self-service customer changes on the server, and retain customer maintenance exclusively in backend administrator functions.
+- Additional hardening: the formal shell denies compliant crawler indexing, suppresses referrer transmission and MIME sniffing, and strips validated login tokens from the URL after consumption. These controls complement authentication but do not replace Cloudflare rate limiting or bot protection against malicious clients.
+- Regression: isolated tests verify that members cannot change customer bindings, administrators still can, query tokens are cleaned, and formal responses include the expected crawler/privacy controls. The complete 48-test release gate passes with protected runtime fingerprints unchanged.

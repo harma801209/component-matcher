@@ -3045,23 +3045,23 @@ def update_current_member_profile(
     except Exception:
         return False, "会员 ID 无效。"
     existing_member = get_member_by_id(member_id) or {}
+    existing_customer_name = normalize_cost_customer_name(existing_member.get("customer_name", ""))
+    requested_customer_name = (
+        existing_customer_name
+        if customer_name is None
+        else normalize_cost_customer_name(customer_name)
+    )
+    if normalize_cost_customer_key(requested_customer_name) != normalize_cost_customer_key(existing_customer_name):
+        return False, "客户绑定只能由后台管理员维护。"
     new_values = {
         "display_name": clean_text(display_name),
         "company": clean_text(company),
-        "customer_name": re.sub(
-            r"\s+",
-            " ",
-            clean_text(existing_member.get("customer_name", "") if customer_name is None else customer_name),
-        ).strip(),
+        "customer_name": existing_customer_name,
         "email": clean_text(email),
         "phone": clean_text(phone),
     }
     if new_values["display_name"] == "":
         return False, "姓名/称呼不能为空。"
-    if customer_name is not None and new_values["customer_name"] == "":
-        return False, "客户名称不能为空。"
-    if len(new_values["customer_name"]) > 120:
-        return False, "客户名称不能超过 120 个字符。"
     now = current_timestamp_text()
     try:
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -3073,7 +3073,7 @@ def update_current_member_profile(
             changes = collect_member_profile_changes(
                 old_member,
                 new_values,
-                ["display_name", "company", "customer_name", "email", "phone"],
+                ["display_name", "company", "email", "phone"],
             )
             if not changes:
                 return True, "资料没有变化。"
@@ -3404,6 +3404,8 @@ def current_member():
             st.session_state["_member_auth_token"] = token
             st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
             st.session_state["_member_can_view_cost"] = member_can_view_cost(member)
+            if query_token != "" and token == query_token:
+                update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})
             return member
         if token == query_token:
             saw_invalid_query_token = True
@@ -3852,11 +3854,11 @@ def render_member_center_page():
         with st.form(f"member_profile_edit_{member.get('id', '')}", clear_on_submit=False):
             edit_display_name = st.text_input("姓名/称呼", value=clean_text(member.get("display_name", "")))
             edit_company = st.text_input("公司", value=clean_text(member.get("company", "")))
-            edit_customer_name = st.text_input(
+            st.text_input(
                 "客户名称",
-                value=normalize_cost_customer_name(member.get("customer_name", "")),
-                max_chars=120,
-                help="搜索与 BOM 会按此名称精确识别客户专属报价。",
+                value=normalize_cost_customer_name(member.get("customer_name", "")) or "尚未绑定",
+                disabled=True,
+                help="客户绑定涉及专属价格，只能由后台管理员维护。",
             )
             edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")))
             edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")))
@@ -3866,14 +3868,11 @@ def render_member_center_page():
                     member.get("id"),
                     display_name=edit_display_name,
                     company=edit_company,
-                    customer_name=edit_customer_name,
                     email=edit_email,
                     phone=edit_phone,
                 )
                 if ok:
                     st.session_state["_member_display_name"] = clean_text(edit_display_name) or clean_text(member.get("username", ""))
-                    if normalize_cost_customer_key(edit_customer_name) != normalize_cost_customer_key(member.get("customer_name", "")):
-                        clear_customer_dependent_session_state()
                 st.session_state["_member_profile_flash"] = {"ok": ok, "message": message}
                 st.rerun()
 
@@ -5084,42 +5083,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
 
     identity_name = normalize_cost_customer_name(member.get("customer_name", ""))
     if identity_name == "":
-        st.info("此账号第一次使用匹配功能，请先填写客户名称。保存后普通搜索和 BOM 会自动使用该客户对应的价格。")
-        maintained_customers = list_sales_customers(active_only=True)
-        with st.form(f"{key_prefix}_member_customer_identity", clear_on_submit=False):
-            if maintained_customers:
-                labels = [
-                    f"{row.get('customer_name')}｜{row.get('customer_code')}｜{row.get('group_name')}"
-                    for row in maintained_customers
-                ]
-                selected_label = st.selectbox("客户名称", labels, index=None, placeholder="请选择客户名称/公司抬头")
-                selected_index = labels.index(selected_label) if selected_label in labels else -1
-                entered_name = (
-                    maintained_customers[selected_index].get("customer_name", "")
-                    if selected_index >= 0
-                    else ""
-                )
-            else:
-                entered_name = st.text_input(
-                    "客户名称",
-                    max_chars=120,
-                    placeholder="请输入完整客户名称，例如：深圳市某某科技有限公司",
-                )
-            submitted = st.form_submit_button("保存客户名称并继续", type="primary", use_container_width=True)
-        if submitted:
-            ok, message = update_current_member_profile(
-                member.get("id"),
-                display_name=clean_text(member.get("display_name", "")) or clean_text(member.get("username", "")),
-                company=member.get("company", ""),
-                email=member.get("email", ""),
-                phone=member.get("phone", ""),
-                customer_name=entered_name,
-            )
-            if ok:
-                clear_customer_dependent_session_state()
-                st.session_state["_member_profile_flash"] = {"ok": True, "message": "客户名称已保存，将自动按该客户读取价格。"}
-                st.rerun()
-            st.error(message)
+        st.warning("此账号尚未绑定客户，暂时不能执行搜索或 BOM 匹配。请联系后台管理员完成客户绑定。")
         st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
         st.session_state.pop(SALES_COST_CUSTOMER_NAME_KEY, None)
         return "", "", False
@@ -5136,7 +5100,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     else:
         price_source = "新客户通用价（后台尚无此客户的专属报价）"
     st.success(f"当前客户：{identity_name}　·　价格来源：{price_source}")
-    st.caption("客户名称已绑定会员账号，可在会员中心修改；系统只读取该客户代码、同集团代码或通用价格，不会读取其他集团价格。")
+    st.caption("客户名称由后台管理员绑定；系统只读取该客户代码、同集团代码或通用价格，不会读取其他集团价格。")
     return customer_type, customer_name, ready
 
 

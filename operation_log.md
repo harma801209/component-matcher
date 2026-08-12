@@ -3864,3 +3864,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Applied the same permission to exact-model search, specification search, BOM result preview, preserved-format `.xlsx` output, and independent legacy `.xls` result workbooks. Restricted users still receive brands, models, MOQ, lead time, and matching notes.
 - BOM task signatures include the cost-visibility permission so an older authorized export cannot be reused after the member's job title changes.
 - Three focused regressions and the complete 48-test release safety gate pass. Tests used isolated databases, and protected member, cost-list, and no-match runtime fingerprints remained unchanged.
+
+### 2026-08-13 [Security boundary] Prevent customer-data discovery and self-switching
+
+- Removed the active customer directory from ordinary member flows. A member without an administrator-assigned customer can no longer enumerate customer names, customer codes, or customer groups.
+- Made customer binding administrator-only. Member Center displays the current binding as read-only, and server-side profile updates reject attempts to change it even if a client submits a forged customer value.
+- Preserved the existing job-title rule: only administrators and accounts whose administrator-managed job title is exactly `销售` or `销售助理` receive cost fields; unauthorized users never receive those fields in search results or BOM exports.
+- The formal entry now returns `noindex`, `nofollow`, `noarchive`, `nosnippet`, `no-referrer`, and `nosniff` policies, serves a deny-all `robots.txt`, and removes a validated member token from the browser URL after the server consumes it.
+- Added regressions for customer-binding authorization, query-token cleanup, and formal-entry crawler/privacy headers. The complete 48-test release safety gate passes, and protected member, cost-list, and no-match runtime database fingerprints remain unchanged.

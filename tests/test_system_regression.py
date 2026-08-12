@@ -378,6 +378,26 @@ class SystemRegressionTests(unittest.TestCase):
         ok, message = app["update_current_member_profile"](
             member["id"], "Case Renamed", "New Co", "new@example.com", "200", "客户A"
         )
+        self.assertFalse(ok, message)
+        self.assertIn("后台管理员", message)
+        updated_member = app["get_member_by_id"](member["id"])
+        self.assertEqual(updated_member["customer_name"], "")
+        logs_before = app["list_member_profile_change_logs"](member["id"])
+        self.assertEqual(len(logs_before), 0)
+
+        ok, message = app["update_member_account_admin"](
+            member["id"],
+            username=member["username"],
+            display_name="Case Renamed",
+            company="New Co",
+            customer_name="客户A",
+            job_title=member.get("job_title", ""),
+            email="new@example.com",
+            phone="200",
+            role=member["role"],
+            status=member["status"],
+            actor_username="regression-admin",
+        )
         self.assertTrue(ok, message)
         updated_member = app["get_member_by_id"](member["id"])
         self.assertEqual(updated_member["customer_name"], "客户A")

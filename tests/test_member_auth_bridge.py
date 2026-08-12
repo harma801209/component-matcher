@@ -64,6 +64,35 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
     def test_shell_removes_member_token_from_the_visible_url(self):
         self.assertIn('outerUrl.searchParams.delete("member_token");', self.worker)
         self.assertIn('history.replaceState(null, "", outerUrl.pathname + outerUrl.search + outerUrl.hash);', self.worker)
+        current_member_start = self.matcher.index("def current_member():")
+        current_member_end = self.matcher.index("\ndef render_member_auth_browser_persistence_bridge", current_member_start)
+        current_member_function = self.matcher[current_member_start:current_member_end]
+        self.assertIn('if query_token != "" and token == query_token:', current_member_function)
+        self.assertIn('update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})', current_member_function)
+
+    def test_customer_binding_is_admin_only(self):
+        profile_start = self.matcher.index("def update_current_member_profile(")
+        profile_end = self.matcher.index("\ndef change_current_member_password", profile_start)
+        profile_function = self.matcher[profile_start:profile_end]
+        self.assertIn("客户绑定只能由后台管理员维护", profile_function)
+
+        selector_start = self.matcher.index("def render_sales_cost_customer_selector(")
+        selector_end = self.matcher.index("\ndef cost_price_item_change_key", selector_start)
+        selector_function = self.matcher[selector_start:selector_end]
+        self.assertNotIn("list_sales_customers", selector_function)
+        self.assertNotIn("保存客户名称并继续", selector_function)
+        self.assertIn("请联系后台管理员完成客户绑定", selector_function)
+
+    def test_formal_entry_blocks_search_engine_indexing_and_referrers(self):
+        self.assertIn('dispatchPath === "/robots.txt"', self.worker)
+        self.assertIn('"User-agent: *\\nDisallow: /\\n"', self.worker)
+        self.assertIn('headers.set("referrer-policy", "no-referrer")', self.worker)
+        self.assertIn(
+            'headers.set("x-robots-tag", "noindex, nofollow, noarchive, nosnippet")',
+            self.worker,
+        )
+        self.assertIn('<meta name="robots" content="noindex,nofollow,noarchive,nosnippet" />', self.worker)
+        self.assertIn('referrerpolicy="no-referrer"', self.worker)
 
     def test_admin_exit_clears_page_modes_in_the_formal_shell(self):
         self.assertIn('source: "fruition-route"', self.matcher)
