@@ -2476,13 +2476,11 @@ class SystemRegressionTests(unittest.TestCase):
                 lookup=app["load_active_cost_price_lookup"]("existing", "客户A"),
             )
             self.assertEqual(customer_a_manual["cost"], "1.15")
-            self.assertEqual(
-                app["lookup_active_cost_price_for_row"](
-                    row,
-                    lookup=app["load_active_cost_price_lookup"]("existing", "未报价客户"),
-                ),
-                {},
+            unquoted_customer = app["lookup_active_cost_price_for_row"](
+                row,
+                lookup=app["load_active_cost_price_lookup"]("existing", "未报价客户"),
             )
+            self.assertEqual(app["normalize_cost_value_for_compare"](unquoted_customer["cost"]), "1")
             self.assertEqual(set(app["list_existing_cost_customers"]()), {"客户A", "客户B"})
             self.assertEqual(
                 app["resolve_member_customer_price_scope"](" 客户 A ", ["客户A", "客户B"]),
@@ -2570,6 +2568,66 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertTrue(ok, message)
             self.assertIsNotNone(customer_record_id)
             self.assertEqual(len(app["list_manual_cost_price_items"](None, 10)), 2)
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_05e_customer_group_price_pages_override_general_without_cross_group_leak(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-group-price-test.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            for name, code, group in [
+                ("A集团深圳公司", "F0001", "A集团"),
+                ("A集团东莞公司", "F0002", "A集团"),
+                ("B集团公司", "B0001", "B集团"),
+            ]:
+                ok, message, _ = app["save_sales_customer"](
+                    name, code, group_name=group, updated_by="regression", sync_remote=False
+                )
+                self.assertTrue(ok, message)
+
+            workbook = Workbook()
+            general = workbook.active
+            general.title = "FRC通用"
+            general["A1"] = "客户代码"
+            general["B1"] = "通用"
+            dedicated = workbook.create_sheet("A集团专价")
+            dedicated["A1"] = "客户代码"
+            dedicated["B1"] = "F0001"
+            for sheet, price in [(general, "1.70"), (dedicated, "1.25")]:
+                sheet.append([])
+                sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+                sheet.append(["", "", "Ω (ohms)", "5%", "1%", ""])
+                sheet.append(["FRC", "0603 1/10W", "10R-1M", "", price, "5000PCS"])
+            output = BytesIO()
+            workbook.save(output)
+            upload = UploadedBytes("group-price.xlsx", output.getvalue())
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+
+            row = {
+                "品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS", "系列": "FRC",
+                "尺寸（inch）": "0603", "阻值": 10, "阻值单位": "KΩ", "_resistance_ohm": 10000.0,
+                "容值误差": "±1%", "功率": "1/10W",
+            }
+            a1 = app["lookup_active_cost_price_for_row"](
+                row, app["load_active_cost_price_lookup"]("existing", "A集团深圳公司")
+            )
+            a2 = app["lookup_active_cost_price_for_row"](
+                row, app["load_active_cost_price_lookup"]("existing", "A集团东莞公司")
+            )
+            b = app["lookup_active_cost_price_for_row"](
+                row, app["load_active_cost_price_lookup"]("existing", "B集团公司")
+            )
+            self.assertEqual(app["normalize_cost_value_for_compare"](a1["cost"]), "1.25")
+            self.assertEqual(app["normalize_cost_value_for_compare"](a2["cost"]), "1.25")
+            self.assertEqual(app["normalize_cost_value_for_compare"](b["cost"]), "1.7")
+            self.assertIn("集团共享价", a2["cost_source"])
+            context = app["get_sales_customer_price_context"]("A集团深圳公司")
+            self.assertEqual(set(context["group_code_keys"]), {"F0001", "F0002"})
+            self.assertIn("A集团深圳公司", app["list_existing_cost_customers"]())
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

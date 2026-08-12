@@ -1197,3 +1197,11 @@
 - Root cause: uploaded lists, manual quotations, lookup caches, and BOM job signatures were all keyed globally instead of by customer scope.
 - Fix: add backward-compatible customer ownership to uploaded and manual prices; preserve existing data as the new-customer general price; isolate activation, exact lookup, manual overrides, caches, and BOM jobs by customer; require sales and BOM users to choose new or existing customer before matching.
 - Regression: isolated tests verify different prices for general, customer A, and customer B; no cross-customer fallback; scoped manual overrides; customer-aware BOM signatures; and lossless migration of a legacy price database. The 45-test release safety gate passes with protected runtime data unchanged.
+
+## 2026-08-12 - Customer names could not select code-scoped workbook prices
+
+- Symptom: a member account could store a customer name, but a multi-company customer group had no maintained customer-code relationship. Cost worksheets marked with codes such as `F0001` therefore could not be selected safely for `F0002` or `F0003` companies in the same group.
+- Root cause: member identity and legacy dedicated quotations were keyed by normalized customer name, while series-price workbooks had no parsed customer-code scope. There was no authoritative customer master linking company names, codes, and group membership.
+- Fix: add an additive customer master with company name, customer code, group, active state, and note; add backend maintenance/template import; parse worksheet `A1=客户代码` and `B1=通用` or one/multiple codes; rank prices as exact code, same-group code, then general. Prices from any other group are excluded.
+- Compatibility: worksheets without the explicit `A1` marker remain general, preserving older workbooks. Legacy name-scoped dedicated quotations retain higher exact-customer priority. Unquoted or unmaintained customers may use general prices but never another group's code-scoped price.
+- Regression: a synthetic workbook verifies `F0001` pricing is shared by `F0002` in the same group, excluded from `B0001`, and falls back to the general price for that other group. The complete 47-test release safety gate passes with protected runtime data unchanged.

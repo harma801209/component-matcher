@@ -3847,3 +3847,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Member-schema readiness is now keyed by an explicit schema version, so a Streamlit hot deployment cannot reuse an older process-wide marker after code introduces an additive column.
 - Remote member snapshot restoration clears all cached schema versions for the target database before applying migrations and restoring active sessions.
 - The legacy migration regression now reproduces the stale-cache condition and verifies both account preservation and the versioned replacement marker.
+
+### 2026-08-12 [Customer master pricing] Map company codes and group-shared quotations
+
+- Added backend customer-information maintenance for company name, customer code, customer group, active state, and notes, including a downloadable Excel template and batch update import.
+- First-time member binding uses the maintained customer list when available. Matching resolves the bound company to its primary code and all active codes in the same group.
+- Cost workbook worksheets now support an explicit `A1=客户代码` marker with `B1=通用` or one/multiple customer codes. Lookup priority is exact customer code, same-group code, then general; another group's price is never visible.
+- Older worksheets without the marker remain general, and legacy exact-name dedicated quotations continue to work. The supplied current workbook was inspected as three general sheets (`FRC&FRL`, `FRH`, `FRQ`), so its existing behavior is preserved until code-specific sheets are added.
+- Four focused regressions and the complete 47-test release safety gate pass. Tests use isolated databases, and protected member, cost-list, and no-match runtime data remains unchanged.

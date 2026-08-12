@@ -41,8 +41,8 @@ try:
 except Exception:
     pa = None
     pq = None
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Alignment
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.utils import get_column_letter
 from mlcc_excel_importer import map_headers as importer_map_headers, ensure_standard_columns as importer_ensure_standard_columns, STANDARD_COLUMNS as IMPORTER_STANDARD_COLUMNS
 from manufacturer_packaging_rules import lookup_manufacturer_packaging
@@ -4511,6 +4511,22 @@ def init_cost_price_db():
                 customer_key TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS sales_customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_name TEXT NOT NULL DEFAULT '',
+                customer_key TEXT NOT NULL DEFAULT '',
+                customer_code TEXT NOT NULL DEFAULT '',
+                customer_code_key TEXT NOT NULL DEFAULT '',
+                group_name TEXT NOT NULL DEFAULT '',
+                group_key TEXT NOT NULL DEFAULT '',
+                active INTEGER NOT NULL DEFAULT 1,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
+                updated_by TEXT NOT NULL DEFAULT ''
+            );
+
             CREATE INDEX IF NOT EXISTS idx_cost_price_lists_active
             ON cost_price_lists(active, uploaded_at);
 
@@ -4519,6 +4535,15 @@ def init_cost_price_db():
 
             CREATE INDEX IF NOT EXISTS idx_cost_price_manual_active_updated
             ON cost_price_manual_items(active, updated_at, id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_customers_name
+            ON sales_customers(customer_key);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_customers_code
+            ON sales_customers(customer_code_key);
+
+            CREATE INDEX IF NOT EXISTS idx_sales_customers_group
+            ON sales_customers(group_key, active, customer_code_key);
             """
         )
         try:
@@ -4656,6 +4681,258 @@ def normalize_cost_customer_key(value):
     return re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", normalize_cost_customer_name(value).upper())
 
 
+def normalize_sales_customer_code(value):
+    return re.sub(r"\s+", "", clean_text(value)).upper()
+
+
+def normalize_sales_customer_code_key(value):
+    return re.sub(r"[^A-Z0-9]+", "", normalize_sales_customer_code(value))
+
+
+def normalize_sales_customer_group(value, fallback=""):
+    return normalize_cost_customer_name(value) or normalize_cost_customer_name(fallback)
+
+
+def list_sales_customers(active_only=None):
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    params = []
+    where_sql = ""
+    if active_only is not None:
+        where_sql = "WHERE active=?"
+        params.append(1 if bool(active_only) else 0)
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT id, customer_name, customer_key, customer_code, customer_code_key,
+                   group_name, group_key, active, note, created_at, created_by,
+                   updated_at, updated_by
+            FROM sales_customers
+            {where_sql}
+            ORDER BY active DESC, group_name ASC, customer_name ASC, customer_code ASC
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_sales_customer_by_name(customer_name, active_only=True):
+    customer_key = normalize_cost_customer_key(customer_name)
+    if customer_key == "":
+        return None
+    init_cost_price_db()
+    active_sql = "AND active=1" if active_only else ""
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f"SELECT * FROM sales_customers WHERE customer_key=? {active_sql} LIMIT 1",
+            (customer_key,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_sales_customer_price_context(customer_name):
+    record = get_sales_customer_by_name(customer_name, active_only=True)
+    if not record:
+        return {
+            "record": None,
+            "primary_code": "",
+            "primary_code_key": "",
+            "group_codes": [],
+            "group_code_keys": [],
+        }
+    group_key = clean_text(record.get("group_key", ""))
+    init_cost_price_db()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        rows = conn.execute(
+            """
+            SELECT customer_code, customer_code_key
+            FROM sales_customers
+            WHERE active=1 AND group_key=? AND customer_code_key<>''
+            ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END, customer_code ASC
+            """,
+            (group_key, int(record.get("id", 0) or 0)),
+        ).fetchall()
+    group_codes = [normalize_sales_customer_code(row[0]) for row in rows if normalize_sales_customer_code(row[0])]
+    group_code_keys = [normalize_sales_customer_code_key(row[1]) for row in rows if normalize_sales_customer_code_key(row[1])]
+    primary_code = normalize_sales_customer_code(record.get("customer_code", ""))
+    primary_code_key = normalize_sales_customer_code_key(record.get("customer_code_key", "") or primary_code)
+    if primary_code and primary_code not in group_codes:
+        group_codes.insert(0, primary_code)
+    if primary_code_key and primary_code_key not in group_code_keys:
+        group_code_keys.insert(0, primary_code_key)
+    return {
+        "record": record,
+        "primary_code": primary_code,
+        "primary_code_key": primary_code_key,
+        "group_codes": group_codes,
+        "group_code_keys": group_code_keys,
+    }
+
+
+def save_sales_customer(
+    customer_name,
+    customer_code,
+    group_name="",
+    note="",
+    active=True,
+    updated_by="",
+    customer_id=None,
+    sync_remote=True,
+):
+    customer_name = normalize_cost_customer_name(customer_name)
+    customer_key = normalize_cost_customer_key(customer_name)
+    customer_code = normalize_sales_customer_code(customer_code)
+    customer_code_key = normalize_sales_customer_code_key(customer_code)
+    group_name = normalize_sales_customer_group(group_name, fallback=customer_name)
+    group_key = normalize_cost_customer_key(group_name)
+    if customer_name == "":
+        return False, "请填写客户名称/公司抬头。", None
+    if customer_code_key == "":
+        return False, "请填写客户代码。", None
+    if len(customer_name) > 120 or len(group_name) > 120 or len(customer_code) > 40:
+        return False, "客户名称、集团名称或客户代码过长。", None
+    now_text = current_timestamp_text()
+    init_cost_price_db()
+    try:
+        parsed_id = int(customer_id) if customer_id not in (None, "") else None
+    except Exception:
+        return False, "客户记录 ID 无效。", None
+    try:
+        with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+            conn.execute("PRAGMA busy_timeout = 30000")
+            if parsed_id is None:
+                cur = conn.execute(
+                    """
+                    INSERT INTO sales_customers (
+                        customer_name, customer_key, customer_code, customer_code_key,
+                        group_name, group_key, active, note, created_at, created_by,
+                        updated_at, updated_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        customer_name, customer_key, customer_code, customer_code_key,
+                        group_name, group_key, 1 if active else 0, clean_text(note),
+                        now_text, clean_text(updated_by), now_text, clean_text(updated_by),
+                    ),
+                )
+                parsed_id = int(cur.lastrowid)
+                action = "新增"
+            else:
+                cur = conn.execute(
+                    """
+                    UPDATE sales_customers
+                    SET customer_name=?, customer_key=?, customer_code=?, customer_code_key=?,
+                        group_name=?, group_key=?, active=?, note=?, updated_at=?, updated_by=?
+                    WHERE id=?
+                    """,
+                    (
+                        customer_name, customer_key, customer_code, customer_code_key,
+                        group_name, group_key, 1 if active else 0, clean_text(note),
+                        now_text, clean_text(updated_by), parsed_id,
+                    ),
+                )
+                if cur.rowcount <= 0:
+                    return False, "客户记录不存在。", None
+                action = "更新"
+            conn.commit()
+    except sqlite3.IntegrityError:
+        return False, "客户名称或客户代码已由其他记录使用，请检查后再保存。", None
+    clear_cost_price_lookup_cache()
+    synced = flush_runtime_store_remote_snapshot("cost-price") if sync_remote else True
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled or not sync_remote else "；远端备份失败，请稍后重试"
+    return True, f"已{action}客户资讯：{customer_name} / {customer_code}{suffix}。", parsed_id
+
+
+def build_sales_customer_template_bytes():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "客户资讯"
+    headers = ["所属集团", "客户名称/公司抬头", "客户代码", "状态", "备注"]
+    sheet.append(headers)
+    sheet.append(["A集团", "A集团深圳子公司", "F0001", "启用", "同集团代码自动共享专价"])
+    sheet.append(["A集团", "A集团东莞子公司", "F0002", "启用", ""])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for index, width in enumerate([24, 34, 18, 14, 42], start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    sheet.freeze_panes = "A2"
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def import_sales_customers_from_upload(uploaded_file, updated_by=""):
+    if uploaded_file is None:
+        return False, "请先选择客户资讯 Excel。", 0
+    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    if not raw_bytes:
+        return False, "上传文件内容为空。", 0
+    try:
+        frame = pd.read_excel(BytesIO(raw_bytes), dtype=object).fillna("")
+    except Exception as exc:
+        return False, f"客户资讯读取失败：{clean_text(exc)}", 0
+    header_map = {}
+    for column in frame.columns:
+        normalized = normalize_cost_price_header(column)
+        if normalized in {"所属集团", "集团", "集团名称", "customergroup", "group"}:
+            header_map["group_name"] = column
+        elif normalized in {"客户名称公司抬头", "客户名称", "公司抬头", "customername", "company"}:
+            header_map["customer_name"] = column
+        elif normalized in {"客户代码", "客户编码", "customercode", "code"}:
+            header_map["customer_code"] = column
+        elif normalized in {"状态", "status"}:
+            header_map["status"] = column
+        elif normalized in {"备注", "note", "notes"}:
+            header_map["note"] = column
+    if "customer_name" not in header_map or "customer_code" not in header_map:
+        return False, "模板必须包含“客户名称/公司抬头”和“客户代码”栏位。", 0
+    imported = 0
+    for row_index, (_, row) in enumerate(frame.iterrows(), start=2):
+        customer_name = clean_text(row.get(header_map["customer_name"], ""))
+        customer_code = clean_text(row.get(header_map["customer_code"], ""))
+        if customer_name == "" and customer_code == "":
+            continue
+        group_name = clean_text(row.get(header_map.get("group_name"), "")) if header_map.get("group_name") else ""
+        note = clean_text(row.get(header_map.get("note"), "")) if header_map.get("note") else ""
+        status_text = clean_text(row.get(header_map.get("status"), "启用")) if header_map.get("status") else "启用"
+        active = status_text.lower() not in {"停用", "disabled", "inactive", "0", "false", "否"}
+        existing = None
+        code_key = normalize_sales_customer_code_key(customer_code)
+        if code_key:
+            init_cost_price_db()
+            with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+                conn.row_factory = sqlite3.Row
+                found = conn.execute(
+                    "SELECT * FROM sales_customers WHERE customer_code_key=? LIMIT 1",
+                    (code_key,),
+                ).fetchone()
+                existing = dict(found) if found is not None else None
+        ok, message, _ = save_sales_customer(
+            customer_name=customer_name,
+            customer_code=customer_code,
+            group_name=group_name,
+            note=note,
+            active=active,
+            updated_by=updated_by,
+            customer_id=(existing or {}).get("id"),
+            sync_remote=False,
+        )
+        if not ok:
+            return False, f"第 {row_index} 行导入失败：{message}", imported
+        imported += 1
+    if imported <= 0:
+        return False, "模板内没有可导入的客户资料。", 0
+    synced = flush_runtime_store_remote_snapshot("cost-price")
+    _, _, remote_enabled = get_runtime_store_remote_config()
+    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    return True, f"已导入或更新 {imported} 条客户资讯{suffix}。", imported
+
+
 def normalize_cost_customer_context(customer_type=None, customer_name="", default=COST_CUSTOMER_TYPE_NEW):
     customer_type = normalize_cost_customer_type(customer_type, default=default)
     customer_name = normalize_cost_customer_name(customer_name)
@@ -4707,7 +4984,17 @@ def list_existing_cost_customers():
             """,
             (COST_CUSTOMER_TYPE_EXISTING, COST_CUSTOMER_TYPE_EXISTING),
         ).fetchall()
-    return [normalize_cost_customer_name(row[0]) for row in rows if normalize_cost_customer_name(row[0])]
+        maintained_rows = conn.execute(
+            """
+            SELECT customer_name
+            FROM sales_customers
+            WHERE active=1 AND customer_key<>''
+            ORDER BY group_name ASC, customer_name ASC
+            """
+        ).fetchall()
+    names = [normalize_cost_customer_name(row[0]) for row in maintained_rows if normalize_cost_customer_name(row[0])]
+    names.extend(normalize_cost_customer_name(row[0]) for row in rows if normalize_cost_customer_name(row[0]))
+    return list(dict.fromkeys(names))
 
 
 def resolve_member_customer_price_scope(customer_name, existing_customers=None):
@@ -4715,6 +5002,9 @@ def resolve_member_customer_price_scope(customer_name, existing_customers=None):
     if customer_name == "":
         return "", "", False
     customer_key = normalize_cost_customer_key(customer_name)
+    maintained = get_sales_customer_by_name(customer_name, active_only=True)
+    if maintained:
+        return COST_CUSTOMER_TYPE_EXISTING, normalize_cost_customer_name(maintained.get("customer_name", "")), True
     customer_options = list_existing_cost_customers() if existing_customers is None else list(existing_customers)
     for option in customer_options:
         normalized_option = normalize_cost_customer_name(option)
@@ -4749,12 +5039,26 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     identity_name = normalize_cost_customer_name(member.get("customer_name", ""))
     if identity_name == "":
         st.info("此账号第一次使用匹配功能，请先填写客户名称。保存后普通搜索和 BOM 会自动使用该客户对应的价格。")
+        maintained_customers = list_sales_customers(active_only=True)
         with st.form(f"{key_prefix}_member_customer_identity", clear_on_submit=False):
-            entered_name = st.text_input(
-                "客户名称",
-                max_chars=120,
-                placeholder="请输入完整客户名称，例如：深圳市某某科技有限公司",
-            )
+            if maintained_customers:
+                labels = [
+                    f"{row.get('customer_name')}｜{row.get('customer_code')}｜{row.get('group_name')}"
+                    for row in maintained_customers
+                ]
+                selected_label = st.selectbox("客户名称", labels, index=None, placeholder="请选择客户名称/公司抬头")
+                selected_index = labels.index(selected_label) if selected_label in labels else -1
+                entered_name = (
+                    maintained_customers[selected_index].get("customer_name", "")
+                    if selected_index >= 0
+                    else ""
+                )
+            else:
+                entered_name = st.text_input(
+                    "客户名称",
+                    max_chars=120,
+                    placeholder="请输入完整客户名称，例如：深圳市某某科技有限公司",
+                )
             submitted = st.form_submit_button("保存客户名称并继续", type="primary", use_container_width=True)
         if submitted:
             ok, message = update_current_member_profile(
@@ -4778,11 +5082,15 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
-        price_source = f"客户专属价：{customer_name}"
+        price_context = get_sales_customer_price_context(customer_name)
+        record = price_context.get("record") or {}
+        price_source = f"客户价格：{record.get('customer_code') or customer_name}"
+        if clean_text(record.get("group_name", "")):
+            price_source += f"（{record.get('group_name')}）"
     else:
         price_source = "新客户通用价（后台尚无此客户的专属报价）"
     st.success(f"当前客户：{identity_name}　·　价格来源：{price_source}")
-    st.caption("客户名称已绑定会员账号，可在会员中心修改；专属报价按规范化后的完整客户名称精确识别，不会读取其他客户价格。")
+    st.caption("客户名称已绑定会员账号，可在会员中心修改；系统只读取该客户代码、同集团代码或通用价格，不会读取其他集团价格。")
     return customer_type, customer_name, ready
 
 
@@ -4790,12 +5098,24 @@ def cost_price_item_change_key(item):
     if not isinstance(item, dict):
         return None
     brand = clean_brand(item.get("brand", "")).upper()
+    scope_key = "general"
+    try:
+        raw_data = json.loads(clean_text(item.get("raw_json", "")) or "{}")
+        scope_keys = sorted(
+            normalize_sales_customer_code_key(value)
+            for value in (raw_data.get("price_customer_code_keys", []) or [])
+            if normalize_sales_customer_code_key(value)
+        )
+        if scope_keys:
+            scope_key = "codes:" + ",".join(scope_keys)
+    except Exception:
+        pass
     model = clean_model(item.get("model_clean", "") or item.get("model", ""))
     if model != "":
-        return ("model", brand, model)
+        return ("model", brand, model, scope_key)
     spec_key = normalize_cost_price_spec_key(item.get("spec_text", ""))
     if spec_key != "":
-        return ("spec", brand, spec_key)
+        return ("spec", brand, spec_key, scope_key)
     return None
 
 
@@ -4806,6 +5126,7 @@ def load_active_cost_price_change_map(conn, customer_type=COST_CUSTOMER_TYPE_NEW
         """
         SELECT
             i.brand, i.model, i.model_clean, i.spec_text, i.cost, i.cost_updated_at,
+            i.raw_json,
             l.uploaded_at AS list_uploaded_at
         FROM cost_price_items i
         JOIN cost_price_lists l ON l.id = i.list_id
@@ -4947,7 +5268,8 @@ def list_cost_price_items(list_id=None, limit=300):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT brand, model, spec_text, cost, cost_updated_at, moq, lead_time, sheet_name, row_index
+            SELECT brand, model, spec_text, cost, cost_updated_at, moq, lead_time,
+                   sheet_name, row_index, raw_json
             FROM cost_price_items
             WHERE list_id=?
             ORDER BY id ASC
@@ -4956,6 +5278,16 @@ def list_cost_price_items(list_id=None, limit=300):
             (list_id, int(limit or 300)),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def cost_price_item_scope_label(item):
+    try:
+        raw_data = json.loads(clean_text(item.get("raw_json", "")) or "{}")
+    except Exception:
+        raw_data = {}
+    codes = [normalize_sales_customer_code(value) for value in raw_data.get("price_customer_codes", []) or []]
+    codes = [value for value in codes if value]
+    return "/".join(codes) if codes else "通用"
 
 
 def cost_price_items_preview_dataframe(items):
@@ -4971,6 +5303,7 @@ def cost_price_items_preview_dataframe(items):
                 "更新时间": row.get("cost_updated_at", ""),
                 "MOQ": row.get("moq", ""),
                 "L&T": row.get("lead_time", ""),
+                "客户范围": cost_price_item_scope_label(row),
                 "分页": row.get("sheet_name", ""),
                 "行号": row.get("row_index", ""),
             }
@@ -5234,6 +5567,82 @@ def set_manual_cost_price_item_active(item_id, active, updated_by=""):
     return True, f"已{action}单笔成本记录{suffix}。"
 
 
+def parse_cost_price_sheet_customer_scope(raw_df):
+    raw_value = ""
+    try:
+        if isinstance(raw_df, pd.DataFrame) and raw_df.shape[0] >= 1 and raw_df.shape[1] >= 2:
+            marker = normalize_cost_price_header(raw_df.iloc[0, 0])
+            if marker not in {"客户代码", "客户编码", "customercode"}:
+                return {
+                    "price_scope_kind": "general",
+                    "price_scope_text": "通用",
+                    "price_customer_codes": [],
+                    "price_customer_code_keys": [],
+                }
+            raw_value = clean_text(raw_df.iloc[0, 1])
+    except Exception:
+        raw_value = ""
+    normalized = raw_value.upper().strip()
+    if normalized == "" or "通用" in normalized or normalized in {"GENERAL", "COMMON", "ALL"}:
+        return {
+            "price_scope_kind": "general",
+            "price_scope_text": raw_value or "通用",
+            "price_customer_codes": [],
+            "price_customer_code_keys": [],
+        }
+    parts = re.split(r"[\s,，、/／;；|｜]+", raw_value)
+    codes = []
+    code_keys = []
+    for part in parts:
+        code = normalize_sales_customer_code(part)
+        code_key = normalize_sales_customer_code_key(code)
+        if code_key == "" or code_key in {"GENERAL", "COMMON", "ALL"}:
+            continue
+        if code_key not in code_keys:
+            codes.append(code)
+            code_keys.append(code_key)
+    if not code_keys:
+        return {
+            "price_scope_kind": "general",
+            "price_scope_text": raw_value or "通用",
+            "price_customer_codes": [],
+            "price_customer_code_keys": [],
+        }
+    return {
+        "price_scope_kind": "customer_codes",
+        "price_scope_text": raw_value,
+        "price_customer_codes": codes,
+        "price_customer_code_keys": code_keys,
+    }
+
+
+def cost_price_item_scope_rank(item, customer_context=None, legacy_rank=30):
+    customer_context = customer_context or {}
+    try:
+        rule_data = json.loads(clean_text(item.get("raw_json", "")) or "{}")
+    except Exception:
+        rule_data = {}
+    scope_kind = clean_text(rule_data.get("price_scope_kind", "")).lower()
+    scope_keys = [
+        normalize_sales_customer_code_key(value)
+        for value in (rule_data.get("price_customer_code_keys", []) or [])
+        if normalize_sales_customer_code_key(value)
+    ]
+    if scope_kind in {"", "general"} or not scope_keys:
+        return int(legacy_rank)
+    primary_key = normalize_sales_customer_code_key(customer_context.get("primary_code_key", ""))
+    group_keys = {
+        normalize_sales_customer_code_key(value)
+        for value in (customer_context.get("group_code_keys", []) or [])
+        if normalize_sales_customer_code_key(value)
+    }
+    if primary_key and primary_key in scope_keys:
+        return 10
+    if group_keys.intersection(scope_keys):
+        return 20
+    return None
+
+
 def build_fojan_cost_price_items_from_workbook(uploaded_file):
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
     if not raw_bytes:
@@ -5248,6 +5657,7 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             raw_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, dtype=object).fillna("")
         except Exception:
             continue
+        sheet_scope = parse_cost_price_sheet_customer_scope(raw_df)
         header_index = None
         column_map = {}
         for idx in range(min(len(raw_df), 20)):
@@ -5305,6 +5715,7 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
                     "resistance_range": resistance_range,
                     "tolerance": tolerance,
                     "package": package,
+                    **sheet_scope,
                 }
                 items.append(
                     {
@@ -5337,9 +5748,18 @@ def build_cost_price_items_from_workbook(uploaded_file):
         if not isinstance(df, pd.DataFrame) or df.empty:
             continue
         df = df.fillna("")
+        # Generic imports have already consumed their header row, so B1 is no longer
+        # available here. Preserve legacy behavior and treat them as general scope.
+        sheet_scope = {
+            "price_scope_kind": "general",
+            "price_scope_text": "通用",
+            "price_customer_codes": [],
+            "price_customer_code_keys": [],
+        }
         mapping = guess_cost_price_column_mapping(df)
         for row_index, (_, row) in enumerate(df.iterrows(), start=2):
             raw_record = {clean_text(key): clean_text(value) for key, value in row.to_dict().items()}
+            raw_record.update(sheet_scope)
             brand = clean_brand(row.get(mapping.get("brand"), "")) if mapping.get("brand") else ""
             model = clean_text(row.get(mapping.get("model"), "")) if mapping.get("model") else ""
             spec_text = clean_text(row.get(mapping.get("spec"), "")) if mapping.get("spec") else ""
@@ -5456,35 +5876,67 @@ def import_cost_price_list_from_upload(
 
 def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, customer_name=""):
     customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name)
-    active = get_active_cost_price_list(customer_type, customer_name)
     init_cost_price_db()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        list_rows = conn.execute(
+            """
+            SELECT id, row_count, uploaded_at, customer_type, customer_key
+            FROM cost_price_lists
+            WHERE active=1 AND (
+                (customer_type=? AND customer_key='')
+                OR (?=? AND customer_type=? AND customer_key=?)
+            )
+            ORDER BY id ASC
+            """,
+            (
+                COST_CUSTOMER_TYPE_NEW,
+                customer_type, COST_CUSTOMER_TYPE_EXISTING,
+                COST_CUSTOMER_TYPE_EXISTING, customer_key,
+            ),
+        ).fetchall()
         manual_row = conn.execute(
             """
             SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(updated_at), '')
             FROM cost_price_manual_items
-            WHERE active=1 AND customer_type=? AND customer_key=?
+            WHERE active=1 AND (
+                (customer_type=? AND customer_key='')
+                OR (?=? AND customer_type=? AND customer_key=?)
+            )
             """,
-            (customer_type, customer_key),
+            (
+                COST_CUSTOMER_TYPE_NEW,
+                customer_type, COST_CUSTOMER_TYPE_EXISTING,
+                COST_CUSTOMER_TYPE_EXISTING, customer_key,
+            ),
+        ).fetchone()
+        customer_row = conn.execute(
+            """
+            SELECT COALESCE(MAX(updated_at), ''), COUNT(*)
+            FROM sales_customers
+            WHERE active=1 AND (
+                customer_key=? OR group_key=(SELECT group_key FROM sales_customers WHERE customer_key=? LIMIT 1)
+            )
+            """,
+            (customer_key, customer_key),
         ).fetchone()
     manual_count = int(manual_row[0] or 0) if manual_row else 0
     manual_max_id = int(manual_row[1] or 0) if manual_row else 0
     manual_updated_at = clean_text(manual_row[2]) if manual_row else ""
-    if not active and manual_count <= 0:
+    if not list_rows and manual_count <= 0:
         return None
     try:
         mtime = os.path.getmtime(COST_PRICE_DB_PATH)
     except Exception:
         mtime = 0
     return (
-        int((active or {}).get("id", 0) or 0),
-        int((active or {}).get("row_count", 0) or 0),
-        clean_text((active or {}).get("uploaded_at", "")),
+        tuple((int(row[0] or 0), int(row[1] or 0), clean_text(row[2]), clean_text(row[3]), clean_text(row[4])) for row in list_rows),
         customer_type,
         customer_key,
         manual_count,
         manual_max_id,
         manual_updated_at,
+        clean_text(customer_row[0]) if customer_row else "",
+        int(customer_row[1] or 0) if customer_row else 0,
         mtime,
     )
 
@@ -5499,50 +5951,83 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None):
         return {}
     if _COST_PRICE_LOOKUP_CACHE.get("signature") == signature and isinstance(_COST_PRICE_LOOKUP_CACHE.get("lookup"), dict):
         return _COST_PRICE_LOOKUP_CACHE["lookup"]
-    active = get_active_cost_price_list(customer_type, customer_name)
+    customer_context = get_sales_customer_price_context(customer_name) if customer_type == COST_CUSTOMER_TYPE_EXISTING else {}
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
-        rows = []
-        if active:
-            rows = conn.execute(
-                """
-                SELECT brand, model, model_clean, spec_text, cost, cost_updated_at, moq, lead_time, raw_json
-                FROM cost_price_items
-                WHERE list_id=?
-                ORDER BY id ASC
-                """,
-                (int(active.get("id", 0)),),
-            ).fetchall()
+        rows = conn.execute(
+            """
+            SELECT i.brand, i.model, i.model_clean, i.spec_text, i.cost, i.cost_updated_at,
+                   i.moq, i.lead_time, i.raw_json, l.customer_type AS list_customer_type,
+                   l.customer_name AS list_customer_name, l.customer_key AS list_customer_key,
+                   l.file_name AS list_file_name, i.id AS item_id
+            FROM cost_price_items i
+            JOIN cost_price_lists l ON l.id=i.list_id
+            WHERE l.active=1 AND (
+                (l.customer_type=? AND l.customer_key='')
+                OR (?=? AND l.customer_type=? AND l.customer_key=?)
+            )
+            ORDER BY i.id ASC
+            """,
+            (
+                COST_CUSTOMER_TYPE_NEW,
+                customer_type, COST_CUSTOMER_TYPE_EXISTING,
+                COST_CUSTOMER_TYPE_EXISTING, customer_key,
+            ),
+        ).fetchall()
         manual_rows = conn.execute(
             """
             SELECT
                 brand, model, model_clean, spec_text, cost,
-                cost_updated_at, moq, lead_time
+                cost_updated_at, moq, lead_time, customer_type, customer_name, customer_key, id
             FROM cost_price_manual_items
-            WHERE active=1 AND customer_type=? AND customer_key=?
+            WHERE active=1 AND (
+                (customer_type=? AND customer_key='')
+                OR (?=? AND customer_type=? AND customer_key=?)
+            )
             ORDER BY updated_at DESC, id DESC
             """,
-            (customer_type, customer_key),
+            (
+                COST_CUSTOMER_TYPE_NEW,
+                customer_type, COST_CUSTOMER_TYPE_EXISTING,
+                COST_CUSTOMER_TYPE_EXISTING, customer_key,
+            ),
         ).fetchall()
     lookup = {}
+    ranked_items = []
     for row in manual_rows:
         item = dict(row)
-        item["cost_source"] = (
-            "单笔成本"
-            if customer_type == COST_CUSTOMER_TYPE_NEW
-            else f"{cost_customer_context_label(customer_type, customer_name)} · 单笔成本"
+        is_exact_customer = (
+            customer_type == COST_CUSTOMER_TYPE_EXISTING
+            and clean_text(item.get("customer_type", "")) == COST_CUSTOMER_TYPE_EXISTING
+            and clean_text(item.get("customer_key", "")) == customer_key
         )
+        item["_scope_rank"] = 0 if is_exact_customer else 25
+        item["cost_source"] = f"{customer_name} · 单笔成本" if is_exact_customer else "单笔成本"
         item["raw_json"] = ""
-        model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
-        if model_clean != "":
-            lookup.setdefault(model_clean, []).append(item)
+        ranked_items.append(item)
     for row in rows:
         item = dict(row)
-        item["cost_source"] = (
-            "当前启用成本清单"
-            if customer_type == COST_CUSTOMER_TYPE_NEW
-            else f"{cost_customer_context_label(customer_type, customer_name)} · 当前启用成本清单"
+        is_legacy_exact = (
+            customer_type == COST_CUSTOMER_TYPE_EXISTING
+            and clean_text(item.get("list_customer_type", "")) == COST_CUSTOMER_TYPE_EXISTING
+            and clean_text(item.get("list_customer_key", "")) == customer_key
         )
+        rank = 5 if is_legacy_exact else cost_price_item_scope_rank(item, customer_context, legacy_rank=30)
+        if rank is None:
+            continue
+        item["_scope_rank"] = rank
+        if is_legacy_exact:
+            item["cost_source"] = f"客户专属清单：{customer_name}"
+        elif rank == 10:
+            item["cost_source"] = f"客户代码价：{customer_context.get('primary_code', '')}"
+        elif rank == 20:
+            item["cost_source"] = f"集团共享价：{clean_text((customer_context.get('record') or {}).get('group_name', ''))}"
+        else:
+            item["cost_source"] = "当前启用成本清单"
+        ranked_items.append(item)
+
+    ranked_items.sort(key=lambda item: (int(item.get("_scope_rank", 99)), -int(item.get("id", 0) or item.get("item_id", 0) or 0)))
+    for item in ranked_items:
         model_clean = clean_model(item.get("model_clean", "") or item.get("model", ""))
         if model_clean != "":
             lookup.setdefault(model_clean, []).append(item)
@@ -5840,7 +6325,7 @@ def render_manual_cost_price_admin_section(updated_by):
 def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     with st.container(border=True):
         st.subheader("上传新成本清单")
-        st.caption("支持 Excel/CSV。系统会自动识别 品牌、型号/料号、规格参数、成本、MOQ、L&T/交期 等列；上传成功后自动设为当前使用清单。")
+        st.caption("支持 Excel/CSV。每个分页 B1 可填写“通用”或一个/多个客户代码；客户代码分页会优先于通用分页，且只供对应客户集团使用。")
         ownership = st.radio(
             "价格归属",
             ["新客户通用价", "旧有客户专属价"],
@@ -5902,6 +6387,111 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
                     st.dataframe(cost_price_items_preview_dataframe(preview_items), use_container_width=True, hide_index=True)
     else:
         render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
+
+
+def sales_customer_summary_dataframe(rows):
+    if not rows:
+        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "状态", "备注", "更新时间"])
+    return pd.DataFrame(
+        [
+            {
+                "所属集团": row.get("group_name", ""),
+                "客户名称/公司抬头": row.get("customer_name", ""),
+                "客户代码": row.get("customer_code", ""),
+                "状态": "启用" if int(row.get("active", 0) or 0) == 1 else "停用",
+                "备注": row.get("note", ""),
+                "更新时间": row.get("updated_at", ""),
+            }
+            for row in rows
+        ]
+    )
+
+
+def render_sales_customer_admin_page():
+    render_admin_section_header(
+        "客户资讯维护",
+        "维护公司抬头、客户代码与集团关系。成本清单分页 B1 写客户代码后，会按本客户、同集团、通用的顺序取价。",
+        "客户价格",
+    )
+    rows = list_sales_customers(active_only=None)
+    active_rows = [row for row in rows if int(row.get("active", 0) or 0) == 1]
+    group_count = len({clean_text(row.get("group_key", "")) for row in active_rows if clean_text(row.get("group_key", ""))})
+    render_admin_metric_cards(
+        [
+            {"label": "客户公司", "value": len(rows), "note": "全部公司抬头", "tone": "neutral"},
+            {"label": "启用", "value": len(active_rows), "note": "可供会员选择", "tone": "green"},
+            {"label": "客户集团", "value": group_count, "note": "同集团共享专价", "tone": "neutral"},
+        ]
+    )
+
+    tool_cols = st.columns([0.32, 0.68], gap="small")
+    with tool_cols[0]:
+        st.download_button(
+            "下载客户资讯模板",
+            data=build_sales_customer_template_bytes(),
+            file_name="客户资讯维护模板.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    with tool_cols[1]:
+        uploaded = st.file_uploader(
+            "批量导入客户资讯",
+            type=["xlsx"],
+            key="sales_customer_admin_upload",
+            help="使用标准模板；相同客户代码会更新原记录，不会重复新增。",
+        )
+    if st.button("导入客户资讯", key="sales_customer_admin_import", use_container_width=True):
+        actor = clean_text((current_member() or {}).get("username", "")) or get_no_match_admin_credentials()[0]
+        ok, message, _ = import_sales_customers_from_upload(uploaded, updated_by=actor)
+        if ok:
+            st.session_state["sales_customer_admin_flash"] = message
+            st.rerun()
+        st.warning(message)
+
+    flash = clean_text(st.session_state.pop("sales_customer_admin_flash", ""))
+    if flash:
+        st.success(flash)
+
+    options = ["新增客户"]
+    option_rows = {}
+    for row in rows:
+        status = "启用" if int(row.get("active", 0) or 0) == 1 else "停用"
+        label = f"#{row.get('id')} · {status} · {row.get('customer_code')} · {row.get('customer_name')}"
+        options.append(label)
+        option_rows[label] = row
+    selected_label = st.selectbox("客户记录", options, key="sales_customer_admin_selector")
+    selected = option_rows.get(selected_label) or {}
+    selected_id = selected.get("id")
+    with st.form(f"sales_customer_admin_form_{selected_id or 'new'}"):
+        cols = st.columns([0.28, 0.32, 0.18, 0.22], gap="small")
+        group_name = cols[0].text_input("所属集团", value=clean_text(selected.get("group_name", "")), placeholder="例如 A集团")
+        customer_name = cols[1].text_input("客户名称/公司抬头", value=clean_text(selected.get("customer_name", "")))
+        customer_code = cols[2].text_input("客户代码", value=clean_text(selected.get("customer_code", "")), placeholder="例如 F0001")
+        active = cols[3].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
+        note = st.text_area("备注", value=clean_text(selected.get("note", "")), height=82)
+        submitted = st.form_submit_button("保存客户资讯", use_container_width=True)
+    if submitted:
+        actor = clean_text((current_member() or {}).get("username", "")) or get_no_match_admin_credentials()[0]
+        ok, message, _ = save_sales_customer(
+            customer_name=customer_name,
+            customer_code=customer_code,
+            group_name=group_name,
+            note=note,
+            active=active,
+            updated_by=actor,
+            customer_id=selected_id,
+        )
+        if ok:
+            st.session_state["sales_customer_admin_flash"] = message
+            st.session_state.pop("sales_customer_admin_selector", None)
+            st.rerun()
+        st.warning(message)
+
+    if rows:
+        st.subheader("客户资讯清单")
+        st.dataframe(sales_customer_summary_dataframe(rows), use_container_width=True, hide_index=True)
+    else:
+        render_admin_empty_state("还没有客户资讯", "可先下载模板批量导入，或新增第一条客户记录。")
 
 
 def render_cost_price_admin_page():
@@ -6221,7 +6811,7 @@ def render_no_match_report_admin_page():
     if not require_no_match_admin_login():
         return
 
-    module_options = ["无匹配回报", "搜索记录", "成本清单", "会员审核", "会员资料管理", "数据质量", "运行状态"]
+    module_options = ["无匹配回报", "搜索记录", "成本清单", "客户资讯", "会员审核", "会员资料管理", "数据质量", "运行状态"]
     active_module = clean_text(st.session_state.get("admin_backend_module", "无匹配回报"))
     nav_cols = st.columns([0.76, 0.24], gap="small")
     with nav_cols[0]:
@@ -6245,6 +6835,9 @@ def render_no_match_report_admin_page():
         return
     if backend_module == "成本清单":
         render_cost_price_admin_page()
+        return
+    if backend_module == "客户资讯":
+        render_sales_customer_admin_page()
         return
     if backend_module == "数据质量":
         render_component_quality_admin_page()
