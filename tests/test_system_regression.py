@@ -401,6 +401,9 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertTrue(ok, message)
         updated_member = app["get_member_by_id"](member["id"])
         self.assertEqual(updated_member["customer_name"], "客户A")
+        member_customers = app["list_member_sales_customers"](member["id"])
+        self.assertEqual([row["customer_name"] for row in member_customers], ["客户A"])
+        self.assertEqual(int(member_customers[0]["price_access_enabled"]), 1)
         logs_before = app["list_member_profile_change_logs"](member["id"])
         self.assertGreaterEqual(len(logs_before), 5)
         ok, message = app["change_current_member_password"](
@@ -513,12 +516,71 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertIn("customer_name", columns)
             self.assertIn("job_title", columns)
             self.assertEqual(row, ("legacy-customer", "Legacy Customer", "", ""))
+            with sqlite3.connect(legacy_path) as conn:
+                customer_table = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='member_sales_customers'"
+                ).fetchone()
+            self.assertIsNotNone(customer_table)
             self.assertIn(
                 (os.path.abspath(legacy_path), app["MEMBER_AUTH_SCHEMA_VERSION"]),
                 app["_MEMBER_AUTH_SCHEMA_READY_PATHS"],
             )
         finally:
             app["MEMBER_AUTH_DB_PATH"] = original_member_path
+
+    def test_02aaa_member_customer_lists_are_isolated_and_default_to_general_price(self):
+        app = self.app
+        member_ids = []
+        for username in ["CustomerOwnerA", "CustomerOwnerB"]:
+            ok, message = app["create_member_account"](
+                username,
+                "secret1",
+                display_name=username,
+                company="Test Co",
+            )
+            self.assertTrue(ok, message)
+            member = app["get_member_by_username"](username)
+            member_ids.append(int(member["id"]))
+            ok, message = app["approve_member_account_admin"](member["id"])
+            self.assertTrue(ok, message)
+
+        ok, message, saved = app["save_member_sales_customer"](member_ids[0], "客户甲")
+        self.assertTrue(ok, message)
+        self.assertEqual(saved["customer_name"], "客户甲")
+        self.assertEqual(int(saved["price_access_enabled"]), 0)
+        self.assertEqual(len(app["list_member_sales_customers"](member_ids[0])), 1)
+        self.assertEqual(app["list_member_sales_customers"](member_ids[1]), [])
+
+        selected = app["select_member_sales_customer"](member_ids[0], "客户甲")
+        self.assertIsNotNone(selected)
+        self.assertIsNone(app["select_member_sales_customer"](member_ids[1], "客户甲"))
+
+        customer_id = int(saved["id"])
+        ok, message = app["set_member_sales_customer_price_access"](
+            member_ids[0], customer_id, True
+        )
+        self.assertFalse(ok)
+        self.assertIn("后台尚未维护", message)
+
+        ok, message, _ = app["save_sales_customer"](
+            "客户甲",
+            "TEST-A-001",
+            group_name="客户甲集团",
+            updated_by="regression",
+            sync_remote=False,
+        )
+        self.assertTrue(ok, message)
+        ok, message = app["set_member_sales_customer_price_access"](
+            member_ids[1], customer_id, True
+        )
+        self.assertFalse(ok)
+        self.assertIn("没有这条客户记录", message)
+        ok, message = app["set_member_sales_customer_price_access"](
+            member_ids[0], customer_id, True
+        )
+        self.assertTrue(ok, message)
+        authorized = app["list_member_sales_customers"](member_ids[0])[0]
+        self.assertEqual(int(authorized["price_access_enabled"]), 1)
 
     def test_02ab_job_title_is_admin_managed_and_controls_cost_visibility(self):
         app = self.app

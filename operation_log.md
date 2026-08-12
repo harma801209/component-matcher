@@ -3872,3 +3872,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Preserved the existing job-title rule: only administrators and accounts whose administrator-managed job title is exactly `销售` or `销售助理` receive cost fields; unauthorized users never receive those fields in search results or BOM exports.
 - The formal entry now returns `noindex`, `nofollow`, `noarchive`, `nosnippet`, `no-referrer`, and `nosniff` policies, serves a deny-all `robots.txt`, and removes a validated member token from the browser URL after the server consumes it.
 - Added regressions for customer-binding authorization, query-token cleanup, and formal-entry crawler/privacy headers. The complete 48-test release safety gate passes, and protected member, cost-list, and no-match runtime database fingerprints remain unchanged.
+
+### 2026-08-13 [Sales customer workflow] Add private multi-customer selection per member
+
+- Replaced the obsolete one-customer-per-account UI with an additive owner-scoped customer list. Each signed-in member can save multiple customer names, switch among only their own entries from a dropdown, or choose `新客户` to add another customer before running ordinary search or BOM matching.
+- New member-entered customers use the general price by default. Backend member management now shows that member's saved customers and provides an administrator-only control to allow dedicated pricing. Authorization is refused unless the maintained customer master or dedicated quotations can resolve the customer safely.
+- Removed the legacy `客户名称` row and edit field from Member Center, member summaries, approval details, member search hints, and backend account-edit forms. The legacy database column and server compatibility path remain intact so no historical member data is deleted.
+- Customer changes invalidate customer-dependent search results, BOM checkpoints, and exports. Logout also clears the selected customer context. Member/customer ownership checks prevent one account from selecting another account's entries.
+- Verification: member bridge tests passed (13), complete system regressions passed (46), and the release safety gate passed all 49 checks in isolated databases. Protected member, cost-list, and no-match runtime fingerprints remained unchanged.

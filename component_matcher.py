@@ -190,7 +190,7 @@ MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
 _MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
-MEMBER_AUTH_SCHEMA_VERSION = 3
+MEMBER_AUTH_SCHEMA_VERSION = 4
 MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
 MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
 _MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
@@ -234,6 +234,7 @@ MEMBER_PENDING_SEARCH_CUSTOMER_TYPE_KEY = "_member_pending_search_customer_type"
 MEMBER_PENDING_SEARCH_CUSTOMER_NAME_KEY = "_member_pending_search_customer_name"
 SALES_COST_CUSTOMER_TYPE_KEY = "_sales_cost_customer_type"
 SALES_COST_CUSTOMER_NAME_KEY = "_sales_cost_customer_name"
+SALES_CUSTOMER_SELECTION_NAME_KEY = "_sales_customer_selection_name"
 BOM_PENDING_UPLOAD_CACHE_KEY = "_bom_pending_upload_cache"
 BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY = "_bom_pending_upload_waiting_for_login"
 BOM_POST_LOGIN_RESUME_STAGE_KEY = "_bom_post_login_resume_stage"
@@ -1766,6 +1767,22 @@ def ensure_member_auth_schema():
             CREATE INDEX IF NOT EXISTS idx_member_sessions_expires
             ON member_sessions(expires_at_ts);
 
+            CREATE TABLE IF NOT EXISTS member_sales_customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                customer_name TEXT NOT NULL,
+                customer_key TEXT NOT NULL,
+                price_access_enabled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_selected_at TEXT NOT NULL DEFAULT '',
+                UNIQUE(member_id, customer_key),
+                FOREIGN KEY(member_id) REFERENCES members(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_sales_customers_member_id
+            ON member_sales_customers(member_id, last_selected_at DESC, id ASC);
+
             CREATE INDEX IF NOT EXISTS idx_members_username_lower
             ON members(lower(username));
 
@@ -1826,6 +1843,30 @@ def ensure_member_auth_schema():
             if "job_title" not in member_columns:
                 conn.execute(
                     "ALTER TABLE members ADD COLUMN job_title TEXT NOT NULL DEFAULT ''"
+                )
+            now_text = current_timestamp_text()
+            legacy_customers = conn.execute(
+                "SELECT id, customer_name FROM members WHERE TRIM(IFNULL(customer_name, ''))<>''"
+            ).fetchall()
+            for legacy_member_id, legacy_customer_name in legacy_customers:
+                normalized_name = normalize_cost_customer_name(legacy_customer_name)
+                normalized_key = normalize_cost_customer_key(normalized_name)
+                if normalized_key == "":
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO member_sales_customers (
+                        member_id, customer_name, customer_key, price_access_enabled,
+                        created_at, updated_at, last_selected_at
+                    ) VALUES (?, ?, ?, 1, ?, ?, ?)
+                    ON CONFLICT(member_id, customer_key) DO UPDATE SET
+                        customer_name=excluded.customer_name,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        int(legacy_member_id), normalized_name, normalized_key,
+                        now_text, now_text, now_text,
+                    ),
                 )
             migrate_member_timestamp_timezone_if_needed(conn)
             conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
@@ -2030,6 +2071,162 @@ def get_member_by_id(member_id):
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM members WHERE id=?", (int(member_id),)).fetchone()
     return member_row_to_dict(row)
+
+
+def list_member_sales_customers(member_id):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return []
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, member_id, customer_name, customer_key, price_access_enabled,
+                   created_at, updated_at, last_selected_at
+            FROM member_sales_customers
+            WHERE member_id=?
+            ORDER BY CASE WHEN last_selected_at<>'' THEN 0 ELSE 1 END,
+                     last_selected_at DESC, id ASC
+            """,
+            (member_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_member_sales_customer(member_id, customer_name):
+    refresh_member_auth_remote_snapshot(force=True)
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return False, "会员 ID 无效。", None
+    customer_name = normalize_cost_customer_name(customer_name)
+    customer_key = normalize_cost_customer_key(customer_name)
+    if customer_key == "":
+        return False, "请填写客户名称。", None
+    if customer_name == "新客户":
+        return False, "“新客户”是系统选项，请填写实际客户名称。", None
+    if len(customer_name) > 120:
+        return False, "客户名称不能超过 120 个字符。", None
+    now_text = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        member_row = conn.execute(
+            "SELECT id FROM members WHERE id=? AND status='active'",
+            (member_id,),
+        ).fetchone()
+        if member_row is None:
+            return False, "会员不存在或当前不可用。", None
+        existing = conn.execute(
+            """
+            SELECT id FROM member_sales_customers
+            WHERE member_id=? AND customer_key=?
+            """,
+            (member_id, customer_key),
+        ).fetchone()
+        if existing is None:
+            cursor = conn.execute(
+                """
+                INSERT INTO member_sales_customers (
+                    member_id, customer_name, customer_key, price_access_enabled,
+                    created_at, updated_at, last_selected_at
+                ) VALUES (?, ?, ?, 0, ?, ?, ?)
+                """,
+                (member_id, customer_name, customer_key, now_text, now_text, now_text),
+            )
+            customer_id = int(cursor.lastrowid)
+            action = "已新增并选用客户"
+        else:
+            customer_id = int(existing["id"])
+            conn.execute(
+                """
+                UPDATE member_sales_customers
+                SET customer_name=?, updated_at=?, last_selected_at=?
+                WHERE id=?
+                """,
+                (customer_name, now_text, now_text, customer_id),
+            )
+            action = "已切换到客户"
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM member_sales_customers WHERE id=?",
+            (customer_id,),
+        ).fetchone()
+    flush_member_auth_remote_snapshot()
+    return True, f"{action}：{customer_name}。", dict(row) if row is not None else None
+
+
+def select_member_sales_customer(member_id, customer_name):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return None
+    customer_key = normalize_cost_customer_key(customer_name)
+    if customer_key == "":
+        return None
+    now_text = current_timestamp_text()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT * FROM member_sales_customers
+            WHERE member_id=? AND customer_key=?
+            """,
+            (member_id, customer_key),
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE member_sales_customers SET last_selected_at=? WHERE id=?",
+            (now_text, int(row["id"])),
+        )
+        conn.commit()
+        result = dict(row)
+        result["last_selected_at"] = now_text
+    queue_member_auth_remote_snapshot_flush()
+    return result
+
+
+def set_member_sales_customer_price_access(member_id, customer_id, enabled):
+    refresh_member_auth_remote_snapshot(force=True)
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+        customer_id = int(customer_id)
+    except Exception:
+        return False, "会员或客户记录无效。"
+    enabled = bool(enabled)
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT id, customer_name, price_access_enabled
+            FROM member_sales_customers
+            WHERE id=? AND member_id=?
+            """,
+            (customer_id, member_id),
+        ).fetchone()
+        if row is None:
+            return False, "该会员没有这条客户记录。"
+        customer_name = normalize_cost_customer_name(row["customer_name"])
+        if enabled:
+            customer_type, _, ready = resolve_member_customer_price_scope(customer_name)
+            if not ready or customer_type != COST_CUSTOMER_TYPE_EXISTING:
+                return False, "后台尚未维护此客户的代码或专属报价，暂时只能使用通用价。"
+        conn.execute(
+            """
+            UPDATE member_sales_customers
+            SET price_access_enabled=?, updated_at=?
+            WHERE id=? AND member_id=?
+            """,
+            (1 if enabled else 0, current_timestamp_text(), customer_id, member_id),
+        )
+        conn.commit()
+    flush_member_auth_remote_snapshot()
+    return True, "已允许读取该客户专属价格。" if enabled else "已改为只使用通用价格。"
 
 
 def create_member_account(
@@ -3016,7 +3213,6 @@ def member_admin_summary_dataframe(members):
                 "账号": member.get("username", ""),
                 "姓名/称呼": member.get("display_name", ""),
                 "公司": member.get("company", ""),
-                "客户名称": member.get("customer_name", ""),
                 "职务": member.get("job_title", ""),
                 "邮箱": member.get("email", ""),
                 "电话": member.get("phone", ""),
@@ -3251,6 +3447,25 @@ def update_member_account_admin(
                 )
                 if status_value != "active":
                     conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
+            if customer_name is not None and new_values["customer_name"]:
+                normalized_customer_name = normalize_cost_customer_name(new_values["customer_name"])
+                normalized_customer_key = normalize_cost_customer_key(normalized_customer_name)
+                conn.execute(
+                    """
+                    INSERT INTO member_sales_customers (
+                        member_id, customer_name, customer_key, price_access_enabled,
+                        created_at, updated_at, last_selected_at
+                    ) VALUES (?, ?, ?, 1, ?, ?, ?)
+                    ON CONFLICT(member_id, customer_key) DO UPDATE SET
+                        customer_name=excluded.customer_name,
+                        price_access_enabled=1,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        member_id, normalized_customer_name, normalized_customer_key,
+                        now, now, now,
+                    ),
+                )
             insert_member_profile_change_logs(
                 conn,
                 member_id,
@@ -3280,6 +3495,7 @@ def delete_member_account_admin(member_id):
             return False, "会员不存在或已被删除。"
         conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
         conn.execute("DELETE FROM member_profile_change_logs WHERE member_id=?", (member_id,))
+        conn.execute("DELETE FROM member_sales_customers WHERE member_id=?", (member_id,))
         cursor = conn.execute("DELETE FROM members WHERE id=?", (member_id,))
         conn.commit()
     flush_member_auth_remote_snapshot()
@@ -3629,6 +3845,8 @@ def logout_member():
     st.session_state.pop(MEMBER_PENDING_SEARCH_BRANDS_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_RESUME_STAGE_KEY, None)
     st.session_state.pop(BOM_POST_LOGIN_AUTO_RESUME_AT_KEY, None)
+    st.session_state.pop(SALES_CUSTOMER_SELECTION_NAME_KEY, None)
+    clear_customer_dependent_session_state()
     st.session_state["_member_auth_clear_browser_token"] = True
     st.session_state["_member_auth_clear_browser_token_value"] = token
     update_query_params(
@@ -3837,7 +4055,6 @@ def render_member_center_page():
             {"字段": "账号", "值": member.get("username", "")},
             {"字段": "姓名/称呼", "值": member.get("display_name", "")},
             {"字段": "公司", "值": member.get("company", "")},
-            {"字段": "客户名称", "值": member.get("customer_name", "") or "尚未填写"},
             {"字段": "职务", "值": member.get("job_title", "") or "未设置"},
             {"字段": "邮箱", "值": member.get("email", "")},
             {"字段": "电话", "值": member.get("phone", "")},
@@ -3854,12 +4071,6 @@ def render_member_center_page():
         with st.form(f"member_profile_edit_{member.get('id', '')}", clear_on_submit=False):
             edit_display_name = st.text_input("姓名/称呼", value=clean_text(member.get("display_name", "")))
             edit_company = st.text_input("公司", value=clean_text(member.get("company", "")))
-            st.text_input(
-                "客户名称",
-                value=normalize_cost_customer_name(member.get("customer_name", "")) or "尚未绑定",
-                disabled=True,
-                help="客户绑定涉及专属价格，只能由后台管理员维护。",
-            )
             edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")))
             edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")))
             submitted = st.form_submit_button("保存资料", use_container_width=True)
@@ -3927,7 +4138,7 @@ def render_member_admin_management_page():
         keyword = st.text_input(
             "搜索会员",
             key="admin_member_keyword",
-            placeholder="输入账号、姓名、公司、客户名称、职务、邮箱或电话",
+            placeholder="输入账号、姓名、公司、职务、邮箱或电话",
         )
     status_map = {"启用": "active", "待审核": "pending", "停用": "disabled"}
     filtered_members = []
@@ -3961,12 +4172,6 @@ def render_member_admin_management_page():
                     edit_display_name = st.text_input("姓名/称呼", value=display_name, key=f"admin_member_display_{member_id}")
                 with field_cols[1]:
                     edit_company = st.text_input("公司", value=clean_text(member.get("company", "")), key=f"admin_member_company_{member_id}")
-                    edit_customer_name = st.text_input(
-                        "客户名称",
-                        value=normalize_cost_customer_name(member.get("customer_name", "")),
-                        max_chars=120,
-                        key=f"admin_member_customer_{member_id}",
-                    )
                 with field_cols[2]:
                     edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")), key=f"admin_member_email_{member_id}")
                     edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")), key=f"admin_member_phone_{member_id}")
@@ -3999,7 +4204,6 @@ def render_member_admin_management_page():
                         username=edit_username,
                         display_name=edit_display_name,
                         company=edit_company,
-                        customer_name=edit_customer_name,
                         job_title=edit_job_title,
                         email=edit_email,
                         phone=edit_phone,
@@ -4018,6 +4222,35 @@ def render_member_admin_management_page():
                         st.warning("请先勾选“确认删除此会员”。")
                     else:
                         ok, message = delete_member_account_admin(member_id)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+            member_customers = list_member_sales_customers(member_id)
+            st.markdown("##### 该会员登记的客户")
+            if not member_customers:
+                st.caption("此会员尚未登记客户。")
+            else:
+                st.caption("会员只能看到自己的客户清单；开启专属价格后，系统才会读取该客户代码对应的报价。")
+                for customer in member_customers:
+                    customer_id = int(customer.get("id", 0) or 0)
+                    customer_name = normalize_cost_customer_name(customer.get("customer_name", ""))
+                    access_enabled = bool(int(customer.get("price_access_enabled", 0) or 0))
+                    customer_cols = st.columns([0.62, 0.18, 0.20], gap="small")
+                    customer_cols[0].write(customer_name)
+                    customer_cols[1].write("专属价格" if access_enabled else "通用价格")
+                    action_label = "改用通用价" if access_enabled else "允许专属价"
+                    if customer_cols[2].button(
+                        action_label,
+                        key=f"admin_member_customer_access_{member_id}_{customer_id}",
+                        use_container_width=True,
+                    ):
+                        ok, message = set_member_sales_customer_price_access(
+                            member_id,
+                            customer_id,
+                            not access_enabled,
+                        )
                         if ok:
                             st.success(message)
                             st.rerun()
@@ -4189,7 +4422,6 @@ def render_member_approval_admin_page():
                 {"字段": "账号", "值": username},
                 {"字段": "姓名/称呼", "值": display_name},
                 {"字段": "公司", "值": clean_text(member.get("company", ""))},
-                {"字段": "客户名称", "值": normalize_cost_customer_name(member.get("customer_name", "")) or "尚未填写"},
                 {"字段": "邮箱", "值": clean_text(member.get("email", ""))},
                 {"字段": "电话", "值": clean_text(member.get("phone", ""))},
                 {"字段": "提交时间", "值": clean_text(member.get("created_at", ""))},
@@ -4407,7 +4639,6 @@ def member_matches_admin_keyword(member, keyword):
         member.get("username", ""),
         member.get("display_name", ""),
         member.get("company", ""),
-        member.get("customer_name", ""),
         member.get("job_title", ""),
         member.get("email", ""),
         member.get("phone", ""),
@@ -5073,7 +5304,7 @@ def clear_customer_dependent_session_state():
 
 
 def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", restored_name=""):
-    del restored_type, restored_name
+    del restored_type
     member = current_member()
     if not member:
         st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
@@ -5081,14 +5312,81 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         st.info("登录后首次使用搜索或 BOM 匹配时，需要先填写客户名称。")
         return "", "", True
 
-    identity_name = normalize_cost_customer_name(member.get("customer_name", ""))
-    if identity_name == "":
-        st.warning("此账号尚未绑定客户，暂时不能执行搜索或 BOM 匹配。请联系后台管理员完成客户绑定。")
+    member_id = int(member.get("id", 0) or 0)
+    customer_rows = list_member_sales_customers(member_id)
+    customer_by_key = {
+        normalize_cost_customer_key(row.get("customer_name", "")): row
+        for row in customer_rows
+        if normalize_cost_customer_key(row.get("customer_name", ""))
+    }
+    customer_names = [normalize_cost_customer_name(row.get("customer_name", "")) for row in customer_rows]
+    customer_names = [name for name in customer_names if name]
+    new_customer_option = "新客户"
+    selector_key = f"{key_prefix}_member_sales_customer_selector"
+    pending_selection_key = f"{key_prefix}_member_sales_customer_pending_selection"
+    pending_selection = normalize_cost_customer_name(st.session_state.pop(pending_selection_key, ""))
+    remembered_selection = normalize_cost_customer_name(
+        st.session_state.get(SALES_CUSTOMER_SELECTION_NAME_KEY, "")
+    )
+    restored_name = normalize_cost_customer_name(restored_name)
+    desired_selection = next(
+        (
+            name
+            for name in [pending_selection, remembered_selection, restored_name]
+            if normalize_cost_customer_key(name) in customer_by_key
+        ),
+        customer_names[0] if customer_names else new_customer_option,
+    )
+    current_widget_value = normalize_cost_customer_name(st.session_state.get(selector_key, ""))
+    if pending_selection and normalize_cost_customer_key(pending_selection) in customer_by_key:
+        st.session_state[selector_key] = desired_selection
+    elif current_widget_value not in customer_names + [new_customer_option]:
+        st.session_state[selector_key] = desired_selection
+
+    selected_name = st.selectbox(
+        "当前客户",
+        customer_names + [new_customer_option],
+        key=selector_key,
+        help="这里只显示当前会员账号自己登记过的客户。",
+    )
+    if selected_name == new_customer_option:
+        with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
+            new_customer_name = st.text_input(
+                "新客户名称",
+                max_chars=120,
+                placeholder="请输入客户名称",
+            )
+            save_customer = st.form_submit_button("保存客户并继续", use_container_width=True)
+        if save_customer:
+            ok, message, saved_customer = save_member_sales_customer(member_id, new_customer_name)
+            if ok and saved_customer:
+                saved_name = normalize_cost_customer_name(saved_customer.get("customer_name", ""))
+                clear_customer_dependent_session_state()
+                st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = saved_name
+                st.session_state[pending_selection_key] = saved_name
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
         st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
         st.session_state.pop(SALES_COST_CUSTOMER_NAME_KEY, None)
         return "", "", False
 
-    customer_type, customer_name, ready = resolve_member_customer_price_scope(identity_name)
+    selected_key = normalize_cost_customer_key(selected_name)
+    selected_customer = customer_by_key.get(selected_key)
+    previous_selection = normalize_cost_customer_name(
+        st.session_state.get(SALES_CUSTOMER_SELECTION_NAME_KEY, "")
+    )
+    if normalize_cost_customer_key(previous_selection) != selected_key:
+        clear_customer_dependent_session_state()
+        selected_customer = select_member_sales_customer(member_id, selected_name) or selected_customer
+    st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = selected_name
+
+    price_access_enabled = bool(int((selected_customer or {}).get("price_access_enabled", 0) or 0))
+    if price_access_enabled:
+        customer_type, customer_name, ready = resolve_member_customer_price_scope(selected_name)
+    else:
+        customer_type, customer_name, ready = COST_CUSTOMER_TYPE_NEW, "", True
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
@@ -5098,9 +5396,9 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         if clean_text(record.get("group_name", "")):
             price_source += f"（{record.get('group_name')}）"
     else:
-        price_source = "新客户通用价（后台尚无此客户的专属报价）"
-    st.success(f"当前客户：{identity_name}　·　价格来源：{price_source}")
-    st.caption("客户名称由后台管理员绑定；系统只读取该客户代码、同集团代码或通用价格，不会读取其他集团价格。")
+        price_source = "通用价格（后台尚未允许此账号读取该客户专属报价）"
+    st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
+    st.caption("可在上方下拉选单切换自己登记过的客户；选择“新客户”即可新增。专属价格权限由后台管理员维护。")
     return customer_type, customer_name, ready
 
 

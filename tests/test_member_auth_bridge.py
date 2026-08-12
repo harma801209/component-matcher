@@ -70,7 +70,7 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('if query_token != "" and token == query_token:', current_member_function)
         self.assertIn('update_query_params(**{MEMBER_AUTH_QUERY_PARAM: ""})', current_member_function)
 
-    def test_customer_binding_is_admin_only(self):
+    def test_member_customer_selector_is_private_and_supports_new_customers(self):
         profile_start = self.matcher.index("def update_current_member_profile(")
         profile_end = self.matcher.index("\ndef change_current_member_password", profile_start)
         profile_function = self.matcher[profile_start:profile_end]
@@ -80,8 +80,24 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         selector_end = self.matcher.index("\ndef cost_price_item_change_key", selector_start)
         selector_function = self.matcher[selector_start:selector_end]
         self.assertNotIn("list_sales_customers", selector_function)
-        self.assertNotIn("保存客户名称并继续", selector_function)
-        self.assertIn("请联系后台管理员完成客户绑定", selector_function)
+        self.assertIn("list_member_sales_customers", selector_function)
+        self.assertIn('new_customer_option = "新客户"', selector_function)
+        self.assertIn("save_member_sales_customer", selector_function)
+        self.assertIn("price_access_enabled", selector_function)
+
+    def test_old_single_customer_field_is_not_rendered(self):
+        center_start = self.matcher.index("def render_member_center_page(")
+        center_end = self.matcher.index("\ndef render_member_admin_management_page", center_start)
+        center_function = self.matcher[center_start:center_end]
+        self.assertNotIn('{"字段": "客户名称"', center_function)
+        self.assertNotIn('st.text_input(\n                "客户名称"', center_function)
+
+        admin_start = center_end + 1
+        admin_end = self.matcher.index("\ndef render_member_search_logs_admin_page", admin_start)
+        admin_function = self.matcher[admin_start:admin_end]
+        self.assertNotIn('edit_customer_name = st.text_input', admin_function)
+        self.assertIn("list_member_sales_customers", admin_function)
+        self.assertIn("set_member_sales_customer_price_access", admin_function)
 
     def test_formal_entry_blocks_search_engine_indexing_and_referrers(self):
         self.assertIn('dispatchPath === "/robots.txt"', self.worker)
