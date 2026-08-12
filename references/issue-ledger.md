@@ -1,5 +1,14 @@
 # Issue Ledger
 
+## 2026-08-12 - Member searches did not persist a sales customer identity
+
+- Symptom: ordinary matching and BOM matching could be started without identifying the sales customer. Users had to choose a temporary new/existing-customer price scope, so the same member could accidentally search under the wrong quotation context.
+- Root cause: customer selection existed only in Streamlit session state and was not part of the member profile. The price selector therefore had no durable identity from which to select a dedicated active quotation.
+- Fix: add a backward-compatible `customer_name` member-profile field. The first ordinary search or BOM match now requires a logged-in member to save a customer name. Later matching resolves that exact normalized name to an active dedicated cost list/manual quotation; if none exists, it uses the new-customer general price. There is no fuzzy or cross-customer price fallback.
+- Administration: members can view and update the bound customer in Member Center, while administrators can search, view, and edit it from member management. Changing the customer clears customer-dependent result, BOM, checkpoint, and cost-context caches.
+- Data safety: legacy member databases gain only the new empty column; existing accounts, roles, passwords, sessions, and profile fields remain intact. Restored older remote snapshots are migrated before session restoration.
+- Regression: legacy-schema migration preserves the old account, profile changes persist the customer name, empty customer identity is not ready for matching, and customer A/B/general prices remain isolated. The 46-test release safety gate passes with protected runtime fingerprints unchanged.
+
 ## 2026-07-14 - Resistor matches did not prioritize FOJAN
 
 - Bug: Resistor results ranked PDC, Walsin, and UNI-ROYAL ahead of FOJAN. An exact FOJAN query such as `FRC0603F1402TS` also removed the source FOJAN row from the lower match table, so changing brand rank alone would not fix the reported screen.

@@ -1215,6 +1215,8 @@ def pull_member_auth_remote_snapshot():
                 os.remove(temp_path)
             except OSError:
                 pass
+        _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(os.path.abspath(MEMBER_AUTH_DB_PATH))
+        ensure_member_auth_schema()
         restored_sessions = restore_unexpired_member_sessions(local_sessions)
         save_member_auth_remote_state(remote_version, calculated_sha)
         return "restored_with_local_sessions" if restored_sessions else "restored"
@@ -1729,6 +1731,7 @@ def ensure_member_auth_schema():
                 password_hash TEXT NOT NULL,
                 display_name TEXT NOT NULL DEFAULT '',
                 company TEXT NOT NULL DEFAULT '',
+                customer_name TEXT NOT NULL DEFAULT '',
                 email TEXT NOT NULL DEFAULT '',
                 phone TEXT NOT NULL DEFAULT '',
                 role TEXT NOT NULL DEFAULT 'member',
@@ -1801,6 +1804,14 @@ def ensure_member_auth_schema():
             ON member_search_logs(search_date, id DESC);
                 """
             )
+            member_columns = {
+                clean_text(row[1])
+                for row in conn.execute("PRAGMA table_info(members)").fetchall()
+            }
+            if "customer_name" not in member_columns:
+                conn.execute(
+                    "ALTER TABLE members ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''"
+                )
             migrate_member_timestamp_timezone_if_needed(conn)
             conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
             conn.commit()
@@ -1998,7 +2009,15 @@ def get_member_by_id(member_id):
     return member_row_to_dict(row)
 
 
-def create_member_account(username, password, display_name="", company="", email="", phone=""):
+def create_member_account(
+    username,
+    password,
+    display_name="",
+    company="",
+    email="",
+    phone="",
+    customer_name="",
+):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     username = clean_text(username)
@@ -2015,16 +2034,17 @@ def create_member_account(username, password, display_name="", company="", email
             conn.execute(
                 """
                 INSERT INTO members (
-                    username, password_hash, display_name, company, email, phone,
+                    username, password_hash, display_name, company, customer_name, email, phone,
                     role, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'member', 'pending', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'member', 'pending', ?, ?)
                 """,
                 (
                     username,
                     hash_member_password(password),
                     clean_text(display_name) or username,
                     clean_text(company),
+                    clean_text(customer_name),
                     clean_text(email),
                     clean_text(phone),
                     now,
@@ -2069,6 +2089,7 @@ MEMBER_PROFILE_FIELD_LABELS = {
     "username": "账号",
     "display_name": "姓名/称呼",
     "company": "公司",
+    "customer_name": "客户名称",
     "email": "邮箱",
     "phone": "电话",
     "role": "角色",
@@ -2914,7 +2935,7 @@ def list_members_for_admin():
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT id, username, display_name, company, email, phone, role, status,
+            SELECT id, username, display_name, company, customer_name, email, phone, role, status,
                    created_at, updated_at, last_login_at
             FROM members
             ORDER BY id DESC
@@ -2950,6 +2971,7 @@ def member_admin_summary_dataframe(members):
                 "账号": member.get("username", ""),
                 "姓名/称呼": member.get("display_name", ""),
                 "公司": member.get("company", ""),
+                "客户名称": member.get("customer_name", ""),
                 "邮箱": member.get("email", ""),
                 "电话": member.get("phone", ""),
                 "角色": format_member_role(member.get("role", "")),
@@ -2962,21 +2984,38 @@ def member_admin_summary_dataframe(members):
     return pd.DataFrame(rows)
 
 
-def update_current_member_profile(member_id, display_name="", company="", email="", phone=""):
+def update_current_member_profile(
+    member_id,
+    display_name="",
+    company="",
+    email="",
+    phone="",
+    customer_name=None,
+):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
     except Exception:
         return False, "会员 ID 无效。"
+    existing_member = get_member_by_id(member_id) or {}
     new_values = {
         "display_name": clean_text(display_name),
         "company": clean_text(company),
+        "customer_name": re.sub(
+            r"\s+",
+            " ",
+            clean_text(existing_member.get("customer_name", "") if customer_name is None else customer_name),
+        ).strip(),
         "email": clean_text(email),
         "phone": clean_text(phone),
     }
     if new_values["display_name"] == "":
         return False, "姓名/称呼不能为空。"
+    if customer_name is not None and new_values["customer_name"] == "":
+        return False, "客户名称不能为空。"
+    if len(new_values["customer_name"]) > 120:
+        return False, "客户名称不能超过 120 个字符。"
     now = current_timestamp_text()
     try:
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -2988,19 +3027,20 @@ def update_current_member_profile(member_id, display_name="", company="", email=
             changes = collect_member_profile_changes(
                 old_member,
                 new_values,
-                ["display_name", "company", "email", "phone"],
+                ["display_name", "company", "customer_name", "email", "phone"],
             )
             if not changes:
                 return True, "资料没有变化。"
             conn.execute(
                 """
                 UPDATE members
-                SET display_name=?, company=?, email=?, phone=?, updated_at=?
+                SET display_name=?, company=?, customer_name=?, email=?, phone=?, updated_at=?
                 WHERE id=?
                 """,
                 (
                     new_values["display_name"],
                     new_values["company"],
+                    new_values["customer_name"],
                     new_values["email"],
                     new_values["phone"],
                     now,
@@ -3056,7 +3096,19 @@ def change_current_member_password(member_id, current_password="", new_password=
         return False, f"密码更新失败：{exc}"
 
 
-def update_member_account_admin(member_id, username, display_name="", company="", email="", phone="", role="member", status="active", new_password="", actor_username=""):
+def update_member_account_admin(
+    member_id,
+    username,
+    display_name="",
+    company="",
+    email="",
+    phone="",
+    role="member",
+    status="active",
+    new_password="",
+    actor_username="",
+    customer_name=None,
+):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
@@ -3085,21 +3137,28 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                 "username": username,
                 "display_name": clean_text(display_name) or username,
                 "company": clean_text(company),
+                "customer_name": re.sub(
+                    r"\s+",
+                    " ",
+                    clean_text(old_member.get("customer_name", "") if customer_name is None else customer_name),
+                ).strip(),
                 "email": clean_text(email),
                 "phone": clean_text(phone),
                 "role": role_value,
                 "status": status_value,
             }
+            if len(new_values["customer_name"]) > 120:
+                return False, "客户名称不能超过 120 个字符。"
             changes = collect_member_profile_changes(
                 old_member,
                 new_values,
-                ["username", "display_name", "company", "email", "phone", "role", "status"],
+                ["username", "display_name", "company", "customer_name", "email", "phone", "role", "status"],
             )
             if password_text:
                 conn.execute(
                     """
                     UPDATE members
-                    SET username=?, display_name=?, company=?, email=?, phone=?, role=?, status=?,
+                    SET username=?, display_name=?, company=?, customer_name=?, email=?, phone=?, role=?, status=?,
                         password_hash=?, updated_at=?
                     WHERE id=?
                     """,
@@ -3107,6 +3166,7 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                         username,
                         new_values["display_name"],
                         new_values["company"],
+                        new_values["customer_name"],
                         new_values["email"],
                         new_values["phone"],
                         role_value,
@@ -3121,13 +3181,14 @@ def update_member_account_admin(member_id, username, display_name="", company=""
                 conn.execute(
                     """
                     UPDATE members
-                    SET username=?, display_name=?, company=?, email=?, phone=?, role=?, status=?, updated_at=?
+                    SET username=?, display_name=?, company=?, customer_name=?, email=?, phone=?, role=?, status=?, updated_at=?
                     WHERE id=?
                     """,
                     (
                         username,
                         new_values["display_name"],
                         new_values["company"],
+                        new_values["customer_name"],
                         new_values["email"],
                         new_values["phone"],
                         role_value,
@@ -3719,6 +3780,7 @@ def render_member_center_page():
             {"字段": "账号", "值": member.get("username", "")},
             {"字段": "姓名/称呼", "值": member.get("display_name", "")},
             {"字段": "公司", "值": member.get("company", "")},
+            {"字段": "客户名称", "值": member.get("customer_name", "") or "尚未填写"},
             {"字段": "邮箱", "值": member.get("email", "")},
             {"字段": "电话", "值": member.get("phone", "")},
             {"字段": "状态", "值": format_member_status(member.get("status", ""))},
@@ -3734,6 +3796,12 @@ def render_member_center_page():
         with st.form(f"member_profile_edit_{member.get('id', '')}", clear_on_submit=False):
             edit_display_name = st.text_input("姓名/称呼", value=clean_text(member.get("display_name", "")))
             edit_company = st.text_input("公司", value=clean_text(member.get("company", "")))
+            edit_customer_name = st.text_input(
+                "客户名称",
+                value=normalize_cost_customer_name(member.get("customer_name", "")),
+                max_chars=120,
+                help="搜索与 BOM 会按此名称精确识别客户专属报价。",
+            )
             edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")))
             edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")))
             submitted = st.form_submit_button("保存资料", use_container_width=True)
@@ -3742,11 +3810,14 @@ def render_member_center_page():
                     member.get("id"),
                     display_name=edit_display_name,
                     company=edit_company,
+                    customer_name=edit_customer_name,
                     email=edit_email,
                     phone=edit_phone,
                 )
                 if ok:
                     st.session_state["_member_display_name"] = clean_text(edit_display_name) or clean_text(member.get("username", ""))
+                    if normalize_cost_customer_key(edit_customer_name) != normalize_cost_customer_key(member.get("customer_name", "")):
+                        clear_customer_dependent_session_state()
                 st.session_state["_member_profile_flash"] = {"ok": ok, "message": message}
                 st.rerun()
 
@@ -3801,7 +3872,7 @@ def render_member_admin_management_page():
         keyword = st.text_input(
             "搜索会员",
             key="admin_member_keyword",
-            placeholder="输入账号、姓名、公司、邮箱或电话",
+            placeholder="输入账号、姓名、公司、客户名称、邮箱或电话",
         )
     status_map = {"启用": "active", "待审核": "pending", "停用": "disabled"}
     filtered_members = []
@@ -3835,9 +3906,15 @@ def render_member_admin_management_page():
                     edit_display_name = st.text_input("姓名/称呼", value=display_name, key=f"admin_member_display_{member_id}")
                 with field_cols[1]:
                     edit_company = st.text_input("公司", value=clean_text(member.get("company", "")), key=f"admin_member_company_{member_id}")
-                    edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")), key=f"admin_member_phone_{member_id}")
+                    edit_customer_name = st.text_input(
+                        "客户名称",
+                        value=normalize_cost_customer_name(member.get("customer_name", "")),
+                        max_chars=120,
+                        key=f"admin_member_customer_{member_id}",
+                    )
                 with field_cols[2]:
                     edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")), key=f"admin_member_email_{member_id}")
+                    edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")), key=f"admin_member_phone_{member_id}")
                     status_options = ["启用", "待审核", "停用"]
                     current_status = normalize_member_status(member.get("status", ""))
                     status_index = {"active": 0, "pending": 1, "disabled": 2}.get(current_status, 0)
@@ -3861,6 +3938,7 @@ def render_member_admin_management_page():
                         username=edit_username,
                         display_name=edit_display_name,
                         company=edit_company,
+                        customer_name=edit_customer_name,
                         email=edit_email,
                         phone=edit_phone,
                         role="admin" if edit_role_label == "管理员" else "member",
@@ -4049,6 +4127,7 @@ def render_member_approval_admin_page():
                 {"字段": "账号", "值": username},
                 {"字段": "姓名/称呼", "值": display_name},
                 {"字段": "公司", "值": clean_text(member.get("company", ""))},
+                {"字段": "客户名称", "值": normalize_cost_customer_name(member.get("customer_name", "")) or "尚未填写"},
                 {"字段": "邮箱", "值": clean_text(member.get("email", ""))},
                 {"字段": "电话", "值": clean_text(member.get("phone", ""))},
                 {"字段": "提交时间", "值": clean_text(member.get("created_at", ""))},
@@ -4266,6 +4345,7 @@ def member_matches_admin_keyword(member, keyword):
         member.get("username", ""),
         member.get("display_name", ""),
         member.get("company", ""),
+        member.get("customer_name", ""),
         member.get("email", ""),
         member.get("phone", ""),
     ]
@@ -4597,11 +4677,11 @@ def list_existing_cost_customers():
             FROM (
                 SELECT customer_name, uploaded_at AS updated_at
                 FROM cost_price_lists
-                WHERE customer_type=? AND customer_key<>''
+                WHERE customer_type=? AND customer_key<>'' AND active=1
                 UNION ALL
                 SELECT customer_name, updated_at
                 FROM cost_price_manual_items
-                WHERE customer_type=? AND customer_key<>''
+                WHERE customer_type=? AND customer_key<>'' AND active=1
             )
             WHERE IFNULL(customer_name, '')<>''
             GROUP BY customer_name
@@ -4612,59 +4692,80 @@ def list_existing_cost_customers():
     return [normalize_cost_customer_name(row[0]) for row in rows if normalize_cost_customer_name(row[0])]
 
 
+def resolve_member_customer_price_scope(customer_name, existing_customers=None):
+    customer_name = normalize_cost_customer_name(customer_name)
+    if customer_name == "":
+        return "", "", False
+    customer_key = normalize_cost_customer_key(customer_name)
+    customer_options = list_existing_cost_customers() if existing_customers is None else list(existing_customers)
+    for option in customer_options:
+        normalized_option = normalize_cost_customer_name(option)
+        if normalized_option and normalize_cost_customer_key(normalized_option) == customer_key:
+            return COST_CUSTOMER_TYPE_EXISTING, normalized_option, True
+    return COST_CUSTOMER_TYPE_NEW, "", True
+
+
+def clear_customer_dependent_session_state():
+    for key in [
+        SALES_COST_CUSTOMER_TYPE_KEY,
+        SALES_COST_CUSTOMER_NAME_KEY,
+        "_bom_result_signature",
+        "_bom_result_df",
+        "_bom_export_bytes",
+        "_bom_sheet_results",
+        "_bom_match_checkpoint",
+        "_active_bom_job_id",
+    ]:
+        st.session_state.pop(key, None)
+
+
 def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", restored_name=""):
-    type_key = f"{key_prefix}_cost_customer_type"
-    name_key = f"{key_prefix}_cost_customer_name"
-    if restored_type and type_key not in st.session_state:
-        restored_label = COST_CUSTOMER_TYPE_LABELS.get(
-            normalize_cost_customer_type(restored_type, default=""),
-            "",
-        )
-        if restored_label:
-            st.session_state[type_key] = restored_label
-    if restored_name and name_key not in st.session_state:
-        st.session_state[name_key] = normalize_cost_customer_name(restored_name)
-    labels = [COST_CUSTOMER_TYPE_LABELS[COST_CUSTOMER_TYPE_NEW], COST_CUSTOMER_TYPE_LABELS[COST_CUSTOMER_TYPE_EXISTING]]
-    if hasattr(st, "segmented_control"):
-        selected_label = st.segmented_control(
-            "客户价格类型",
-            labels,
-            key=type_key,
-            selection_mode="single",
-            width="stretch",
-        )
-    else:
-        selected_label = st.radio("客户价格类型", labels, key=type_key, index=None, horizontal=True)
-    customer_type = {
-        labels[0]: COST_CUSTOMER_TYPE_NEW,
-        labels[1]: COST_CUSTOMER_TYPE_EXISTING,
-    }.get(selected_label, "")
-    customer_name = ""
-    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
-        customer_options = list_existing_cost_customers()
-        customer_name = st.selectbox(
-            "选择旧有客户",
-            customer_options,
-            key=name_key,
-            index=None,
-            placeholder="请选择客户；不同客户报价彼此隔离",
-        ) if customer_options else ""
-        if not customer_options:
-            st.warning("后台尚未建立旧有客户专属报价，请先在成本维护中上传或新增。")
-    ready = customer_type == COST_CUSTOMER_TYPE_NEW or (
-        customer_type == COST_CUSTOMER_TYPE_EXISTING and normalize_cost_customer_name(customer_name) != ""
-    )
-    if customer_type:
-        normalized_type, normalized_name, _ = normalize_cost_customer_context(customer_type, customer_name)
-        st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = normalized_type
-        st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = normalized_name
-        if ready:
-            st.caption(f"本次成本来源：{cost_customer_context_label(normalized_type, normalized_name)}。不会读取其他客户的价格。")
-    else:
+    del restored_type, restored_name
+    member = current_member()
+    if not member:
         st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
         st.session_state.pop(SALES_COST_CUSTOMER_NAME_KEY, None)
-        st.info("请先选择新客户或旧有客户，系统才会执行匹配。")
-    return customer_type, normalize_cost_customer_name(customer_name), ready
+        st.info("登录后首次使用搜索或 BOM 匹配时，需要先填写客户名称。")
+        return "", "", True
+
+    identity_name = normalize_cost_customer_name(member.get("customer_name", ""))
+    if identity_name == "":
+        st.info("此账号第一次使用匹配功能，请先填写客户名称。保存后普通搜索和 BOM 会自动使用该客户对应的价格。")
+        with st.form(f"{key_prefix}_member_customer_identity", clear_on_submit=False):
+            entered_name = st.text_input(
+                "客户名称",
+                max_chars=120,
+                placeholder="请输入完整客户名称，例如：深圳市某某科技有限公司",
+            )
+            submitted = st.form_submit_button("保存客户名称并继续", type="primary", use_container_width=True)
+        if submitted:
+            ok, message = update_current_member_profile(
+                member.get("id"),
+                display_name=clean_text(member.get("display_name", "")) or clean_text(member.get("username", "")),
+                company=member.get("company", ""),
+                email=member.get("email", ""),
+                phone=member.get("phone", ""),
+                customer_name=entered_name,
+            )
+            if ok:
+                clear_customer_dependent_session_state()
+                st.session_state["_member_profile_flash"] = {"ok": True, "message": "客户名称已保存，将自动按该客户读取价格。"}
+                st.rerun()
+            st.error(message)
+        st.session_state.pop(SALES_COST_CUSTOMER_TYPE_KEY, None)
+        st.session_state.pop(SALES_COST_CUSTOMER_NAME_KEY, None)
+        return "", "", False
+
+    customer_type, customer_name, ready = resolve_member_customer_price_scope(identity_name)
+    st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
+    st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+        price_source = f"客户专属价：{customer_name}"
+    else:
+        price_source = "新客户通用价（后台尚无此客户的专属报价）"
+    st.success(f"当前客户：{identity_name}　·　价格来源：{price_source}")
+    st.caption("客户名称已绑定会员账号，可在会员中心修改；专属报价按规范化后的完整客户名称精确识别，不会读取其他客户价格。")
+    return customer_type, customer_name, ready
 
 
 def cost_price_item_change_key(item):
@@ -40896,7 +40997,7 @@ def render_bom_upload_page():
                     if isinstance(restored_bom_job, dict)
                     else {}
                 )
-                st.markdown('<div class="section-title">客户价格</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">当前客户</div>', unsafe_allow_html=True)
                 bom_customer_type, bom_customer_name, bom_customer_ready = render_sales_cost_customer_selector(
                     key_prefix=f"bom_{workbook_signature}",
                     restored_type=restored_settings.get("customer_type", ""),
@@ -41647,6 +41748,7 @@ if is_bom_page_requested():
 pending_search_after_login = resumable_member_search_query()
 pending_brand_mode, pending_search_brands = resumable_member_search_brand_settings()
 pending_customer_type, pending_customer_name = resumable_member_search_customer_context()
+st.markdown('<div class="section-title">当前客户</div>', unsafe_allow_html=True)
 search_customer_type, search_customer_name, search_customer_ready = render_sales_cost_customer_selector(
     key_prefix="sales_search",
     restored_type=pending_customer_type,
@@ -41732,7 +41834,7 @@ if search_requested:
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
     if not search_customer_ready:
-        st.warning("请先选择新客户或旧有客户；旧有客户还必须选择客户名称。")
+        st.warning("请先填写并保存客户名称。")
         st.stop()
     if not query_input.strip():
         clear_pending_member_search()

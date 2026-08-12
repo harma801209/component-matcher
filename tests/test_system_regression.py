@@ -376,11 +376,13 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(expires_at, int(time.time()) + expected_ttl - 10)
 
         ok, message = app["update_current_member_profile"](
-            member["id"], "Case Renamed", "New Co", "new@example.com", "200"
+            member["id"], "Case Renamed", "New Co", "new@example.com", "200", "客户A"
         )
         self.assertTrue(ok, message)
+        updated_member = app["get_member_by_id"](member["id"])
+        self.assertEqual(updated_member["customer_name"], "客户A")
         logs_before = app["list_member_profile_change_logs"](member["id"])
-        self.assertGreaterEqual(len(logs_before), 4)
+        self.assertGreaterEqual(len(logs_before), 5)
         ok, message = app["change_current_member_password"](
             member["id"], "secret1", "secret2", "secret2"
         )
@@ -450,6 +452,46 @@ class SystemRegressionTests(unittest.TestCase):
                 "SELECT password_hash FROM members WHERE id=?", (int(member["id"]),)
             ).fetchone()[0]
         self.assertEqual(stored_hash, member["password_hash"])
+
+    def test_02aa_legacy_member_database_adds_customer_name_without_losing_accounts(self):
+        app = self.app
+        original_member_path = app["MEMBER_AUTH_DB_PATH"]
+        legacy_path = os.path.join(self.temp_dir, "legacy-member-customer.sqlite")
+        try:
+            with sqlite3.connect(legacy_path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE members (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        display_name TEXT NOT NULL DEFAULT '',
+                        company TEXT NOT NULL DEFAULT '',
+                        email TEXT NOT NULL DEFAULT '',
+                        phone TEXT NOT NULL DEFAULT '',
+                        role TEXT NOT NULL DEFAULT 'member',
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_login_at TEXT NOT NULL DEFAULT ''
+                    );
+                    INSERT INTO members
+                        (username, password_hash, display_name, created_at, updated_at)
+                    VALUES ('legacy-customer', 'hash', 'Legacy Customer', '2026-01-01', '2026-01-01');
+                    """
+                )
+            app["MEMBER_AUTH_DB_PATH"] = legacy_path
+            app["_MEMBER_AUTH_SCHEMA_READY_PATHS"].discard(os.path.abspath(legacy_path))
+            app["ensure_member_auth_schema"]()
+            with sqlite3.connect(legacy_path) as conn:
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(members)").fetchall()}
+                row = conn.execute(
+                    "SELECT username, display_name, customer_name FROM members"
+                ).fetchone()
+            self.assertIn("customer_name", columns)
+            self.assertEqual(row, ("legacy-customer", "Legacy Customer", ""))
+        finally:
+            app["MEMBER_AUTH_DB_PATH"] = original_member_path
 
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app
@@ -2436,6 +2478,18 @@ class SystemRegressionTests(unittest.TestCase):
                 {},
             )
             self.assertEqual(set(app["list_existing_cost_customers"]()), {"客户A", "客户B"})
+            self.assertEqual(
+                app["resolve_member_customer_price_scope"](" 客户 A ", ["客户A", "客户B"]),
+                ("existing", "客户A", True),
+            )
+            self.assertEqual(
+                app["resolve_member_customer_price_scope"]("新客户C", ["客户A", "客户B"]),
+                ("new", "", True),
+            )
+            self.assertEqual(
+                app["resolve_member_customer_price_scope"]("", ["客户A", "客户B"]),
+                ("", "", False),
+            )
 
             signature_a = app["build_bom_workbook_run_signature"](
                 UploadedBytes("same.xlsx", b"same"),

@@ -3831,3 +3831,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Sales search and BOM matching now require customer selection; existing customers must choose a customer with dedicated pricing.
 - Active lists, manual quotes, lookup caches, and BOM job signatures are isolated per customer, with no fallback to another customer's price.
 - Legacy price records migrate in place as new-customer general prices. All 45 safety-gate regressions pass and protected runtime database fingerprints are unchanged.
+
+### 2026-08-12 [Member customer identity] Require customer binding before matching
+
+- Added a persistent customer-name field to member profiles through an additive SQLite migration. Existing accounts are preserved and receive an empty value until their first matching action.
+- The first ordinary search or BOM match now requires the logged-in member to enter and save a customer name. Pending pre-login searches and uploaded BOM work remain resumable after login and customer binding.
+- Matching automatically uses an active dedicated quotation only when its normalized customer name exactly equals the account-bound customer; otherwise it uses the new-customer general price. It never reads another customer's price.
+- Added customer display/editing to Member Center and customer search/display/editing to backend member management. Changing the bound customer invalidates customer-dependent search and BOM result caches.
+- Older remotely restored member snapshots are schema-migrated before active local sessions are merged back, preserving both legacy accounts and valid login sessions.
+- Four focused regressions and the complete 46-test release safety gate pass. Tests use isolated runtime databases and protected member, cost-list, and no-match fingerprints remain unchanged.
