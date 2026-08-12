@@ -453,7 +453,7 @@ class SystemRegressionTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(stored_hash, member["password_hash"])
 
-    def test_02aa_legacy_member_database_adds_customer_name_without_losing_accounts(self):
+    def test_02aa_legacy_member_database_adds_profile_columns_without_losing_accounts(self):
         app = self.app
         original_member_path = app["MEMBER_AUTH_DB_PATH"]
         legacy_path = os.path.join(self.temp_dir, "legacy-member-customer.sqlite")
@@ -488,16 +488,84 @@ class SystemRegressionTests(unittest.TestCase):
             with sqlite3.connect(legacy_path) as conn:
                 columns = {row[1] for row in conn.execute("PRAGMA table_info(members)").fetchall()}
                 row = conn.execute(
-                    "SELECT username, display_name, customer_name FROM members"
+                    "SELECT username, display_name, customer_name, job_title FROM members"
                 ).fetchone()
             self.assertIn("customer_name", columns)
-            self.assertEqual(row, ("legacy-customer", "Legacy Customer", ""))
+            self.assertIn("job_title", columns)
+            self.assertEqual(row, ("legacy-customer", "Legacy Customer", "", ""))
             self.assertIn(
                 (os.path.abspath(legacy_path), app["MEMBER_AUTH_SCHEMA_VERSION"]),
                 app["_MEMBER_AUTH_SCHEMA_READY_PATHS"],
             )
         finally:
             app["MEMBER_AUTH_DB_PATH"] = original_member_path
+
+    def test_02ab_job_title_is_admin_managed_and_controls_cost_visibility(self):
+        app = self.app
+        ok, message = app["create_member_account"](
+            "SalesTitleUser",
+            "secret1",
+            display_name="Sales Title User",
+            company="Sales Co",
+            email="sales@example.com",
+            phone="300",
+        )
+        self.assertTrue(ok, message)
+        member = app["get_member_by_username"]("salestitleuser")
+        ok, message = app["approve_member_account_admin"](member["id"])
+        self.assertTrue(ok, message)
+        member = app["get_member_by_id"](member["id"])
+        self.assertEqual(member.get("job_title", ""), "")
+        self.assertFalse(app["member_can_view_cost"](member))
+
+        ok, message = app["update_member_account_admin"](
+            member["id"],
+            username=member["username"],
+            display_name=member["display_name"],
+            company=member["company"],
+            customer_name=member.get("customer_name", ""),
+            job_title="销售",
+            email=member["email"],
+            phone=member["phone"],
+            role=member["role"],
+            status=member["status"],
+            actor_username="regression-admin",
+        )
+        self.assertTrue(ok, message)
+        sales_member = app["get_member_by_id"](member["id"])
+        self.assertEqual(sales_member["job_title"], "销售")
+        self.assertTrue(app["member_can_view_cost"](sales_member))
+
+        ok, message = app["update_current_member_profile"](
+            member["id"],
+            "Sales Renamed",
+            "Sales Co 2",
+            "sales2@example.com",
+            "301",
+        )
+        self.assertTrue(ok, message)
+        self.assertEqual(app["get_member_by_id"](member["id"])["job_title"], "销售")
+
+        non_sales_member = dict(sales_member, job_title="工程")
+        assistant_member = dict(sales_member, job_title=" 销售 助理 ")
+        admin_member = dict(non_sales_member, role="admin")
+        self.assertFalse(app["member_can_view_cost"](non_sales_member))
+        self.assertTrue(app["member_can_view_cost"](assistant_member))
+        self.assertTrue(app["member_can_view_cost"](admin_member))
+
+        visible_df = pd.DataFrame(
+            [{"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001TS", "成本": "1.70", "更新时间": "2026-08-12", "MOQ": "10000PCS"}]
+        )
+        restricted_df = app["apply_search_cost_visibility"](visible_df, can_view_cost=False)
+        self.assertNotIn("成本", restricted_df.columns)
+        self.assertNotIn("更新时间", restricted_df.columns)
+        self.assertIn("MOQ", restricted_df.columns)
+        self.assertIn("成本", app["apply_search_cost_visibility"](visible_df, can_view_cost=True).columns)
+
+        summary = app["member_admin_summary_dataframe"]([app["get_member_by_id"](member["id"])])
+        self.assertIn("职务", summary.columns)
+        logs = app["list_member_profile_change_logs"](member["id"])
+        self.assertTrue(any(row.get("field_name") == "job_title" for row in logs))
 
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app
@@ -3004,6 +3072,31 @@ class SystemRegressionTests(unittest.TestCase):
             )
             self.assertNotEqual(values["匹配说明"], "")
             exported_workbook.close()
+
+            restricted_export_bytes = app["bom_to_excel_bytes"](
+                result,
+                source_df,
+                source_workbook=source_workbook,
+                sheet_results=[
+                    {
+                        "sheet_name": source_workbook["sheet_frames"][0]["sheet_name"],
+                        "source_df": source_df,
+                        "result_df": result,
+                    }
+                ],
+                include_cost=False,
+            )
+            restricted_workbook = load_workbook(BytesIO(restricted_export_bytes), data_only=False)
+            restricted_sheet = restricted_workbook.active
+            restricted_headers = [
+                restricted_sheet.cell(row=1, column=idx).value
+                for idx in range(1, restricted_sheet.max_column + 1)
+            ]
+            self.assertNotIn("匹配成本", restricted_headers)
+            self.assertNotIn("成本更新时间", restricted_headers)
+            self.assertIn("匹配型号", restricted_headers)
+            self.assertIn("匹配MOQ", restricted_headers)
+            restricted_workbook.close()
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

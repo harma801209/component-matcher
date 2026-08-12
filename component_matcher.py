@@ -190,7 +190,7 @@ MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
 _MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
-MEMBER_AUTH_SCHEMA_VERSION = 2
+MEMBER_AUTH_SCHEMA_VERSION = 3
 MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
 MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
 _MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
@@ -1742,6 +1742,7 @@ def ensure_member_auth_schema():
                 display_name TEXT NOT NULL DEFAULT '',
                 company TEXT NOT NULL DEFAULT '',
                 customer_name TEXT NOT NULL DEFAULT '',
+                job_title TEXT NOT NULL DEFAULT '',
                 email TEXT NOT NULL DEFAULT '',
                 phone TEXT NOT NULL DEFAULT '',
                 role TEXT NOT NULL DEFAULT 'member',
@@ -1821,6 +1822,10 @@ def ensure_member_auth_schema():
             if "customer_name" not in member_columns:
                 conn.execute(
                     "ALTER TABLE members ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''"
+                )
+            if "job_title" not in member_columns:
+                conn.execute(
+                    "ALTER TABLE members ADD COLUMN job_title TEXT NOT NULL DEFAULT ''"
                 )
             migrate_member_timestamp_timezone_if_needed(conn)
             conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
@@ -2103,11 +2108,33 @@ def format_member_role(value):
     return "管理员" if normalize_member_role(value) == "admin" else "会员"
 
 
+SALES_COST_VISIBLE_JOB_TITLES = {"销售", "销售助理"}
+
+
+def normalize_member_job_title(value):
+    return re.sub(r"\s+", "", clean_text(value))
+
+
+def member_can_view_cost(member):
+    member = member if isinstance(member, dict) else {}
+    if normalize_member_role(member.get("role", "")) == "admin":
+        return True
+    return normalize_member_job_title(member.get("job_title", "")) in SALES_COST_VISIBLE_JOB_TITLES
+
+
+def current_member_can_view_cost():
+    member = current_member()
+    allowed = member_can_view_cost(member)
+    st.session_state["_member_can_view_cost"] = allowed
+    return allowed
+
+
 MEMBER_PROFILE_FIELD_LABELS = {
     "username": "账号",
     "display_name": "姓名/称呼",
     "company": "公司",
     "customer_name": "客户名称",
+    "job_title": "职务",
     "email": "邮箱",
     "phone": "电话",
     "role": "角色",
@@ -2953,7 +2980,7 @@ def list_members_for_admin():
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT id, username, display_name, company, customer_name, email, phone, role, status,
+            SELECT id, username, display_name, company, customer_name, job_title, email, phone, role, status,
                    created_at, updated_at, last_login_at
             FROM members
             ORDER BY id DESC
@@ -2990,6 +3017,7 @@ def member_admin_summary_dataframe(members):
                 "姓名/称呼": member.get("display_name", ""),
                 "公司": member.get("company", ""),
                 "客户名称": member.get("customer_name", ""),
+                "职务": member.get("job_title", ""),
                 "邮箱": member.get("email", ""),
                 "电话": member.get("phone", ""),
                 "角色": format_member_role(member.get("role", "")),
@@ -3126,6 +3154,7 @@ def update_member_account_admin(
     new_password="",
     actor_username="",
     customer_name=None,
+    job_title=None,
 ):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
@@ -3160,6 +3189,7 @@ def update_member_account_admin(
                     " ",
                     clean_text(old_member.get("customer_name", "") if customer_name is None else customer_name),
                 ).strip(),
+                "job_title": clean_text(old_member.get("job_title", "") if job_title is None else job_title),
                 "email": clean_text(email),
                 "phone": clean_text(phone),
                 "role": role_value,
@@ -3167,16 +3197,18 @@ def update_member_account_admin(
             }
             if len(new_values["customer_name"]) > 120:
                 return False, "客户名称不能超过 120 个字符。"
+            if len(new_values["job_title"]) > 60:
+                return False, "职务不能超过 60 个字符。"
             changes = collect_member_profile_changes(
                 old_member,
                 new_values,
-                ["username", "display_name", "company", "customer_name", "email", "phone", "role", "status"],
+                ["username", "display_name", "company", "customer_name", "job_title", "email", "phone", "role", "status"],
             )
             if password_text:
                 conn.execute(
                     """
                     UPDATE members
-                    SET username=?, display_name=?, company=?, customer_name=?, email=?, phone=?, role=?, status=?,
+                    SET username=?, display_name=?, company=?, customer_name=?, job_title=?, email=?, phone=?, role=?, status=?,
                         password_hash=?, updated_at=?
                     WHERE id=?
                     """,
@@ -3185,6 +3217,7 @@ def update_member_account_admin(
                         new_values["display_name"],
                         new_values["company"],
                         new_values["customer_name"],
+                        new_values["job_title"],
                         new_values["email"],
                         new_values["phone"],
                         role_value,
@@ -3199,7 +3232,7 @@ def update_member_account_admin(
                 conn.execute(
                     """
                     UPDATE members
-                    SET username=?, display_name=?, company=?, customer_name=?, email=?, phone=?, role=?, status=?, updated_at=?
+                    SET username=?, display_name=?, company=?, customer_name=?, job_title=?, email=?, phone=?, role=?, status=?, updated_at=?
                     WHERE id=?
                     """,
                     (
@@ -3207,6 +3240,7 @@ def update_member_account_admin(
                         new_values["display_name"],
                         new_values["company"],
                         new_values["customer_name"],
+                        new_values["job_title"],
                         new_values["email"],
                         new_values["phone"],
                         role_value,
@@ -3369,6 +3403,7 @@ def current_member():
         if member is not None:
             st.session_state["_member_auth_token"] = token
             st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
+            st.session_state["_member_can_view_cost"] = member_can_view_cost(member)
             return member
         if token == query_token:
             saw_invalid_query_token = True
@@ -3548,6 +3583,7 @@ def set_current_member(member, query_updates=None):
     if token:
         st.session_state["_member_auth_token"] = token
         st.session_state["_member_display_name"] = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
+        st.session_state["_member_can_view_cost"] = member_can_view_cost(member)
         st.session_state.pop("_member_auth_prompt_action", None)
         updates = dict(query_updates or {})
         updates[MEMBER_AUTH_QUERY_PARAM] = token
@@ -3583,6 +3619,7 @@ def logout_member():
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
+    st.session_state.pop("_member_can_view_cost", None)
     st.session_state.pop("_member_auth_prompt_action", None)
     st.session_state.pop("_no_match_admin_authenticated", None)
     st.session_state.pop(MEMBER_PENDING_SEARCH_QUERY_KEY, None)
@@ -3799,6 +3836,7 @@ def render_member_center_page():
             {"字段": "姓名/称呼", "值": member.get("display_name", "")},
             {"字段": "公司", "值": member.get("company", "")},
             {"字段": "客户名称", "值": member.get("customer_name", "") or "尚未填写"},
+            {"字段": "职务", "值": member.get("job_title", "") or "未设置"},
             {"字段": "邮箱", "值": member.get("email", "")},
             {"字段": "电话", "值": member.get("phone", "")},
             {"字段": "状态", "值": format_member_status(member.get("status", ""))},
@@ -3858,7 +3896,7 @@ def render_member_center_page():
 def render_member_admin_management_page():
     render_admin_section_header(
         "会员资料管理",
-        "查看所有注册会员，并维护账号资料、状态、角色和密码。",
+        "查看所有注册会员，并维护账号资料、职务、状态、角色和密码。",
         "账号维护",
     )
     members = list_members_for_admin()
@@ -3890,7 +3928,7 @@ def render_member_admin_management_page():
         keyword = st.text_input(
             "搜索会员",
             key="admin_member_keyword",
-            placeholder="输入账号、姓名、公司、客户名称、邮箱或电话",
+            placeholder="输入账号、姓名、公司、客户名称、职务、邮箱或电话",
         )
     status_map = {"启用": "active", "待审核": "pending", "停用": "disabled"}
     filtered_members = []
@@ -3938,6 +3976,12 @@ def render_member_admin_management_page():
                     status_index = {"active": 0, "pending": 1, "disabled": 2}.get(current_status, 0)
                     edit_status_label = st.selectbox("状态", status_options, index=status_index, key=f"admin_member_status_{member_id}")
                 with field_cols[3]:
+                    edit_job_title = st.text_input(
+                        "职务",
+                        value=clean_text(member.get("job_title", "")),
+                        max_chars=60,
+                        key=f"admin_member_job_title_{member_id}",
+                    )
                     role_options = ["会员", "管理员"]
                     role_index = 1 if normalize_member_role(member.get("role", "")) == "admin" else 0
                     edit_role_label = st.selectbox("角色", role_options, index=role_index, key=f"admin_member_role_{member_id}")
@@ -3957,6 +4001,7 @@ def render_member_admin_management_page():
                         display_name=edit_display_name,
                         company=edit_company,
                         customer_name=edit_customer_name,
+                        job_title=edit_job_title,
                         email=edit_email,
                         phone=edit_phone,
                         role="admin" if edit_role_label == "管理员" else "member",
@@ -4364,6 +4409,7 @@ def member_matches_admin_keyword(member, keyword):
         member.get("display_name", ""),
         member.get("company", ""),
         member.get("customer_name", ""),
+        member.get("job_title", ""),
         member.get("email", ""),
         member.get("phone", ""),
     ]
@@ -26161,11 +26207,13 @@ def normalize_bom_export_settings(export_settings=None):
     customer_name = normalize_cost_customer_name(settings.get("customer_name", ""))
     if customer_type:
         customer_type, customer_name, _ = normalize_cost_customer_context(customer_type, customer_name)
+    include_cost = bool(settings.get("include_cost", True))
     return {
         "mode": mode,
         "brands": brands,
         "customer_type": customer_type,
         "customer_name": customer_name,
+        "include_cost": include_cost,
     }
 
 
@@ -34721,6 +34769,17 @@ def normalize_pdc_series_description_display_fields(df):
     return out
 
 
+def apply_search_cost_visibility(show_df, can_view_cost=None):
+    if show_df is None:
+        return pd.DataFrame()
+    visible = current_member_can_view_cost() if can_view_cost is None else bool(can_view_cost)
+    out = show_df.copy()
+    if visible:
+        return out
+    hidden_columns = [column for column in ("成本", "更新时间") if column in out.columns]
+    return out.drop(columns=hidden_columns) if hidden_columns else out
+
+
 def format_display_df(show_df):
     show_df = show_df.copy()
     show_df = normalize_resistor_model_display_fields(show_df)
@@ -40452,7 +40511,7 @@ def append_unique_export_column(export_df, base_name, values):
     return column_name
 
 
-def build_bom_own_brand_append_columns(result_df, row_count):
+def build_bom_own_brand_append_columns(result_df, row_count, include_cost=True):
     max_len = max(0, int(row_count or 0))
     if result_df is None or result_df.empty:
         result_work = pd.DataFrame()
@@ -40483,6 +40542,8 @@ def build_bom_own_brand_append_columns(result_df, row_count):
     ]
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
+            if not include_cost and internal_prefix in {"自有成本", "自有更新时间"}:
+                continue
             source_col = bom_own_brand_internal_column(internal_prefix, idx)
             values = []
             for row_idx in range(max_len):
@@ -40509,13 +40570,13 @@ def build_bom_own_brand_append_columns(result_df, row_count):
     return append_columns
 
 
-def build_bom_matched_export_df(upload_df, result_df):
+def build_bom_matched_export_df(upload_df, result_df, include_cost=True):
     if upload_df is None:
         return pd.DataFrame()
 
     export_df = upload_df.copy().reset_index(drop=True)
     max_len = len(export_df)
-    append_columns = build_bom_own_brand_append_columns(result_df, max_len)
+    append_columns = build_bom_own_brand_append_columns(result_df, max_len, include_cost=include_cost)
     for item in append_columns:
         header = clean_text(item.get("header", ""))
         values = list(item.get("values", [""] * max_len) or [""] * max_len)
@@ -40814,7 +40875,7 @@ def format_independent_bom_result_sheet(sheet, export_df):
             )
 
 
-def build_independent_bom_result_workbook_bytes(sheet_results):
+def build_independent_bom_result_workbook_bytes(sheet_results, include_cost=True):
     output = BytesIO()
     used_sheet_names = set()
     wrote_sheet = False
@@ -40825,7 +40886,7 @@ def build_independent_bom_result_workbook_bytes(sheet_results):
             if source_df.empty and result_df.empty:
                 continue
             if not source_df.empty:
-                export_df = build_bom_matched_export_df(source_df, result_df)
+                export_df = build_bom_matched_export_df(source_df, result_df, include_cost=include_cost)
             else:
                 export_df = build_bom_display_df(result_df)
             sheet_name = safe_bom_export_sheet_name(
@@ -40847,10 +40908,10 @@ def build_independent_bom_result_workbook_bytes(sheet_results):
     return output.getvalue()
 
 
-def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_results=None):
+def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_results=None, include_cost=True):
     if source_workbook is not None and sheet_results is not None:
         if is_legacy_xls_file_name(source_workbook.get("file_name", "")):
-            return build_independent_bom_result_workbook_bytes(sheet_results)
+            return build_independent_bom_result_workbook_bytes(sheet_results, include_cost=include_cost)
         raw_bytes = source_workbook.get("file_bytes", b"")
         source_kind = clean_text(source_workbook.get("kind", ""))
         if raw_bytes:
@@ -40869,7 +40930,11 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
                         continue
                     safe_source_df = sanitize_dataframe_for_excel_export(payload.get("source_df"))
                     safe_result_df = sanitize_dataframe_for_excel_export(payload.get("result_df"))
-                    append_columns = build_bom_own_brand_append_columns(safe_result_df, len(safe_source_df))
+                    append_columns = build_bom_own_brand_append_columns(
+                        safe_result_df,
+                        len(safe_source_df),
+                        include_cost=include_cost,
+                    )
                     append_export_columns_to_worksheet(ws, safe_source_df, append_columns)
                 output = BytesIO()
                 wb.save(output)
@@ -40890,6 +40955,7 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
         export_df = build_bom_matched_export_df(
             sanitize_dataframe_for_excel_export(source_df),
             sanitize_dataframe_for_excel_export(result_df),
+            include_cost=include_cost,
         )
     else:
         export_df = sanitize_dataframe_for_excel_export(build_bom_display_df(result_df)) if result_df is not None else pd.DataFrame()
@@ -41676,6 +41742,7 @@ def render_bom_upload_page():
                             "brands": selected_export_brands,
                             "customer_type": bom_customer_type,
                             "customer_name": bom_customer_name,
+                            "include_cost": current_member_can_view_cost(),
                         }
                     )
                 else:
@@ -41684,6 +41751,7 @@ def render_bom_upload_page():
                         "brands": [],
                         "customer_type": bom_customer_type,
                         "customer_name": bom_customer_name,
+                        "include_cost": current_member_can_view_cost(),
                     }
 
                 cached_bom_result_df = pd.DataFrame()
@@ -42024,6 +42092,7 @@ def render_bom_upload_page():
                                 bom_df,
                                 source_workbook=bom_workbook,
                                 sheet_results=sheet_results,
+                                include_cost=bom_export_settings.get("include_cost", False),
                             )
                             persisted_checkpoint = st.session_state.get("_bom_match_checkpoint", {})
                             persisted_sheet_rows = (
@@ -42142,7 +42211,11 @@ def render_bom_upload_page():
                         status_counts = count_bom_recommendation_statuses(bom_result_df)
                         component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
-                        full_display_bom_result_df = build_bom_matched_export_df(bom_df, bom_result_df)
+                        full_display_bom_result_df = build_bom_matched_export_df(
+                            bom_df,
+                            bom_result_df,
+                            include_cost=bom_export_settings.get("include_cost", False),
+                        )
                         if len(full_display_bom_result_df) == len(bom_display_df):
                             full_display_bom_result_df = full_display_bom_result_df.loc[bom_view_df.index]
                         display_bom_result_df = format_display_df(full_display_bom_result_df)
@@ -42735,6 +42808,7 @@ if search_requested:
             )
             if mode == "料号":
                 part_info_df = build_part_info_df(query_df, spec, line)
+                part_info_df = apply_search_cost_visibility(part_info_df)
                 matched = cached_run_query_match(query_df, mode, spec, query_text=line)
                 if not resolution_path.startswith("no_match_admin_resolution:"):
                     matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
@@ -42780,6 +42854,7 @@ if search_requested:
                         allow_online_lookup=allow_online_lookup,
                     )
                     show_df = format_display_df(show_df)
+                    show_df = apply_search_cost_visibility(show_df)
                     show_df = deduplicate_component_matches(show_df)
                     show_df = normalize_timing_model_display_fields(show_df)
                     show_df = annotate_match_display_gaps(show_df, spec)
@@ -42857,6 +42932,7 @@ if search_requested:
             elif mode == "料号片段":
                 st.markdown('<div class="section-title">料号片段反推规格</div>', unsafe_allow_html=True)
                 spec_info_df = build_spec_info_df(spec)
+                spec_info_df = apply_search_cost_visibility(spec_info_df)
                 st.dataframe(
                     spec_info_df,
                     use_container_width=True,
@@ -42869,6 +42945,7 @@ if search_requested:
             else:
                 st.markdown(f'<div class="section-title">{build_component_section_title(spec, "规格条件")}</div>', unsafe_allow_html=True)
                 spec_info_df = build_spec_info_df(spec)
+                spec_info_df = apply_search_cost_visibility(spec_info_df)
                 st.dataframe(
                     spec_info_df,
                     use_container_width=True,
@@ -42904,6 +42981,7 @@ if search_requested:
                     allow_online_lookup=allow_online_lookup,
                 )
                 show_df = format_display_df(show_df)
+                show_df = apply_search_cost_visibility(show_df)
                 show_df = deduplicate_component_matches(show_df)
                 show_df = normalize_timing_model_display_fields(show_df)
                 show_df = annotate_match_display_gaps(show_df, spec)

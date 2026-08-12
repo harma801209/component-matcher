@@ -3855,3 +3855,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Cost workbook worksheets now support an explicit `A1=客户代码` marker with `B1=通用` or one/multiple customer codes. Lookup priority is exact customer code, same-group code, then general; another group's price is never visible.
 - Older worksheets without the marker remain general, and legacy exact-name dedicated quotations continue to work. The supplied current workbook was inspected as three general sheets (`FRC&FRL`, `FRH`, `FRQ`), so its existing behavior is preserved until code-specific sheets are added.
 - Four focused regressions and the complete 47-test release safety gate pass. Tests use isolated databases, and protected member, cost-list, and no-match runtime data remains unchanged.
+
+### 2026-08-12 [Member cost visibility] Restrict system costs by administrator-managed job title
+
+- Added an administrator-only `职务` field to member records through an additive schema migration. Existing accounts are preserved with an empty job title, and members can view but cannot edit this field themselves.
+- Backend member management can display, search, and edit job titles. Job-title changes are included in member profile audit logs.
+- Administrators always retain cost visibility. Ordinary members can see system cost and cost-update time only when the normalized job title is exactly `销售` or `销售助理`; all other job titles are denied.
+- Applied the same permission to exact-model search, specification search, BOM result preview, preserved-format `.xlsx` output, and independent legacy `.xls` result workbooks. Restricted users still receive brands, models, MOQ, lead time, and matching notes.
+- BOM task signatures include the cost-visibility permission so an older authorized export cannot be reused after the member's job title changes.
+- Three focused regressions and the complete 48-test release safety gate pass. Tests used isolated databases, and protected member, cost-list, and no-match runtime fingerprints remained unchanged.
