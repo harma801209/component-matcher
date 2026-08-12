@@ -3840,3 +3840,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added customer display/editing to Member Center and customer search/display/editing to backend member management. Changing the bound customer invalidates customer-dependent search and BOM result caches.
 - Older remotely restored member snapshots are schema-migrated before active local sessions are merged back, preserving both legacy accounts and valid login sessions.
 - Four focused regressions and the complete 46-test release safety gate pass. Tests use isolated runtime databases and protected member, cost-list, and no-match fingerprints remain unchanged.
+
+### 2026-08-12 [Member schema hot migration] Invalidate stale readiness markers
+
+- Fixed the formal-page `no such column: customer_name` failure after entering the first customer name.
+- Member-schema readiness is now keyed by an explicit schema version, so a Streamlit hot deployment cannot reuse an older process-wide marker after code introduces an additive column.
+- Remote member snapshot restoration clears all cached schema versions for the target database before applying migrations and restoring active sessions.
+- The legacy migration regression now reproduces the stale-cache condition and verifies both account preservation and the versioned replacement marker.

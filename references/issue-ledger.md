@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-08-12 - Hot deployment skipped the new member customer column
+
+- Symptom: saving the required first-use customer name failed on the formal page with `no such column: customer_name`.
+- Root cause: Streamlit retained the process-wide unversioned `schema ready` marker from the previous application code. After the code-only hot deployment, the old production member database was therefore treated as already migrated.
+- Fix: version the member-schema readiness key. A new schema version never accepts an older cached marker, and restoring a remote snapshot clears every cached schema version for that database before migration.
+- Regression: a legacy member database with a deliberately pre-populated old readiness marker must add `customer_name`, preserve the existing account, and replace the marker with the current schema version.
+
 ## 2026-08-12 - Member searches did not persist a sales customer identity
 
 - Symptom: ordinary matching and BOM matching could be started without identifying the sales customer. Users had to choose a temporary new/existing-customer price scope, so the same member could accidentally search under the wrong quotation context.

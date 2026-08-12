@@ -481,7 +481,9 @@ class SystemRegressionTests(unittest.TestCase):
                     """
                 )
             app["MEMBER_AUTH_DB_PATH"] = legacy_path
-            app["_MEMBER_AUTH_SCHEMA_READY_PATHS"].discard(os.path.abspath(legacy_path))
+            # Reproduce a Streamlit hot deployment where the previous code left
+            # an unversioned "schema ready" marker for the still-legacy database.
+            app["_MEMBER_AUTH_SCHEMA_READY_PATHS"].add(os.path.abspath(legacy_path))
             app["ensure_member_auth_schema"]()
             with sqlite3.connect(legacy_path) as conn:
                 columns = {row[1] for row in conn.execute("PRAGMA table_info(members)").fetchall()}
@@ -490,6 +492,10 @@ class SystemRegressionTests(unittest.TestCase):
                 ).fetchone()
             self.assertIn("customer_name", columns)
             self.assertEqual(row, ("legacy-customer", "Legacy Customer", ""))
+            self.assertIn(
+                (os.path.abspath(legacy_path), app["MEMBER_AUTH_SCHEMA_VERSION"]),
+                app["_MEMBER_AUTH_SCHEMA_READY_PATHS"],
+            )
         finally:
             app["MEMBER_AUTH_DB_PATH"] = original_member_path
 

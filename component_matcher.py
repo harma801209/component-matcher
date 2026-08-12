@@ -190,6 +190,7 @@ MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
 _MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
+MEMBER_AUTH_SCHEMA_VERSION = 2
 MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
 MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
 _MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
@@ -1215,7 +1216,15 @@ def pull_member_auth_remote_snapshot():
                 os.remove(temp_path)
             except OSError:
                 pass
-        _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(os.path.abspath(MEMBER_AUTH_DB_PATH))
+        member_db_path = os.path.abspath(MEMBER_AUTH_DB_PATH)
+        _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(member_db_path)
+        for cached_schema_key in list(_MEMBER_AUTH_SCHEMA_READY_PATHS):
+            if (
+                isinstance(cached_schema_key, tuple)
+                and cached_schema_key
+                and cached_schema_key[0] == member_db_path
+            ):
+                _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(cached_schema_key)
         ensure_member_auth_schema()
         restored_sessions = restore_unexpired_member_sessions(local_sessions)
         save_member_auth_remote_state(remote_version, calculated_sha)
@@ -1718,8 +1727,9 @@ def migrate_member_timestamp_timezone_if_needed(conn):
 
 def ensure_member_auth_schema():
     db_path = os.path.abspath(MEMBER_AUTH_DB_PATH)
+    schema_cache_key = (db_path, MEMBER_AUTH_SCHEMA_VERSION)
     with MEMBER_AUTH_SCHEMA_LOCK:
-        if db_path in _MEMBER_AUTH_SCHEMA_READY_PATHS and os.path.exists(db_path):
+        if schema_cache_key in _MEMBER_AUTH_SCHEMA_READY_PATHS and os.path.exists(db_path):
             return
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         with sqlite3.connect(db_path, timeout=30) as conn:
@@ -1815,7 +1825,15 @@ def ensure_member_auth_schema():
             migrate_member_timestamp_timezone_if_needed(conn)
             conn.execute("DELETE FROM member_sessions WHERE expires_at_ts <= ?", (int(time.time()),))
             conn.commit()
-        _MEMBER_AUTH_SCHEMA_READY_PATHS.add(db_path)
+        _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(db_path)
+        for cached_schema_key in list(_MEMBER_AUTH_SCHEMA_READY_PATHS):
+            if (
+                isinstance(cached_schema_key, tuple)
+                and cached_schema_key
+                and cached_schema_key[0] == db_path
+            ):
+                _MEMBER_AUTH_SCHEMA_READY_PATHS.discard(cached_schema_key)
+        _MEMBER_AUTH_SCHEMA_READY_PATHS.add(schema_cache_key)
 
 
 def member_row_to_dict(row):
