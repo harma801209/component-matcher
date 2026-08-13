@@ -3892,3 +3892,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Ordinary search and BOM customer dropdowns now put `新客户` first and select it on initial page entry instead of restoring a previous customer automatically.
 - Manual customer choices remain stable during the current workflow, and saving a new customer still continues with that newly saved customer.
 - General-price status now displays only `通用价格`; member, customer, dedicated-price permission, and cost records are unchanged.
+
+### 2026-08-13 [Admin navigation] Preserve administrator login when entering backend
+
+- Fixed the formal-page `进入后台` navigation so it carries the current validated member session into the backend page instead of creating an unauthenticated page session.
+- Kept the server-side administrator-role check unchanged. Ordinary members still cannot see the backend entry or open backend functions through a forged URL.
+- Added regression coverage for the token-preserving backend link and retained the independent backend authorization test. No member, customer, cost-list, or no-match runtime records were modified.

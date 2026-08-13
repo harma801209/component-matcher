@@ -1647,11 +1647,11 @@ def render_no_match_admin_entry_button():
         st.session_state.pop("_no_match_admin_authenticated", None)
         return
     admin_active = is_no_match_admin_page_requested()
+    member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
+        get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
+    )
     if admin_active:
         label = "返回搜索"
-        member_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
-            get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
-        )
         href_updates = {"admin": "0", "member": "0", "bom": "0"}
         if member_token:
             href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
@@ -1659,7 +1659,10 @@ def render_no_match_admin_entry_button():
         css_class = "admin-login-fixed secondary"
     else:
         label = "进入后台"
-        href = build_app_href(admin="1", member="0", bom="0")
+        href_updates = {"admin": "1", "member": "0", "bom": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "admin-login-fixed"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
