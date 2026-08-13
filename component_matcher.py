@@ -6129,12 +6129,24 @@ def expand_fojan_alloy_pricing_power_options(value):
     text = clean_text(value).replace("Ｗ", "W").replace("ｗ", "W")
     if text == "":
         return []
-    raw_parts = re.split(r"\s*(?:/|／|~|～|－|–|—|-|TO|至)\s*", text, flags=re.I)
     powers = []
-    for part in raw_parts:
-        match = re.search(r"\d+(?:\.\d+)?\s*W", clean_text(part), flags=re.I)
-        if match is None:
+    normalized = re.sub(r"\s*(?:TO|至|~|～|－|–|—|-)\s*", "-", text, flags=re.I)
+    for match in re.finditer(r"(?P<left>\d+(?:\.\d+)?)\s*W?\s*-\s*(?P<right>\d+(?:\.\d+)?)\s*W", normalized, flags=re.I):
+        left_watts = parse_power_to_watts(match.group("left") + "W")
+        right_watts = parse_power_to_watts(match.group("right") + "W")
+        if left_watts is None or right_watts is None:
             continue
+        if left_watts > right_watts:
+            left_watts, right_watts = right_watts, left_watts
+        if left_watts.is_integer() and right_watts.is_integer() and 0 <= right_watts - left_watts <= 20:
+            watt_values = [float(value) for value in range(int(left_watts), int(right_watts) + 1)]
+        else:
+            watt_values = [left_watts, right_watts]
+        for watts in watt_values:
+            power = format_power_display(f"{watts:g}W")
+            if power and power not in powers:
+                powers.append(power)
+    for match in re.finditer(r"\d+(?:\.\d+)?\s*W", text, flags=re.I):
         power = format_power_display(match.group(0))
         if power and power not in powers:
             powers.append(power)
@@ -6727,7 +6739,13 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
         pricing_resistance_ohm = 10.0
     type_dimension = f"{size} {power}"
-    alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in {"FMB", "FRM", "FPM"} else ""
+    alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in FOJAN_ALLOY_PRICING_SERIES else ""
+    alloy_mohm = fojan_alloy_resistance_mohm(pricing_resistance_ohm)
+    if (
+        series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES
+        and not fojan_alloy_extended_profile_supports(series, size, power, alloy_mohm)
+    ):
+        return {}
     for rule in lookup.get("__fojan_resistor_rules__", []):
         if clean_text(rule.get("series", "")).upper() != series:
             continue
@@ -6761,7 +6779,7 @@ def fojan_alloy_pricing_terminal_from_row(row):
             suffix = clean_text(parsed.get("_fojan_suffix", "")).upper()
     if suffix == "ML":
         return "large"
-    if suffix in {"M", "N", "K"}:
+    if suffix in {"M", "N", "K", "S", "F"} or re.match(r"^[MSKF](?:H1|4)?$", suffix):
         return "standard"
     context = " ".join(
         clean_text(row.get(column, ""))
@@ -12786,6 +12804,144 @@ FOJAN_FRM_1206_EVIDENCE_SOURCE = (
     "FRM Series Low Resistance Alloy Resistor Product Specifications "
     "FJ-JS-3001-V1.0/2025.09.24"
 )
+FOJAN_FMH_DATASHEET_SOURCE = (
+    "FMH Series Alloy Film High Power Resistance Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FCM_DATASHEET_SOURCE = (
+    "FCM Series Bare Chip High Power Alloy Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FWP_DATASHEET_SOURCE = (
+    "FWP Series High Power Chip Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FWK_DATASHEET_SOURCE = (
+    "FWK Series High Power Four-pin Alloy Chip Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FWPK_DATASHEET_SOURCE = (
+    "FWPK Series Four Terminal Alloy Chip Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_ALLOY_PRICING_SERIES = {"FMB", "FRM", "FPM", "FMH", "FCM", "FWP", "FWK"}
+FOJAN_ALLOY_SERIES_HINTS = FOJAN_ALLOY_PRICING_SERIES | {"FWPK"}
+FOJAN_EXTENDED_ALLOY_MODEL_PROFILES = {
+    "FMH": {
+        "source": FOJAN_FMH_DATASHEET_SOURCE,
+        "series_desc": "金属膜合金高功率电阻",
+        "size_code_to_inch": {"12": "1206", "20": "2010", "25": "2512"},
+        "dimensions": {
+            "1206": ("3.20", "1.55", "0.55"),
+            "2010": ("5.00", "2.50", "0.60"),
+            "2512": ("6.40", "3.20", "0.55"),
+        },
+        "ranges_mohm": {"1206": [(100.0, 910.0)], "2010": [(100.0, 910.0)], "2512": [(100.0, 910.0)]},
+        "power_options_by_size": {"1206": ["1W"], "2010": ["1.5W"], "2512": ["2W"]},
+        "terms": {"M"},
+        "specials": {"", "L"},
+        "default_pack": "T",
+        "decimal_mohm_code": False,
+    },
+    "FCM": {
+        "source": FOJAN_FCM_DATASHEET_SOURCE,
+        "series_desc": "裸片高功率合金电阻",
+        "size_code_to_inch": {"2512": "2512", "3920": "3920", "5930": "5930"},
+        "dimensions": {
+            "2512": ("6.30", "3.10", "0.86"),
+            "3920": ("10.00", "5.10", "0.40"),
+            "5930": ("15.00", "7.60", "0.86"),
+        },
+        "ranges_mohm": {"2512": [(0.2, 5.0)], "3920": [(0.2, 5.0)], "5930": [(0.1, 3.0)]},
+        "power_options_by_size": {"2512": ["3W"], "3920": ["7W"], "5930": ["15W"]},
+        "terms": {"M"},
+        "specials": {""},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FWP": {
+        "source": FOJAN_FWP_DATASHEET_SOURCE,
+        "series_desc": "高功率贴片电阻",
+        "size_code_to_inch": {"2512": "2512", "2725": "2725", "2728": "2728", "2817": "2817"},
+        "dimensions": {
+            "2512": ("6.40", "3.20", "0.80"),
+            "2725": ("6.80", "6.50", "1.20"),
+            "2728": ("6.80", "7.20", "1.00"),
+            "2817": ("7.10", "4.30", "1.00"),
+        },
+        "ranges_mohm": {"2512": [(0.5, 50.0)], "2725": [(0.2, 3.0)], "2728": [(4.0, 50.0)], "2817": [(1.0, 50.0)]},
+        "power_options_by_size": {"2512": ["3W"], "2725": ["4W"], "2728": ["4W"], "2817": ["5W"]},
+        "terms": {"M", "S", "K", "F"},
+        "specials": {"", "H1"},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FWK": {
+        "source": FOJAN_FWK_DATASHEET_SOURCE,
+        "series_desc": "高功率四引脚合金贴片电阻",
+        "size_code_to_inch": {"1216": "1216", "2726": "2726", "4026": "4026"},
+        "dimensions": {
+            "1216": ("3.10", "4.10", "1.90"),
+            "2726": ("6.90", "6.60", "3.00"),
+            "4026": ("10.10", "6.60", "3.00"),
+        },
+        "ranges_mohm": {"1216": [(0.3, 2.0)], "2726": [(0.2, 5.0)], "4026": [(0.2, 5.0)]},
+        "power_options_by_size": {"1216": ["9W"], "2726": ["5W"], "4026": ["5W"]},
+        "terms": {"M", "K"},
+        "specials": {""},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FWPK": {
+        "source": FOJAN_FWPK_DATASHEET_SOURCE,
+        "series_desc": "四端子合金贴片电阻",
+        "size_code_to_inch": {"25": "2512", "36": "3637"},
+        "dimensions": {
+            "2512": ("6.40", "3.20", "0.80"),
+            "3637": ("9.20", "9.40", "0.80"),
+        },
+        "ranges_mohm": {"2512": [(2.0, 150.0)], "3637": [(2.0, 200.0)]},
+        "power_options_by_size": {"2512": ["2W"], "3637": ["5W"]},
+        "terms": {"K"},
+        "specials": {"", "4"},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+}
+FOJAN_EXTENDED_ALLOY_MODEL_PATTERNS = {
+    series: re.compile(
+        rf"^(?P<series>{series})(?P<size_code>{'|'.join(sorted(map(re.escape, profile['size_code_to_inch']), key=len, reverse=True))})"
+        rf"(?P<power>{'15|' if series == 'FMH' else ''}[1-9]\d?W)"
+        r"(?P<tol>[DFGJ])(?P<res>R\d{3,4}|\d+M\d{2})(?P<pack>[TRB])(?P<term>[MSKF])(?P<special>H1|L|4)?$"
+    )
+    for series, profile in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.items()
+}
+
+
+def detect_fojan_alloy_series_hint(text):
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    for series in sorted(FOJAN_ALLOY_SERIES_HINTS, key=len, reverse=True):
+        escaped = re.escape(series)
+        if re.search(rf"(?<![A-Z0-9]){escaped}(?![A-Z0-9])", upper):
+            return series
+        if re.search(rf"(?<![A-Z0-9]){escaped}(?=\d)", upper):
+            return series
+    return ""
+
+
+def find_fojan_alloy_size_in_text(series, text):
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(clean_text(series).upper())
+    if profile is None:
+        return ""
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    for size in sorted({clean_size(value) for value in profile.get("size_code_to_inch", {}).values()}, key=len, reverse=True):
+        if size and re.search(rf"(?<![A-Z0-9]){re.escape(size)}(?![A-Z0-9])", upper):
+            return size
+    return ""
 
 
 def fojan_alloy_resistance_mohm(resistance_ohm):
@@ -12801,10 +12957,26 @@ def fojan_alloy_resistance_mohm(resistance_ohm):
     return mohm
 
 
-def fojan_alloy_value_code(resistance_ohm):
+def fojan_alloy_parse_value_code(value_code):
+    token = clean_text(value_code).upper()
+    decimal_mohm_match = re.fullmatch(r"(?P<whole>\d+)M(?P<fraction>\d{2})", token)
+    if decimal_mohm_match is not None:
+        mohm = float(f"{int(decimal_mohm_match.group('whole'))}.{decimal_mohm_match.group('fraction')}")
+        return mohm / 1000.0
+    return parse_resistor_value_code(token)
+
+
+def fojan_alloy_value_code(resistance_ohm, decimal_mohm_code=False):
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
     if mohm is None:
         return ""
+    if decimal_mohm_code:
+        rounded_hundredths = round(mohm * 100)
+        if abs(mohm * 100 - rounded_hundredths) > 1e-9:
+            return ""
+        if rounded_hundredths % 100 != 0:
+            whole, fraction = divmod(int(rounded_hundredths), 100)
+            return f"{whole}M{fraction:02d}"
     scaled = round(mohm * 10)
     if abs(mohm * 10 - scaled) < 1e-9 and scaled % 10 != 0:
         if 1 <= scaled <= 9999:
@@ -12814,6 +12986,42 @@ def fojan_alloy_value_code(resistance_ohm):
     if abs(mohm - rounded) > 1e-9 or not (1 <= rounded <= 999):
         return ""
     return f"R{rounded:03d}"
+
+
+def fojan_alloy_extended_profile_supports(series, size, power, mohm, suffix=""):
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(clean_text(series).upper())
+    if profile is None or mohm is None:
+        return False
+    normalized_size = clean_size(size)
+    ranges = profile.get("ranges_mohm", {}).get(normalized_size, [])
+    if not any(float(low) - 1e-9 <= mohm <= float(high) + 1e-9 for low, high in ranges):
+        return False
+    suffix = clean_text(suffix).upper()
+    if suffix:
+        term_match = re.match(r"^(?P<term>[MSKF])(?P<special>H1|L|4)?$", suffix)
+        if term_match is None:
+            return False
+        if term_match.group("term") not in profile.get("terms", set()):
+            return False
+        if clean_text(term_match.group("special") or "") not in profile.get("specials", {""}):
+            return False
+    return True
+
+
+def fojan_alloy_power_matches(requested_power, official_power):
+    requested = format_power_display(requested_power)
+    official = format_power_display(official_power)
+    if requested == "":
+        return True
+    if requested == official:
+        return True
+    requested_watts = parse_power_to_watts(requested)
+    official_watts = parse_power_to_watts(official)
+    return (
+        requested_watts is not None
+        and official_watts is not None
+        and abs(requested_watts - official_watts) < 1e-9
+    )
 
 
 def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
@@ -12851,16 +13059,20 @@ def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
             return 1.0 <= mohm <= 3.0 if suffix == "ML" else 1.0 <= mohm <= 100.0 if suffix == "M" else False
         if size == "2512" and power == "2W":
             return 0.5 <= mohm <= 4.0 if suffix == "ML" else 1.0 <= mohm <= 680.0 if suffix == "M" else False
+    if series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES:
+        return fojan_alloy_extended_profile_supports(series, size, power, mohm, suffix=suffix)
     return False
 
 
 def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
-    resistance_ohm = parse_resistor_value_code(value_code)
+    series = clean_text(series).upper()
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(series)
+    resistance_ohm = fojan_alloy_parse_value_code(value_code)
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
     if resistance_ohm is None or not fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
         return None
     value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
-    dimensions = {
+    dimensions = (profile or {}).get("dimensions", {}).get(size) or {
         "0603": ("1.60", "0.90", ""),
         "0805": ("2.00", "1.30", ""),
         "1206": ("3.20", "1.60", ""),
@@ -12868,7 +13080,16 @@ def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
         "2512": ("6.40", "3.20", ""),
     }.get(size, ("", "", ""))
     special_parts = ["电流检测", "分流器", "低阻", "合金"]
-    if series == "FPM":
+    if profile is not None:
+        series_desc = clean_text(profile.get("series_desc", ""))
+        data_source = clean_text(profile.get("source", ""))
+        if series in {"FCM", "FWK"}:
+            special_parts.append("裸片")
+        if series in {"FWK", "FWPK"}:
+            special_parts.append("四端子")
+        if series == "FMH":
+            special_parts.append("金属膜")
+    elif series == "FPM":
         series_desc = "低阻值高功率合金电阻"
         data_source = FOJAN_FPM_DATASHEET_SOURCE
     elif series == "FMB":
@@ -12881,6 +13102,8 @@ def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
     if suffix == "ML":
         special_parts.append("大电极")
         series_desc += "（大电极）"
+    elif suffix.endswith("L"):
+        special_parts.append("大电极")
     summary_parts = [
         f"{value_text}{unit_text}" if value_text and unit_text else "",
         clean_tol_for_display(tol),
@@ -12923,25 +13146,50 @@ def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
 def parse_fojan_alloy_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model).upper()
     match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
-    if match is None:
-        return None
-    size = FOJAN_ALLOY_SIZE_CODE_TO_INCH.get(match.group("size_code"), "")
-    power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(match.group("power"), "")
-    tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
-    if size == "" or power == "" or tol == "":
-        return None
-    parsed = fojan_alloy_model_fields(
-        match.group("series"),
-        size,
-        power,
-        tol,
-        match.group("res"),
-        match.group("suffix"),
-    )
-    if parsed is None:
-        return None
-    parsed["型号"] = compact
-    return parsed
+    if match is not None:
+        size = FOJAN_ALLOY_SIZE_CODE_TO_INCH.get(match.group("size_code"), "")
+        power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(match.group("power"), "")
+        tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
+        if size == "" or power == "" or tol == "":
+            return None
+        parsed = fojan_alloy_model_fields(
+            match.group("series"),
+            size,
+            power,
+            tol,
+            match.group("res"),
+            match.group("suffix"),
+        )
+        if parsed is None:
+            return None
+        parsed["型号"] = compact
+        return parsed
+    for series, pattern in FOJAN_EXTENDED_ALLOY_MODEL_PATTERNS.items():
+        match = pattern.fullmatch(compact)
+        if match is None:
+            continue
+        profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES[series]
+        size = profile["size_code_to_inch"].get(match.group("size_code"), "")
+        power_code = clean_text(match.group("power")).upper()
+        power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(power_code, format_power_display(power_code))
+        tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
+        suffix = f"{clean_text(match.group('term')).upper()}{clean_text(match.group('special') or '').upper()}"
+        if size == "" or power == "" or tol == "":
+            return None
+        parsed = fojan_alloy_model_fields(
+            series,
+            size,
+            power,
+            tol,
+            match.group("res"),
+            suffix,
+        )
+        if parsed is None:
+            return None
+        parsed["型号"] = compact
+        parsed["_fojan_pack"] = clean_text(match.group("pack")).upper()
+        return parsed
+    return None
 
 
 def parse_milliohm_holr_alloy_resistor_model(model, brand="", component_type=""):
@@ -18696,7 +18944,7 @@ def normalize_resistor_pricing_series(row):
     series_text = clean_text(row.get("系列", "")).upper()
     model_text = clean_model(row.get("型号", "")).upper()
     alloy_series = extract_fojan_pricing_series(series_text)
-    if alloy_series in {"FMB", "FRM", "FPM"}:
+    if alloy_series in FOJAN_ALLOY_PRICING_SERIES:
         return alloy_series
     alloy_model = parse_fojan_alloy_resistor_model(model_text, brand="FOJAN(富捷)", component_type="合金电阻")
     if alloy_model:
@@ -19879,6 +20127,13 @@ def detect_resistor_subtype_hint(text):
         return "热敏电阻"
     if matches_component_alias(text, "合金电阻"):
         return "合金电阻"
+    fojan_alloy_series = detect_fojan_alloy_series_hint(text)
+    if fojan_alloy_series:
+        has_fojan_context = "FOJAN" in upper or "富捷" in upper
+        has_alloy_resistor_context = any(token in upper for token in ["合金", "电阻", "電阻", "RESIST"])
+        has_milliohm_context = MILLIOHM_NOTATION_PATTERN.search(upper.replace("Ω", "Ω").replace("ω", "Ω")) is not None
+        if has_fojan_context or has_alloy_resistor_context or has_milliohm_context:
+            return "合金电阻"
     if matches_component_alias(text, "碳膜电阻"):
         return "碳膜电阻"
     if matches_component_alias(text, "薄膜电阻"):
@@ -20491,10 +20746,15 @@ def parse_resistor_spec_query(line):
 
     component_type_hint = detect_resistor_subtype_hint(normalized_raw)
     component_type = component_type_hint or "贴片电阻"
+    fojan_alloy_series = detect_fojan_alloy_series_hint(normalized_raw)
+    if fojan_alloy_series:
+        component_type = "合金电阻"
     if component_type in SPECIAL_RESISTOR_COMPONENT_TYPES:
         return None
     invalid_size_token = find_invalid_leading_zero_size_token(tokens, component_type)
     size = find_embedded_size(normalized_raw)
+    if size == "" and fojan_alloy_series:
+        size = find_fojan_alloy_size_in_text(fojan_alloy_series, normalized_raw)
     if size == "":
         array_size_match = re.search(
             r"(?<![A-Z0-9])(022R|024R|042R|044R|062R|064R)(?![A-Z0-9])",
@@ -20552,6 +20812,7 @@ def parse_resistor_spec_query(line):
         "型号": raw,
         "尺寸（inch）": size,
         "材质（介质）": "",
+        "系列": fojan_alloy_series,
         "容值_pf": None,
         "容值误差": tol,
         "耐压（V）": "",
@@ -33466,6 +33727,105 @@ def fojan_brand_requested_or_unset(spec):
     return True
 
 
+def fojan_alloy_size_code_for_series(series, size):
+    series = clean_text(series).upper()
+    size = clean_size(size)
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(series)
+    if profile is not None:
+        for code, mapped_size in profile.get("size_code_to_inch", {}).items():
+            if clean_size(mapped_size) == size:
+                return clean_text(code)
+        return ""
+    return FOJAN_ALLOY_SIZE_INCH_TO_CODE.get(size, "")
+
+
+def fojan_alloy_power_code_for_series(series, power):
+    series = clean_text(series).upper()
+    normalized_power = format_power_display(power)
+    if series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES:
+        if series == "FMH" and normalized_power == "1.5W":
+            return "15"
+        if re.fullmatch(r"\d+(?:\.\d+)?W", normalized_power):
+            return normalized_power
+    direct_code = FOJAN_ALLOY_POWER_DISPLAY_TO_CODE.get(normalized_power, "")
+    if direct_code:
+        return direct_code
+    normalized_watts = parse_power_to_watts(normalized_power)
+    if normalized_watts is None:
+        return ""
+    for display, code in FOJAN_ALLOY_POWER_DISPLAY_TO_CODE.items():
+        display_watts = parse_power_to_watts(display)
+        if display_watts is not None and abs(display_watts - normalized_watts) < 1e-9:
+            return code
+    return ""
+
+
+def fojan_extended_alloy_power_options_for_spec(series, size, requested_power):
+    series = clean_text(series).upper()
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(series)
+    if profile is None:
+        return []
+    requested_power = format_power_display(requested_power)
+    if requested_power:
+        return [requested_power]
+    return list(profile.get("power_options_by_size", {}).get(clean_size(size), []))
+
+
+def fojan_extended_alloy_term_options(series, size, mohm):
+    series = clean_text(series).upper()
+    size = clean_size(size)
+    if series == "FWP":
+        if size == "2725":
+            if mohm < 1.0:
+                return ["S"]
+            if mohm < 3.0:
+                return ["M"]
+            return ["K", "F"]
+        if size == "2728":
+            return ["K", "F"]
+        if size == "2817":
+            return ["M"] if mohm < 5.0 else ["K", "F"]
+        if size == "2512":
+            if mohm < 1.0:
+                return ["S"]
+            if mohm < 4.0:
+                return ["M"]
+            return ["K", "F"]
+    if series == "FWK":
+        return ["K"]
+    if series == "FWPK":
+        return ["K"]
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.get(series)
+    if profile is None:
+        return []
+    return sorted(profile.get("terms", []))
+
+
+def fojan_extended_alloy_special_options(series):
+    if clean_text(series).upper() == "FWPK":
+        return ["4"]
+    return [""]
+
+
+def fojan_extended_alloy_series_requested_by_spec(series, spec):
+    series = clean_text(series).upper()
+    text = " ".join(
+        clean_text((spec or {}).get(field, ""))
+        for field in ("型号", "系列", "系列说明", "特殊用途", "规格摘要", "匹配参数明细")
+    )
+    upper = text.upper()
+    if series and series in upper:
+        return True
+    keyword_map = {
+        "FMH": ("金属膜",),
+        "FCM": ("裸片",),
+        "FWP": ("塑封",),
+        "FWK": ("四引脚", "四腳"),
+        "FWPK": ("四端子", "四端"),
+    }
+    return any(keyword in text for keyword in keyword_map.get(series, ()))
+
+
 def build_fojan_alloy_models_from_spec(spec):
     if not isinstance(spec, dict) or infer_spec_component_type(spec) != "合金电阻":
         return []
@@ -33476,12 +33836,10 @@ def build_fojan_alloy_models_from_spec(spec):
     resistance_ohm = spec.get("_resistance_ohm", None)
     power = format_power_display(spec.get("_power", ""))
     tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
-    value_code = fojan_alloy_value_code(resistance_ohm)
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
-    if size == "" or tol_code == "" or value_code == "" or mohm is None:
+    if size == "" or tol_code == "" or mohm is None:
         return []
     candidates = []
-    size_code = FOJAN_ALLOY_SIZE_INCH_TO_CODE.get(size, "")
     profile_options = {
         "0603": [("FMB", "0.25W", "M")],
         "0805": [("FMB", "0.5W", "M"), ("FRM", "0.5W", "ML"), ("FRM", "0.5W", "M")],
@@ -33501,7 +33859,10 @@ def build_fojan_alloy_models_from_spec(spec):
         ],
     }.get(size, [])
     for series, official_power, suffix in profile_options:
-        if power not in {"", format_power_display(official_power)}:
+        if not fojan_alloy_power_matches(power, official_power):
+            continue
+        value_code = fojan_alloy_value_code(resistance_ohm)
+        if value_code == "":
             continue
         if tolerance == "0.5" and series == "FMB":
             continue
@@ -33513,12 +33874,44 @@ def build_fojan_alloy_models_from_spec(spec):
             suffix,
         ):
             continue
-        power_code = FOJAN_ALLOY_POWER_DISPLAY_TO_CODE.get(official_power, "")
+        size_code = fojan_alloy_size_code_for_series(series, size)
+        power_code = fojan_alloy_power_code_for_series(series, official_power)
         if size_code == "" or power_code == "":
             continue
         candidates.append(
             f"{series}{size_code}{power_code}{tol_code}{value_code}T{suffix}"
         )
+    for series, profile in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.items():
+        if not fojan_extended_alloy_series_requested_by_spec(series, spec):
+            continue
+        if clean_size(size) not in {clean_size(value) for value in profile.get("size_code_to_inch", {}).values()}:
+            continue
+        if not fojan_alloy_extended_profile_supports(series, size, power, mohm):
+            continue
+        value_code = fojan_alloy_value_code(
+            resistance_ohm,
+            decimal_mohm_code=bool(profile.get("decimal_mohm_code", False)),
+        )
+        if value_code == "":
+            continue
+        size_code = fojan_alloy_size_code_for_series(series, size)
+        pack_code = clean_text(profile.get("default_pack", "T")).upper() or "T"
+        if size_code == "":
+            continue
+        for official_power in fojan_extended_alloy_power_options_for_spec(series, size, power):
+            if not fojan_alloy_extended_profile_supports(series, size, official_power, mohm):
+                continue
+            power_code = fojan_alloy_power_code_for_series(series, official_power)
+            if power_code == "":
+                continue
+            for term in fojan_extended_alloy_term_options(series, size, mohm):
+                for special in fojan_extended_alloy_special_options(series):
+                    suffix = f"{term}{special}"
+                    if not fojan_alloy_extended_profile_supports(series, size, official_power, mohm, suffix=suffix):
+                        continue
+                    candidates.append(
+                        f"{series}{size_code}{power_code}{tol_code}{value_code}{pack_code}{suffix}"
+                    )
     return list(dict.fromkeys(candidates))
 
 

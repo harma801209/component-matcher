@@ -158,6 +158,10 @@ def fojan_alloy_quote_xlsx_bytes():
     sheet.append(["FRM", "2010", "1W~1.5W", 0.01, "2~100mR", "135.7", "4000PCS"])
     sheet.append(["FRM", "1206", "1W", 0.01, "1mR大电极", "112.7", "5000PCS"])
     sheet.append(["", "", "", 0.01, "1-100mR", "83.95", "5000PCS"])
+    sheet.append(["FMH金属膜合金", "1206", "1W", 0.01, "120mR-910mR", "83.95", "5000PCS"])
+    sheet.append(["FCM裸片合金", "2512", "3W~6W", 0.01, "0.2mR~5mR", "200.1", "1000PCS"])
+    sheet.append(["FWP 塑封合金", "2725/2728", "4W", 0.01, "0.2~200mR", "300.1", "1000PCS"])
+    sheet.append(["FWK裸片合金", "1216", "9W", 0.01, "0.3mR/0.5mR/1mR/2mR/3mR", "400.1/400.2/400.3/400.4/400.5", "1000PCS"])
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -4059,6 +4063,21 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(frm_1206_large["cost"], "112.7")
             frm_1206_standard = price("FRM121WFR010TM", "FRM", "1206", "1W", 0.01, "1")
             self.assertEqual(frm_1206_standard["cost"], "83.95")
+
+            fmh = price("FMH121WFR120TM", "FMH", "1206", "1W", 0.12, "1")
+            self.assertEqual(fmh["cost"], "83.95")
+
+            fcm_mid_power = price("FCM25125WF0M50TM", "FCM", "2512", "5W", 0.0005, "1")
+            self.assertEqual(fcm_mid_power["cost"], "200.1")
+
+            fwp = price("FWP27284WFR010TK", "FWP", "2728", "4W", 0.01, "1")
+            self.assertEqual(fwp["cost"], "300.1")
+
+            fwk = price("FWK12169WF0M50RK", "FWK", "1216", "9W", 0.0005, "1")
+            self.assertEqual(fwk["cost"], "400.2")
+
+            fwk_unsupported = price("FWK12169WFR003RK", "FWK", "1216", "9W", 0.003, "1")
+            self.assertEqual(fwk_unsupported, {})
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
@@ -4682,6 +4701,37 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(parsed_fpm["容值误差"], "1")
         self.assertEqual(parsed_fpm["功率"], "3W")
 
+        parsed_fcm = app["parse_resistor_model_rule"](
+            "FCM25125WF0M50TM",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_fcm["系列"], "FCM")
+        self.assertEqual(parsed_fcm["尺寸（inch）"], "2512")
+        self.assertEqual(parsed_fcm["容值"], "0.5")
+        self.assertEqual(parsed_fcm["容值单位"], "mΩ")
+        self.assertEqual(parsed_fcm["功率"], "5W")
+
+        parsed_fwp = app["parse_resistor_model_rule"](
+            "FWP27284WFR010TK",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_fwp["系列"], "FWP")
+        self.assertEqual(parsed_fwp["尺寸（inch）"], "2728")
+        self.assertEqual(parsed_fwp["容值"], "10")
+        self.assertEqual(parsed_fwp["容值单位"], "mΩ")
+
+        parsed_fwk = app["parse_resistor_model_rule"](
+            "FWK12169WF0M50RK",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_fwk["系列"], "FWK")
+        self.assertEqual(parsed_fwk["尺寸（inch）"], "1216")
+        self.assertEqual(parsed_fwk["容值"], "0.5")
+        self.assertEqual(parsed_fwk["容值单位"], "mΩ")
+
         mode, spec = app["detect_query_mode_and_spec"](
             pd.DataFrame(),
             "合金电阻 电阻10毫欧 ±1% 1206",
@@ -4708,10 +4758,12 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(mode, "合金电阻")
         self.assertEqual(spec["品牌"], "FOJAN(富捷)")
         rows = app["load_search_dataframe_for_query"](mode, spec)
-        self.assertEqual(set(rows["品牌"]), {"FOJAN(富捷)"})
-        self.assertEqual(set(rows["型号"].map(app["clean_model"])), {"FPM253WFR060TM"})
+        fojan_rows = rows[
+            rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)
+        ]
+        self.assertEqual(set(fojan_rows["型号"].map(app["clean_model"])), {"FPM253WFR060TM"})
         display = app["select_component_display_columns"](
-            rows,
+            fojan_rows,
             spec,
             prefix_columns=["品牌", "型号", "系列"],
         )
@@ -4737,6 +4789,33 @@ class SystemRegressionTests(unittest.TestCase):
             ]["型号"].map(app["clean_model"])
         )
         self.assertIn("FRM252WFR200TM", fojan_models)
+
+        mode, spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(),
+            "富捷 FCM 2512 0.5mR 5W ±1%",
+        )
+        rows = app["load_search_dataframe_for_query"](mode, spec)
+        fojan_models = set(
+            rows[
+                rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)
+            ]["型号"].map(app["clean_model"])
+        )
+        self.assertIn("FCM25125WF0M50TM", fojan_models)
+
+        for query, expected_model in [
+            ("富捷 FWP 2728 10mR 4W ±1%", "FWP27284WFR010TK"),
+            ("富捷 FWK 1216 0.5mR 9W ±1%", "FWK12169WF0M50TK"),
+            ("富捷 FMH 1206 120mR 1W ±1%", "FMH121WFR120TM"),
+        ]:
+            mode, spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "合金电阻", query)
+            rows = app["load_search_dataframe_for_query"](mode, spec)
+            fojan_models = set(
+                rows[
+                    rows["品牌"].astype(str).str.contains("FOJAN|富捷", case=False, regex=True)
+                ]["型号"].map(app["clean_model"])
+            )
+            self.assertIn(expected_model, fojan_models, query)
 
     def test_15_joyin_ntc_b_tolerance_is_decoded_and_ranked(self):
         app = self.app

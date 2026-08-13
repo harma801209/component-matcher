@@ -3912,3 +3912,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Milliohm ranges such as `1~100mR`, `101~500mR`, and `1mR大电极` are normalized for exact lookup while preserving the `大电极` marker.
 - Uploaded cost lookup now recognizes FOJAN `FMB/FRM/FPM` alloy series. `TML` large-electrode models only match `大电极` rules, while ordinary `TM` models match standard rules.
 - Verification: targeted FOJAN cost-import tests passed. The real 701 workbook imports 397 rows across 5 sheets, including 61 alloy rules, and sample FRM/FPM alloy models resolve to workbook prices in an isolated temporary database.
+
+### 2026-08-13 [FOJAN official alloy rules] Add FMH/FCM/FWP/FWK naming support
+
+- Checked FOJAN official product pages and datasheets for the new alloy page series: FMH, FCM, FWP, FWK, and FWPK. Added official part-number parsing/generation profiles for those formats, including decimal milliohm codes such as `0M50`.
+- Cost import now recognizes the real workbook's FMH/FCM/FWP/FWK alloy rules and applies datasheet resistance windows before matching a price. FWPK is parsed as an official rule family, but the current 701 workbook does not contain FWPK price rows.
+- Query parsing now treats explicit FOJAN alloy series text such as `富捷 FWP 2728 10mR 4W ±1%` as alloy-resistor search text and recognizes non-standard official sizes like 1216, 2728, 3920, and 5930.
+- Verification: targeted FOJAN regression tests pass, and the real `富捷电阻报价单-富临通701-内部.xlsx` imports 421 rows in an isolated temporary database, including FMH=1, FCM=32, FWP=6, FWK=1 alloy rules. Sample FMH/FCM/FWP/FWK prices resolve, while an unsupported FWK 3mΩ probe returns no price.
