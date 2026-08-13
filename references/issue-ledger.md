@@ -1230,3 +1230,10 @@
 - Root cause: the owner-scoped customer list checked only emptiness, length, and duplicate keys; it did not require the legal entity form found on a business licence or registration document.
 - Fix: validate new entries server-side. Chinese company names must retain a recognized legal form such as `有限公司`, `有限责任公司`, or `股份有限公司`; international names must retain a recognized jurisdictional entity form such as `Ltd`, `Inc`, `Corp`, `LLC`, `Pte Ltd`, `Pty Ltd`, `GmbH`, `S.A.`, or an equivalent supported form. Japanese and Korean prefix/suffix forms are also recognized.
 - Compatibility: the rule applies only when a member adds a new customer. Existing saved customers and customer-master records are not deleted or rewritten.
+
+## 2026-08-13 - Customer selector defaulted to a previously saved customer
+
+- Symptom: entering ordinary search or BOM matching automatically selected a previously saved customer, and the general-price status included an unnecessary backend-permission explanation.
+- Root cause: the selector restored the account-wide remembered customer and placed `新客户` after all saved customer names.
+- Fix: put `新客户` first and use it as the initial value for each search/BOM selector. Preserve an explicit in-page selection and select a newly saved customer only for the immediate continuation flow. Show the general-price source simply as `通用价格`.
+- Compatibility: saved customer lists, customer price permissions, dedicated quotation resolution, and existing customer records are unchanged.
