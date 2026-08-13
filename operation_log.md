@@ -3880,3 +3880,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Removed the legacy `客户名称` row and edit field from Member Center, member summaries, approval details, member search hints, and backend account-edit forms. The legacy database column and server compatibility path remain intact so no historical member data is deleted.
 - Customer changes invalidate customer-dependent search results, BOM checkpoints, and exports. Logout also clears the selected customer context. Member/customer ownership checks prevent one account from selecting another account's entries.
 - Verification: member bridge tests passed (13), complete system regressions passed (46), and the release safety gate passed all 49 checks in isolated databases. Protected member, cost-list, and no-match runtime fingerprints remained unchanged.
+
+### 2026-08-13 [Customer identity] Require legal company full names
+
+- New member-entered customer names are validated at the server save boundary rather than only by input hints. Chinese entries require a legal company form such as `有限公司`; overseas entries require a recognized registered-entity suffix such as `Ltd`, `Inc`, `LLC`, `Pte Ltd`, `Pty Ltd`, `GmbH`, or an equivalent jurisdictional form.
+- Added support for common European, American, Singaporean, Australian, Malaysian, Japanese, and Korean legal-name forms. Short trading names are rejected with a specific correction message.
+- The rule applies only to newly saved member customer entries. Existing customer history, customer master data, member records, and cost data are not modified.

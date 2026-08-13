@@ -2110,6 +2110,9 @@ def save_member_sales_customer(member_id, customer_name):
         return False, "“新客户”是系统选项，请填写实际客户名称。", None
     if len(customer_name) > 120:
         return False, "客户名称不能超过 120 个字符。", None
+    full_name_ok, full_name_message = validate_customer_legal_full_name(customer_name)
+    if not full_name_ok:
+        return False, full_name_message, None
     now_text = current_timestamp_text()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
@@ -4953,6 +4956,106 @@ def normalize_cost_customer_name(value):
     return re.sub(r"\s+", " ", clean_text(value)).strip()
 
 
+CUSTOMER_LEGAL_NAME_CJK_SUFFIXES = (
+    "股份有限公司",
+    "有限责任公司",
+    "集团有限公司",
+    "有限公司",
+    "股份公司",
+    "集团公司",
+    "株式会社",
+    "合同会社",
+    "有限会社",
+    "주식회사",
+    "유한회사",
+)
+
+CUSTOMER_LEGAL_NAME_LATIN_SUFFIXES = (
+    "PUBLIC LIMITED COMPANY",
+    "PRIVATE LIMITED COMPANY",
+    "LIMITED LIABILITY COMPANY",
+    "LIMITED LIABILITY PARTNERSHIP",
+    "COMPANY LIMITED",
+    "CO LIMITED",
+    "CO LTD",
+    "PTE LTD",
+    "PTY LTD",
+    "PVT LTD",
+    "SDN BHD",
+    "FZ LLC",
+    "SP Z O O",
+    "INCORPORATED",
+    "CORPORATION",
+    "UNLIMITED",
+    "LIMITED",
+    "GMBH",
+    "SARL",
+    "EURL",
+    "SASU",
+    "SAS",
+    "SRL",
+    "SPA",
+    "BV",
+    "NV",
+    "OYJ",
+    "OY",
+    "APS",
+    "KFT",
+    "BERHAD",
+    "JSC",
+    "FZCO",
+    "FZE",
+    "DMCC",
+    "SLU",
+    "SL",
+    "LLC",
+    "LLP",
+    "PLC",
+    "CORP",
+    "INC",
+    "LTD",
+    "LP",
+    "AG",
+    "SE",
+    "UG",
+    "KG",
+    "OHG",
+    "SA",
+    "AB",
+    "AS",
+)
+
+
+def validate_customer_legal_full_name(customer_name):
+    customer_name = normalize_cost_customer_name(customer_name)
+    if customer_name == "":
+        return False, "请填写客户公司全称。"
+
+    if any(
+        customer_name.endswith(suffix)
+        or (suffix in {"株式会社", "合同会社", "有限会社", "주식회사", "유한회사"} and customer_name.startswith(suffix))
+        for suffix in CUSTOMER_LEGAL_NAME_CJK_SUFFIXES
+    ):
+        return True, ""
+
+    latin_name = re.sub(r"[^A-Z0-9]+", " ", customer_name.upper()).strip()
+    latin_tokens = tuple(latin_name.split())
+    for suffix in CUSTOMER_LEGAL_NAME_LATIN_SUFFIXES:
+        suffix_tokens = tuple(suffix.split())
+        if len(latin_tokens) >= len(suffix_tokens) and latin_tokens[-len(suffix_tokens):] == suffix_tokens:
+            return True, ""
+
+    if re.search(r"[\u3400-\u9fff]", customer_name):
+        return False, (
+            "请输入营业执照上的客户公司全称；中文公司名称通常应以“有限公司”、"
+            "“有限责任公司”或“股份有限公司”等法定形式结尾。"
+        )
+    return False, (
+        "请输入客户注册文件上的英文公司全称，并保留法定实体后缀，"
+        "例如 Ltd./Limited、Inc./Corp.、LLC、Pte. Ltd.、Pty Ltd、GmbH 或 S.A.。"
+    )
+
+
 def normalize_cost_customer_key(value):
     return re.sub(r"[^A-Z0-9\u4e00-\u9fff]+", "", normalize_cost_customer_name(value).upper())
 
@@ -5354,7 +5457,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             new_customer_name = st.text_input(
                 "新客户名称",
                 max_chars=120,
-                placeholder="请输入客户名称",
+                placeholder="请输入注册/营业执照公司全称（含有限公司、Ltd.、Inc. 等法定后缀）",
+                help="必须填写客户法定全称。中文公司请保留“有限公司”等结尾；海外公司请保留 Ltd.、Inc.、LLC、GmbH 等注册后缀。",
             )
             save_customer = st.form_submit_button("保存客户并继续", use_container_width=True)
         if save_customer:
