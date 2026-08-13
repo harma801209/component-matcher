@@ -3905,3 +3905,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The administrator selector lists all non-disabled members' saved sales customers. Selecting a customer resolves any maintained customer master, dedicated customer cost list, customer-code price, or group-shared price; customers without a dedicated context automatically fall back to general cost.
 - Ordinary member behavior remains owner-scoped: members still only see their own saved customers, must save a new customer before using that customer, and dedicated pricing still depends on administrator-granted price access.
 - Added regression coverage for the administrator default, cross-member customer dropdown, disabled-member filtering, and existing-customer price context. Targeted customer-price isolation tests pass in isolated databases.
+
+### 2026-08-13 [FOJAN alloy cost import] Parse vertical alloy resistor price sheets
+
+- Added support for FOJAN alloy quote pages whose columns are `Series / 产品 / 功率 / 精度 / Resistance Range / Unit Price`, including fill-down series/product/power cells.
+- Milliohm ranges such as `1~100mR`, `101~500mR`, and `1mR大电极` are normalized for exact lookup while preserving the `大电极` marker.
+- Uploaded cost lookup now recognizes FOJAN `FMB/FRM/FPM` alloy series. `TML` large-electrode models only match `大电极` rules, while ordinary `TM` models match standard rules.
+- Verification: targeted FOJAN cost-import tests passed. The real 701 workbook imports 397 rows across 5 sheets, including 61 alloy rules, and sample FRM/FPM alloy models resolve to workbook prices in an isolated temporary database.

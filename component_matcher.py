@@ -6120,6 +6120,173 @@ def cost_price_item_scope_rank(item, customer_context=None, legacy_rank=30):
     return None
 
 
+def extract_fojan_pricing_series(value):
+    match = re.match(r"^[A-Za-z0-9]+", clean_text(value).upper())
+    return clean_text(match.group(0)).upper() if match is not None else ""
+
+
+def expand_fojan_alloy_pricing_power_options(value):
+    text = clean_text(value).replace("Ｗ", "W").replace("ｗ", "W")
+    if text == "":
+        return []
+    raw_parts = re.split(r"\s*(?:/|／|~|～|－|–|—|-|TO|至)\s*", text, flags=re.I)
+    powers = []
+    for part in raw_parts:
+        match = re.search(r"\d+(?:\.\d+)?\s*W", clean_text(part), flags=re.I)
+        if match is None:
+            continue
+        power = format_power_display(match.group(0))
+        if power and power not in powers:
+            powers.append(power)
+    if not powers:
+        power = format_power_display(text)
+        if power:
+            powers.append(power)
+    return powers
+
+
+def normalize_fojan_alloy_resistance_range_for_pricing(value):
+    raw = clean_text(value)
+    if raw == "":
+        return "", ""
+    terminal = "large" if re.search(r"大\s*[电電]\s*极", raw) else "standard"
+    text = re.sub(r"大\s*[电電]\s*极", "", raw, flags=re.I)
+    text = (
+        text.replace("，", ",")
+        .replace("－", "-")
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("~", "-")
+        .replace("～", "-")
+        .replace("／", "/")
+    )
+    default_unit = "mR" if re.search(r"(?:m\s*[RΩ]|毫欧)", text, flags=re.I) else ""
+
+    def normalize_endpoint(endpoint, implied_unit=""):
+        endpoint = clean_text(endpoint)
+        endpoint = re.sub(r"[^0-9.RKMrΩΩ毫欧ohmsOHMS]+", "", endpoint)
+        if endpoint == "":
+            return ""
+        if re.search(r"(?:m\s*[RΩ]|毫欧|[RKΩ]|OHMS?|Ω)", endpoint, flags=re.I):
+            return endpoint.replace(" ", "")
+        return f"{endpoint}{implied_unit}" if implied_unit else endpoint
+
+    groups = []
+    for raw_group in [part for part in text.split("/") if clean_text(part) != ""]:
+        group = clean_text(raw_group)
+        if "-" in group:
+            left, right = [clean_text(piece) for piece in group.split("-", 1)]
+            right_unit = "mR" if re.search(r"(?:m\s*[RΩ]|毫欧)", right, flags=re.I) else default_unit
+            left_unit = "mR" if re.search(r"(?:m\s*[RΩ]|毫欧)", left, flags=re.I) else right_unit
+            left = normalize_endpoint(left, left_unit)
+            right = normalize_endpoint(right, right_unit)
+            if left and right:
+                groups.append(f"{left}-{right}")
+        else:
+            normalized = normalize_endpoint(group, default_unit)
+            if normalized:
+                groups.append(normalized)
+    return "/".join(groups), terminal
+
+
+def build_fojan_alloy_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope):
+    header_index = None
+    column_map = {}
+    for idx in range(min(len(raw_df), 20)):
+        row_values = [clean_text(value) for value in raw_df.iloc[idx].tolist()]
+        normalized = [normalize_cost_price_header(value) for value in row_values]
+        series_col = next((i for i, value in enumerate(normalized) if value == "series"), None)
+        product_col = next((i for i, value in enumerate(normalized) if value in {"产品", "product"}), None)
+        power_col = next((i for i, value in enumerate(normalized) if value in {"功率", "power"}), None)
+        tolerance_col = next((i for i, value in enumerate(normalized) if value in {"精度", "tolerance", "tol"}), None)
+        range_col = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
+        price_col = next((i for i, value in enumerate(normalized) if "unitprice" in value), None)
+        package_col = next((i for i, value in enumerate(normalized) if value == "package"), None)
+        if None in {series_col, product_col, power_col, tolerance_col, range_col, price_col}:
+            continue
+        header_index = idx
+        column_map = {
+            "series": series_col,
+            "product": product_col,
+            "power": power_col,
+            "tolerance": tolerance_col,
+            "range": range_col,
+            "price": price_col,
+            "package": package_col,
+        }
+        break
+    if header_index is None:
+        return []
+
+    items = []
+    last_series = ""
+    last_product = ""
+    last_power = ""
+    last_tolerance = ""
+    for row_idx in range(header_index + 1, len(raw_df)):
+        values = raw_df.iloc[row_idx].tolist()
+        series_text = clean_text(values[column_map["series"]])
+        product_text = clean_text(values[column_map["product"]])
+        power_text = clean_text(values[column_map["power"]])
+        tolerance_text = clean_text(values[column_map["tolerance"]])
+        resistance_range_raw = clean_text(values[column_map["range"]])
+        price = clean_text(values[column_map["price"]])
+        package = (
+            clean_text(values[column_map["package"]])
+            if column_map.get("package") is not None and column_map["package"] < len(values)
+            else ""
+        )
+        if series_text:
+            last_series = series_text
+        if product_text:
+            last_product = product_text
+        if power_text:
+            last_power = power_text
+        if tolerance_text:
+            last_tolerance = tolerance_text
+        series = extract_fojan_pricing_series(last_series)
+        tolerance = normalize_cost_price_tolerance_header(tolerance_text or last_tolerance)
+        resistance_range, terminal = normalize_fojan_alloy_resistance_range_for_pricing(resistance_range_raw)
+        if series == "" or last_product == "" or last_power == "" or tolerance == "" or resistance_range == "" or price == "":
+            continue
+        size_options = [
+            clean_size(part)
+            for part in re.split(r"[/／,，、]+", clean_text(last_product))
+            if clean_size(part)
+        ]
+        size_options = list(dict.fromkeys(size_options))
+        power_options = expand_fojan_alloy_pricing_power_options(last_power)
+        for size in size_options:
+            for power in power_options:
+                type_dimension = f"{size} {power}"
+                rule_data = {
+                    "cost_rule_type": "fojan_resistor_series",
+                    "series": series,
+                    "type_dimension": type_dimension,
+                    "resistance_range": resistance_range,
+                    "raw_resistance_range": resistance_range_raw,
+                    "tolerance": tolerance,
+                    "package": package,
+                    "fojan_alloy_terminal": terminal,
+                    **sheet_scope,
+                }
+                items.append(
+                    {
+                        "sheet_name": clean_text(sheet_name),
+                        "row_index": row_idx + 1,
+                        "brand": "FOJAN(富捷)",
+                        "model": "",
+                        "model_clean": "",
+                        "spec_text": f"{series} {type_dimension} {resistance_range_raw} {tolerance}%",
+                        "cost": price,
+                        "moq": package,
+                        "lead_time": "",
+                        "raw_json": json.dumps(rule_data, ensure_ascii=False, sort_keys=True),
+                    }
+                )
+    return items
+
+
 def build_fojan_cost_price_items_from_workbook(uploaded_file):
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
     if not raw_bytes:
@@ -6135,6 +6302,10 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
         except Exception:
             continue
         sheet_scope = parse_cost_price_sheet_customer_scope(raw_df)
+        alloy_items = build_fojan_alloy_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope)
+        if alloy_items:
+            items.extend(alloy_items)
+            continue
         header_index = None
         column_map = {}
         for idx in range(min(len(raw_df), 20)):
@@ -6556,12 +6727,16 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
         pricing_resistance_ohm = 10.0
     type_dimension = f"{size} {power}"
+    alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in {"FMB", "FRM", "FPM"} else ""
     for rule in lookup.get("__fojan_resistor_rules__", []):
         if clean_text(rule.get("series", "")).upper() != series:
             continue
         if clean_text(rule.get("type_dimension_norm", "")) != type_dimension:
             continue
         if clean_text(rule.get("tolerance", "")) != tolerance:
+            continue
+        rule_terminal = clean_text(rule.get("fojan_alloy_terminal", ""))
+        if rule_terminal in {"large", "standard"} and alloy_terminal in {"large", "standard"} and rule_terminal != alloy_terminal:
             continue
         selected_cost = select_resistor_segment_price(
             rule.get("resistance_range", ""), rule.get("cost", ""), pricing_resistance_ohm
@@ -6571,6 +6746,30 @@ def lookup_active_cost_price_for_row(row, lookup=None):
             matched["cost"] = selected_cost
             return matched
     return {}
+
+
+def fojan_alloy_pricing_terminal_from_row(row):
+    row = row if isinstance(row, dict) else row.to_dict() if hasattr(row, "to_dict") else {}
+    suffix = clean_text(row.get("_fojan_suffix", "")).upper()
+    if suffix == "":
+        parsed = parse_fojan_alloy_resistor_model(
+            row.get("型号", ""),
+            brand=row.get("品牌", ""),
+            component_type=row.get("器件类型", ""),
+        )
+        if parsed:
+            suffix = clean_text(parsed.get("_fojan_suffix", "")).upper()
+    if suffix == "ML":
+        return "large"
+    if suffix in {"M", "N", "K"}:
+        return "standard"
+    context = " ".join(
+        clean_text(row.get(column, ""))
+        for column in ("特殊用途", "系列说明", "规格摘要", "匹配参数明细")
+    )
+    if re.search(r"大\s*[电電]\s*极", context):
+        return "large"
+    return "standard"
 
 
 def enrich_component_cost_columns(df, lookup=None):
@@ -18496,6 +18695,12 @@ def normalize_resistor_pricing_series(row):
         return ""
     series_text = clean_text(row.get("系列", "")).upper()
     model_text = clean_model(row.get("型号", "")).upper()
+    alloy_series = extract_fojan_pricing_series(series_text)
+    if alloy_series in {"FMB", "FRM", "FPM"}:
+        return alloy_series
+    alloy_model = parse_fojan_alloy_resistor_model(model_text, brand="FOJAN(富捷)", component_type="合金电阻")
+    if alloy_model:
+        return clean_text(alloy_model.get("系列", "")).upper()
     for value in (series_text, model_text):
         profile = lookup_official_resistor_series_profile_by_model(value, "FOJAN(富捷)")
         if profile:
@@ -18504,7 +18709,7 @@ def normalize_resistor_pricing_series(row):
 
 
 def resistance_range_group_matches(range_group, resistance_ohm):
-    text = clean_text(range_group).upper()
+    text = clean_text(range_group)
     if text == "" or resistance_ohm is None:
         return False
     text = text.replace("，", ",").replace("－", "-").replace("–", "-").replace("—", "-").replace("~", "-").replace("～", "-")

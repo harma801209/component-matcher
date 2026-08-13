@@ -1245,3 +1245,10 @@
 - Fix: carry the current validated member token on both directions of the backend navigation. The destination still validates the token and the member's administrator role server-side, then removes the consumed token from the browser URL through the existing cleanup path.
 - Security boundary: this change does not bypass role checks. Ordinary members still do not receive the backend entry button and a forged backend URL still fails the administrator-role check.
 - Regression: the backend-entry test now requires the administrator token in the generated navigation URL and retains the separate role-enforcement test.
+
+## 2026-08-13 - FOJAN alloy resistor quote sheets were skipped by series-cost import
+
+- Symptom: uploading the 701 internal FOJAN resistor workbook imported the normal `FRC&FRL`, `FRH`, `FRQ`, and customer-code pages, but ignored the new alloy-resistor page. Alloy models such as `FRM252WFR010TM`, `FPM253WFR001TML`, and `FRM2015FR010TM` therefore had no uploaded cost even though the workbook contained prices.
+- Root cause: the series-cost parser only recognized the horizontal `Series / Type Dimension / Resistance Range / tolerance-price columns` layout. The alloy page uses a vertical layout (`Series / 产品 / 功率 / 精度 / Resistance Range / Unit Price`) with fill-down series/product/power cells, milliohm ranges whose unit may appear only at the right edge, and `大电极` markers that must distinguish `TML` from ordinary `TM` models.
+- Fix: add an alloy-layout parser that fills down series/product/power/tolerance, expands power ranges such as `1W~1.5W`, normalizes milliohm ranges such as `1~100mR` to `1mR-100mR`, and stores the terminal type. Runtime cost lookup now recognizes FOJAN `FMB/FRM/FPM` alloy series and filters `大电极` rules to `TML` models so ordinary and large-electrode prices do not cross-match.
+- Regression: a synthetic alloy quote verifies 1%, 2%, and 5% milliohm ranges, 2010 `1W~1.5W`, `TML` large-electrode selection, and ordinary `TM` fallback. The real `富捷电阻报价单-富临通701-内部.xlsx` now imports 397 rows across 5 sheets, including 61 alloy rules, and sample FRM/FPM alloy models resolve to the workbook prices.

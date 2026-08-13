@@ -141,6 +141,29 @@ def fojan_multi_sheet_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_alloy_quote_xlsx_bytes():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Alloy"
+    sheet.append(["客户代码", "通用", "FRM&FPM合金电阻系列产品报价单", "", "", "", ""])
+    sheet.append(["Date:2026/8/7", "", "", "", "", "", ""])
+    sheet.append(["Series", "产品", "功率", "精度", "Resistance Range", "Unit Price", "Package"])
+    sheet.append(["", "", "", "", "Ω (ohms)", "", ""])
+    sheet.append(["FRM", "2512", "2W", 0.01, "1~4mR大电极", "124.2", "4000PCS"])
+    sheet.append(["", "", "", 0.05, "1~4mR大电极", "71.3", "4000PCS"])
+    sheet.append(["", "", "", 0.01, "1-100mR", "120.75", "4000PCS"])
+    sheet.append(["", "", "", 0.02, "101~500mR", "112.7", "4000PCS"])
+    sheet.append(["FPM", "2512", "3W", 0.01, "1~4mR大电极", "147.2", "4000PCS"])
+    sheet.append(["", "", "", 0.05, "1~100mR", "78.2", "4000PCS"])
+    sheet.append(["FRM", "2010", "1W~1.5W", 0.01, "2~100mR", "135.7", "4000PCS"])
+    sheet.append(["FRM", "1206", "1W", 0.01, "1mR大电极", "112.7", "5000PCS"])
+    sheet.append(["", "", "", 0.01, "1-100mR", "83.95", "5000PCS"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 class SystemRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -3969,6 +3992,76 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRH", "0.5"), "7.90")
         self.assertEqual(price("FRH", "0.1"), "19.00")
         self.assertEqual(price("FRQ", "5"), "4.20")
+
+    def test_08b_fojan_alloy_quote_imports_vertical_milliohm_rules(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-alloy-cost.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            upload = UploadedBytes("fojan-alloy-quote.xlsx", fojan_alloy_quote_xlsx_bytes())
+            items, error = app["build_cost_price_items_from_workbook"](upload)
+            self.assertEqual(error, "")
+            self.assertGreaterEqual(len(items), 10)
+            self.assertEqual({item["sheet_name"] for item in items}, {"Alloy"})
+            rules = [json.loads(item["raw_json"]) for item in items]
+            self.assertIn("1mR-4mR", {rule["resistance_range"] for rule in rules})
+            self.assertIn("101mR-500mR", {rule["resistance_range"] for rule in rules})
+            self.assertEqual(
+                {
+                    rule["fojan_alloy_terminal"]
+                    for rule in rules
+                    if rule["series"] in {"FRM", "FPM"}
+                },
+                {"large", "standard"},
+            )
+
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+            self.assertIn("覆盖 1 个分页", message)
+            lookup = app["load_active_cost_price_lookup"]()
+
+            def price(model, series, size, power, resistance_ohm, tolerance):
+                return app["lookup_active_cost_price_for_row"](
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": model,
+                        "器件类型": "合金电阻",
+                        "系列": series,
+                        "尺寸（inch）": size,
+                        "功率": power,
+                        "_resistance_ohm": resistance_ohm,
+                        "容值误差": tolerance,
+                    },
+                    lookup=lookup,
+                )
+
+            frm_large = price("FRM252WFR001TML", "FRM", "2512", "2W", 0.001, "1")
+            self.assertEqual(frm_large["cost"], "124.2")
+            self.assertEqual(frm_large["moq"], "4000PCS")
+
+            frm_standard = price("FRM252WFR010TM", "FRM", "2512", "2W", 0.01, "1")
+            self.assertEqual(frm_standard["cost"], "120.75")
+
+            frm_high_range = price("FRM252WGR200TM", "FRM", "2512", "2W", 0.2, "2")
+            self.assertEqual(frm_high_range["cost"], "112.7")
+
+            fpm_large = price("FPM253WFR001TML", "FPM", "2512", "3W", 0.001, "1")
+            self.assertEqual(fpm_large["cost"], "147.2")
+
+            fpm_standard = price("FPM253WJR001TM", "FPM", "2512", "3W", 0.001, "5")
+            self.assertEqual(fpm_standard["cost"], "78.2")
+
+            frm_2010 = price("FRM2015FR010TM", "FRM", "2010", "1.5W", 0.01, "1")
+            self.assertEqual(frm_2010["cost"], "135.7")
+
+            frm_1206_large = price("FRM121WFR001TML", "FRM", "1206", "1W", 0.001, "1")
+            self.assertEqual(frm_1206_large["cost"], "112.7")
+            frm_1206_standard = price("FRM121WFR010TM", "FRM", "1206", "1W", 0.01, "1")
+            self.assertEqual(frm_1206_standard["cost"], "83.95")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
 
     def test_09_pdc_series_descriptions_do_not_repeat_vendor_and_series(self):
         app = self.app
