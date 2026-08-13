@@ -3886,3 +3886,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - New member-entered customer names are validated at the server save boundary rather than only by input hints. Chinese entries require a legal company form such as `有限公司`; overseas entries require a recognized registered-entity suffix such as `Ltd`, `Inc`, `LLC`, `Pte Ltd`, `Pty Ltd`, `GmbH`, or an equivalent jurisdictional form.
 - Added support for common European, American, Singaporean, Australian, Malaysian, Japanese, and Korean legal-name forms. Short trading names are rejected with a specific correction message.
 - The rule applies only to newly saved member customer entries. Existing customer history, customer master data, member records, and cost data are not modified.
+
+### 2026-08-13 [Customer selector] Default to new customer and simplify status
+
+- Ordinary search and BOM customer dropdowns now put `新客户` first and select it on initial page entry instead of restoring a previous customer automatically.
+- Manual customer choices remain stable during the current workflow, and saving a new customer still continues with that newly saved customer.
+- General-price status now displays only `通用价格`; member, customer, dedicated-price permission, and cost records are unchanged.

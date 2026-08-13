@@ -5425,30 +5425,28 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     customer_names = [normalize_cost_customer_name(row.get("customer_name", "")) for row in customer_rows]
     customer_names = [name for name in customer_names if name]
     new_customer_option = "新客户"
-    selector_key = f"{key_prefix}_member_sales_customer_selector"
-    pending_selection_key = f"{key_prefix}_member_sales_customer_pending_selection"
+    selector_key = f"{key_prefix}_member_sales_customer_selector_{member_id}_v2"
+    pending_selection_key = f"{key_prefix}_member_sales_customer_pending_selection_{member_id}_v2"
     pending_selection = normalize_cost_customer_name(st.session_state.pop(pending_selection_key, ""))
-    remembered_selection = normalize_cost_customer_name(
-        st.session_state.get(SALES_CUSTOMER_SELECTION_NAME_KEY, "")
-    )
-    restored_name = normalize_cost_customer_name(restored_name)
+    del restored_name
     desired_selection = next(
         (
             name
-            for name in [pending_selection, remembered_selection, restored_name]
+            for name in [pending_selection]
             if normalize_cost_customer_key(name) in customer_by_key
         ),
-        customer_names[0] if customer_names else new_customer_option,
+        new_customer_option,
     )
+    selector_options = [new_customer_option] + customer_names
     current_widget_value = normalize_cost_customer_name(st.session_state.get(selector_key, ""))
     if pending_selection and normalize_cost_customer_key(pending_selection) in customer_by_key:
         st.session_state[selector_key] = desired_selection
-    elif current_widget_value not in customer_names + [new_customer_option]:
+    elif current_widget_value not in selector_options:
         st.session_state[selector_key] = desired_selection
 
     selected_name = st.selectbox(
         "当前客户",
-        customer_names + [new_customer_option],
+        selector_options,
         key=selector_key,
         help="这里只显示当前会员账号自己登记过的客户。",
     )
@@ -5500,7 +5498,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         if clean_text(record.get("group_name", "")):
             price_source += f"（{record.get('group_name')}）"
     else:
-        price_source = "通用价格（后台尚未允许此账号读取该客户专属报价）"
+        price_source = "通用价格"
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
     st.caption("可在上方下拉选单切换自己登记过的客户；选择“新客户”即可新增。专属价格权限由后台管理员维护。")
     return customer_type, customer_name, ready
