@@ -1237,3 +1237,11 @@
 - Root cause: the selector restored the account-wide remembered customer and placed `新客户` after all saved customer names.
 - Fix: put `新客户` first and use it as the initial value for each search/BOM selector. Preserve an explicit in-page selection and select a newly saved customer only for the immediate continuation flow. Show the general-price source simply as `通用价格`.
 - Compatibility: saved customer lists, customer price permissions, dedicated quotation resolution, and existing customer records are unchanged.
+
+## 2026-08-13 - Backend entry lost the authenticated administrator session
+
+- Symptom: an administrator could sign in successfully, but clicking `进入后台` opened the backend permission page as an unauthenticated user and showed only the member-login button.
+- Root cause: the navigation back from the backend already carried the validated member token, while the navigation into the backend omitted it. The new Streamlit page session therefore had no authenticated member context when it performed the administrator-role check.
+- Fix: carry the current validated member token on both directions of the backend navigation. The destination still validates the token and the member's administrator role server-side, then removes the consumed token from the browser URL through the existing cleanup path.
+- Security boundary: this change does not bypass role checks. Ordinary members still do not receive the backend entry button and a forged backend URL still fails the administrator-role check.
+- Regression: the backend-entry test now requires the administrator token in the generated navigation URL and retains the separate role-enforcement test.

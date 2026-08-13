@@ -757,7 +757,10 @@ class SystemRegressionTests(unittest.TestCase):
 
         class FakeStreamlit:
             def __init__(self):
-                self.session_state = {"_no_match_admin_authenticated": True}
+                self.session_state = {
+                    "_no_match_admin_authenticated": True,
+                    "_member_auth_token": "admin-member-token",
+                }
                 self.markup = []
 
             def markdown(self, value, **kwargs):
@@ -793,6 +796,10 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertIn("admin-login-fixed", fake_st.markup[0])
             self.assertIn("进入后台", fake_st.markup[0])
             self.assertIn("admin=1", fake_st.markup[0])
+            self.assertIn(
+                f"{app['MEMBER_AUTH_QUERY_PARAM']}=admin-member-token",
+                fake_st.markup[0],
+            )
             self.assertNotIn("登入后台", fake_st.markup[0])
         finally:
             app.update(original_functions)
