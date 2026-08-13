@@ -2098,6 +2098,45 @@ def list_member_sales_customers(member_id):
     return [dict(row) for row in rows]
 
 
+def list_member_sales_customers_for_admin():
+    refresh_member_auth_remote_snapshot()
+    ensure_member_auth_schema()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT c.id, c.member_id, c.customer_name, c.customer_key,
+                   c.price_access_enabled, c.created_at, c.updated_at,
+                   c.last_selected_at,
+                   m.username AS member_username,
+                   m.display_name AS member_display_name,
+                   m.company AS member_company,
+                   m.role AS member_role,
+                   m.status AS member_status
+            FROM member_sales_customers c
+            LEFT JOIN members m ON m.id=c.member_id
+            WHERE c.customer_key<>''
+            ORDER BY CASE WHEN c.last_selected_at<>'' THEN 0 ELSE 1 END,
+                     c.last_selected_at DESC, c.updated_at DESC, c.id ASC
+            """
+        ).fetchall()
+    customers = []
+    seen_keys = set()
+    for row in rows:
+        customer = dict(row)
+        if normalize_member_status(customer.get("member_status", "")) == "disabled":
+            continue
+        name = normalize_cost_customer_name(customer.get("customer_name", ""))
+        key = normalize_cost_customer_key(customer.get("customer_key", "") or name)
+        if key == "" or key in seen_keys:
+            continue
+        customer["customer_name"] = name
+        customer["customer_key"] = key
+        customers.append(customer)
+        seen_keys.add(key)
+    return customers
+
+
 def save_member_sales_customer(member_id, customer_name):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
@@ -5419,7 +5458,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         return "", "", True
 
     member_id = int(member.get("id", 0) or 0)
-    customer_rows = list_member_sales_customers(member_id)
+    is_admin = current_member_is_admin()
+    customer_rows = list_member_sales_customers_for_admin() if is_admin else list_member_sales_customers(member_id)
     customer_by_key = {
         normalize_cost_customer_key(row.get("customer_name", "")): row
         for row in customer_rows
@@ -5427,9 +5467,12 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     }
     customer_names = [normalize_cost_customer_name(row.get("customer_name", "")) for row in customer_rows]
     customer_names = [name for name in customer_names if name]
-    new_customer_option = "新客户"
-    selector_key = f"{key_prefix}_member_sales_customer_selector_{member_id}_v2"
-    pending_selection_key = f"{key_prefix}_member_sales_customer_pending_selection_{member_id}_v2"
+    customer_names = list(dict.fromkeys(customer_names))
+    new_customer_option = "通用成本（不指定客户）" if is_admin else "新客户"
+    customer_names = [name for name in customer_names if name != new_customer_option]
+    selector_owner_key = "admin" if is_admin else str(member_id)
+    selector_key = f"{key_prefix}_member_sales_customer_selector_{selector_owner_key}_v3"
+    pending_selection_key = f"{key_prefix}_member_sales_customer_pending_selection_{selector_owner_key}_v3"
     pending_selection = normalize_cost_customer_name(st.session_state.pop(pending_selection_key, ""))
     del restored_name
     desired_selection = next(
@@ -5447,13 +5490,30 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif current_widget_value not in selector_options:
         st.session_state[selector_key] = desired_selection
 
+    help_text = (
+        "管理员可查看所有会员登记过的客户；不指定客户时使用通用成本。"
+        if is_admin
+        else "这里只显示当前会员账号自己登记过的客户。"
+    )
     selected_name = st.selectbox(
         "当前客户",
         selector_options,
         key=selector_key,
-        help="这里只显示当前会员账号自己登记过的客户。",
+        help=help_text,
     )
     if selected_name == new_customer_option:
+        if is_admin:
+            previous_selection = normalize_cost_customer_name(
+                st.session_state.get(SALES_CUSTOMER_SELECTION_NAME_KEY, "")
+            )
+            if previous_selection:
+                clear_customer_dependent_session_state()
+            st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = ""
+            st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
+            st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
+            st.success("当前客户：通用成本　·　价格来源：通用价格")
+            st.caption("管理员可直接搜索料号；如需查看客户专属价格，请从下拉选单选择会员登记客户。")
+            return COST_CUSTOMER_TYPE_NEW, "", True
         with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
             new_customer_name = st.text_input(
                 "新客户名称",
@@ -5484,11 +5544,12 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     )
     if normalize_cost_customer_key(previous_selection) != selected_key:
         clear_customer_dependent_session_state()
-        selected_customer = select_member_sales_customer(member_id, selected_name) or selected_customer
+        if not is_admin:
+            selected_customer = select_member_sales_customer(member_id, selected_name) or selected_customer
     st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = selected_name
 
     price_access_enabled = bool(int((selected_customer or {}).get("price_access_enabled", 0) or 0))
-    if price_access_enabled:
+    if is_admin or price_access_enabled:
         customer_type, customer_name, ready = resolve_member_customer_price_scope(selected_name)
     else:
         customer_type, customer_name, ready = COST_CUSTOMER_TYPE_NEW, "", True
@@ -5503,7 +5564,10 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     else:
         price_source = "通用价格"
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
-    st.caption("可在上方下拉选单切换自己登记过的客户；选择“新客户”即可新增。专属价格权限由后台管理员维护。")
+    if is_admin:
+        st.caption("管理员可在上方下拉选单切换所有会员登记客户；没有专属价格时自动使用通用价格。")
+    else:
+        st.caption("可在上方下拉选单切换自己登记过的客户；选择“新客户”即可新增。专属价格权限由后台管理员维护。")
     return customer_type, customer_name, ready
 
 

@@ -3898,3 +3898,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Fixed the formal-page `进入后台` navigation so it carries the current validated member session into the backend page instead of creating an unauthenticated page session.
 - Kept the server-side administrator-role check unchanged. Ordinary members still cannot see the backend entry or open backend functions through a forged URL.
 - Added regression coverage for the token-preserving backend link and retained the independent backend authorization test. No member, customer, cost-list, or no-match runtime records were modified.
+
+### 2026-08-13 [Admin customer costs] Let administrators search with general or member customer pricing
+
+- Administrators now default the search/BOM customer selector to `通用成本（不指定客户）`, so they can search料号 without adding or selecting a customer.
+- The administrator selector lists all non-disabled members' saved sales customers. Selecting a customer resolves any maintained customer master, dedicated customer cost list, customer-code price, or group-shared price; customers without a dedicated context automatically fall back to general cost.
+- Ordinary member behavior remains owner-scoped: members still only see their own saved customers, must save a new customer before using that customer, and dedicated pricing still depends on administrator-granted price access.
+- Added regression coverage for the administrator default, cross-member customer dropdown, disabled-member filtering, and existing-customer price context. Targeted customer-price isolation tests pass in isolated databases.

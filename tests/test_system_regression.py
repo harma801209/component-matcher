@@ -588,6 +588,151 @@ class SystemRegressionTests(unittest.TestCase):
         authorized = app["list_member_sales_customers"](member_ids[0])[0]
         self.assertEqual(int(authorized["price_access_enabled"]), 1)
 
+    def test_02aa1_admin_customer_selector_lists_all_member_customers_and_defaults_to_general(self):
+        app = self.app
+        customer_names = [
+            "管理员查看深圳客户有限公司",
+            "管理员查看上海客户有限公司",
+        ]
+        member_rows = []
+        for username, customer_name in [
+            ("AdminCostOwnerA", customer_names[0]),
+            ("AdminCostOwnerB", customer_names[1]),
+            ("AdminCostOwnerDisabled", "管理员隐藏客户有限公司"),
+        ]:
+            ok, message = app["create_member_account"](
+                username,
+                "secret1",
+                display_name=username,
+                company="Regression Co",
+            )
+            self.assertTrue(ok, message)
+            member = app["get_member_by_username"](username)
+            member_rows.append(member)
+            ok, message = app["approve_member_account_admin"](member["id"])
+            self.assertTrue(ok, message)
+            ok, message, saved = app["save_member_sales_customer"](member["id"], customer_name)
+            self.assertTrue(ok, message)
+            self.assertEqual(saved["customer_name"], customer_name)
+
+        disabled_member = member_rows[-1]
+        ok, message = app["update_member_account_admin"](
+            disabled_member["id"],
+            username=disabled_member["username"],
+            display_name=disabled_member["display_name"],
+            company=disabled_member["company"],
+            email=disabled_member["email"],
+            phone=disabled_member["phone"],
+            role=disabled_member["role"],
+            status="disabled",
+            actor_username="regression-admin",
+        )
+        self.assertTrue(ok, message)
+        ok, message, _ = app["save_sales_customer"](
+            customer_names[0],
+            "ADM-COST-001",
+            group_name="管理员客户集团有限公司",
+            updated_by="regression",
+            sync_remote=False,
+        )
+        self.assertTrue(ok, message)
+
+        admin_customer_rows = app["list_member_sales_customers_for_admin"]()
+        admin_customer_names = {row["customer_name"] for row in admin_customer_rows}
+        self.assertIn(customer_names[0], admin_customer_names)
+        self.assertIn(customer_names[1], admin_customer_names)
+        self.assertNotIn("管理员隐藏客户有限公司", admin_customer_names)
+
+        class FakeStreamlit:
+            def __init__(self, selection=""):
+                self.selection = selection
+                self.session_state = {}
+                self.selectbox_calls = []
+                self.success_messages = []
+                self.caption_messages = []
+                self.info_messages = []
+
+            def selectbox(self, label, options, key=None, **kwargs):
+                options = list(options)
+                self.selectbox_calls.append(
+                    {
+                        "label": label,
+                        "options": options,
+                        "key": key,
+                        "help": kwargs.get("help", ""),
+                    }
+                )
+                value = self.selection if self.selection in options else options[0]
+                if key:
+                    self.session_state[key] = value
+                return value
+
+            def success(self, value):
+                self.success_messages.append(value)
+
+            def caption(self, value):
+                self.caption_messages.append(value)
+
+            def info(self, value):
+                self.info_messages.append(value)
+
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member",
+                "current_member_is_admin",
+            ]
+        }
+        try:
+            app["current_member"] = lambda: {
+                "id": 900001,
+                "username": "regression-admin",
+                "role": "admin",
+                "status": "active",
+            }
+            app["current_member_is_admin"] = lambda: True
+
+            fake_st = FakeStreamlit()
+            app["st"] = fake_st
+            customer_type, customer_name, ready = app["render_sales_cost_customer_selector"](
+                key_prefix="admin_cost_regression"
+            )
+            self.assertEqual((customer_type, customer_name, ready), ("new", "", True))
+            options = fake_st.selectbox_calls[0]["options"]
+            self.assertEqual(options[0], "通用成本（不指定客户）")
+            self.assertIn(customer_names[0], options)
+            self.assertIn(customer_names[1], options)
+            self.assertNotIn("管理员隐藏客户有限公司", options)
+            self.assertIn("直接搜索料号", fake_st.caption_messages[-1])
+
+            fake_selected_st = FakeStreamlit(selection=customer_names[0])
+            app["st"] = fake_selected_st
+            customer_type, customer_name, ready = app["render_sales_cost_customer_selector"](
+                key_prefix="admin_cost_regression_selected"
+            )
+            self.assertEqual((customer_type, customer_name, ready), ("existing", customer_names[0], True))
+            self.assertEqual(
+                fake_selected_st.session_state[app["SALES_COST_CUSTOMER_TYPE_KEY"]],
+                "existing",
+            )
+            self.assertEqual(
+                fake_selected_st.session_state[app["SALES_COST_CUSTOMER_NAME_KEY"]],
+                customer_names[0],
+            )
+            self.assertIn("客户价格", fake_selected_st.success_messages[-1])
+
+            fake_unpriced_st = FakeStreamlit(selection=customer_names[1])
+            app["st"] = fake_unpriced_st
+            customer_type, customer_name, ready = app["render_sales_cost_customer_selector"](
+                key_prefix="admin_cost_regression_unpriced"
+            )
+            self.assertEqual((customer_type, customer_name, ready), ("new", "", True))
+            self.assertIn("通用价格", fake_unpriced_st.success_messages[-1])
+        finally:
+            app.update(original_functions)
+            app["clear_cost_price_lookup_cache"]()
+
     def test_02aab_new_member_customer_requires_legal_company_full_name(self):
         app = self.app
         valid_names = [
