@@ -84,6 +84,7 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('new_customer_option = "新客户"', selector_function)
         self.assertIn("save_member_sales_customer", selector_function)
         self.assertIn("price_access_enabled", selector_function)
+        self.assertIn("注册/营业执照公司全称", selector_function)
 
     def test_old_single_customer_field_is_not_rendered(self):
         center_start = self.matcher.index("def render_member_center_page(")

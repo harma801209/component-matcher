@@ -1223,3 +1223,10 @@
 - Security boundary: members cannot enumerate another member's customers, cannot self-enable dedicated pricing, and cannot obtain another customer group's quotation. Changing the selected customer clears customer-dependent search, BOM, and export state before another match runs.
 - Compatibility: existing non-empty legacy customer bindings migrate into the private list as already approved entries, while the old single customer field is removed from Member Center and backend member-management UI without deleting the database column or historical data.
 - Regression: isolated tests cover member ownership, new-customer general-price defaults, administrative price authorization, legacy migration, and removal of the obsolete UI field. The complete 49-test release safety gate passes with protected runtime fingerprints unchanged.
+
+## 2026-08-13 - New customer entries accepted trading names and abbreviations
+
+- Symptom: a member could save a short customer label such as `星际悦动` or `Example Electronics`, making later customer-master and quotation-code resolution ambiguous.
+- Root cause: the owner-scoped customer list checked only emptiness, length, and duplicate keys; it did not require the legal entity form found on a business licence or registration document.
+- Fix: validate new entries server-side. Chinese company names must retain a recognized legal form such as `有限公司`, `有限责任公司`, or `股份有限公司`; international names must retain a recognized jurisdictional entity form such as `Ltd`, `Inc`, `Corp`, `LLC`, `Pte Ltd`, `Pty Ltd`, `GmbH`, `S.A.`, or an equivalent supported form. Japanese and Korean prefix/suffix forms are also recognized.
+- Compatibility: the rule applies only when a member adds a new customer. Existing saved customers and customer-master records are not deleted or rewritten.

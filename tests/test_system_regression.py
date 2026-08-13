@@ -545,15 +545,21 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertTrue(ok, message)
 
         ok, message, saved = app["save_member_sales_customer"](member_ids[0], "客户甲")
+        self.assertFalse(ok)
+        self.assertIn("全称", message)
+        self.assertIsNone(saved)
+        self.assertEqual(app["list_member_sales_customers"](member_ids[0]), [])
+
+        ok, message, saved = app["save_member_sales_customer"](member_ids[0], "客户甲有限公司")
         self.assertTrue(ok, message)
-        self.assertEqual(saved["customer_name"], "客户甲")
+        self.assertEqual(saved["customer_name"], "客户甲有限公司")
         self.assertEqual(int(saved["price_access_enabled"]), 0)
         self.assertEqual(len(app["list_member_sales_customers"](member_ids[0])), 1)
         self.assertEqual(app["list_member_sales_customers"](member_ids[1]), [])
 
-        selected = app["select_member_sales_customer"](member_ids[0], "客户甲")
+        selected = app["select_member_sales_customer"](member_ids[0], "客户甲有限公司")
         self.assertIsNotNone(selected)
-        self.assertIsNone(app["select_member_sales_customer"](member_ids[1], "客户甲"))
+        self.assertIsNone(app["select_member_sales_customer"](member_ids[1], "客户甲有限公司"))
 
         customer_id = int(saved["id"])
         ok, message = app["set_member_sales_customer_price_access"](
@@ -563,9 +569,9 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("后台尚未维护", message)
 
         ok, message, _ = app["save_sales_customer"](
-            "客户甲",
+            "客户甲有限公司",
             "TEST-A-001",
-            group_name="客户甲集团",
+            group_name="客户甲集团有限公司",
             updated_by="regression",
             sync_remote=False,
         )
@@ -581,6 +587,32 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertTrue(ok, message)
         authorized = app["list_member_sales_customers"](member_ids[0])[0]
         self.assertEqual(int(authorized["price_access_enabled"]), 1)
+
+    def test_02aab_new_member_customer_requires_legal_company_full_name(self):
+        app = self.app
+        valid_names = [
+            "深圳市示例科技有限公司",
+            "示例股份有限公司",
+            "Example Technologies Co., Ltd.",
+            "Example Systems, Inc.",
+            "Example Holdings LLC",
+            "Example Electronics Pte. Ltd.",
+            "Example Australia Pty Ltd",
+            "Example Deutschland GmbH",
+            "株式会社サンプル",
+            "샘플 주식회사",
+        ]
+        for customer_name in valid_names:
+            with self.subTest(customer_name=customer_name):
+                ok, message = app["validate_customer_legal_full_name"](customer_name)
+                self.assertTrue(ok, message)
+
+        invalid_names = ["星际悦动", "Example", "Example Electronics", "客户甲"]
+        for customer_name in invalid_names:
+            with self.subTest(customer_name=customer_name):
+                ok, message = app["validate_customer_legal_full_name"](customer_name)
+                self.assertFalse(ok)
+                self.assertIn("全称", message)
 
     def test_02ab_job_title_is_admin_managed_and_controls_cost_visibility(self):
         app = self.app
