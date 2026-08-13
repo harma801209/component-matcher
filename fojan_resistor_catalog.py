@@ -315,6 +315,15 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         "FUP系列车规超高功率厚膜片式电阻.pdf",
         tolerances=("1", "5"),
     ),
+    "FRC-P": _series(
+        "Lead Free Thick Film Chip Resistor",
+        "无铅 | 无卤",
+        _size_limits(NORMAL_POWER, min_0201=10.0),
+        "FRC-P Series Lead Free Thick Film Chip Resistor Product Specifications",
+        tolerances=("1", "5"),
+        model_prefix="FRC",
+        suffixes=("TSP",),
+    ),
     "FRC-X": _series(
         "低温漂厚膜贴片电阻",
         "低温漂 | 无卤",
@@ -330,6 +339,15 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         "FRP-X系列低温漂高功率厚膜片式电阻.pdf",
         tolerances=("0.5", "1", "5"),
         model_prefix="FRP",
+        suffixes=("TSX",),
+    ),
+    "FRH-X": _series(
+        "High Precision Low TCR Thick Film Chip Resistor",
+        "高精度 | 低温漂 | 无卤",
+        _size_limits({key: value for key, value in NORMAL_POWER.items() if key != "0201"}),
+        "FRH-X Series High Precision Low TCR Thick Film Chip Resistor Product Specifications",
+        tolerances=("0.1", "0.25", "0.5"),
+        model_prefix="FRH",
         suffixes=("TSX",),
     ),
     "FRB": _series(
@@ -523,6 +541,17 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         },
         "FPW系列高功率宽电极厚膜片式电阻.pdf",
         tolerances=("1", "5"),
+        model_size_by_size={"0612": "1206", "1020": "2010", "1225": "2512"},
+    ),
+    "FQW": _series(
+        "Automotive Wide Termination Thick Film Chip Resistor",
+        "车规 | 宽端子 | 抗硫化 | 无卤",
+        {
+            size: {"power": power, "voltage": WIDE_VOLTAGE[size], "min_ohm": 0.01, "max_ohm": 10_000_000.0}
+            for size, power in WIDE_POWER.items()
+        },
+        "FQW Series Automotive Wide Termination Thick Film Chip Resistor Product Specifications",
+        tolerances=("0.5", "1", "5"),
         model_size_by_size={"0612": "1206", "1020": "2010", "1225": "2512"},
     ),
 }

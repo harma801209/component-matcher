@@ -10003,10 +10003,11 @@ def clean_size(x):
 EMBEDDED_SIZE_TOKENS = (
     "015008", "008004", "01005",
     "0075", "0100", "0102", "0201", "0204", "0207", "0302", "0303", "0401", "0402", "0406", "0502", "0504", "0505", "0508",
-    "0603", "0612", "0705", "0804", "0805", "0815", "1010", "1020", "1206", "1210", "1218", "1225", "1505", "1506",
-    "1608", "1808", "1812", "1825", "2010", "2012", "2220", "2512", "2513", "2514", "2515", "2615", "2816",
-    "2817", "2920", "3225", "3512", "3920", "4020", "4124", "4312", "4520", "4527", "4532", "5750", "5930",
-    "6227", "6327", "8035",
+    "0550", "0603", "0612", "0705", "0804", "0805", "0815", "1010", "1020", "1120", "1206", "1210", "1218", "1225", "1505", "1506",
+    "1608", "1625", "1808", "1812", "1825", "2010", "2012", "2025", "2130", "2220", "2512", "2513", "2514",
+    "2515", "2530", "2615", "2726", "2816", "2817", "2818", "2920", "3225", "3512", "3820", "3920", "4020",
+    "4026", "4124", "4312", "4320", "4520", "4527", "4532", "5750", "5930", "6227", "6327", "8035", "8420",
+    "8436", "8518",
 )
 SIZE_TOKEN_PATTERN = re.compile(r"(?<!\d)(" + "|".join(sorted(EMBEDDED_SIZE_TOKENS, key=len, reverse=True)) + r")(?!\d)")
 SPEC_EMBEDDED_MATERIALS = [
@@ -12824,8 +12825,76 @@ FOJAN_FWPK_DATASHEET_SOURCE = (
     "FWPK Series Four Terminal Alloy Chip Resistors Product Specifications "
     "FJ-JS-3001-V1.0/2025.09.24"
 )
+FOJAN_FSM_DATASHEET_SOURCE = (
+    "FSM Series Pure Alloy Chip Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FMS_DATASHEET_SOURCE = (
+    "FMS Series Semi-alloy Resistance Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FSHM_DATASHEET_SOURCE = (
+    "FSHM Series High Power Alloy Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2026.03.10"
+)
+FOJAN_FMK_DATASHEET_SOURCE = (
+    "FMK Series 4-Pin Plug-In Alloy Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FCN_DATASHEET_SOURCE = (
+    "FCN Series Alloy Shunt Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FWKP_DATASHEET_SOURCE = (
+    "FWKP Series High Power Low TCR Four-pin Alloy Chip Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FHS_DATASHEET_SOURCE = (
+    "FHS Series Shunt High Power Alloy Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FJR_DATASHEET_SOURCE = (
+    "FJR Series Current Sense Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FSP_DATASHEET_SOURCE = (
+    "FSP Series Low TCR Pure Alloy Chip Resistor Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FCS_DATASHEET_SOURCE = (
+    "FCS Series High Current Alloy Shunt Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FSR_DATASHEET_SOURCE = (
+    "FSR Series Plug-In Jumper Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FCR_DATASHEET_SOURCE = (
+    "FCR Series Plug-In Alloy Resistors Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FUS_DATASHEET_SOURCE = (
+    "FUS Series High Power Alloy Shunt Product Specifications "
+    "FJ-JS-3001-V1.0/2025.09.24"
+)
 FOJAN_ALLOY_PRICING_SERIES = {"FMB", "FRM", "FPM", "FMH", "FCM", "FWP", "FWK"}
-FOJAN_ALLOY_SERIES_HINTS = FOJAN_ALLOY_PRICING_SERIES | {"FWPK"}
+FOJAN_OFFICIAL_EXTRA_ALLOY_SERIES = {
+    "FCN",
+    "FCR",
+    "FCS",
+    "FHS",
+    "FJR",
+    "FMK",
+    "FMS",
+    "FSHM",
+    "FSM",
+    "FSP",
+    "FSR",
+    "FUS",
+    "FWKP",
+    "FWPK",
+}
+FOJAN_ALLOY_SERIES_HINTS = FOJAN_ALLOY_PRICING_SERIES | FOJAN_OFFICIAL_EXTRA_ALLOY_SERIES
 FOJAN_EXTENDED_ALLOY_MODEL_PROFILES = {
     "FMH": {
         "source": FOJAN_FMH_DATASHEET_SOURCE,
@@ -12907,13 +12976,188 @@ FOJAN_EXTENDED_ALLOY_MODEL_PROFILES = {
         "default_pack": "T",
         "decimal_mohm_code": True,
     },
+    "FSM": {
+        "source": FOJAN_FSM_DATASHEET_SOURCE,
+        "series_desc": "Pure Alloy Chip Resistor",
+        "size_code_to_inch": {"1206": "1206", "2010": "2010", "2512": "2512", "3920": "3920"},
+        "dimensions": {"1206": ("3.20", "1.60", ""), "2010": ("5.00", "2.50", ""), "2512": ("6.30", "3.20", "1.20"), "3920": ("10.00", "5.20", "2.00")},
+        "ranges_mohm": {"1206": [(0.2, 10.0)], "2010": [(0.2, 10.0)], "2512": [(0.2, 6.0)], "3920": [(0.2, 5.0)]},
+        "power_options_by_size": {"1206": ["3W"], "2010": ["3W", "5W"], "2512": ["3W", "4W", "5W", "6W", "7W"], "3920": ["5W", "6W", "7W", "9W", "10W", "12W"]},
+        "terms": {"M", "S", "K", "F"},
+        "specials": {""},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FMS": {
+        "source": FOJAN_FMS_DATASHEET_SOURCE,
+        "series_desc": "Semi-alloy Resistance",
+        "size_code_to_inch": {"06": "0603", "08": "0805", "12": "1206", "25": "2512"},
+        "dimensions": {"0603": ("1.60", "0.80", "0.40"), "0805": ("2.00", "1.25", "0.40"), "1206": ("3.20", "1.60", "0.50"), "2512": ("6.40", "3.20", "0.90")},
+        "ranges_mohm": {"0603": [(5.0, 20.0)], "0805": [(5.0, 30.0)], "1206": [(5.0, 40.0)], "2512": [(5.0, 10.0)]},
+        "power_options_by_size": {"0603": ["0.5W"], "0805": ["0.75W"], "1206": ["1W"], "2512": ["2W"]},
+        "terms": {"M"},
+        "specials": {"", "L"},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FSHM": {
+        "source": FOJAN_FSHM_DATASHEET_SOURCE,
+        "series_desc": "High Power Alloy Resistor",
+        "size_code_to_inch": {"2818": "2818"},
+        "dimensions": {"2818": ("7.15", "4.50", "1.50")},
+        "ranges_mohm": {"2818": [(20.0, 20.0)]},
+        "power_options_by_size": {"2818": ["7W"]},
+        "terms": {"M"},
+        "specials": {"", "L"},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FMK": {
+        "source": FOJAN_FMK_DATASHEET_SOURCE,
+        "series_desc": "4-Pin Plug-In Alloy Resistors",
+        "size_code_to_inch": {"3820": "3820"},
+        "dimensions": {"3820": ("8.30", "5.30", "3.80")},
+        "ranges_mohm": {"3820": [(0.25, 5.0)]},
+        "power_options_by_size": {"3820": ["3W", "4W", "5W"]},
+        "terms": {"K", "M"},
+        "specials": {""},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+    },
+    "FCN": {
+        "source": FOJAN_FCN_DATASHEET_SOURCE,
+        "series_desc": "Alloy Shunt Resistors",
+        "size_code_to_inch": {"4312": "4312", "4320": "4320"},
+        "dimensions": {"4312": ("11.00", "3.10", "2.70"), "4320": ("11.00", "6.10", "2.70")},
+        "ranges_mohm": {"4312": [(1.0, 50.0)], "4320": [(1.0, 25.0)]},
+        "power_options_by_size": {"4312": ["2W", "3W"], "4320": ["5W"]},
+        "terms": {"M", "K", "F"},
+        "specials": {""},
+        "default_pack": "R",
+        "decimal_mohm_code": True,
+    },
+    "FWKP": {
+        "source": FOJAN_FWKP_DATASHEET_SOURCE,
+        "series_desc": "High Power Low TCR Four-pin Alloy Chip Resistors",
+        "size_code_to_inch": {"2726": "2726", "4026": "4026"},
+        "dimensions": {"2726": ("6.90", "6.60", "3.00"), "4026": ("10.10", "6.60", "3.00")},
+        "ranges_mohm": {"2726": [(0.2, 5.0)], "4026": [(0.2, 5.0)]},
+        "power_options_by_size": {"2726": ["3W", "4W", "5W", "6W", "7W", "8W", "9W", "11W", "12W"], "4026": ["3W", "4W", "5W", "6W", "7W", "8W", "9W", "11W", "12W"]},
+        "terms": {"S", "M", "K"},
+        "specials": {""},
+        "default_pack": "R",
+        "decimal_mohm_code": True,
+    },
+    "FHS": {
+        "source": FOJAN_FHS_DATASHEET_SOURCE,
+        "series_desc": "Shunt High Power Alloy Resistors",
+        "size_code_to_inch": {"1625": "1625", "2025": "2025", "2530": "2530"},
+        "dimensions": {"1625": ("16.00", "25.00", ""), "2025": ("20.00", "25.00", ""), "2530": ("25.00", "30.00", "")},
+        "ranges_mohm": {"1625": [(0.1, 3.0)], "2025": [(0.1, 3.0)], "2530": [(0.1, 3.0)]},
+        "power_options_by_size": {"1625": [""], "2025": [""], "2530": [""]},
+        "terms": {"M", "K", "F"},
+        "specials": {""},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+        "model_format": "no_power",
+    },
+    "FJR": {
+        "source": FOJAN_FJR_DATASHEET_SOURCE,
+        "series_desc": "Current Sense Resistors",
+        "size_code_to_inch": {"3920": "3920", "5930": "5930"},
+        "dimensions": {"3920": ("10.00", "5.10", "2.20"), "5930": ("15.00", "7.60", "4.20")},
+        "ranges_mohm": {"3920": [(5.0, 15.0)], "5930": [(4.0, 10.0)]},
+        "power_options_by_size": {"3920": ["5W"], "5930": ["7W"]},
+        "terms": {"K"},
+        "specials": {""},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+    },
+    "FSP": {
+        "source": FOJAN_FSP_DATASHEET_SOURCE,
+        "series_desc": "Low TCR Pure Alloy Chip Resistor",
+        "size_code_to_inch": {"2512": "2512", "3920": "3920"},
+        "dimensions": {"2512": ("6.30", "3.20", "1.20"), "3920": ("10.00", "5.20", "2.00")},
+        "ranges_mohm": {"2512": [(0.1, 6.0)], "3920": [(0.1, 5.0)]},
+        "power_options_by_size": {"2512": ["3W", "5W"], "3920": ["5W"]},
+        "terms": {"K"},
+        "specials": {""},
+        "default_pack": "T",
+        "decimal_mohm_code": True,
+    },
+    "FCR": {
+        "source": FOJAN_FCR_DATASHEET_SOURCE,
+        "series_desc": "Plug-In Alloy Resistors",
+        "size_code_to_inch": {"0550": "0550", "1120": "1120", "2130": "2130"},
+        "dimensions": {"0550": ("5.50", "", ""), "1120": ("11.20", "", ""), "2130": ("21.30", "", "")},
+        "ranges_mohm": {"0550": [(0.5, 5.0)], "1120": [(0.5, 5.0)], "2130": [(0.5, 5.0)]},
+        "power_options_by_size": {"0550": ["3W"], "1120": ["5W"], "2130": ["5W"]},
+        "terms": {"M", "K", "F"},
+        "specials": {""},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+    },
+    "FCS": {
+        "source": FOJAN_FCS_DATASHEET_SOURCE,
+        "series_desc": "High Current Alloy Shunt",
+        "size_code_to_inch": {"8420": "8420", "8518": "8518", "8436": "8436"},
+        "dimensions": {"8420": ("84.00", "20.00", ""), "8518": ("85.00", "18.00", ""), "8436": ("84.00", "36.00", "")},
+        "ranges_mohm": {"8420": [(0.035, 0.2)], "8518": [(0.05, 0.2)], "8436": [(0.02, 0.5)]},
+        "power_options_by_size": {"8420": ["36W"], "8518": ["36W"], "8436": ["50W"]},
+        "terms": {"M", "S"},
+        "specials": {""},
+        "default_pack": "",
+        "decimal_mohm_code": True,
+        "decimal_mohm_digits": 3,
+        "model_format": "fcs",
+    },
+    "FUS": {
+        "source": FOJAN_FUS_DATASHEET_SOURCE,
+        "series_desc": "High Power Alloy Shunt",
+        "size_code_to_inch": {},
+        "dimensions": {},
+        "ranges_mohm": {},
+        "power_options_by_size": {},
+        "terms": {"M", "K"},
+        "specials": {"", "A", "B"},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+        "decimal_mohm_digits": 3,
+        "model_format": "fus",
+    },
+    "FSR": {
+        "source": FOJAN_FSR_DATASHEET_SOURCE,
+        "series_desc": "Plug-In Jumper Resistors",
+        "size_code_to_inch": {"2015": "2015", "2515": "2515"},
+        "dimensions": {"2015": ("2.00", "15.00", ""), "2515": ("2.50", "15.00", "")},
+        "ranges_mohm": {"2015": [(0.5, 10.0)], "2515": [(0.5, 10.0)]},
+        "power_options_by_size": {"2015": [""], "2515": [""]},
+        "terms": {"C"},
+        "specials": {"", "U"},
+        "default_pack": "B",
+        "decimal_mohm_code": True,
+        "model_format": "fsr",
+    },
 }
-FOJAN_EXTENDED_ALLOY_MODEL_PATTERNS = {
-    series: re.compile(
-        rf"^(?P<series>{series})(?P<size_code>{'|'.join(sorted(map(re.escape, profile['size_code_to_inch']), key=len, reverse=True))})"
-        rf"(?P<power>{'15|' if series == 'FMH' else ''}[1-9]\d?W)"
-        r"(?P<tol>[DFGJ])(?P<res>R\d{3,4}|\d+M\d{2})(?P<pack>[TRB])(?P<term>[MSKF])(?P<special>H1|L|4)?$"
+def compile_fojan_extended_alloy_model_pattern(series, profile):
+    size_codes = "|".join(
+        sorted(map(re.escape, profile["size_code_to_inch"]), key=len, reverse=True)
     )
+    resistance_code = r"(?P<res>R\d{3,4}|\d+M\d{2,3})"
+    if clean_text(profile.get("model_format", "")) == "no_power":
+        return re.compile(
+            rf"^(?P<series>{series})(?P<size_code>{size_codes})"
+            rf"(?P<tol>[DFGJ]){resistance_code}(?P<pack>[TRB])(?P<term>[MSKF])(?P<special>H1|L|4)?$"
+        )
+    return re.compile(
+        rf"^(?P<series>{series})(?P<size_code>{size_codes})"
+        rf"(?P<power>{'15|' if series == 'FMH' else ''}[1-9]\d?W)"
+        rf"(?P<tol>[DFGJ]){resistance_code}(?P<pack>[TRB])(?P<term>[MSKF])(?P<special>H1|L|4)?$"
+    )
+
+
+FOJAN_EXTENDED_ALLOY_MODEL_PATTERNS = {
+    series: compile_fojan_extended_alloy_model_pattern(series, profile)
     for series, profile in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.items()
 }
 
@@ -12959,24 +13203,26 @@ def fojan_alloy_resistance_mohm(resistance_ohm):
 
 def fojan_alloy_parse_value_code(value_code):
     token = clean_text(value_code).upper()
-    decimal_mohm_match = re.fullmatch(r"(?P<whole>\d+)M(?P<fraction>\d{2})", token)
+    decimal_mohm_match = re.fullmatch(r"(?P<whole>\d+)M(?P<fraction>\d{2,3})", token)
     if decimal_mohm_match is not None:
         mohm = float(f"{int(decimal_mohm_match.group('whole'))}.{decimal_mohm_match.group('fraction')}")
         return mohm / 1000.0
     return parse_resistor_value_code(token)
 
 
-def fojan_alloy_value_code(resistance_ohm, decimal_mohm_code=False):
+def fojan_alloy_value_code(resistance_ohm, decimal_mohm_code=False, decimal_mohm_digits=2):
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
     if mohm is None:
         return ""
     if decimal_mohm_code:
-        rounded_hundredths = round(mohm * 100)
-        if abs(mohm * 100 - rounded_hundredths) > 1e-9:
+        digits = max(2, min(3, int(decimal_mohm_digits or 2)))
+        scale = 10 ** digits
+        rounded_decimal = round(mohm * scale)
+        if abs(mohm * scale - rounded_decimal) > 1e-9:
             return ""
-        if rounded_hundredths % 100 != 0:
-            whole, fraction = divmod(int(rounded_hundredths), 100)
-            return f"{whole}M{fraction:02d}"
+        if rounded_decimal % scale != 0:
+            whole, fraction = divmod(int(rounded_decimal), scale)
+            return f"{whole}M{fraction:0{digits}d}"
     scaled = round(mohm * 10)
     if abs(mohm * 10 - scaled) < 1e-9 and scaled % 10 != 0:
         if 1 <= scaled <= 9999:
@@ -12998,7 +13244,7 @@ def fojan_alloy_extended_profile_supports(series, size, power, mohm, suffix=""):
         return False
     suffix = clean_text(suffix).upper()
     if suffix:
-        term_match = re.match(r"^(?P<term>[MSKF])(?P<special>H1|L|4)?$", suffix)
+        term_match = re.match(r"^(?P<term>[MSKFC])(?P<special>H1|L|4|A|B|U)?$", suffix)
         if term_match is None:
             return False
         if term_match.group("term") not in profile.get("terms", set()):
@@ -13143,8 +13389,106 @@ def fojan_alloy_model_fields(series, size, power, tol, value_code, suffix):
     }
 
 
+FOJAN_FUS_MODEL_PATTERN = re.compile(
+    r"^FUS(?P<voltage>\d+(?:\.\d+)?)MV(?P<current>\d+(?:\.\d+)?)A(?P<tol>[DFGJ])(?P<pack>B)(?P<term>[MK])(?P<special>[AB])?$"
+)
+FOJAN_FCS_MODEL_PATTERN = re.compile(
+    r"^FCS(?P<size_code>8420|8518|8436)(?P<power>36W|50W)(?P<tol>[DFGJ])"
+    r"(?P<res>R\d{3,4}|\d+M\d{2,3})(?P<electrode>[AB])(?P<sampling>[PFM])"
+    r"(?P<holes>[24])(?P<term>[MS])(?P<special>[A-Z0-9]*)$"
+)
+FOJAN_FSR_MODEL_PATTERN = re.compile(
+    r"^FSR(?P<diameter>20|25)(?P<pitch>15)(?P<tol>[GJ])(?P<res>R\d{3,4}|\d+M\d{2,3})"
+    r"(?P<pack>B)(?P<material>C)(?P<shape>U)?$"
+)
+
+
+def fojan_fus_model_fields(compact, match):
+    try:
+        voltage_mv = float(match.group("voltage"))
+        current_a = float(match.group("current"))
+    except Exception:
+        return None
+    if voltage_mv <= 0 or current_a <= 0:
+        return None
+    resistance_ohm = (voltage_mv / 1000.0) / current_a
+    value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+    tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
+    if tol == "":
+        return None
+    series = "FUS"
+    profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES[series]
+    suffix = f"{clean_text(match.group('term')).upper()}{clean_text(match.group('special') or '').upper()}"
+    special_parts = ["电流检测", "分流器", "低阻", "合金", "高功率"]
+    size = f"{match.group('voltage')}mV/{match.group('current')}A"
+    summary_parts = [
+        f"{value_text}{unit_text}" if value_text and unit_text else "",
+        f"{match.group('voltage')}mV",
+        f"{match.group('current')}A",
+        clean_tol_for_display(tol),
+        "High Power Alloy Shunt",
+    ]
+    return {
+        "品牌": "FOJAN(富捷)",
+        "型号": compact,
+        "器件类型": "合金电阻",
+        "系列": series,
+        "系列说明": profile.get("series_desc", ""),
+        "特殊用途": " | ".join(special_parts),
+        "尺寸（inch）": size,
+        "容值": value_text,
+        "容值单位": unit_text,
+        "容值误差": tol,
+        "阻值@25C": f"{float(resistance_ohm):g}",
+        "阻值单位": "Ω",
+        "阻值误差": tol,
+        "安装方式": "插件",
+        "封装代码": size,
+        "规格摘要": " ".join(part for part in summary_parts if clean_text(part) != ""),
+        "数据来源": profile.get("source", FOJAN_FUS_DATASHEET_SOURCE),
+        "数据状态": "规格书平台可查",
+        "_resistance_ohm": float(resistance_ohm),
+        "_model_rule_authority": "fojan_alloy_resistor_model",
+        "_fojan_pack": clean_text(match.group("pack")).upper(),
+        "_fojan_suffix": suffix,
+        "_param_count": 4,
+    }
+
+
 def parse_fojan_alloy_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model).upper()
+    fus_match = FOJAN_FUS_MODEL_PATTERN.fullmatch(compact)
+    if fus_match is not None:
+        return fojan_fus_model_fields(compact, fus_match)
+    fcs_match = FOJAN_FCS_MODEL_PATTERN.fullmatch(compact)
+    if fcs_match is not None:
+        profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES["FCS"]
+        size = profile["size_code_to_inch"].get(fcs_match.group("size_code"), "")
+        power = format_power_display(fcs_match.group("power"))
+        tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(fcs_match.group("tol"), "")
+        parsed = fojan_alloy_model_fields("FCS", size, power, tol, fcs_match.group("res"), fcs_match.group("term"))
+        if parsed is None:
+            return None
+        parsed["型号"] = compact
+        parsed["_fojan_electrode"] = fcs_match.group("electrode")
+        parsed["_fojan_sampling"] = fcs_match.group("sampling")
+        parsed["_fojan_mounting_holes"] = fcs_match.group("holes")
+        return parsed
+    fsr_match = FOJAN_FSR_MODEL_PATTERN.fullmatch(compact)
+    if fsr_match is not None:
+        size_code = f"{fsr_match.group('diameter')}{fsr_match.group('pitch')}"
+        profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES["FSR"]
+        size = profile["size_code_to_inch"].get(size_code, size_code)
+        tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(fsr_match.group("tol"), "")
+        suffix = f"{fsr_match.group('material')}{clean_text(fsr_match.group('shape') or '').upper()}"
+        parsed = fojan_alloy_model_fields("FSR", size, "", tol, fsr_match.group("res"), suffix)
+        if parsed is None:
+            return None
+        parsed["型号"] = compact
+        parsed["_fojan_pack"] = fsr_match.group("pack")
+        parsed["_fojan_diameter_mm"] = fsr_match.group("diameter")
+        parsed["_fojan_pitch_mm"] = fsr_match.group("pitch")
+        return parsed
     match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
     if match is not None:
         size = FOJAN_ALLOY_SIZE_CODE_TO_INCH.get(match.group("size_code"), "")
@@ -13170,11 +13514,13 @@ def parse_fojan_alloy_resistor_model(model, brand="", component_type=""):
             continue
         profile = FOJAN_EXTENDED_ALLOY_MODEL_PROFILES[series]
         size = profile["size_code_to_inch"].get(match.group("size_code"), "")
-        power_code = clean_text(match.group("power")).upper()
+        power_code = clean_text(match.groupdict().get("power", "")).upper()
         power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(power_code, format_power_display(power_code))
         tol = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(match.group("tol"), "")
         suffix = f"{clean_text(match.group('term')).upper()}{clean_text(match.group('special') or '').upper()}"
-        if size == "" or power == "" or tol == "":
+        if size == "" or tol == "":
+            return None
+        if power == "" and clean_text(profile.get("model_format", "")) != "no_power":
             return None
         parsed = fojan_alloy_model_fields(
             series,
@@ -33882,6 +34228,9 @@ def build_fojan_alloy_models_from_spec(spec):
             f"{series}{size_code}{power_code}{tol_code}{value_code}T{suffix}"
         )
     for series, profile in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES.items():
+        model_format = clean_text(profile.get("model_format", ""))
+        if model_format not in {"", "no_power"}:
+            continue
         if not fojan_extended_alloy_series_requested_by_spec(series, spec):
             continue
         if clean_size(size) not in {clean_size(value) for value in profile.get("size_code_to_inch", {}).values()}:
@@ -33891,6 +34240,7 @@ def build_fojan_alloy_models_from_spec(spec):
         value_code = fojan_alloy_value_code(
             resistance_ohm,
             decimal_mohm_code=bool(profile.get("decimal_mohm_code", False)),
+            decimal_mohm_digits=profile.get("decimal_mohm_digits", 2),
         )
         if value_code == "":
             continue
@@ -33900,6 +34250,16 @@ def build_fojan_alloy_models_from_spec(spec):
             continue
         for official_power in fojan_extended_alloy_power_options_for_spec(series, size, power):
             if not fojan_alloy_extended_profile_supports(series, size, official_power, mohm):
+                continue
+            if model_format == "no_power":
+                for term in fojan_extended_alloy_term_options(series, size, mohm):
+                    for special in fojan_extended_alloy_special_options(series):
+                        suffix = f"{term}{special}"
+                        if not fojan_alloy_extended_profile_supports(series, size, official_power, mohm, suffix=suffix):
+                            continue
+                        candidates.append(
+                            f"{series}{size_code}{tol_code}{value_code}{pack_code}{suffix}"
+                        )
                 continue
             power_code = fojan_alloy_power_code_for_series(series, official_power)
             if power_code == "":

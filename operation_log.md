@@ -3919,3 +3919,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Cost import now recognizes the real workbook's FMH/FCM/FWP/FWK alloy rules and applies datasheet resistance windows before matching a price. FWPK is parsed as an official rule family, but the current 701 workbook does not contain FWPK price rows.
 - Query parsing now treats explicit FOJAN alloy series text such as `富捷 FWP 2728 10mR 4W ±1%` as alloy-resistor search text and recognizes non-standard official sizes like 1216, 2728, 3920, and 5930.
 - Verification: targeted FOJAN regression tests pass, and the real `富捷电阻报价单-富临通701-内部.xlsx` imports 421 rows in an isolated temporary database, including FMH=1, FCM=32, FWP=6, FWK=1 alloy rules. Sample FMH/FCM/FWP/FWK prices resolve, while an unsupported FWK 3mΩ probe returns no price.
+
+### 2026-08-13 [FOJAN official resistor rules] Cover every official resistor series
+
+- Checked FOJAN's official resistor product directory and linked datasheets, then reconciled all 62 listed resistor series against the local matcher rules.
+- Added missing official rule coverage for `FRC-P`, `FRH-X`, `FQW`, and alloy/shunt families `FCN`, `FCR`, `FCS`, `FHS`, `FJR`, `FMK`, `FMS`, `FSHM`, `FSM`, `FSP`, `FSR`, `FUS`, and `FWKP`.
+- Added regression coverage that asserts the official series list has no unmatched local families and verifies representative official sample part numbers parse to the expected series and resistance.
+- Verification: Python compile check, targeted FOJAN resistor regression, and full release safety gate passed with isolated databases; protected runtime database fingerprints remained unchanged.

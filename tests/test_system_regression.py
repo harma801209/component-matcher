@@ -2381,6 +2381,48 @@ class SystemRegressionTests(unittest.TestCase):
             models = set(candidate["型号"].astype(str).map(app["clean_model"]))
             self.assertEqual(models, expected_models, query)
 
+        official_fojan_series = {
+            "FAR", "FCM", "FCN", "FCP", "FCR", "FCS", "FCW", "FHS", "FJR", "FMB",
+            "FMH", "FMK", "FMS", "FNL", "FPL", "FPM", "FPR", "FPS", "FPW", "FQA",
+            "FQL", "FQL-L", "FQP", "FQS", "FQT", "FQV", "FQW", "FRA", "FRB",
+            "FRC", "FRC-P", "FRC-X", "FRD", "FRE", "FRG", "FRH", "FRH-X", "FRJ",
+            "FRL", "FRL-L", "FRM", "FRN", "FRP", "FRP-X", "FRQ", "FRR", "FRS",
+            "FRT", "FRV", "FRZ", "FSHM", "FSM", "FSP", "FSR", "FTH", "FTR",
+            "FUP", "FUS", "FWK", "FWKP", "FWP", "FWPK",
+        }
+        covered_fojan_series = (
+            set(app["FOJAN_SPECIAL_RESISTOR_CATALOG"].keys())
+            | set(app["FOJAN_EXTENDED_ALLOY_MODEL_PROFILES"].keys())
+            | {"FRC", "FMB", "FRM", "FPM"}
+        )
+        self.assertEqual(sorted(official_fojan_series - covered_fojan_series), [])
+
+        official_fojan_samples = {
+            "FQW1206F1001TS": ("FQW", 1000.0),
+            "FRC1206F1001TSP": ("FRC-P", 1000.0),
+            "FRH1206B1001TSX": ("FRH-X", 1000.0),
+            "FSM25125WFR001TM": ("FSM", 0.001),
+            "FMS252WFR010TM": ("FMS", 0.01),
+            "FSHM28187WFR020TM": ("FSHM", 0.02),
+            "FMK38205WFR005BK": ("FMK", 0.005),
+            "FCN43125WFR001RK": ("FCN", 0.001),
+            "FUS45mV200AFBKA": ("FUS", 0.000225),
+            "FWKP27265WFR001RK": ("FWKP", 0.001),
+            "FHS2025FR001BK": ("FHS", 0.001),
+            "FJR39205WFR005BK": ("FJR", 0.005),
+            "FSP25125WFR001TK": ("FSP", 0.001),
+            "FCS851836WF0M050AP2S": ("FCS", 0.00005),
+            "FSR2015JR005BCU": ("FSR", 0.005),
+            "FCR11205WFR005BK": ("FCR", 0.005),
+        }
+        for model, (expected_series, expected_resistance) in official_fojan_samples.items():
+            parsed = app["parse_fojan_catalog_resistor_model"](model, brand="FOJAN") or app[
+                "parse_fojan_alloy_resistor_model"
+            ](model, brand="FOJAN", component_type="合金电阻")
+            self.assertIsNotNone(parsed, model)
+            self.assertEqual(parsed["系列"], expected_series, model)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_resistance, msg=model)
+
         ordinary_spec = app["parse_resistor_spec_query"]("0603 10K 1% 1/10W")
         ordinary_candidate = app["build_fojan_rule_candidate_from_spec"](ordinary_spec)
         self.assertEqual(
