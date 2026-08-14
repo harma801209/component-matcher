@@ -2628,6 +2628,27 @@ class SystemRegressionTests(unittest.TestCase):
             ["FRC0603F1002TS"],
         )
 
+        high_ohmic_cases = (
+            "1206 20M 5% 1/4W",
+            "20MΩ;200V;±5%;1/4W;1206;FOJAN;FRG1206J206 TS;无卤",
+        )
+        for query in high_ohmic_cases:
+            high_ohmic_spec = app["merge_query_text_hints_into_spec"](
+                app["parse_resistor_spec_query"](query),
+                query,
+            )
+            high_ohmic_candidate = app["build_fojan_rule_candidate_from_spec"](high_ohmic_spec)
+            models = high_ohmic_candidate["型号"].astype(str).map(app["clean_model"]).tolist()
+            self.assertEqual(models, ["FRG1206J206TS"], query)
+            self.assertNotIn("FRC1206J206TS", models, query)
+
+        boundary_spec = app["parse_resistor_spec_query"]("1206 10M 5% 1/4W")
+        boundary_candidate = app["build_fojan_rule_candidate_from_spec"](boundary_spec)
+        self.assertEqual(
+            boundary_candidate["型号"].astype(str).map(app["clean_model"]).tolist(),
+            ["FRC1206J106TS"],
+        )
+
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
         parsed_models = [

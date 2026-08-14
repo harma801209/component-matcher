@@ -1282,3 +1282,11 @@
 - Security boundary: authorization is applied before the cost lookup is used by ordinary search, row enrichment, and BOM matching. Hiding controls in the UI is not treated as authorization. General-price entries remain available to authenticated users, while customer-specific entries outside the role scope are excluded.
 - Compatibility: legacy sales and sales-assistant titles normalize to `销售`; legacy PM/product-manager titles normalize to `PM`; all other or empty legacy titles normalize to `其他`. Existing member records are not deleted or reset.
 - Regression: focused role/brand tests and the full release gate pass. The gate reports 54 successful tests and unchanged fingerprints for member, cost-list, and no-match production databases.
+
+## 2026-08-14 - FOJAN high-ohmic FRG input was downgraded to ordinary FRC
+
+- Symptom: an input whose official source model was `FRG1206J206 TS` (`20MΩ`, `±5%`, `1/4W`, `1206`, `200V`) was returned as `FRC1206J206 TS`, losing the source high-ohmic series identity.
+- Root cause: the generic FOJAN resistor generator selected FRC for every resistance at or above 1Ω, while the special-series path only activated when the free-text description explicitly contained a special-use keyword. It did not infer FRG from the source model or a resistance above the ordinary 10MΩ boundary.
+- Fix: preserve an explicit FRG source identity and route resistance values above 10MΩ through the official FRG high-ohmic catalog. Suppress ordinary FRC synthesis for those cases, while retaining the existing FRC behavior at the 10MΩ boundary unless the source explicitly requests FRG.
+- Matching policy: current FRC documentation may cover the visible numeric range, so the system does not claim that FRC is electrically impossible. It treats an FRG-to-FRC family change as unverified rather than equivalent because the dedicated high-ohmic construction and related characteristics still require confirmation.
+- Regression: `1206 20M 5% 1/4W` and the full source string both generate only `FRG1206J206TS`; `FRC1206J206TS` is excluded; ordinary `1206 10M 5% 1/4W` remains `FRC1206J106TS`.

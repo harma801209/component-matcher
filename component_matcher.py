@@ -258,7 +258,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 114
+QUERY_RESULT_CACHE_VERSION = 115
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -283,7 +283,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-10T09:18:28+08:00"
+PUBLIC_CODE_STAMP = "2026-08-14T15:40:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -34177,6 +34177,27 @@ def parse_fojan_catalog_resistor_model(model, brand="", component_type=""):
     return None
 
 
+def fojan_high_ohmic_series_required(spec):
+    if not isinstance(spec, dict):
+        return False
+    requested_tokens = set(special_use_tokens(spec.get("特殊用途", "")))
+    if "高阻值" in requested_tokens:
+        return True
+    source_identity = " ".join(
+        clean_text(spec.get(field, ""))
+        for field in ("型号", "系列", "系列说明")
+    ).upper()
+    if re.search(r"(?<![A-Z0-9])FRG(?=\d|\b)", source_identity):
+        return True
+    try:
+        resistance_ohm = float(spec.get("_resistance_ohm", None))
+    except (TypeError, ValueError):
+        return False
+    # The official FRG profile is the dedicated high-ohmic family. Keep the
+    # 10M boundary compatible with ordinary FRC unless the source asks for FRG.
+    return resistance_ohm > 10_000_000.0
+
+
 def build_fojan_special_resistor_candidates_from_spec(spec):
     if not isinstance(spec, dict) or not fojan_brand_requested_or_unset(spec):
         return pd.DataFrame()
@@ -34184,6 +34205,8 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
     if component_type == "合金电阻" or component_type not in RESISTOR_COMPONENT_TYPES:
         return pd.DataFrame()
     requested_tokens = set(special_use_tokens(spec.get("特殊用途", "")))
+    if fojan_high_ohmic_series_required(spec):
+        requested_tokens.add("高阻值")
     trigger_tokens = requested_tokens - {"无卤", "无铅"}
     if not trigger_tokens:
         return pd.DataFrame()
@@ -34360,6 +34383,8 @@ def build_fojan_resistor_model_from_spec(spec):
         return ""
     component_type = infer_spec_component_type(spec)
     if component_type == "合金电阻" or component_type not in RESISTOR_COMPONENT_TYPES:
+        return ""
+    if fojan_high_ohmic_series_required(spec):
         return ""
     size = clean_size(spec.get("尺寸（inch）", ""))
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))

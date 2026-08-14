@@ -3941,3 +3941,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - PM accounts can use customer-specific prices only for assigned brands, sales accounts only for their own administrator-approved customers, and other accounts only general prices. Administrators retain full access.
 - Applied authorization server-side before ordinary search, cost enrichment, and BOM matching consume cost data; the protection does not depend on hiding UI fields.
 - Verification: focused permission tests, 51 system regressions, and the 54-test release safety gate passed. Protected member, cost-list, and no-match database fingerprints remained unchanged.
+
+### 2026-08-14 [FOJAN FRG] Preserve the high-ohmic resistor series
+
+- Fixed a rule that converted official `FRG1206J206 TS` input (20MΩ, ±5%, 1/4W, 1206, 200V) into ordinary `FRC1206J206 TS`.
+- Explicit FRG input and resistance values above 10MΩ now use the official FRG high-ohmic catalog and suppress automatic FRC synthesis. The existing 10MΩ FRC boundary remains unchanged unless the source explicitly requests FRG.
+- Current FRC documentation may cover the visible numeric range, so the matcher does not claim FRC is electrically impossible; it refuses to label an FRG-to-FRC family change as equivalent without high-ohmic construction and reliability confirmation.
+- Verification: both short and full 20MΩ inputs generate only `FRG1206J206TS`; 10MΩ still generates `FRC1206J106TS`; the 54-test release safety gate passed with protected database fingerprints unchanged.
