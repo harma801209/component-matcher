@@ -1597,9 +1597,8 @@ def no_match_admin_login_valid(username, password):
 
 
 def logout_no_match_admin():
-    st.session_state.pop("_no_match_admin_authenticated", None)
     st.session_state[ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY] = True
-    update_query_params(admin="", member="", bom="")
+    return logout_member()
 
 
 def render_no_match_admin_login():
@@ -3950,13 +3949,25 @@ def render_member_entry_button():
         return
     compact_navigation = not current_member_is_admin()
     member = current_member()
+    session_state = getattr(st, "session_state", {})
+    member_token = clean_text(session_state.get("_member_auth_token", ""))
+    if member_token == "" and isinstance(member, dict):
+        member_token = clean_text(member.get("_session_token", ""))
+    if member_token == "":
+        member_token = clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     if is_member_page_requested():
         label = "返回搜索"
-        href = build_app_href(member="0", admin="0", bom="0")
+        href_updates = {"member": "0", "admin": "0", "bom": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "member-login-fixed secondary"
     elif member:
         label = "会员中心"
-        href = build_app_href(member="1", admin="0", bom="0")
+        href_updates = {"member": "1", "admin": "0", "bom": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "member-login-fixed active"
     else:
         label = "会员登录"
@@ -3973,13 +3984,23 @@ def render_member_entry_button():
 def render_bom_entry_button():
     if is_no_match_admin_page_requested():
         return
+    session_state = getattr(st, "session_state", {})
+    member_token = clean_text(session_state.get("_member_auth_token", "")) or clean_text(
+        get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
+    )
     if is_bom_page_requested():
         label = "返回搜索"
-        href = build_app_href(bom="0", member="0", admin="0")
+        href_updates = {"bom": "0", "member": "0", "admin": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "bom-entry-fixed secondary"
     else:
         label = "BOM批量匹配"
-        href = build_app_href(bom="1", member="0", admin="0")
+        href_updates = {"bom": "1", "member": "0", "admin": "0"}
+        if member_token:
+            href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+        href = build_app_href(**href_updates)
         css_class = "bom-entry-fixed"
     if not current_member_is_admin():
         css_class += " nav-slot-second"

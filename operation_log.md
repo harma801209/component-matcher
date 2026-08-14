@@ -3926,3 +3926,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added missing official rule coverage for `FRC-P`, `FRH-X`, `FQW`, and alloy/shunt families `FCN`, `FCR`, `FCS`, `FHS`, `FJR`, `FMK`, `FMS`, `FSHM`, `FSM`, `FSP`, `FSR`, `FUS`, and `FWKP`.
 - Added regression coverage that asserts the official series list has no unmatched local families and verifies representative official sample part numbers parse to the expected series and resistance.
 - Verification: Python compile check, targeted FOJAN resistor regression, and full release safety gate passed with isolated databases; protected runtime database fingerprints remained unchanged.
+
+### 2026-08-14 [Member navigation] Preserve login across member center and BOM links
+
+- Fixed member-center, return-search, and BOM navigation links so they carry the current validated member token when a member is already signed in.
+- This covers administrators and ordinary members; destination pages still validate the token server-side and then clear it from the visible URL through the existing member-auth cleanup.
+- Changed `退出后台` to perform a full account logout and return to the matching-system home route, matching the current product expectation.
+- Verification: Python compile check and targeted member navigation/logout regressions passed with isolated databases.

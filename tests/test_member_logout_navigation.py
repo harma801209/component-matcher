@@ -27,8 +27,25 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
         start = self.matcher.index("def render_member_entry_button():")
         end = self.matcher.index("\ndef render_bom_entry_button", start)
         member_button = self.matcher[start:end]
-        self.assertIn('build_app_href(member="0", admin="0", bom="0")', member_button)
-        self.assertIn('build_app_href(member="1", admin="0", bom="0")', member_button)
+        self.assertIn('session_state = getattr(st, "session_state", {})', member_button)
+        self.assertIn('member_token = clean_text(session_state.get("_member_auth_token", ""))', member_button)
+        self.assertIn('"member": "0"', member_button)
+        self.assertIn('"member": "1"', member_button)
+        self.assertIn('"admin": "0"', member_button)
+        self.assertIn('"bom": "0"', member_button)
+        self.assertIn("href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token", member_button)
+
+    def test_bom_navigation_preserves_member_token(self):
+        start = self.matcher.index("def render_bom_entry_button():")
+        end = self.matcher.index("\ndef render_member_auth_panel", start)
+        bom_button = self.matcher[start:end]
+        self.assertIn('session_state = getattr(st, "session_state", {})', bom_button)
+        self.assertIn('member_token = clean_text(session_state.get("_member_auth_token", ""))', bom_button)
+        self.assertIn('"bom": "0"', bom_button)
+        self.assertIn('"bom": "1"', bom_button)
+        self.assertIn('"member": "0"', bom_button)
+        self.assertIn('"admin": "0"', bom_button)
+        self.assertIn("href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token", bom_button)
 
     def test_logout_clears_ui_before_remote_revocation(self):
         start = self.matcher.index("def logout_member():")

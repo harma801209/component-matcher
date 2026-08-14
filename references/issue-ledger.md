@@ -1259,3 +1259,17 @@
 - Root cause: FOJAN's newer alloy datasheets use different size codes, direct wattage codes, decimal milliohm resistance codes (`0M50`), and terminal/material suffixes. The generic size detector also did not recognize official alloy sizes such as 1216, 2728, 3920, or 5930.
 - Fix: add official FOJAN profiles and parsers for FMH/FCM/FWP/FWK/FWPK, extend pricing-series detection to FMH/FCM/FWP/FWK, normalize explicit FOJAN alloy series queries as alloy resistors, and apply official resistance windows before selecting uploaded cost rules.
 - Regression: targeted regression tests cover official parsing, generated spec search, real workbook-style cost rows, decimal milliohm values, and rejection of unsupported FWK 3mΩ. The real 701 workbook imports 421 rows in a temp database with FMH=1, FCM=32, FWP=6, and FWK=1 alloy rules.
+
+## 2026-08-14 - Member navigation lost the authenticated session
+
+- Symptom: after an administrator signed in, clicking `会员中心` opened the member-login form again. The same class of route change could affect ordinary members when moving from search to member center or BOM.
+- Root cause: the backend entry already carried `member_token`, but the member-center and BOM navigation links rebuilt page-mode parameters without carrying the current validated member token. A formal-shell or iframe reload could therefore land on the destination page without the server session context.
+- Fix: member-center, return-search, and BOM navigation links now include the current validated `member_token` whenever a member is signed in. The destination still validates the token server-side and then removes it from the visible query string through the existing cleanup path.
+- Regression: system tests verify administrator member-center links, member return-search links, BOM links, and ordinary-member center links all preserve the session token.
+
+## 2026-08-14 - Backend exit should sign out the account
+
+- Symptom: clicking `退出后台` was expected to log out and return to the matching-system home page, but the previous behavior only left the backend while keeping the member account signed in.
+- Root cause: `logout_no_match_admin()` only cleared the backend flag and page-mode parameters. That behavior conflicted with the current product expectation that leaving the backend is a full account exit.
+- Fix: backend exit now delegates to the normal member logout path while also asking the formal outer shell to clear admin/member/BOM route parameters. This clears local session state, browser token persistence, the URL token, and the server-side member session row.
+- Regression: the backend-exit test now verifies token removal from session state, query params, browser-clear flags, and the isolated member-session database.

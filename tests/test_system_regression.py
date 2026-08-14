@@ -1102,6 +1102,70 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
+    def test_02baf_member_and_bom_navigation_preserve_session_token(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {"_member_auth_token": "admin-token"}
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        captured_updates = []
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member_is_admin",
+                "current_member",
+                "is_member_page_requested",
+                "is_bom_page_requested",
+                "is_no_match_admin_page_requested",
+                "get_query_param_value",
+                "build_app_href",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["current_member"] = lambda: {"username": "admin", "_session_token": "admin-token"}
+            app["current_member_is_admin"] = lambda: True
+            app["is_member_page_requested"] = lambda: False
+            app["is_bom_page_requested"] = lambda: False
+            app["is_no_match_admin_page_requested"] = lambda: False
+            app["get_query_param_value"] = lambda name: ""
+            app["build_app_href"] = lambda **updates: captured_updates.append(updates) or (
+                "?" + "&".join(f"{key}={value}" for key, value in updates.items())
+            )
+
+            app["render_member_entry_button"]()
+            app["render_bom_entry_button"]()
+            self.assertEqual(captured_updates[0][app["MEMBER_AUTH_QUERY_PARAM"]], "admin-token")
+            self.assertEqual(captured_updates[0]["member"], "1")
+            self.assertEqual(captured_updates[1][app["MEMBER_AUTH_QUERY_PARAM"]], "admin-token")
+            self.assertEqual(captured_updates[1]["bom"], "1")
+
+            captured_updates.clear()
+            fake_st.markup.clear()
+            app["is_member_page_requested"] = lambda: True
+            app["render_member_entry_button"]()
+            self.assertEqual(captured_updates[0][app["MEMBER_AUTH_QUERY_PARAM"]], "admin-token")
+            self.assertEqual(captured_updates[0]["member"], "0")
+
+            captured_updates.clear()
+            fake_st.markup.clear()
+            fake_st.session_state["_member_auth_token"] = "ordinary-token"
+            app["current_member"] = lambda: {"username": "ordinary", "_session_token": "ordinary-token"}
+            app["current_member_is_admin"] = lambda: False
+            app["is_member_page_requested"] = lambda: False
+            app["render_member_entry_button"]()
+            self.assertEqual(captured_updates[0][app["MEMBER_AUTH_QUERY_PARAM"]], "ordinary-token")
+            self.assertEqual(captured_updates[0]["member"], "1")
+        finally:
+            app.update(original_functions)
+
     def test_02bb_member_logout_clears_ui_and_revokes_session(self):
         app = self.app
         app["ensure_configured_admin_member_account"]()
@@ -1166,15 +1230,19 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
-    def test_02bc_admin_logout_exits_backend_without_logging_out_member(self):
+    def test_02bc_admin_logout_signs_out_member_and_returns_to_search(self):
         app = self.app
-        member_token = "member-session-token"
+        app["ensure_configured_admin_member_account"]()
+        member, message = app["authenticate_member"]("TERRY46", "123456")
+        self.assertIsNotNone(member, message)
+        member_token = member["_session_token"]
         fake_st = type(
             "FakeStreamlit",
             (),
             {
                 "session_state": {
                     "_member_auth_token": member_token,
+                    "_member_display_name": "Admin",
                     "_no_match_admin_authenticated": True,
                 }
             },
@@ -1183,29 +1251,48 @@ class SystemRegressionTests(unittest.TestCase):
             name: app[name]
             for name in [
                 "st",
+                "get_query_param_value",
                 "update_query_params",
+                "refresh_member_auth_remote_snapshot",
+                "flush_member_auth_remote_snapshot",
             ]
         }
         route_updates = []
+        remote_flushes = []
         try:
             app["st"] = fake_st
+            app["get_query_param_value"] = (
+                lambda name: member_token if name == app["MEMBER_AUTH_QUERY_PARAM"] else ""
+            )
             app["update_query_params"] = lambda **updates: route_updates.append(updates)
+            app["refresh_member_auth_remote_snapshot"] = lambda force=False: "current"
+            app["flush_member_auth_remote_snapshot"] = lambda: remote_flushes.append(True) or True
 
-            app["logout_no_match_admin"]()
+            self.assertTrue(app["logout_no_match_admin"]())
 
             self.assertNotIn("_no_match_admin_authenticated", fake_st.session_state)
-            self.assertEqual(fake_st.session_state["_member_auth_token"], member_token)
+            self.assertNotIn("_member_auth_token", fake_st.session_state)
+            self.assertNotIn("_member_display_name", fake_st.session_state)
+            self.assertTrue(fake_st.session_state["_member_auth_clear_browser_token"])
+            self.assertEqual(fake_st.session_state["_member_auth_clear_browser_token_value"], member_token)
             self.assertTrue(fake_st.session_state[app["ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY"]])
             self.assertEqual(
                 route_updates,
                 [
                     {
-                        "admin": "",
+                        app["MEMBER_AUTH_QUERY_PARAM"]: "",
                         "member": "",
+                        "admin": "",
                         "bom": "",
                     }
                 ],
             )
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM member_sessions WHERE token=?", (member_token,)
+                ).fetchone()[0]
+            self.assertEqual(remaining, 0)
+            self.assertEqual(remote_flushes, [True])
         finally:
             app.update(original_functions)
 
