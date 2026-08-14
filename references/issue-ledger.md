@@ -1273,3 +1273,12 @@
 - Root cause: `logout_no_match_admin()` only cleared the backend flag and page-mode parameters. That behavior conflicted with the current product expectation that leaving the backend is a full account exit.
 - Fix: backend exit now delegates to the normal member logout path while also asking the formal outer shell to clear admin/member/BOM route parameters. This clears local session state, browser token persistence, the URL token, and the server-side member session row.
 - Regression: the backend-exit test now verifies token removal from session state, query params, browser-clear flags, and the isolated member-session database.
+
+## 2026-08-14 - Member job titles did not enforce customer-price boundaries
+
+- Symptom: backend administrators could type arbitrary job-title text, while customer-specific cost visibility was controlled only by a broad sales/non-sales check. The system could not express that PM users may inspect customer prices only for their responsible brands, sales users only for their own customers, and other users only general prices.
+- Root cause: job titles were free text, PM brand ownership had no normalized relation table, and the customer-cost lookup was not authorized from both the selected customer scope and the current member's job responsibility.
+- Fix: make the backend job title an exact `PM / 销售 / 其他` dropdown and add an additive `member_pm_brands` relation. PM users may select maintained customers, but customer-specific lookup entries are filtered server-side to their assigned brands. Sales users may use dedicated prices only for their own administrator-approved customers. Other users are forced to the general-price scope. Administrators retain full access.
+- Security boundary: authorization is applied before the cost lookup is used by ordinary search, row enrichment, and BOM matching. Hiding controls in the UI is not treated as authorization. General-price entries remain available to authenticated users, while customer-specific entries outside the role scope are excluded.
+- Compatibility: legacy sales and sales-assistant titles normalize to `销售`; legacy PM/product-manager titles normalize to `PM`; all other or empty legacy titles normalize to `其他`. Existing member records are not deleted or reset.
+- Regression: focused role/brand tests and the full release gate pass. The gate reports 54 successful tests and unchanged fingerprints for member, cost-list, and no-match production databases.

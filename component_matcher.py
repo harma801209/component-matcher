@@ -190,7 +190,7 @@ MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
 _MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
-MEMBER_AUTH_SCHEMA_VERSION = 4
+MEMBER_AUTH_SCHEMA_VERSION = 5
 MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
 MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
 _MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
@@ -1785,6 +1785,20 @@ def ensure_member_auth_schema():
             CREATE INDEX IF NOT EXISTS idx_member_sales_customers_member_id
             ON member_sales_customers(member_id, last_selected_at DESC, id ASC);
 
+            CREATE TABLE IF NOT EXISTS member_pm_brands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                brand_name TEXT NOT NULL,
+                brand_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(member_id, brand_key),
+                FOREIGN KEY(member_id) REFERENCES members(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_pm_brands_member_id
+            ON member_pm_brands(member_id, brand_name ASC);
+
             CREATE INDEX IF NOT EXISTS idx_members_username_lower
             ON members(lower(username));
 
@@ -2136,6 +2150,119 @@ def list_member_sales_customers_for_admin():
     return customers
 
 
+def normalize_pm_brand_name(value):
+    value = re.sub(r"\s+", " ", clean_text(value)).strip()
+    if value == "":
+        return ""
+    cleaner = globals().get("clean_brand")
+    if callable(cleaner):
+        value = clean_text(cleaner(value)) or value
+    return value
+
+
+def normalize_pm_brand_key(value):
+    value = normalize_pm_brand_name(value).upper()
+    return re.sub(r"[^0-9A-Z\u3400-\u9FFF]+", "", value)
+
+
+def normalize_pm_brand_names(values):
+    names = []
+    seen = set()
+    for value in values or []:
+        name = normalize_pm_brand_name(value)
+        key = normalize_pm_brand_key(name)
+        if name == "" or key == "" or key in seen:
+            continue
+        names.append(name)
+        seen.add(key)
+    return names
+
+
+def list_member_pm_brands(member_id):
+    ensure_member_auth_schema()
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return []
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        rows = conn.execute(
+            """
+            SELECT brand_name
+            FROM member_pm_brands
+            WHERE member_id=?
+            ORDER BY brand_name ASC, id ASC
+            """,
+            (member_id,),
+        ).fetchall()
+    return normalize_pm_brand_names(row[0] for row in rows)
+
+
+def replace_member_pm_brands(conn, member_id, brand_names, now_text=None):
+    member_id = int(member_id)
+    normalized_names = normalize_pm_brand_names(brand_names)
+    now_text = clean_text(now_text) or current_timestamp_text()
+    conn.execute("DELETE FROM member_pm_brands WHERE member_id=?", (member_id,))
+    conn.executemany(
+        """
+        INSERT INTO member_pm_brands (
+            member_id, brand_name, brand_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (member_id, name, normalize_pm_brand_key(name), now_text, now_text)
+            for name in normalized_names
+        ],
+    )
+    return normalized_names
+
+
+def list_pm_brand_options():
+    values = []
+    export_options = globals().get("bom_export_brand_options")
+    if callable(export_options):
+        try:
+            values.extend(export_options())
+        except Exception:
+            pass
+    for db_path, query in [
+        (DB_PATH, 'SELECT DISTINCT "品牌" FROM components WHERE TRIM(IFNULL("品牌", \'\'))<>\'\''),
+        (COST_PRICE_DB_PATH, "SELECT DISTINCT brand FROM cost_price_items WHERE TRIM(IFNULL(brand, ''))<>''"),
+        (COST_PRICE_DB_PATH, "SELECT DISTINCT brand FROM cost_price_manual_items WHERE active=1 AND TRIM(IFNULL(brand, ''))<>''"),
+    ]:
+        if not os.path.exists(db_path):
+            continue
+        try:
+            with sqlite3.connect(db_path, timeout=10) as conn:
+                values.extend(row[0] for row in conn.execute(query).fetchall())
+        except Exception:
+            continue
+    return sorted(normalize_pm_brand_names(values), key=lambda value: value.upper())
+
+
+def member_pm_can_access_brand(member, brand_name, assigned_brands=None):
+    member = member if isinstance(member, dict) else {}
+    if member_cost_access_level(member) == "admin":
+        return True
+    if member_cost_access_level(member) != "pm":
+        return False
+    if assigned_brands is None:
+        assigned_brands = list_member_pm_brands(member.get("id", 0))
+    brand_name = normalize_pm_brand_name(brand_name)
+    if brand_name == "":
+        return False
+    loose_matcher = globals().get("brand_matches_loose")
+    for assigned_brand in assigned_brands or []:
+        if normalize_pm_brand_key(brand_name) == normalize_pm_brand_key(assigned_brand):
+            return True
+        if callable(loose_matcher):
+            try:
+                if loose_matcher(brand_name, assigned_brand):
+                    return True
+            except Exception:
+                pass
+    return False
+
+
 def save_member_sales_customer(member_id, customer_name):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
@@ -2349,18 +2476,38 @@ def format_member_role(value):
     return "管理员" if normalize_member_role(value) == "admin" else "会员"
 
 
-SALES_COST_VISIBLE_JOB_TITLES = {"销售", "销售助理"}
+MEMBER_JOB_TITLE_OPTIONS = ("PM", "销售", "其他")
+MEMBER_JOB_TITLE_PM = "PM"
+MEMBER_JOB_TITLE_SALES = "销售"
+MEMBER_JOB_TITLE_OTHER = "其他"
 
 
 def normalize_member_job_title(value):
-    return re.sub(r"\s+", "", clean_text(value))
+    normalized = re.sub(r"\s+", "", clean_text(value))
+    upper = normalized.upper()
+    if upper in {"PM", "PRODUCTMANAGER", "产品经理", "產品經理"}:
+        return MEMBER_JOB_TITLE_PM
+    if "销售" in normalized or "銷售" in normalized or upper in {"SALES", "SALE"}:
+        return MEMBER_JOB_TITLE_SALES
+    return MEMBER_JOB_TITLE_OTHER
+
+
+def member_cost_access_level(member):
+    member = member if isinstance(member, dict) else {}
+    if not member or not clean_text(member.get("username", "")):
+        return "none"
+    if normalize_member_role(member.get("role", "")) == "admin":
+        return "admin"
+    job_title = normalize_member_job_title(member.get("job_title", ""))
+    if job_title == MEMBER_JOB_TITLE_PM:
+        return "pm"
+    if job_title == MEMBER_JOB_TITLE_SALES:
+        return "sales"
+    return "general"
 
 
 def member_can_view_cost(member):
-    member = member if isinstance(member, dict) else {}
-    if normalize_member_role(member.get("role", "")) == "admin":
-        return True
-    return normalize_member_job_title(member.get("job_title", "")) in SALES_COST_VISIBLE_JOB_TITLES
+    return member_cost_access_level(member) != "none"
 
 
 def current_member_can_view_cost():
@@ -2376,6 +2523,7 @@ MEMBER_PROFILE_FIELD_LABELS = {
     "company": "公司",
     "customer_name": "客户名称",
     "job_title": "职务",
+    "pm_brands": "PM 负责品牌",
     "email": "邮箱",
     "phone": "电话",
     "role": "角色",
@@ -3395,6 +3543,7 @@ def update_member_account_admin(
     actor_username="",
     customer_name=None,
     job_title=None,
+    pm_brands=None,
 ):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
@@ -3420,6 +3569,15 @@ def update_member_account_admin(
             if find_member_username_conflict(conn, username, exclude_member_id=member_id):
                 return False, "这个账号已经被其他会员使用。"
             old_member = member_row_to_dict(row)
+            normalized_job_title = normalize_member_job_title(
+                old_member.get("job_title", "") if job_title is None else job_title
+            )
+            if job_title is not None and normalized_job_title not in MEMBER_JOB_TITLE_OPTIONS:
+                return False, "职务只能选择 PM、销售或其他。"
+            old_pm_brands = list_member_pm_brands(member_id)
+            normalized_pm_brands = (
+                old_pm_brands if pm_brands is None else normalize_pm_brand_names(pm_brands)
+            )
             new_values = {
                 "username": username,
                 "display_name": clean_text(display_name) or username,
@@ -3429,7 +3587,7 @@ def update_member_account_admin(
                     " ",
                     clean_text(old_member.get("customer_name", "") if customer_name is None else customer_name),
                 ).strip(),
-                "job_title": clean_text(old_member.get("job_title", "") if job_title is None else job_title),
+                "job_title": normalized_job_title,
                 "email": clean_text(email),
                 "phone": clean_text(phone),
                 "role": role_value,
@@ -3437,13 +3595,20 @@ def update_member_account_admin(
             }
             if len(new_values["customer_name"]) > 120:
                 return False, "客户名称不能超过 120 个字符。"
-            if len(new_values["job_title"]) > 60:
-                return False, "职务不能超过 60 个字符。"
             changes = collect_member_profile_changes(
                 old_member,
                 new_values,
                 ["username", "display_name", "company", "customer_name", "job_title", "email", "phone", "role", "status"],
             )
+            if old_pm_brands != normalized_pm_brands:
+                changes.append(
+                    {
+                        "field_name": "pm_brands",
+                        "field_label": MEMBER_PROFILE_FIELD_LABELS["pm_brands"],
+                        "old_value": "、".join(old_pm_brands),
+                        "new_value": "、".join(normalized_pm_brands),
+                    }
+                )
             if password_text:
                 conn.execute(
                     """
@@ -3510,6 +3675,8 @@ def update_member_account_admin(
                         now, now, now,
                     ),
                 )
+            if pm_brands is not None:
+                replace_member_pm_brands(conn, member_id, normalized_pm_brands, now_text=now)
             insert_member_profile_change_logs(
                 conn,
                 member_id,
@@ -3540,6 +3707,7 @@ def delete_member_account_admin(member_id):
         conn.execute("DELETE FROM member_sessions WHERE member_id=?", (member_id,))
         conn.execute("DELETE FROM member_profile_change_logs WHERE member_id=?", (member_id,))
         conn.execute("DELETE FROM member_sales_customers WHERE member_id=?", (member_id,))
+        conn.execute("DELETE FROM member_pm_brands WHERE member_id=?", (member_id,))
         cursor = conn.execute("DELETE FROM members WHERE id=?", (member_id,))
         conn.commit()
     flush_member_auth_remote_snapshot()
@@ -4231,6 +4399,11 @@ def render_member_admin_management_page():
         if display_name and display_name != username:
             title += f" · {display_name}"
         with st.expander(title, expanded=False):
+            current_job_title = normalize_member_job_title(member.get("job_title", ""))
+            current_pm_brands = list_member_pm_brands(member_id)
+            pm_brand_options = normalize_pm_brand_names(
+                list_pm_brand_options() + current_pm_brands
+            )
             with st.form(f"member_admin_edit_{member_id}"):
                 field_cols = st.columns([0.22, 0.22, 0.28, 0.28], gap="small")
                 with field_cols[0]:
@@ -4246,16 +4419,24 @@ def render_member_admin_management_page():
                     status_index = {"active": 0, "pending": 1, "disabled": 2}.get(current_status, 0)
                     edit_status_label = st.selectbox("状态", status_options, index=status_index, key=f"admin_member_status_{member_id}")
                 with field_cols[3]:
-                    edit_job_title = st.text_input(
+                    edit_job_title = st.selectbox(
                         "职务",
-                        value=clean_text(member.get("job_title", "")),
-                        max_chars=60,
+                        MEMBER_JOB_TITLE_OPTIONS,
+                        index=MEMBER_JOB_TITLE_OPTIONS.index(current_job_title),
                         key=f"admin_member_job_title_{member_id}",
                     )
                     role_options = ["会员", "管理员"]
                     role_index = 1 if normalize_member_role(member.get("role", "")) == "admin" else 0
                     edit_role_label = st.selectbox("角色", role_options, index=role_index, key=f"admin_member_role_{member_id}")
                     reset_password = st.text_input("重置密码（留空不改）", type="password", key=f"admin_member_password_{member_id}")
+                edit_pm_brands = st.multiselect(
+                    "PM 负责品牌",
+                    pm_brand_options,
+                    default=current_pm_brands,
+                    key=f"admin_member_pm_brands_{member_id}",
+                    help="仅职务为 PM 时生效；PM 可切换全部客户，但客户专属价格只会对这里授权的品牌显示。",
+                    disabled=edit_job_title != MEMBER_JOB_TITLE_PM,
+                )
                 confirm_delete = st.checkbox(
                     "确认删除此会员",
                     key=f"admin_member_confirm_delete_{member_id}",
@@ -4271,6 +4452,7 @@ def render_member_admin_management_page():
                         display_name=edit_display_name,
                         company=edit_company,
                         job_title=edit_job_title,
+                        pm_brands=edit_pm_brands,
                         email=edit_email,
                         phone=edit_phone,
                         role="admin" if edit_role_label == "管理员" else "member",
@@ -5404,6 +5586,42 @@ def selected_sales_cost_customer_context():
     return normalize_cost_customer_context(customer_type, customer_name)
 
 
+def authorize_cost_customer_context(member, customer_type=None, customer_name=""):
+    """Return the strongest customer price scope the member is allowed to use."""
+    member = member if isinstance(member, dict) else {}
+    access_level = member_cost_access_level(member)
+    customer_type, customer_name, customer_key = normalize_cost_customer_context(
+        customer_type, customer_name
+    )
+    if customer_type != COST_CUSTOMER_TYPE_EXISTING or customer_key == "":
+        return COST_CUSTOMER_TYPE_NEW, ""
+    if access_level == "admin":
+        return customer_type, customer_name
+    if access_level == "pm":
+        resolved_type, resolved_name, ready = resolve_member_customer_price_scope(customer_name)
+        if ready and resolved_type == COST_CUSTOMER_TYPE_EXISTING:
+            return resolved_type, resolved_name
+        return COST_CUSTOMER_TYPE_NEW, ""
+    if access_level == "sales":
+        try:
+            member_id = int(member.get("id", 0) or 0)
+        except Exception:
+            member_id = 0
+        owned_customer = next(
+            (
+                row
+                for row in list_member_sales_customers(member_id)
+                if normalize_cost_customer_key(row.get("customer_name", "")) == customer_key
+            ),
+            None,
+        )
+        if owned_customer and bool(int(owned_customer.get("price_access_enabled", 0) or 0)):
+            resolved_type, resolved_name, ready = resolve_member_customer_price_scope(customer_name)
+            if ready and resolved_type == COST_CUSTOMER_TYPE_EXISTING:
+                return resolved_type, resolved_name
+    return COST_CUSTOMER_TYPE_NEW, ""
+
+
 def list_existing_cost_customers():
     refresh_runtime_store_remote_snapshot("cost-price")
     init_cost_price_db()
@@ -5480,7 +5698,29 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
 
     member_id = int(member.get("id", 0) or 0)
     is_admin = current_member_is_admin()
-    customer_rows = list_member_sales_customers_for_admin() if is_admin else list_member_sales_customers(member_id)
+    access_level = member_cost_access_level(member)
+    if is_admin or access_level == "pm":
+        customer_rows = list_member_sales_customers_for_admin()
+        known_keys = {
+            normalize_cost_customer_key(row.get("customer_name", ""))
+            for row in customer_rows
+            if normalize_cost_customer_key(row.get("customer_name", ""))
+        }
+        for existing_name in list_existing_cost_customers():
+            existing_key = normalize_cost_customer_key(existing_name)
+            if existing_key == "" or existing_key in known_keys:
+                continue
+            customer_rows.append(
+                {
+                    "member_id": 0,
+                    "customer_name": existing_name,
+                    "customer_key": existing_key,
+                    "price_access_enabled": 1,
+                }
+            )
+            known_keys.add(existing_key)
+    else:
+        customer_rows = list_member_sales_customers(member_id)
     customer_by_key = {
         normalize_cost_customer_key(row.get("customer_name", "")): row
         for row in customer_rows
@@ -5511,11 +5751,14 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif current_widget_value not in selector_options:
         st.session_state[selector_key] = desired_selection
 
-    help_text = (
-        "管理员可查看所有会员登记过的客户；不指定客户时使用通用成本。"
-        if is_admin
-        else "这里只显示当前会员账号自己登记过的客户。"
-    )
+    if is_admin:
+        help_text = "管理员可查看全部客户；不指定客户时使用通用成本。"
+    elif access_level == "pm":
+        help_text = "PM 可切换全部客户；客户专属价格只会用于后台授权的负责品牌。"
+    elif access_level == "sales":
+        help_text = "这里只显示当前销售账号自己登记过的客户。"
+    else:
+        help_text = "其他职务可登记和切换客户，但价格始终使用通用价格。"
     selected_name = st.selectbox(
         "当前客户",
         selector_options,
@@ -5570,10 +5813,13 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = selected_name
 
     price_access_enabled = bool(int((selected_customer or {}).get("price_access_enabled", 0) or 0))
-    if is_admin or price_access_enabled:
+    if is_admin or access_level == "pm" or (access_level == "sales" and price_access_enabled):
         customer_type, customer_name, ready = resolve_member_customer_price_scope(selected_name)
     else:
         customer_type, customer_name, ready = COST_CUSTOMER_TYPE_NEW, "", True
+    customer_type, customer_name = authorize_cost_customer_context(
+        member, customer_type, customer_name
+    )
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
@@ -5587,8 +5833,14 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
     if is_admin:
         st.caption("管理员可在上方下拉选单切换所有会员登记客户；没有专属价格时自动使用通用价格。")
+    elif access_level == "pm":
+        assigned_brands = list_member_pm_brands(member_id)
+        brand_text = "、".join(assigned_brands) if assigned_brands else "尚未授权品牌"
+        st.caption(f"PM 可切换全部客户；客户专属价格仅用于负责品牌：{brand_text}。")
+    elif access_level == "sales":
+        st.caption("可切换自己登记过的客户；客户专属价格须由后台管理员授权，否则使用通用价格。")
     else:
-        st.caption("可在上方下拉选单切换自己登记过的客户；选择“新客户”即可新增。专属价格权限由后台管理员维护。")
+        st.caption("可切换自己登记过的客户；当前职务只能查看通用价格。")
     return customer_type, customer_name, ready
 
 
@@ -6728,10 +6980,60 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None):
     return lookup
 
 
+def cost_price_item_is_customer_specific(item):
+    if not isinstance(item, dict):
+        return False
+    try:
+        if int(item.get("_scope_rank", 99) or 99) < 25:
+            return True
+    except Exception:
+        pass
+    return clean_text(
+        item.get("customer_type", "") or item.get("list_customer_type", "")
+    ) == COST_CUSTOMER_TYPE_EXISTING
+
+
+def filter_cost_lookup_for_member(lookup, member):
+    """Apply per-member brand restrictions without mutating the shared lookup cache."""
+    if not isinstance(lookup, dict):
+        return {}
+    member = member if isinstance(member, dict) else {}
+    if member_cost_access_level(member) != "pm":
+        return lookup
+    assigned_brands = list_member_pm_brands(member.get("id", 0))
+    filtered = {}
+    for lookup_key, entries in lookup.items():
+        if not isinstance(entries, list):
+            continue
+        allowed_entries = []
+        for entry in entries:
+            if not cost_price_item_is_customer_specific(entry):
+                allowed_entries.append(entry)
+                continue
+            if member_pm_can_access_brand(
+                member,
+                entry.get("brand", ""),
+                assigned_brands=assigned_brands,
+            ):
+                allowed_entries.append(entry)
+        if allowed_entries:
+            filtered[lookup_key] = allowed_entries
+    return filtered
+
+
+def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, member=None):
+    member = current_member() if member is None else member
+    authorized_type, authorized_name = authorize_cost_customer_context(
+        member, customer_type, customer_name or ""
+    )
+    lookup = load_active_cost_price_lookup(authorized_type, authorized_name)
+    return filter_cost_lookup_for_member(lookup, member)
+
+
 def lookup_active_cost_price_for_row(row, lookup=None):
     if row is None:
         return {}
-    lookup = load_active_cost_price_lookup() if lookup is None else lookup
+    lookup = load_authorized_cost_price_lookup() if lookup is None else lookup
     if not lookup:
         return {}
     model_clean = clean_model(row.get("型号", ""))
@@ -6820,7 +7122,7 @@ def enrich_component_cost_columns(df, lookup=None):
             out[column] = ""
     if out.empty:
         return out
-    lookup = load_active_cost_price_lookup() if lookup is None else lookup
+    lookup = load_authorized_cost_price_lookup() if lookup is None else lookup
     for idx, row in out.iterrows():
         price = lookup_active_cost_price_for_row(row, lookup=lookup) if lookup else {}
         manufacturer_packaging = lookup_manufacturer_packaging(row)
@@ -41651,7 +41953,7 @@ def bom_dataframe_from_upload(
         else {}
     )
     normalized_export_settings = normalize_bom_export_settings(export_settings)
-    cost_lookup = load_active_cost_price_lookup(
+    cost_lookup = load_authorized_cost_price_lookup(
         normalized_export_settings.get("customer_type") or COST_CUSTOMER_TYPE_NEW,
         normalized_export_settings.get("customer_name", ""),
     )

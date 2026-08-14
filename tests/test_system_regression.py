@@ -802,7 +802,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertTrue(ok, message)
         member = app["get_member_by_id"](member["id"])
         self.assertEqual(member.get("job_title", ""), "")
-        self.assertFalse(app["member_can_view_cost"](member))
+        self.assertEqual(app["member_cost_access_level"](member), "general")
+        self.assertTrue(app["member_can_view_cost"](member))
 
         ok, message = app["update_member_account_admin"](
             member["id"],
@@ -835,7 +836,10 @@ class SystemRegressionTests(unittest.TestCase):
         non_sales_member = dict(sales_member, job_title="工程")
         assistant_member = dict(sales_member, job_title=" 销售 助理 ")
         admin_member = dict(non_sales_member, role="admin")
-        self.assertFalse(app["member_can_view_cost"](non_sales_member))
+        self.assertEqual(app["member_cost_access_level"](non_sales_member), "general")
+        self.assertEqual(app["member_cost_access_level"](assistant_member), "sales")
+        self.assertEqual(app["member_cost_access_level"](admin_member), "admin")
+        self.assertTrue(app["member_can_view_cost"](non_sales_member))
         self.assertTrue(app["member_can_view_cost"](assistant_member))
         self.assertTrue(app["member_can_view_cost"](admin_member))
 
@@ -852,6 +856,113 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("职务", summary.columns)
         logs = app["list_member_profile_change_logs"](member["id"])
         self.assertTrue(any(row.get("field_name") == "job_title" for row in logs))
+
+    def test_02ac_role_price_scopes_and_pm_brand_permissions(self):
+        app = self.app
+        customer_name = "权限测试客户有限公司"
+        ok, message, _ = app["save_sales_customer"](
+            customer_name,
+            "AUTH-001",
+            group_name="权限测试集团有限公司",
+            updated_by="regression",
+            sync_remote=False,
+        )
+        self.assertTrue(ok, message)
+
+        members = {}
+        for username, job_title in [
+            ("PriceScopePm", "PM"),
+            ("PriceScopeSales", "销售"),
+            ("PriceScopeOther", "其他"),
+        ]:
+            ok, message = app["create_member_account"](
+                username,
+                "secret1",
+                display_name=username,
+                company="Price Scope Co",
+            )
+            self.assertTrue(ok, message)
+            member = app["get_member_by_username"](username)
+            ok, message = app["approve_member_account_admin"](member["id"])
+            self.assertTrue(ok, message)
+            member = app["get_member_by_id"](member["id"])
+            ok, message = app["update_member_account_admin"](
+                member["id"],
+                username=member["username"],
+                display_name=member["display_name"],
+                company=member["company"],
+                customer_name=member.get("customer_name", ""),
+                job_title=job_title,
+                pm_brands=["FOJAN(富捷)"] if job_title == "PM" else [],
+                email=member["email"],
+                phone=member["phone"],
+                role=member["role"],
+                status=member["status"],
+                actor_username="regression-admin",
+            )
+            self.assertTrue(ok, message)
+            members[job_title] = app["get_member_by_id"](member["id"])
+
+        sales_member = members["销售"]
+        ok, message, saved = app["save_member_sales_customer"](
+            sales_member["id"], customer_name
+        )
+        self.assertTrue(ok, message)
+        ok, message = app["set_member_sales_customer_price_access"](
+            sales_member["id"], saved["id"], True
+        )
+        self.assertTrue(ok, message)
+
+        self.assertEqual(app["list_member_pm_brands"](members["PM"]["id"]), ["FOJAN(富捷)"])
+        self.assertEqual(
+            app["authorize_cost_customer_context"](
+                members["PM"], app["COST_CUSTOMER_TYPE_EXISTING"], customer_name
+            ),
+            (app["COST_CUSTOMER_TYPE_EXISTING"], customer_name),
+        )
+        self.assertEqual(
+            app["authorize_cost_customer_context"](
+                sales_member, app["COST_CUSTOMER_TYPE_EXISTING"], customer_name
+            ),
+            (app["COST_CUSTOMER_TYPE_EXISTING"], customer_name),
+        )
+        self.assertEqual(
+            app["authorize_cost_customer_context"](
+                members["其他"], app["COST_CUSTOMER_TYPE_EXISTING"], customer_name
+            ),
+            (app["COST_CUSTOMER_TYPE_NEW"], ""),
+        )
+
+        lookup = {
+            "FOJAN-CUSTOMER": [
+                {
+                    "brand": "FOJAN(富捷)",
+                    "customer_type": app["COST_CUSTOMER_TYPE_EXISTING"],
+                    "_scope_rank": 0,
+                }
+            ],
+            "YAGEO-CUSTOMER": [
+                {
+                    "brand": "国巨YAGEO",
+                    "customer_type": app["COST_CUSTOMER_TYPE_EXISTING"],
+                    "_scope_rank": 0,
+                }
+            ],
+            "YAGEO-GENERAL": [
+                {
+                    "brand": "国巨YAGEO",
+                    "customer_type": app["COST_CUSTOMER_TYPE_NEW"],
+                    "_scope_rank": 25,
+                }
+            ],
+            "__fojan_resistor_rules__": [{"brand": "FOJAN(富捷)"}],
+        }
+        pm_lookup = app["filter_cost_lookup_for_member"](lookup, members["PM"])
+        self.assertIn("FOJAN-CUSTOMER", pm_lookup)
+        self.assertNotIn("YAGEO-CUSTOMER", pm_lookup)
+        self.assertIn("YAGEO-GENERAL", pm_lookup)
+        self.assertIn("__fojan_resistor_rules__", pm_lookup)
+        self.assertIs(app["filter_cost_lookup_for_member"](lookup, sales_member), lookup)
 
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app

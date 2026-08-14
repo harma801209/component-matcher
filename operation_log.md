@@ -3933,3 +3933,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - This covers administrators and ordinary members; destination pages still validate the token server-side and then clear it from the visible URL through the existing member-auth cleanup.
 - Changed `退出后台` to perform a full account logout and return to the matching-system home route, matching the current product expectation.
 - Verification: Python compile check and targeted member navigation/logout regressions passed with isolated databases.
+
+### 2026-08-14 [Member price permissions] Add job-role and PM-brand cost boundaries
+
+- Changed the backend member job-title field to the exact dropdown options `PM`, `销售`, and `其他`; members still cannot edit this administrator-managed field themselves.
+- Added the backward-compatible `member_pm_brands` relation so administrators can maintain each PM account's responsible brands.
+- PM accounts can use customer-specific prices only for assigned brands, sales accounts only for their own administrator-approved customers, and other accounts only general prices. Administrators retain full access.
+- Applied authorization server-side before ordinary search, cost enrichment, and BOM matching consume cost data; the protection does not depend on hiding UI fields.
+- Verification: focused permission tests, 51 system regressions, and the 54-test release safety gate passed. Protected member, cost-list, and no-match database fingerprints remained unchanged.
