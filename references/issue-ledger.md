@@ -1297,3 +1297,10 @@
 - Root cause: the formal entrypoint cached compiled `component_matcher.py` code using only the source path and a manually maintained release stamp. A surviving runtime could therefore continue executing the old form after a source update.
 - Fix: keep the administrator-only job-title editor as an explicit select box with the exact three options, and include the component source modification time and file size in the runtime cache key so a changed source file cannot reuse stale compiled UI code.
 - Regression: source tests require the select box, forbid the old text input, verify the exact option set, and verify that the formal runtime cache tracks the component source version.
+
+## 2026-08-14 - Formal Streamlit instance did not rebuild after the job-title fix
+
+- Symptom: after commit `3e3a644e` was pushed and the public endpoint returned HTTP 200, refreshing and signing in again still showed the old free-text job-title field.
+- Root cause: the previous release pushed the repository but did not trigger the Streamlit browser deployment path. The public proxy remained healthy while the private Streamlit process continued serving its previous checkout, so HTTP health alone was not proof that the new application source had loaded.
+- Fix: change only the release marker comment in `requirements.txt` and push commit `15439bd1`. Streamlit Community Cloud treats a dependency-file change as a full rebuild trigger; dependency versions and production data are unchanged.
+- Verification: the focused dropdown source test passes, the full release safety gate reports 54 passing tests, all protected database fingerprints remain unchanged, and the formal health endpoint stayed `ok` throughout a five-minute post-push observation window.
