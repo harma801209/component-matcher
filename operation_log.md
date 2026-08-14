@@ -3948,3 +3948,9 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Explicit FRG input and resistance values above 10MΩ now use the official FRG high-ohmic catalog and suppress automatic FRC synthesis. The existing 10MΩ FRC boundary remains unchanged unless the source explicitly requests FRG.
 - Current FRC documentation may cover the visible numeric range, so the matcher does not claim FRC is electrically impossible; it refuses to label an FRG-to-FRC family change as equivalent without high-ohmic construction and reliability confirmation.
 - Verification: both short and full 20MΩ inputs generate only `FRG1206J206TS`; 10MΩ still generates `FRC1206J106TS`; the 54-test release safety gate passed with protected database fingerprints unchanged.
+
+### 2026-08-14 [Member admin UI] Force the job-title dropdown onto the formal runtime
+
+- Confirmed the member editor uses a fixed `PM / 销售 / 其他` dropdown and cannot accept arbitrary job-title text.
+- Fixed formal-runtime source caching so deployments that change `component_matcher.py` invalidate previously compiled application code instead of continuing to show an old form.
+- Added regression checks for the exact dropdown options and source-version-aware runtime cache key.

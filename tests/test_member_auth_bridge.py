@@ -5,6 +5,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MATCHER_PATH = ROOT / "component_matcher.py"
+ENTRYPOINT_PATH = ROOT / "streamlit_app.py"
 WORKER_PATH = ROOT / "cloudflare-pages-proxy" / "dist" / "_worker.js"
 
 
@@ -12,6 +13,7 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.matcher = MATCHER_PATH.read_text(encoding="utf-8")
+        cls.entrypoint = ENTRYPOINT_PATH.read_text(encoding="utf-8")
         cls.worker = WORKER_PATH.read_text(encoding="utf-8")
 
     def test_component_bridge_targets_only_the_formal_shell(self):
@@ -81,9 +83,9 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         selector_function = self.matcher[selector_start:selector_end]
         self.assertNotIn("list_sales_customers", selector_function)
         self.assertIn("list_member_sales_customers", selector_function)
-        self.assertIn('new_customer_option = "新客户"', selector_function)
+        self.assertIn('if is_admin else "新客户"', selector_function)
         self.assertIn("selector_options = [new_customer_option] + customer_names", selector_function)
-        self.assertIn('selector_{member_id}_v2', selector_function)
+        self.assertIn('selector_{selector_owner_key}_v3', selector_function)
         self.assertIn("price_source = \"通用价格\"", selector_function)
         self.assertNotIn("后台尚未允许此账号读取该客户专属报价", selector_function)
         self.assertIn("save_member_sales_customer", selector_function)
@@ -103,6 +105,20 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertNotIn('edit_customer_name = st.text_input', admin_function)
         self.assertIn("list_member_sales_customers", admin_function)
         self.assertIn("set_member_sales_customer_price_access", admin_function)
+
+    def test_admin_job_title_is_a_fixed_dropdown(self):
+        admin_start = self.matcher.index("def render_member_admin_management_page(")
+        admin_end = self.matcher.index("\ndef render_member_search_logs_admin_page", admin_start)
+        admin_function = self.matcher[admin_start:admin_end]
+        self.assertIn('edit_job_title = st.selectbox(', admin_function)
+        self.assertIn('options=list(MEMBER_JOB_TITLE_OPTIONS)', admin_function)
+        self.assertNotIn('edit_job_title = st.text_input(', admin_function)
+        self.assertIn('MEMBER_JOB_TITLE_OPTIONS = ("PM", "销售", "其他")', self.matcher)
+
+    def test_public_runtime_cache_tracks_component_source_version(self):
+        self.assertIn("source_stat = os.stat(source_path)", self.entrypoint)
+        self.assertIn("source_stat.st_mtime_ns", self.entrypoint)
+        self.assertIn("source_stat.st_size", self.entrypoint)
 
     def test_formal_entry_blocks_search_engine_indexing_and_referrers(self):
         self.assertIn('dispatchPath === "/robots.txt"', self.worker)

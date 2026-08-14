@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Update this stamp when publishing public-facing changes so Streamlit Cloud
 # rechecks the checkout. This does not change runtime behavior.
 # The sync script may refresh this automatically when the public bundle is rebuilt.
-PUBLIC_RELEASE_STAMP = "2026-08-14T13:46:05+08:00"
+PUBLIC_RELEASE_STAMP = "2026-08-14T15:58:54+08:00"
 
 # The public entrypoint must never spend startup time rebuilding data.
 # Keep auto-update disabled unless a manual dev run opts back in explicitly.
@@ -41,7 +41,13 @@ def _source_segment_with_original_lines(source, start, end):
 
 def load_component_matcher_runtime():
     source_path = os.path.join(BASE_DIR, "component_matcher.py")
-    cache_key = (source_path, PUBLIC_RELEASE_STAMP)
+    source_stat = os.stat(source_path)
+    cache_key = (
+        source_path,
+        PUBLIC_RELEASE_STAMP,
+        source_stat.st_mtime_ns,
+        source_stat.st_size,
+    )
     with member_auth_runtime_state.APP_CODE_LOCK:
         cache = member_auth_runtime_state.APP_CODE_CACHE
         if (

@@ -1290,3 +1290,10 @@
 - Fix: preserve an explicit FRG source identity and route resistance values above 10MΩ through the official FRG high-ohmic catalog. Suppress ordinary FRC synthesis for those cases, while retaining the existing FRC behavior at the 10MΩ boundary unless the source explicitly requests FRG.
 - Matching policy: current FRC documentation may cover the visible numeric range, so the system does not claim that FRC is electrically impossible. It treats an FRG-to-FRC family change as unverified rather than equivalent because the dedicated high-ohmic construction and related characteristics still require confirmation.
 - Regression: `1206 20M 5% 1/4W` and the full source string both generate only `FRG1206J206TS`; `FRC1206J206TS` is excluded; ordinary `1206 10M 5% 1/4W` remains `FRC1206J106TS`.
+
+## 2026-08-14 - Formal member job-title editor kept rendering the old text field
+
+- Symptom: the formal backend member editor still showed a free-text `职务` field even though the intended choices were `PM`, `销售`, and `其他`.
+- Root cause: the formal entrypoint cached compiled `component_matcher.py` code using only the source path and a manually maintained release stamp. A surviving runtime could therefore continue executing the old form after a source update.
+- Fix: keep the administrator-only job-title editor as an explicit select box with the exact three options, and include the component source modification time and file size in the runtime cache key so a changed source file cannot reuse stale compiled UI code.
+- Regression: source tests require the select box, forbid the old text input, verify the exact option set, and verify that the formal runtime cache tracks the component source version.

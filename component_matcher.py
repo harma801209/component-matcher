@@ -283,7 +283,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-14T15:40:00+08:00"
+PUBLIC_CODE_STAMP = "2026-08-14T16:25:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -4421,9 +4421,10 @@ def render_member_admin_management_page():
                 with field_cols[3]:
                     edit_job_title = st.selectbox(
                         "职务",
-                        MEMBER_JOB_TITLE_OPTIONS,
+                        options=list(MEMBER_JOB_TITLE_OPTIONS),
                         index=MEMBER_JOB_TITLE_OPTIONS.index(current_job_title),
                         key=f"admin_member_job_title_{member_id}",
+                        help="只能由后台管理员选择：PM、销售或其他。",
                     )
                     role_options = ["会员", "管理员"]
                     role_index = 1 if normalize_member_role(member.get("role", "")) == "admin" else 0
