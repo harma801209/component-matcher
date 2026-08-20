@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>富临通元器件匹配系统</title>
+  <meta name="description" content="富临通元器件匹配系统公开访问入口">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070b17;
+      --panel: rgba(12, 18, 34, 0.82);
+      --line: rgba(150, 170, 220, 0.18);
+      --text: #eff3ff;
+      --muted: rgba(220, 229, 255, 0.72);
+      --blue: #4fa0ff;
+      --red: #ff4a5f;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(79, 160, 255, 0.16), transparent 32%),
+        radial-gradient(circle at top right, rgba(255, 74, 95, 0.14), transparent 28%),
+        linear-gradient(180deg, #09111f 0%, #050812 100%);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100dvh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 24px;
+      background: rgba(6, 10, 20, 0.72);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      position: relative;
+      z-index: 5;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(235, 241, 255, 0.92);
+      white-space: nowrap;
+    }
+
+    .brand-mark::before {
+      content: "";
+      width: 42px;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--blue), var(--red));
+    }
+
+    .brand-title {
+      font-size: clamp(18px, 2vw, 28px);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-note {
+      max-width: 760px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      text-decoration: none;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, rgba(79, 160, 255, 0.92), rgba(52, 111, 255, 0.92));
+      border-color: transparent;
+    }
+
+    .frame-wrap {
+      position: relative;
+      padding: 18px;
+      min-height: 0;
+    }
+
+    .frame {
+      width: 100%;
+      height: calc(100dvh - 112px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      background: #0a0f1d;
+      box-shadow: var(--shadow);
+    }
+
+    .loading {
+      position: absolute;
+      inset: 18px;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(180deg, rgba(8, 13, 26, 0.76), rgba(8, 13, 26, 0.92));
+      border-radius: 24px;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 260ms ease;
+    }
+
+    .frame-mask {
+      position: absolute;
+      left: 19px;
+      right: 19px;
+      bottom: 19px;
+      height: 86px;
+      border-radius: 0 0 24px 24px;
+      background:
+        linear-gradient(180deg, rgba(5, 8, 18, 0) 0%, rgba(5, 8, 18, 0.92) 18%, rgba(5, 8, 18, 1) 52%, rgba(5, 8, 18, 1) 100%);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .loading.hidden {
+      opacity: 0;
+    }
+
+    .loading-card {
+      max-width: 420px;
+      padding: 28px 30px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(10, 16, 30, 0.82);
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+
+    .spinner {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.12);
+      border-top-color: var(--blue);
+      animation: spin 900ms linear infinite;
+    }
+
+    .loading-title {
+      margin: 0 0 10px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .loading-copy {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    .fallback {
+      margin-top: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (max-width: 860px) {
+      body {
+        overflow: auto;
+      }
+
+      .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 18px 16px 14px;
+      }
+
+      .actions {
+        width: 100%;
+      }
+
+      .button {
+        flex: 1;
+        text-align: center;
+      }
+
+      .frame-wrap {
+        padding: 12px;
+      }
+
+      .frame {
+        height: calc(100dvh - 188px);
+        border-radius: 20px;
+      }
+
+      .loading {
+        inset: 12px;
+        border-radius: 20px;
+      }
+
+      .frame-mask {
+        left: 13px;
+        right: 13px;
+        bottom: 13px;
+        height: 90px;
+        border-radius: 0 0 20px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">Fruition</div>
+        <div class="brand-title">富临通元器件匹配系统</div>
+        <div class="brand-note">
+          这是访客专用入口页。页面内嵌的是精简后的公开匹配系统，尽量减少原始 Streamlit 公版界面的平台角标干扰。
+        </div>
+      </div>
+      <div class="actions">
+        <a
+          class="button"
+          href="https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen"
+          target="_blank"
+          rel="noreferrer"
+        >
+          新窗口打开
+        </a>
+        <a
+          class="button primary"
+          href="https://fruition-componentmatche.streamlit.app/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          打开原始应用
+        </a>
+      </div>
+    </header>
+
+    <main class="frame-wrap">
+      <iframe
+        id="matcher-frame"
+        class="frame"
+        title="富临通元器件匹配系统"
+        src="https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen&embed_options=dark_theme"
+        loading="eager"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+
+      <div class="frame-mask" aria-hidden="true"></div>
+
+      <div class="loading" id="loading-mask">
+        <div class="loading-card">
+          <div class="spinner" aria-hidden="true"></div>
+          <h1 class="loading-title">正在载入访客入口</h1>
+          <p class="loading-copy">
+            第一次打开时，云端应用可能需要几秒唤醒。<br>
+            如果等待过久，可以先点击上方“新窗口打开”检查原始应用是否正常。
+          </p>
+          <a
+            class="button fallback"
+            href="https://fruition-componentmatche.streamlit.app/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            直接打开原始应用
+          </a>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const frame = document.getElementById("matcher-frame");
+    const loadingMask = document.getElementById("loading-mask");
+    const hideLoading = () => {
+      loadingMask.classList.add("hidden");
+      window.setTimeout(() => loadingMask.remove(), 320);
+    };
+
+    frame.addEventListener("load", () => {
+      window.setTimeout(hideLoading, 700);
+    });
+
+    window.setTimeout(() => {
+      if (document.body.contains(loadingMask)) {
+        loadingMask.querySelector(".loading-copy").innerHTML =
+          "应用还在载入中，这通常是免费云端实例正在唤醒。<br>如果当前网络环境对内嵌页兼容性较差，可以直接使用上方两个按钮。";
+      }
+    }, 9000);
+  </script>
+</body>
+</html>

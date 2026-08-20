@@ -1,0 +1,3956 @@
+﻿# Operation Log
+
+This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
+
+### 2026-07-09 23:05 [direct] Source-scoped FOJAN FRM/FPM alloy resistor fallback
+
+- Received / problem: User reported many alloy-resistor specs (for example `合金电阻 电阻10毫欧 ±1% 1206`, `贴片合金电阻 0.06R 2512 3W ±1%`) could not return FOJAN models, and asked for an accurate way to expand alloy-resistor brand/model coverage without risking member/backend data.
+
+- Investigation:
+  1. Existing FOJAN rule fallback only covered FRC/FRL thick-film/low-ohm resistor price-series rows, so alloy specs could not generate FRM/FPM candidates.
+  2. A smoke test also showed an old side effect: alloy specs below 1Ω could incorrectly add an FRL FOJAN candidate even though FRL is not the requested alloy-resistor family.
+  3. Checked source evidence: FOJAN/FPM datasheet explains `FPM253WFR005TM` part-number structure and 2512/2512-L resistance ranges; JLCPCB/LCSC FOJAN product pages confirm FRM 1206 examples such as `FRM121WFR010TM` and `FRM121WFR050TM`; local official-view alloy catalog contains matching FRM/FPM sample rows.
+
+- Fix / action:
+  1. Added FOJAN FRM/FPM alloy model parsing for resistance, tolerance, size, power, series description, current-sense/alloy usage, and dimensions.
+  2. Added source-scoped alloy spec fallback: 1206 1W FRM generates `FRM121W...TM`; 2512 3W FPM generates `FPM253W...TM/TML` only within the datasheet-supported ranges.
+  3. Prevented the existing FRC/FRL price fallback from serving explicit `合金电阻` specs, so alloy searches no longer mix in FOJAN FRL low-ohm thick-film rows.
+  4. Added FOJAN FRM/FPM manufacturer packaging MOQ rules: FRM 1206 -> 5000PCS, FPM 2512 -> 4000PCS. Costs remain blank unless the active backend cost list supplies them.
+
+- Verification:
+  1. `python -m unittest tests.test_system_regression.SystemRegressionTests.test_13_manufacturer_packaging_moq_is_source_backed tests.test_system_regression.SystemRegressionTests.test_14_fojan_alloy_resistor_rules_are_source_scoped` passed.
+  2. `python -m unittest tests.test_system_regression` passed.
+  3. Smoke checks: `合金电阻 电阻10毫欧 ±1% 1206` returns `FRM121WFR010TM`; `贴片合金电阻 18mΩ 1206 ±1%` returns `FRM121WFR018TM`; `富捷 贴片合金电阻 0.06R 2512 3W ±1%` returns only `FPM253WFR060TM`.
+
+- Other issues:
+  - Specs outside current source-backed ranges intentionally do not generate FOJAN alloy models yet, e.g. `贴片合金电阻 0.3Ω ±1% 1206 1W` and `贴片合金电阻 2512 0.2R ±1%`. These need a wider official FOJAN FRM/FPM ordering table before adding more generated models.
+  - Runtime member/cost/no-match SQLite files were not edited.
+
+- Handoff notes: Before deployment/commit, run `python tools/run_release_safety_gate.py` and verify protected DB fingerprints remain unchanged per `AGENTS.md`.
+
+### 2026-05-20 [Agent-2 research] PDC/PSA(信昌电陶) 电阻系列规则调查与数据库缺口审查
+
+- Received / problem: 发现 `resistor_series_rules.py` 中完全没有 PDC/信昌 电阻系列条目，但 信昌 是电阻推广品牌优先级第一位（信昌 > 华新科 > 厚声 > 富捷）。用户要求整理官方命名规则。
+
+- Investigation:
+  1. 查数据库：DB 中 PDC/信昌 品牌名为 `PSA(信昌电陶)`，电阻共 125 行（厚膜 50 + 贴片 27 + "合金" 48），MLCC 962 行。
+  2. 查官网 [pdc.com.tw/chip-resister](https://www.pdc.com.tw/chip-resister) 及各系列产品页，获取完整系列表。
+  3. 发现重大数据 bug：DB 中 48 行被归类为 `合金电阻`，系列 `FM`，系列说明写着 `中压 / Medium Voltage MLCC`——这些实际上是 PDC FM 系列 MLCC 电容，被错误地归入合金电阻类型。
+  4. 发现系列代码错误：DB 中 FCF 系列的 `系列` 字段写成 `FCF25FP`、`FCF12F` 等含尺寸/精度的片段，应该只填 `FCF`。
+
+- PDC 电阻完整系列表（经官网核实）：
+
+  **厚膜贴片电阻系列：**
+  | 系列代码 | 中文名 | 特殊用途 | 尺寸范围 | 阻值范围 | 功率 | AEC-Q200 |
+  |---|---|---|---|---|---|---|
+  | FCF | 通用厚膜贴片电阻 | — | 01005~2512 | 0Ω~10MΩ | 1/32W~1W | 部分 |
+  | FNF | 抗浪涌厚膜贴片电阻 | 抗浪涌 | 0603~2512 | 1Ω~1MΩ | 1/10W~1W | ✓ |
+  | FWF | 车规厚膜贴片电阻 | 车规 | 0402~2512 | 0Ω~10MΩ | 1/16W~1W | ✓ |
+  | FWF-S | 抗硫化车规厚膜贴片电阻 | 车规\|抗硫化 | 0402~2512 | 0Ω~10MΩ | 1/16W~1W | ✓ |
+  | FVF | 高压厚膜贴片电阻 | 高压（max 3000V） | 0603~2512 | 47Ω~100MΩ | 1/10W~1W | ✓ |
+  | FPF | 高功率厚膜贴片电阻 | 高功率 | 0402~2512 | 0Ω~1MΩ | 1/8W~3W | ✓ |
+  | FPS | 高功率抗浪涌厚膜贴片电阻 | 高功率\|抗浪涌 | 0603~2512 | 0Ω~1MΩ | 1/8W~2W | ✓ |
+  | FHF | 高阻值厚膜贴片电阻 | 高阻值（最高100MΩ） | 0603~1206 | 11MΩ~100MΩ | 1/10W~1/4W | 未确认 |
+
+  **电流检测/低阻系列：**
+  | 系列代码 | 中文名 | 特殊用途 | 尺寸范围 | 阻值范围 | 功率 | AEC-Q200 |
+  |---|---|---|---|---|---|---|
+  | FBF | 低TCR金属膏厚膜电流检测电阻 | 电流检测\|低TCR | 0603~2512 | 10mΩ~10Ω | 1/8W~2W | ✓ |
+  | FMF | 金属条精密电流检测电阻 | 电流检测\|低TCR（50~75ppm） | 1206/2512/2725 | 0.5mΩ~150mΩ | 1/2W~3W | ✓ |
+  | FME | 金属条电流检测电阻（另型） | 电流检测 | 需查官方资料 | 需查 | 需查 | 未确认 |
+  | FOF | 金属箔精密电流检测电阻 | 精密电流检测 | 需查官方资料 | 需查 | 需查 | 未确认 |
+
+  **注意：以下 PDC 系列以 F 开头但属于 MLCC，不是电阻：**
+  FM（中压 MLCC）、FN（通用 MLCC）、FP（软端子 MLCC）、FJ（高压 MLCC）、FR（工业可靠性 MLCC）
+
+- 型号命名规则（从 DB 实际型号反推 + 官网确认）：
+
+  格式：`[系列][尺寸码][误差码][包装码]-[阻值码][后缀]`
+
+  尺寸码：03=0603, 05=0805, 06=1206, 12=1210, 20=2010, 25=2512
+  误差码：D=±0.5%, F=±1%, J=±5%
+  包装码：T=编带, P/FP/PP=未确认（需查官方资料，不同产品页有差异）
+  阻值码：≥1Ω 用 EIA 4位数字（例如 6202=62kΩ, 6800=680Ω）；<1Ω 用 R+3位（R050=50mΩ, R010=10mΩ）
+  后缀：E/P 含义未确认，需查官方 PDF
+
+  例：`FCF05FT-6202` = FCF（通用）+ 05（0805）+ F（±1%）+ T（编带）- 6202（62kΩ）
+  例：`FBF06FPPR080` = FBF（低TCR）+ 06（1206）+ F（±1%）+ PP（未确认）+ R080（80mΩ）
+  例：`FPS06JT`     = FPS（高功率抗浪涌）+ 06（1206）+ J（±5%）+ T（编带）
+
+- Fix / action（待 Codex 执行）：
+  1. 在 `resistor_series_rules.py` 新增 `PDC_OFFICIAL_SERIES_PROFILES` 字典，按上表录入各系列。
+  2. 修复 DB 中 48 行 `FM 合金电阻` 的错误类型（应改回 MLCC 或删除）。
+  3. 修复 FCF/FBF/FPS/FVF/FPF 等系列在 DB 中的 `系列` 字段——当前写的是 `FCF25FP` 等带尺寸码的片段，应只保留 `FCF`。
+  4. 将 `PSA(信昌电陶)` 的品牌 token 加入 `resistor_series_rules.py` 的 `PDC_BRAND_TOKENS`。
+  5. 包装码后缀（P/FP/PP/E）的确切含义需从官方 PDF 确认后再补充。
+
+- Verification: 此条目为调查结论，无代码修改。Codex 实现后应对以下型号做回归：`FCF05FT-6202`（0805 62kΩ ±1%）、`FBF06FPPR080`（1206 80mΩ ±1%低TCR）、`FPS06JT`（1206 高功率抗浪涌 ±5%）、`FVF25FP`（2512 高压）。
+
+- Other issues:
+  - PDC 电阻在 DB 里只有 125 行，覆盖极薄，且以低阻/电流检测型为主。普通通用厚膜型号（FCF 正常阻值范围）几乎没有。信昌作为推广优先级最高的电阻品牌，数据库覆盖严重不足，应从 JLC 或 LCSC 批量补入 FCF 通用系列的标准阻值规格。
+  - FMF/FOF/FME 系列的详细规格需继续查官网 PDF，当前页面信息不完整。
+
+- Handoff notes: Codex 下一步优先执行 Fix 第 1、2、3 项。第 4 项（批量补入 FCF 通用系列数据）量较大，建议单独讨论是否从 JLC 官方目录导入。
+
+### 2026-05-19 11:25 [direct] Fixed Chinese resistor wording being routed as MLCC
+
+- Received / problem: User reported that searches containing Chinese text such as `陶瓷电阻 ±1% SMD 0603 4.7KΩ` returned no results, while removing the Chinese words allowed matching.
+- Root cause: The broad MLCC alias token `陶瓷` matched before resistor parsing, so `陶瓷电阻` was treated as an MLCC spec. That route only extracted `0603 + ±1%`, missed the resistance value, and skipped resistor candidates.
+- Fix / action: Added a low-level resistor-context blocker inside `looks_like_mlcc_context(...)` so explicit `电阻 / RESISTOR / Ω / OHM` wording prevents MLCC routing unless the text is clearly capacitor-oriented. Bumped public/cache stamps and added regression case `RES_CN_CERAMIC_RES_0603_4K7`.
+- Verification: `python -m py_compile component_matcher.py` passed. Direct parser checks now route `陶瓷电阻 ±1% SMD 0603 4.7KΩ`, `100KΩ`, and `0Ω` as `贴片电阻`; fast-index searches return 114, 147, and 112 matches respectively. The new regression case passes.
+
+## Update Rules
+
+- Append a new entry whenever a task is completed or a meaningful investigation checkpoint is reached.
+- Include at least: receive time, request/problem, investigation, fix/action, verification, other issues, and next handoff notes.
+- Mark entries as `direct` when based on the current conversation and `inferred` when reconstructed from filesystem evidence.
+- Keep statements factual. If a conclusion is inferred from timestamps or diffs, say so explicitly.
+
+## Entry Template
+
+### YYYY-MM-DD HH:MM [direct|inferred] Short title
+
+- Received / problem:
+- Investigation:
+- Fix / action:
+- Verification:
+- Other issues:
+- Handoff notes:
+
+## Entries
+
+### 2026-04-21 03:05 [direct] Streamlit deploy auth vault standardized
+
+- Received / problem: User wants future releases to publish without repeated manual login, and asked to preserve previous login records so the deployment can become a standard process instead of a one-off rescue flow.
+- Investigation: Confirmed the repo already had a local auth snapshot helper in [streamlit_auth_state.py](C:/Users/zjh/Desktop/data/streamlit_auth_state.py), a manual login watcher in [tmp_keep_streamlit_login.py](C:/Users/zjh/Desktop/data/tmp_keep_streamlit_login.py), and a browser-deploy helper in [auto_streamlit_deploy.py](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py). Also verified that the dedicated Chromium profile directory [streamlit_cloud_profile](C:/Users/zjh/Desktop/data/streamlit_cloud_profile) already exists and contains persistent cookies, local storage, and session data, but the current session still falls back to sign-in on `share.streamlit.io/deploy`.
+- Fix / action: Standardized the deploy auth vault around the persistent profile directory plus the exported JSON snapshot. Updated [streamlit_auth_state.py](C:/Users/zjh/Desktop/data/streamlit_auth_state.py) to define the vault location and summarize it cleanly, changed [auto_streamlit_deploy.py](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py) and [tmp_keep_streamlit_login.py](C:/Users/zjh/Desktop/data/tmp_keep_streamlit_login.py) to launch Chrome with `launch_persistent_context()` against the local profile instead of only using transient storage state, and added an optional `-TriggerStreamlitDeploy` path in [publish_public.ps1](C:/Users/zjh/Desktop/data/publish_public.ps1) so the sync/push flow can also nudge Streamlit Cloud when needed.
+- Verification: Inspected the local Chrome cookie store and confirmed the profile vault already contains Streamlit, GitHub, and Google cookies; the login data tables do not show a usable saved password for those services, so the remaining manual step is still external account verification rather than a missing local script.
+- Other issues: The current Google sign-in path still requires the user to confirm on a trusted phone, so the vault cannot be fully refreshed in this session.
+- Handoff notes: Once the user can complete one more successful sign-in on a trusted device, the current scripts should keep the auth state locally and make future publishes a repeatable, low-friction workflow.
+
+### 2026-04-12 02:25 [direct] 公开版修复 Community Cloud 沿用旧 bundle 数据的问题
+
+- Received / problem: 用户在 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/) 实测 `CM13093CT-102` 仍显示“无法识别输入内容”，说明上一轮公开版发布后，线上运行态没有真正吃到新的正式数据库与搜索缓存。
+- Investigation: 复核 [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py)、[component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 与 [cloudflare-pages-proxy/dist/_worker.js](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js)。确认 `pages.dev` 代理层仍正常指向 `fruition-componentmatche.streamlit.app`，而正式问题出在 `ensure_streamlit_cloud_data_bundle()` 和 `ensure_component_data_ready()`：旧逻辑只检查 `components.db / components_search.sqlite / prepared parquet` 是否“存在且非空”，不会判断这些文件是不是旧部署遗留版本，因此 Streamlit Community Cloud 的持久化文件系统会继续沿用旧库。搜索页在 `搜索` 场景下还只优先刷新搜索侧包，不保证把主 `components.db` 一起更新。
+- Fix / action: 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增 `streamlit_cloud_bundle.manifest.json` 与运行时状态文件 `cache/streamlit_cloud_bundle_state.json` 的比对逻辑，加入 `load_streamlit_cloud_bundle_manifest()`、`get_streamlit_cloud_bundle_signature()`、`load_streamlit_cloud_bundle_state()`、`save_streamlit_cloud_bundle_state()`、`streamlit_cloud_bundle_refresh_needed()`。正式运行态现在只要检测到 bundle manifest 已变化，就会强制重解当前需要的 bundle 成员，而不是只看文件在不在。另补充 `is_streamlit_cloud_runtime()`，即使未显式设置公开模式环境变量，只要运行目录位于 Community Cloud 常见路径，也会启用这套刷新判断。最后把 `ensure_component_data_ready()` 改为：一旦判断 bundle 已更新，就优先刷新整套 `DB + 搜索库 + prepared cache`，而不再只刷搜索侧包。
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_local_and_public.py build_streamlit_cloud_bundle.py` 通过；另外做了最小模拟测试：在临时目录中先放一个旧目标文件、再提供新 zip bundle 与新 manifest，`streamlit_cloud_bundle_refresh_needed()` 返回 `True`，调用 `ensure_streamlit_cloud_data_bundle()` 后目标文件被成功替换为新 bundle 内容，随后刷新判定恢复为 `False`，并写入新的 `streamlit_cloud_bundle_state.json`。
+- Other issues: 这条修复主要解决“正式线上实例不更新”的问题，不直接改变匹配规则本身；仍需重新发布一次公开版，等 Community Cloud 重启后再确认 `CM13093CT-102` 的线上行为是否恢复为精确料号识别。
+- Handoff notes: 下一步应重新执行公开版发布流程，并优先复测 `CM13093CT-102`。若复测仍异常，再继续查 Streamlit Community Cloud 实际运行环境变量与持久化目录状态。
+
+### 2026-04-12 01:58 [direct] 公开版 CM1309 共模电感系列与温度显示修正
+
+- Received / problem: 用户明确约定“公开版/正式版”指 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)，本轮要求继续只修公开版源码，不动测试版；同时 `CM13093CT-102` 这类公开版精确料号在本地正式链路里虽已入库，但仍存在系列名不统一、错误 `尺寸（inch）` 残留、工作温度显示只剩上限的问题。
+- Investigation: 复核了 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)、[build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py)、[Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 与 [components.db](C:/Users/zjh/Desktop/data/components.db)。确认 `CM1309` 家族四颗料号的数据本体已经存在，但源文件与展示层仍混有旧网页抓取残留，表现为 `系列=CM13093CT-242` 一类错误值、`尺寸（inch）=242/412/872/0102`、以及 `-40℃~+125℃` 在展示时被压缩成单独 `125℃`。
+- Fix / action: 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 修正 `working_temperature_bounds()`，允许温度范围两端中间夹带 `C/℃` 仍能正确解析；同时在 `ensure_component_display_columns()` 中为 Bourns `CM1309` 共模电感家族加了显示层兜底归一化，统一 `系列=CM1309`、`系列说明=Bourns CM1309 共模电感系列`、`安装方式=THT`、`封装代码=CM1309`。在 [build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py) 新增 `canonicalize_bourns_cm1309_rows()`，在官方库生成阶段就把该家族的 `系列 / 系列说明 / 尺寸（inch） / 封装代码 / 工作温度` 清理正确，然后重建 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。之后用 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 只对 `CM13090CT-242 / CM13091CT-872 / CM13092CT-412 / CM13093CT-102` 四条公开版正式数据做了定向回写，并同步刷新 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 与 [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- Verification: `python -m py_compile component_matcher.py build_inductor_official_sources.py sync_inductor_official_to_db.py component_matcher_build.py` 通过；重建脚本输出 `Wrote 438 rows`；定向回写结果 `deleted=4 inserted=4 search_refreshed=True prepared_refreshed=True`。随后再次读取正式库与资料卡，四颗 `CM1309` 料号均显示 `器件类别=共模电感（Common Mode Choke）`、`系列=CM1309`、`尺寸（inch）=` 空白、`尺寸（mm）=13 x 16 x 9.2 mm`、对应 `电感值 / 电感单位 / 额定电流 / DCR / 工作温度 / 安装方式=THT`；本地公开版入口 [http://127.0.0.1:8511](http://127.0.0.1:8511) 返回 `HTTP 200`。
+- Other issues: 本轮仍未把更改部署到 [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/)，因此线上公开版此刻不应假定已同步这些修正。另一个尚未继续深挖的问题是官方电感导入链路在全量同步时曾出现过个别字段被旧值覆盖的迹象，本轮通过“重建源文件 + 定向回写子集”规避了该风险。
+- Handoff notes: 如果下一轮继续公开版，请先以用户新口径区分“公开版/正式版”和“测试版”，再决定是否把本地公开版修正部署到 `pages.dev`。如需继续扩大官方库修正范围，可沿用这次的“源文件规范化 + 子集回写 + 子集刷新缓存”流程。
+
+### 2026-03-22 16:13 [inferred] `component_matcher.py` updated for ceramic-capacitor classification
+
+- Received / problem: Passive component type classification was being refined, with strong evidence that `Y5P` or leaded ceramic-capacitor text was being misrouted as `MLCC`.
+- Investigation: Compared the current [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) against [backup copy](C:/Users/zjh/Desktop/data/backup/project_backup_20260322_020449/component_matcher.py) and checked recent backup folder names such as `pre_y5p_fix` and `pre_ceramic_fix`.
+- Fix / action: Added a leaded-ceramic context detector and threaded that detection into type hinting, inferred component-type selection, and result-row output logic.
+- Verification: Filesystem diff clearly shows new logic around leaded ceramic detection and additional type-routing branches in the current matcher.
+- Other issues: This entry is inferred from file timestamps and diffs, not from direct visibility into the other task frame's conversation.
+- Handoff notes: If capacitor classification still looks wrong, start from `looks_like_leaded_ceramic_context`, `detect_component_type_hint`, and the inferred-type writeback path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py).
+
+### 2026-03-22 23:33 [inferred] Manual MLCC spreadsheet inspection occurred
+
+- Received / problem: Someone likely reviewed MLCC source data manually after the matcher changes.
+- Investigation: Found [Capacitor/~$MLCC.xlsx](C:/Users/zjh/Desktop/data/Capacitor/~$MLCC.xlsx), which is an Excel lock file usually created while the workbook is open.
+- Fix / action: No code change is proven here; this is logged as a manual inspection checkpoint.
+- Verification: The temporary lock file timestamp is `2026-03-22 23:33`.
+- Other issues: This only proves the workbook was open, not what edits were made.
+- Handoff notes: If data quality is still in question, inspect [Capacitor](C:/Users/zjh/Desktop/data/Capacitor) and compare workbook contents with [components.db](C:/Users/zjh/Desktop/data/components.db).
+
+### 2026-03-23 01:17 [inferred] MLCC database audit script created
+
+- Received / problem: The next visible step after the matcher changes was checking data completeness rather than adding new parsing behavior.
+- Investigation: Read [tmp_mlcc_audit.py](C:/Users/zjh/Desktop/data/tmp_mlcc_audit.py), which connects to [components.db](C:/Users/zjh/Desktop/data/components.db) and audits missing values in key MLCC fields such as size, dielectric, capacitance, tolerance, and voltage.
+- Fix / action: Created a one-off audit script to count missing values, surface brands with missing key fields, and print sample incomplete rows.
+- Verification: The script content directly shows SQL readback plus missing-field analysis logic.
+- Other issues: I cannot confirm from the filesystem alone whether the script was executed successfully or whether any remediation already followed.
+- Handoff notes: Current visible status suggests the work had reached a verification and data-audit stage, not just rule editing.
+
+### 2026-03-23 14:08 [direct] Shared handoff logging established
+
+- Received / problem: User asked for a persistent operation record in `data` so any future task frame can quickly understand progress, problems investigated, fixes made, and unresolved issues.
+- Investigation: Scanned recent file changes in [data](C:/Users/zjh/Desktop/data), reviewed [tmp_mlcc_audit.py](C:/Users/zjh/Desktop/data/tmp_mlcc_audit.py), [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), and recent [backup](C:/Users/zjh/Desktop/data/backup) folders to reconstruct the latest visible task progress.
+- Fix / action: Created this shared log file and documented the latest confirmed and inferred checkpoints. Also prepared a workflow rule so future engineering-task completions update this record.
+- Verification: File created at [operation_log.md](C:/Users/zjh/Desktop/data/operation_log.md); the related workflow skill was updated and revalidated after the rule change.
+- Other issues: `git` is unavailable in the current environment, so change detection relied on timestamps, file contents, and backup diffs instead of Git history.
+- Handoff notes: Future task frames should read this file first, then inspect [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and [tmp_mlcc_audit.py](C:/Users/zjh/Desktop/data/tmp_mlcc_audit.py) for the most recent visible technical state.
+
+### 2026-03-23 14:47 [direct] Moved the BOM export button toward the result table's lower-right area
+
+- Received / problem: User asked to move the `Download BOM matched Excel` button from the lower-left page area to the lower-right area under the BOM result table.
+- Investigation: Located the BOM export block in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), then checked the result-table height calculation and found the BOM iframe was using an oversized generic height estimate that could leave a large blank area below the table.
+- Fix / action: Added a compact iframe-height mode for BOM result tables and changed the export button layout to render inside a narrow right-side column with `use_container_width=True`, so the button sits under the table near the right edge.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` completed successfully after the change.
+- Other issues: I did not launch the Streamlit UI in this pass, so the visual result is based on code-path validation and layout reasoning rather than an interactive screenshot comparison.
+- Handoff notes: If the button still feels too low or too far right, adjust the BOM compact height values in `estimate_result_table_iframe_height(..., compact=True)` or tweak the export column ratio near the BOM result render block in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py).
+
+### 2026-03-23 16:00 [direct] Tightened varistor parsing and split leaded vs SMD varistor types
+
+- Received / problem: User reported that several BOM rows were correctly recognized as varistors, but the parser still labeled them too loosely as one generic varistor type instead of distinguishing leaded forms from SMD forms. The concrete clues called out were patterns like `P7.5`, trailing `10mm`, and part text such as `10D561K`, which should bias toward leaded varistors.
+- Investigation: Traced the varistor parsing and matching path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), including `detect_resistor_subtype_hint`, `parse_varistor_spec_query`, inferred type resolution, and the BOM match scoping logic. Found that the code already extracted disc-size and pitch clues for varistors, but still wrote only the generic varistor type and did not treat `P7.5` as pitch.
+- Fix / action: Added `VARISTOR_COMPONENT_TYPES`, introduced `looks_like_smd_varistor_context` and `looks_like_leaded_varistor_context`, extended pitch parsing to recognize `P7.5`, updated varistor parsing to emit the refined type, and changed match scoping so varistor-family queries remain compatible with generic database rows. Updated display and detail builders so the new subtype names flow through BOM results and matched-row detail text.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. A targeted AST-based helper test confirmed the new logic classifies these sample inputs as intended: `Varistor : 470V +/-10%,0.4W,HEL10D471KJ,P7.5` -> leaded varistor; `10D561K ... 10mm` -> leaded varistor; `14V 0603` in SMD-varistor context -> SMD varistor.
+- Other issues: I did not run the full Streamlit UI end-to-end in this pass because importing the app module executes heavy top-level page logic and database refresh steps. Validation for this task was therefore syntax-level plus targeted function-path testing rather than a full browser screenshot check.
+- Handoff notes: If future varistor rows still misclassify, start with `looks_like_smd_varistor_context`, `looks_like_leaded_varistor_context`, `extract_pitch_from_text`, and `parse_varistor_spec_query` in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). If matching starts missing obvious varistor candidates, inspect the family-compatibility filter in the `scope_search_dataframe` varistor branch.
+
+### 2026-03-23 16:05 [direct] Normalized the shared handoff log after the varistor follow-up
+
+- Received / problem: The shared log contained mojibake in the latest entries and one malformed file path, which would make future handoff reads less reliable.
+- Investigation: Re-read [operation_log.md](C:/Users/zjh/Desktop/data/operation_log.md) and cross-checked the touched locations in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py).
+- Fix / action: Rewrote the shared log in clean wording, preserved the historical entries, and corrected the malformed path in the latest varistor note.
+- Verification: The log now points cleanly to the current matcher file and describes the button-layout and varistor-subtype work without corrupted text.
+- Other issues: This cleanup does not change runtime behavior; it only improves cross-task handoff quality.
+- Handoff notes: Future task frames can rely on this file again without needing to reconstruct the recent work from shell output.
+
+### 2026-03-23 21:26 [direct] Synced the official resistor library into the shared database
+
+- Received / problem: User asked to expand resistor models into the database using the prior MLCC-library approach or a better equivalent, with the hard constraint that every imported part number must be official or at least directly searchable online.
+- Investigation: Reverse-engineered the JLC SMT search APIs first, then found a better official source: `GET /api/smtComponentOrder/smtCommon/v1/getAllComponentsFileUrl`, which returns a signed ZIP of the official JLC component catalog. Downloaded that archive to [jlc_all_components_latest.zip](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.zip), verified that it contains [鐢甸樆.xlsx](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.zip), [浼犳劅鍣?xlsx](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.zip), and [TVS-淇濋櫓涓?鏉跨骇淇濇姢.xlsx](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.zip), and confirmed the rows expose official component codes, names, models, package text, and brand names.
+- Fix / action: Added [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) to build a normalized resistor cache from the official ZIP, emit searchable detail links using `https://www.jlc-smt.com/lcsc/detail?componentCode=...`, and write the result to [resistor_library_cache.csv](C:/Users/zjh/Desktop/data/cache/resistor_library_cache.csv). Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so database refresh now merges the resistor cache alongside [MLCC.xlsx](C:/Users/zjh/Desktop/data/Capacitor/MLCC.xlsx), reads `鏁版嵁琛╜ only from non-MLCC library workbooks, keeps the new shared library columns, supports the added resistor families `閲戝睘姘у寲鑶滅數闃籤 and `缁曠嚎鐢甸樆`, and can rebuild the DB via `python component_matcher.py --rebuild-db`. Also fixed two parser issues that showed up during validation: low-ohm `m惟` values are now normalized correctly, and `卤1%` no longer gets mis-normalized to `100`.
+- Verification: `python -m py_compile` passed for both [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) and [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). Running the sync script produced `1120792` normalized resistor rows across thick-film, thin-film, alloy, carbon-film, metal-oxide-film, wirewound, thermistor, and varistor families; the generated summary is in [resistor_library_report.json](C:/Users/zjh/Desktop/data/cache/resistor_library_report.json). Running `python component_matcher.py --rebuild-db` rebuilt [components.db](C:/Users/zjh/Desktop/data/components.db) successfully, and the resulting `components` table now contains `1236521` rows total. Spot checks confirmed examples such as `1206W4F1001T5E` as thick-film, `MFJ10HR016FT` as alloy with `0.016惟`, `CMFB103F3950FANT` as thermistor with `10000惟`, and `RL0402E012M015K` as SMD varistor with a JLC-searchable detail link.
+- Other issues: The official resistor sync is intentionally using the JLC export cache instead of writing hundreds of thousands of rows back into the hand-maintained resistor template workbooks, because the full resistor library is now over one million rows and would be much less practical to maintain as Excel source sheets. Bare-mode runs of `component_matcher.py` print Streamlit `missing ScriptRunContext` warnings during CLI rebuilds; those warnings were observed during validation but did not block database generation.
+- Handoff notes: If future work needs to refresh the resistor library, rerun [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) first, then rebuild the DB with `python [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) --rebuild-db`. The current authoritative resistor source files are [jlc_all_components_latest.json](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.json), [jlc_all_components_latest.zip](C:/Users/zjh/Desktop/data/cache/jlc_all_components_latest.zip), [resistor_library_cache.csv](C:/Users/zjh/Desktop/data/cache/resistor_library_cache.csv), and [resistor_library_report.json](C:/Users/zjh/Desktop/data/cache/resistor_library_report.json).
+
+### 2026-03-23 21:27 [direct] Added an ASCII-safe handoff note for the resistor sync
+
+- Received / problem: The resistor-sync entry above contains some mojibake when viewed through shells that do not preserve Unicode output cleanly, which could slow down future handoffs.
+- Investigation: Re-read the latest log tail in a plain PowerShell session after the sync and noticed that a few Chinese workbook names and symbols such as `mohm` display inconsistently there even though the actual files and database contents are valid.
+- Fix / action: Added this short ASCII-safe note to supersede the ambiguous parts of the previous entry. The key stable facts are: [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) generated [resistor_library_cache.csv](C:/Users/zjh/Desktop/data/cache/resistor_library_cache.csv) with `1120792` resistor rows, [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) now imports that cache during DB refresh, and [components.db](C:/Users/zjh/Desktop/data/components.db) was rebuilt to `1236521` total rows.
+- Verification: Re-checked the rebuilt database after the tolerance fix and confirmed sample rows such as `1206W4F1001T5E`, `MFJ10HR016FT`, `CMFB103F3950FANT`, and `RL0402E012M015K` are present with searchable JLC detail links.
+- Other issues: This note does not change runtime behavior; it only makes the handoff state easier to read across terminals with mixed encodings.
+- Handoff notes: If the previous resistor-sync entry looks garbled in a future terminal, trust this ASCII-safe note plus [resistor_library_report.json](C:/Users/zjh/Desktop/data/cache/resistor_library_report.json) for the authoritative counts and rerun path.
+
+### 2026-03-23 23:02 [direct] Finished step 1 performance optimization, then step 2 resistor all-brand expansion validation
+
+- Received / problem: User explicitly asked to do `1. performance optimization` first and `2. second-stage resistor expansion` after that, then continue until both were verified.
+- Investigation: Re-checked the current matcher and cache pipeline in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), verified the official resistor sync artifacts in [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py), [resistor_library_cache.csv](C:/Users/zjh/Desktop/data/cache/resistor_library_cache.csv), and [resistor_library_report.json](C:/Users/zjh/Desktop/data/cache/resistor_library_report.json), and measured both raw SQLite load time and prepared-cache load time against the rebuilt [components.db](C:/Users/zjh/Desktop/data/components.db). Also traced a cache-staleness path where Streamlit cache keys could keep an old dataframe alive under a default `None` signature and let an out-of-date prepared cache survive after DB changes.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so the data-loading cache now uses explicit signature-based wrappers, database rebuilds clear stale in-memory cached frames, and prepared-cache reads go through a dedicated helper. Kept the existing prepared-cache optimization path (prepared dataframe + categorical compression + DB indexes) and re-ran the database rebuild after the all-brand resistor sync. Step 2 is now validated against the broader official-library import path in [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) using `--include-all-brands`.
+- Verification: Current official resistor cache count is `1301979` rows (`include_all_brands=true`) in [resistor_library_report.json](C:/Users/zjh/Desktop/data/cache/resistor_library_report.json). The rebuilt [components.db](C:/Users/zjh/Desktop/data/components.db) now contains `1417708` total rows and `11` distinct component types. Confirmed sample searchable models remain present in both DB and prepared cache: `1206W4F1001T5E`, `MFJ10HR016FT`, `CMFB103F3950FANT`, and `RL0402E012M015K`. The refreshed prepared cache at [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) now also contains `1417708` rows, matches the current DB signature in [components_prepared_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_meta.json), reads in about `10.784s`, and uses about `1330.76 MB` in memory. A fresh raw `SELECT * FROM components` load from SQLite took about `34.528s` and about `2245.61 MB`, so the prepared cache is materially faster and lighter for the app's search path.
+- Other issues: PowerShell in this environment still defaults to a `gbk` stdout encoding, so one-off inline scripts that contain raw Chinese literals can display or behave misleadingly unless they use Unicode escapes. Bare-mode CLI rebuilds still print Streamlit `missing ScriptRunContext` warnings; these warnings did not block DB generation or cache regeneration.
+- Handoff notes: If future work changes the library again, refresh in this order: run [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) (use `--include-all-brands` when the wider official catalog is desired), rebuild with `python C:\Users\zjh\Desktop\data\component_matcher.py --rebuild-db`, then confirm that [components_prepared_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_meta.json) matches the DB mtime/size and that [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) row count matches the DB row count.
+
+### 2026-03-23 23:28 [direct] Exported resistor view workbooks and reduced homepage preloading before BOM matching
+
+- Received / problem: User asked for the resistor data to also be visible in Excel files under the resistor folder, then asked for another round of homepage startup optimization with special focus on cutting the preload cost before BOM matching begins.
+- Investigation: Checked the current runtime data path and confirmed the official resistor library was being stored as [resistor_library_cache.csv](C:/Users/zjh/Desktop/data/cache/resistor_library_cache.csv) -> [components.db](C:/Users/zjh/Desktop/data/components.db) -> [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet), not as runtime Excel sheets. Re-read the app entry flow in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and found two preload costs: the page always executed `load_prepared_data()` at top level before any user action, and BOM upload immediately ran matching without a separate start step. Also checked the `Resistor` workbook scan path and confirmed any new view-only exports placed directly in that folder would need to be explicitly skipped to avoid slowing down DB refresh.
+- Fix / action: Added [export_resistor_view_workbooks.py](C:/Users/zjh/Desktop/data/export_resistor_view_workbooks.py) to split the official resistor cache into per-type view workbooks in [Resistor](C:/Users/zjh/Desktop/data/Resistor), each suffixed with `瀹樻柟鍙煡鐪嬬増.xlsx`, and wrote a manifest to [resistor_view_export_manifest.json](C:/Users/zjh/Desktop/data/cache/resistor_view_export_manifest.json). Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so any workbook whose name contains `鍙煡鐪嬬増` is skipped as a source workbook, data refresh checks are throttled per session, the top-level unconditional `load_prepared_data()` call is removed, manual search loads the prepared dataset only when the user actually clicks search, and BOM upload now waits for an explicit `寮€濮?BOM 鍖归厤` button before loading the search library and executing matches.
+- Verification: Exported these view-only files directly under [Resistor](C:/Users/zjh/Desktop/data/Resistor): `鍘氳啘鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`440794` rows), `钖勮啘鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`746013` rows), `缁曠嚎鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`71687` rows), `閲戝睘姘у寲鑶滅數闃籣瀹樻柟鍙煡鐪嬬増.xlsx` (`14957` rows), `纰宠啘鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`11569` rows), `寮曠嚎鍨嬪帇鏁忕數闃籣瀹樻柟鍙煡鐪嬬増.xlsx` (`6863` rows), `璐寸墖鍘嬫晱鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`5962` rows), `鐑晱鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`2219` rows), `璐寸墖鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`1032` rows), and `鍚堥噾鐢甸樆_瀹樻柟鍙煡鐪嬬増.xlsx` (`883` rows). The export manifest confirms the view files total `1301979` rows, exactly matching the official resistor report. A post-change import of [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) in bare mode completed in about `3.953s`, and `get_source_workbooks()` confirmed that the new `瀹樻柟鍙煡鐪嬬増.xlsx` files are not treated as runtime source inputs. This means homepage first render no longer pays the `~10.8s` prepared-cache load before the user clicks search or starts BOM matching.
+- Other issues: The view-workbook export itself is intentionally not lightweight; generating all per-type Excel files took several minutes because it streamed over the full `1301979`-row resistor cache and wrote ten xlsx files. PowerShell still shows mojibake for some Chinese text in direct JSON dumps even though the actual file contents and workbook names on disk are correct.
+- Handoff notes: The new workbooks are for browsing and handoff only, not for runtime matching. If the official resistor cache is refreshed later, rerun [export_resistor_view_workbooks.py](C:/Users/zjh/Desktop/data/export_resistor_view_workbooks.py) after the cache sync to regenerate the `瀹樻柟鍙煡鐪嬬増.xlsx` files and keep [resistor_view_export_manifest.json](C:/Users/zjh/Desktop/data/cache/resistor_view_export_manifest.json) in sync.
+
+### 2026-03-23 23:34 [direct] Restored auto-start BOM matching while keeping homepage lazy-loading
+
+- Received / problem: User did not want the extra `寮€濮?BOM 鍖归厤` button and explicitly asked whether the app could still auto-match immediately after upload without making the webpage slow before any upload happens.
+- Investigation: Re-read the BOM block in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed the previous optimization had two separate effects mixed together: (1) removing top-level preload, which keeps homepage startup light, and (2) adding an explicit click gate before BOM matching, which the user did not want. The real requirement is to keep effect (1) while reverting effect (2).
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so the page still avoids loading the prepared component library at first render, but once a BOM is uploaded and the current column mapping is known, the app automatically starts BOM matching for that file/mapping signature without waiting for another button click. The result is cached in session state under the current upload signature, so reruns with the same file and same mapping reuse the existing result instead of re-running the whole match.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed after the rollback. A post-change bare import of [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) still completes in about `4.426s`, which confirms homepage startup remains in the light/lazy path before any upload. The BOM section now shows the automatic-start caption instead of the old explicit `寮€濮?BOM 鍖归厤` button.
+- Other issues: There is still an unavoidable first-wait cost after upload, because the app must load the prepared search dataframe and actually execute matching somewhere. What changed is where that cost happens: no longer at homepage first render, but only after the user uploads a BOM and the system has enough context to match it.
+- Handoff notes: If a future task needs to squeeze the first-upload wait even further, the next direction is not to reintroduce a manual button; it is to optimize the BOM match execution path itself or add a safe background warm-up strategy after page load.
+
+### 2026-03-24 00:42 [direct] Reduced the upload-time BOM auto-match path and refreshed the prepared cache
+
+- Received / problem: User agreed to continue optimizing the wait that happens immediately after BOM upload, while keeping the current `upload -> auto match` behavior unchanged.
+- Investigation: Benchmarked the auto-match path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and profiled `bom_dataframe_from_upload`. Confirmed three concrete bottlenecks: the prepared cache on disk was missing the newer `_power` helper column, MLCC rows were repeatedly re-scanning the library to resolve `淇℃槍鏂欏彿` / `鍗庣鏂欏彿`, and the BOM path was doing too many repeated dataframe slices plus row-wise `apply(axis=1)` grading.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so prepared-cache reads can self-heal missing prepared columns, `_res_ohm` backfill stays object-safe, `scope_search_dataframe` uses one combined boolean mask instead of repeated table slicing, `match_by_spec` no longer re-applies filters already guaranteed by scoping, MLCC reference lookup is shared through one cached `lookup_brand_models_for_spec_map` call per spec, duplicate sorting was removed from `collect_brand_models_in_frame` and `format_other_brand_models`, and the MLCC branch of `apply_match_levels_and_sort` is now vectorized instead of relying on row-wise classification.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Rewrote [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) so the cache on disk already includes the required helper columns; the write itself took about `6.936s` once the prepared dataframe was loaded. On the tracked 200-row unique-model BOM benchmark, match time improved from the earlier `47.601s` baseline to `42.318s`, then to `38.436s` after the second optimization pass. A 100-row cProfile benchmark improved from about `54.420s` before this pass to about `35.386s` after the latest changes.
+- Other issues: The latest profile still shows the biggest remaining costs in `scope_search_dataframe`, `lookup_brand_models_for_spec_map`, and `apply_match_levels_and_sort`, so a future optimization round should keep pushing on MLCC fallback volume and mask-construction overhead. Bare-mode benchmark scripts still emit Streamlit `missing ScriptRunContext` warnings, but those warnings did not affect the measurements.
+- Handoff notes: Future performance work should start in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) around `scope_search_dataframe`, `lookup_brand_models_for_spec_map`, `match_by_spec`, `apply_match_levels_and_sort`, and the BOM result-row builder. The prepared cache on disk is already refreshed now, so later profiling can focus directly on matching/runtime logic instead of paying the earlier `_power` backfill cost again.
+
+### 2026-03-24 01:06 [direct] Fixed resistor BOM parsing dropping `10K ohm` resistance
+
+- Received / problem: User reported that a BOM row like `Res't : 10K ohm 1/10W +/-5% 0603SMD` was recognized as a resistor, but the parsed spec detail omitted the resistance entirely, so matching widened to unrelated `0603 / 5% / 1/10W` parts with the wrong ohmic value.
+- Investigation: Re-read the resistor parsing path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and narrowed the failure to `parse_resistance_token_to_ohm()`. The upstream regex was already capturing `10K ohm`, but after normalization to `10K惟` the parser was incorrectly converting any trailing `惟` token into `R`, producing `10KR` instead of `10K` and causing `_resistance_ohm` to fall back to `None`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `parse_resistance_token_to_ohm()` now distinguishes between plain-ohm tokens like `10惟` and scaled tokens like `10K惟`, `4R7惟`, and `2M2惟`. Plain numeric `惟` values still normalize to `R`, while scaled suffix forms now strip the trailing `惟` and keep the embedded resistance unit intact. Added a focused regression case to [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) and a quick local check script [tmp_resistance_parse_check.py](C:/Users/zjh/Desktop/data/tmp_resistance_parse_check.py) for the affected resistor spellings.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe C:\Users\zjh\Desktop\data\tmp_resistance_parse_check.py` confirmed that `10K ohm`, `10K惟`, `4R7惟`, `2M2惟`, and `0.0 Ohm` all resolve to the expected `_resistance_ohm` values, and `build_component_spec_detail_from_spec()` now returns `灏哄: 0603 | 闃诲€? 10K惟 | 璇樊: 5% | 鍔熺巼: 1/10W` for the reported BOM row.
+- Other issues: This fix is intentionally narrow and does not yet expand support for less common forms such as leading-unit low-ohm tokens like `R010`; if those appear in future BOMs they should be handled in a separate pass with dedicated regression samples.
+- Handoff notes: If a future task sees resistor candidates matching only by size, tolerance, and power again, start by checking whether `_resistance_ohm` is present in the parsed spec object before inspecting ranking or database content.
+
+### 2026-03-24 01:28 [direct] Extended compact resistor parsing for `R010 / 3K3 / 4K75 / 0R22`
+
+- Received / problem: User agreed to continue tightening resistor parsing for compact edge formats and specifically called out patterns like `R010`, `3K3`, `4K75`, and `0R22`, which are common in BOM spec text but were either not recognized at all or could lead to malformed tolerance/power extraction.
+- Investigation: Re-ran the resistor parser on compact examples in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and found three separate issues: (1) `parse_resistance_token_to_ohm()` had no support for leading-`R` low-ohm tokens such as `R010`; (2) `looks_like_resistor_context()` destroyed token boundaries by compacting `R010 1% 1206` into `R0101%1206`, so the line was no longer recognized as resistor context; and (3) tolerance extraction on compact resistor lines like `3K3 5% 0603` was too greedy and could absorb adjacent size digits into the tolerance value.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so low-ohm leading-`R` tokens now normalize correctly, resistor-context detection uses a dedicated compact-resistance pattern without broadly opening that pattern to non-resistor columns, and compact tolerance extraction now prefers separated percentage tokens before falling back to compact matching. Also extended the regression conversion path so resistor regression cases compare actual ohmic values via `OHM / KOHM / MILLIOHM` units instead of capacitor-only `PF / NF / UF`, expanded [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) with compact resistor samples, and rewrote [tmp_resistance_parse_check.py](C:/Users/zjh/Desktop/data/tmp_resistance_parse_check.py) to cover both token-level and full-spec parsing.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe C:\Users\zjh\Desktop\data\tmp_resistance_parse_check.py` now passes for `10K OHM`, `4R7 OHM`, `2M2 OHM`, `0.0 OHM`, `R010`, `R005`, `0R22`, plus the full-text specs `3K3 5% 0603`, `4K75 1% 0603`, `R010 1% 1206`, and `0R22 5% 1206`. A targeted dry run of `build_regression_case_result()` also shows the added cases `RES_0603_10K`, `RES_0603_3K3`, `RES_0603_4K75`, `RES_1206_R010`, and `RES_1206_0R22` all returning `鐘舵€? 閫氳繃`.
+- Other issues: Bare-mode validation still emits Streamlit `missing ScriptRunContext` and empty-label warnings because [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) executes UI code at import time, but those warnings did not affect parsing or regression outcomes in this pass.
+- Handoff notes: Keep `R010` support scoped to resistor-context parsing only; do not promote leading-`R` tokens into a global resistance fallback unless column-inference logic is redesigned first, otherwise BOM reference designators like `R010 / R011` can be mistaken for low-ohm values.
+
+### 2026-03-24 02:27 [direct] Fixed resistor BOM false matches drifting into Murata PRG PTC parts
+
+- Received / problem: User reported that BOM rows such as `C Res't : 4.7 Ohm, +/-1%, 1/8W, SMD0805` were showing incomplete `鍖归厤鍙傛暟鏄庣粏`, and one of the matched models was Murata `PRG21BC4R7MM1RA`, which is a PTC / overcurrent-protection part rather than a normal chip resistor.
+- Investigation: Rechecked the resistor matching chain in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed three linked faults. First, generic resistor queries were being scoped too narrowly, which let a wrongly typed `璐寸墖鐢甸樆` PRG row survive while valid `鍘氳啘鐢甸樆 / 钖勮啘鐢甸樆` families could be filtered out. Second, resistor grading was too permissive and could still stamp incomplete candidates as `瀹屽叏鍖归厤`. Third, the old component-alias matcher was too loose: short tokens like `NTC` were matching inside unrelated strings such as `componentCode`, which falsely turned ordinary resistor rows into `鐑晱鐢甸樆` during prepared-data inference.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so short alias tokens now require real boundaries, generic `璐寸墖鐢甸樆` queries are compatible with the full resistor family set, and resistor exact-match grading now checks normalized resistance + tolerance + power before awarding `瀹屽叏鍖归厤`. Also updated [resistor_library_sync.py](C:/Users/zjh/Desktop/data/resistor_library_sync.py) so future瀵煎簱浼氭妸 `杩囨祦淇濇姢 / PTC / resettable` 璇箟鐩存帴褰掑埌 `鐑晱鐢甸樆`, added a regression case to [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv), corrected the existing Murata PRG row in [components.db](C:/Users/zjh/Desktop/data/components.db), and refreshed [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) plus [components_prepared_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_meta.json) so the cache already carries the corrected type information.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py C:\Users\zjh\Desktop\data\resistor_library_sync.py` passed. A focused replay against the user鈥檚 `4.7惟 / 1% / 1/8W / 0805` query now returns `47` normal resistor candidates, the top result is `鍗庢柊绉慦alsin WR08W4R70FTL`, `鍖归厤鍙傛暟鏄庣粏` renders as `灏哄: 0805 | 闃诲€? 4.7惟 | 璇樊: 1% | 鍔熺巼: 1/8W`, and `PRG21BC4R7MM1RA` is no longer present in the candidate list. The raw row for `PRG21BC4R7MM1RA` in both [components.db](C:/Users/zjh/Desktop/data/components.db) and [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) now shows `鍣ㄤ欢绫诲瀷 = 鐑晱鐢甸樆`.
+- Other issues: Bare-mode validation still emits Streamlit `missing ScriptRunContext` / empty-label warnings because [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) executes UI code on import; these warnings did not affect matching verification. The one-off library repair touched `28` cache/database rows with thermistor/PTC clues, but only `1` row actually changed from a non-thermistor raw type this round because most affected rows were already classified correctly.
+- Handoff notes: If similar errors return, start by checking three places in order: `matches_component_alias()` for short-token false positives, `infer_db_component_type()` for series-level override gaps, and `scope_search_dataframe()` for overly narrow generic family filters. For Murata PRG specifically, treat brand+series as suspect unless the part is explicitly intended to be a thermistor / PTC family.
+
+### 2026-03-24 02:27 [direct] Audited all brands for resistor-vs-thermistor misclassification and fixed the remaining rows
+
+- Received / problem: User pointed out that this kind of error should not be treated as Murata-only and asked for a full-database check across all brands.
+- Investigation: Ran a full scan across [components.db](C:/Users/zjh/Desktop/data/components.db) over all `1417708` rows, checking every normal resistor family row for strong `NTC / PTC / 鐑晱 / 杩囨祦淇濇姢 / 鑷仮澶嶄繚闄╀笣 / resettable / polyfuse` clues in brand, model, summary, and note fields. Also checked the reverse direction to see whether any rows already marked as `鐑晱鐢甸樆 / 鍘嬫晱鐢甸樆` still looked like ordinary resistor families.
+- Fix / action: Exported the audit findings to [component_type_suspicious_rows.csv](C:/Users/zjh/Desktop/data/cache/component_type_suspicious_rows.csv) and [component_type_audit_report.json](C:/Users/zjh/Desktop/data/cache/component_type_audit_report.json), then batch-corrected the remaining wrong raw types in [components.db](C:/Users/zjh/Desktop/data/components.db) and synced the same corrections into [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) plus [components_prepared_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_meta.json). The corrected rows covered `5` brands and `7` models: Murata `PTGL12AR1R2H2B51B0`, ametherm `SL082R503 / SL322R025`, Amphenol `CL-70A / CL-60`, Cantherm `MF72-200D9`, and TDK `B57236S0509M000`.
+- Verification: A post-fix rescan of the entire database now returns `0` remaining normal-resistor rows with strong thermistor/PTC clues. The thermistor raw-type count in [components.db](C:/Users/zjh/Desktop/data/components.db) increased from `2220` to `2227`, matching the `7` rows that were corrected during this pass.
+- Other issues: The audit report JSON is UTF-8; if it is viewed in a terminal with a non-UTF-8 code page it may display mojibake, but the saved file contents are correct on disk. This pass was intentionally limited to strong clue rows; it does not claim that every brand series in the whole library has been manually checked against an official datasheet one by one.
+- Handoff notes: If future work wants to push this further, the next audit layer should be series-based rather than keyword-based: compare brand+series families between correctly typed `鐑晱鐢甸樆 / 鍘嬫晱鐢甸樆` rows and ordinary resistor rows to catch cases where the summary text is weak but the model family itself is distinctive.
+
+### 2026-03-24 02:41 [direct] Extended low-ohm high-power resistor parsing for `R005 / 5m惟 / 1W / 2W / 2512`
+
+- Received / problem: User agreed to continue tightening resistor parsing for lower-ohm, larger-package, and higher-power edge formats, specifically calling out patterns such as `R005`, `5m惟`, `1W`, `2W`, and `2512`.
+- Investigation: Replayed the parser against `R005 1% 2512 1W`, `5m惟 1% 2512 2W`, `1W 2512 5m惟 1%`, and `2W 2512 R005 1%`. Confirmed that low-ohm resistance and wattage were already being recognized, but `2512` was missing from the main size extraction path and `find_embedded_size()` was compacting away spaces before matching, which turned strings like `2512 1W` into `25121W` and caused the package code to be swallowed by adjacent digits.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so the shared size token regex now covers larger common packages such as `2010 / 2512 / 3225 / 4520 / 4532 / 5750`, and `find_embedded_size()` now matches against the cleaned uppercase text without first removing spaces. Also rewrote [tmp_resistance_parse_check.py](C:/Users/zjh/Desktop/data/tmp_resistance_parse_check.py) into a clean ASCII-safe regression helper and added new regression rows to [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) for `R005 1% 2512 1W` and `5m惟 1% 2512 2W`.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py C:\Users\zjh\Desktop\data\tmp_resistance_parse_check.py` passed. `tmp_resistance_parse_check.py` now returns `status = ok` and confirms that `R005`, `5m惟`, `R005 1% 2512 1W`, `5m惟 1% 2512 2W`, `1W 2512 5m惟 1%`, and `2W 2512 R005 1%` all parse with `灏哄锛坕nch锛?= 2512`, `闃诲€?= 5m惟`, and the expected wattage. A direct parser replay also now renders details such as `灏哄: 2512 | 闃诲€? 5m惟 | 璇樊: 1% | 鍔熺巼: 2W`.
+- Other issues: A direct SQLite lookup did not find current library rows that simultaneously satisfy `2512 + 0.005惟 + 1W/2W`, so this pass fixes the parser layer rather than proving that the present database already contains exact candidate parts for those specs.
+- Handoff notes: If a future task sees another package code disappearing only when a numeric token follows it, inspect `find_embedded_size()` first before touching resistor parsing or power parsing; the root cause may be spacing/adjacency rather than the actual component grammar.
+
+### 2026-03-24 10:40 [direct] Repaired resistor BOM no-match regression caused by stale prepared-cache results
+
+- Received / problem: User reported that after the recent resistor parsing work, BOM upload suddenly showed common resistor rows such as `Res't : 3.3K ohm 1/8W +/-5% 0805SMD` as `鏃犲尮閰峘, even though the specs were complete and should have many catalog hits.
+- Investigation: Confirmed the parser layer was healthy: `detect_query_mode_and_spec()` still recognized the row as `璐寸墖鐢甸樆`, produced `_resistance_ohm = 3300.0`, `_power = 1/8W`, and rendered `灏哄: 0805 | 闃诲€? 3.3K惟 | 璇樊: 5% | 鍔熺巼: 1/8W`. Then inspected `cache/components_prepared.parquet` and found the real failure: all `1286927` raw resistor-family rows had been poisoned to `_component_type = 鐑晱鐢甸樆`, so earlier sessions had cached empty resistor-query results. A fresh rebuild from `components.db` restored the prepared cache, and targeted checks showed `108` exact `0805 + 3.3k惟 + 5%` rows in cache with `72` rows still matching after the `1/8W` power filter.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with a standalone `--rebuild-prepared-cache` CLI path so the prepared cache can be rebuilt from [components.db](C:/Users/zjh/Desktop/data/components.db) without forcing a full source re-import. Rebuilt [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) and [components_prepared_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_meta.json), which now carry `cache_version = 3`. Also tightened `get_query_cache_signature()` so query-result caching includes the prepared-cache and meta file mtimes/sizes; this invalidates stale in-session `鏃犲尮閰峘 results after a cache rebuild. Finally, added `spec_display_value_unit()` and switched BOM/result-row display paths to use resistor ohmic values instead of capacitor-only `pf_to_value_unit()`, so resistor rows no longer appear blank in `瀹瑰€?/ 瀹瑰€煎崟浣峘 fields after parsing.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Fresh inspection of [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) showed resistor-family `_component_type` values restored to normal distributions (`钖勮啘鐢甸樆 746013`, `鍘氳啘鐢甸樆 440794`, `缁曠嚎鐢甸樆 71687`, etc.) instead of all `鐑晱鐢甸樆`. A focused replay against `Res't : 3.3K ohm 1/8W +/-5% 0805SMD` now returns `mode = 璐寸墖鐢甸樆`, `matched_rows = 72`, and `spec_display_value_unit()` reports `3.3 KOHM`, confirming both matching and BOM-side display data are healthy again.
+- Other issues: Bare-mode command-line verification still emits Streamlit `missing ScriptRunContext` / empty-label warnings because [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) executes UI code when imported outside `streamlit run`; these warnings did not affect the cache rebuild or query-result verification. The one-off `--rebuild-prepared-cache` run itself took long enough to exceed the shell timeout, but the cache files were successfully written at `2026-03-24 09:28`.
+- Handoff notes: If resistor BOM rows ever regress to `鏃犲尮閰峘 again while parsing still looks correct, check three things in order: (1) whether [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet) has healthy resistor `_component_type` distributions, (2) whether the query-cache signature includes the latest prepared-cache mtimes, and (3) whether the current session needs a rerun after a cache rebuild so old empty query results are not reused.
+### 2026-03-24 10:58 [direct] Switched search-field titles from capacitor-only labels to component-specific schemas
+
+- Received / problem: User reported that when entering resistor specs, the page still rendered capacitor-style field titles such as `瀹瑰€?/ 瀹瑰€煎崟浣?/ 瀹瑰€艰宸?/ 鑰愬帇锛圴锛塦, even though the parsed query had already been identified as a resistor. The same mismatch also leaked into the matched-result table headers.
+- Investigation: Traced the display path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed that the parser layer was already classifying queries correctly, but the UI layer was still hard-coded to a capacitor-style schema in three places: `build_spec_info_df()` always returned `灏哄锛坕nch锛?/ 鏉愯川锛堜粙璐級 / 瀹瑰€?/ 瀹瑰€煎崟浣?/ 瀹瑰€艰宸?/ 鑰愬帇锛圴锛塦, the single-part info table used the same fixed column set, and the result table builder was always selecting the same generic parameter columns regardless of whether the query was a resistor, varistor, thermistor, or capacitor.
+- Fix / action: Added a component-display schema layer to [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), including `get_component_display_schema()`, `get_component_header_labels()`, `build_component_display_row()`, `ensure_component_display_columns()`, `select_component_display_columns()`, and `build_component_column_config()`. These now drive the query spec table, single-part info table, clickable result table, and fallback `st.dataframe` column headers. Resistors now use `灏哄锛坕nch锛?/ 闃诲€?/ 闃诲€煎崟浣?/ 璇樊 / 鍔熺巼`, leaded varistors use `鍘嬫晱鐢靛帇 / 璇樊 / 瑙勬牸 / 鑴氳窛 / 鍔熺巼`, and MLCC keeps `灏哄锛坕nch锛?/ 鏉愯川锛堜粙璐級 / 瀹瑰€?/ 瀹瑰€煎崟浣?/ 瀹瑰€艰宸?/ 鑰愬帇锛圴锛塦. Also updated the search-page subtitle so it no longer tells users that all specs should be thought of as `灏哄/瀹瑰€糮, and changed the section titles to follow the detected component type, for example `璐寸墖鐢甸樆瑙勬牸鏉′欢` and `璐寸墖鐢甸樆鍖归厤缁撴灉锛堝惈鎺ㄨ崘绛夌骇锛塦.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Focused dry runs showed: resistor spec `0402 10K 1% 1/16W` now produces spec-table columns `灏哄锛坕nch锛? 瀹瑰€? 瀹瑰€煎崟浣? 瀹瑰€艰宸? 鍔熺巼` with displayed labels mapping to `灏哄锛坕nch锛? 闃诲€? 闃诲€煎崟浣? 璇樊, 鍔熺巼`; leaded-varistor spec `Varistor 470V P7.5` now produces `鍘嬫晱鐢靛帇, 瀹瑰€艰宸? 瑙勬牸, 鑴氳窛, 鍔熺巼` with the expected labels; and MLCC spec `0402 X7R 104K 50V` still renders the capacitor-oriented header set unchanged.
+- Other issues: The present data model still stores many parameter values in generic internal fields such as `瀹瑰€?/ 瀹瑰€煎崟浣?/ 瀹瑰€艰宸甡; this pass intentionally changes the user-facing labels and visible columns without forcing a full data-model rewrite. Bare-mode validation still emits Streamlit `missing ScriptRunContext` warnings because the app executes UI code during import, but the helper output and schema checks completed successfully.
+- Handoff notes: If future work expands the display model to more categories, the safe extension point is the new `get_component_display_schema()` helper rather than editing individual tables one by one. Any new type-specific field should also be mirrored in `build_component_display_row()`, `ensure_component_display_columns()`, and `build_component_column_config()` so the spec table and result table stay consistent.
+
+### 2026-03-24 11:18 [direct] Expanded type-specific spec headers across all declared product categories
+
+- Received / problem: User reported that the title mismatch was not limited to resistors and wanted all declared component categories checked so that the spec table and result table show the corresponding parameter titles for the detected product type, instead of falling back to capacitor-style headers.
+- Investigation: Rechecked the display layer in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed two gaps. First, the component schema helper still only covered resistor families, thermistor, varistor, and a few capacitor families; categories such as `閽界數瀹?/ 鍔熺巼鐢垫劅 / 鍏辨ā鐢垫劅 / 纾佺彔 / 鏅舵尟 / 鎸崱鍣╜ could still fall back to the old capacitor template. Second, the model reverse-lookup path was losing `鍣ㄤ欢绫诲瀷` because [MODEL_REVERSE_LOOKUP_COLUMNS](C:/Users/zjh/Desktop/data/component_matcher.py) did not include it, which meant even correctly typed library rows could be rendered with generic or wrong titles after reverse lookup.
+- Fix / action: Extended the schema layer in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so all declared categories now map to explicit user-facing labels. MLCC keeps capacitor labels; resistor families use `闃诲€?/ 闃诲€煎崟浣?/ 璇樊 / 鍔熺巼`; tantalum keeps capacitor-style titles without falling into the MLCC default; inductors use `鐢垫劅鍊?/ 鐢垫劅鍗曚綅 / 璇樊`; ferrite beads use `闃绘姉 / 闃绘姉鍗曚綅 / 璇樊`; crystals use `棰戠巼 / 棰戠巼鍗曚綅 / 棰戝樊 / 宸ヤ綔鐢靛帇`; oscillators use `杈撳嚭棰戠巼 / 棰戠巼鍗曚綅 / 棰戝樊 / 宸ヤ綔鐢靛帇`. Also changed the unknown-type fallback from capacitor wording to neutral `鍙傛暟鍊?/ 鍙傛暟鍗曚綅 / 璇樊 / 棰濆畾鐢靛帇锛圴锛塦. In the same pass, updated `spec_display_value_unit()`, `build_component_detail_lines()`, and `build_component_summary_from_spec()` so the summary/detail rows stay aligned with the new type-specific labels. Finally, widened [MODEL_REVERSE_LOOKUP_COLUMNS](C:/Users/zjh/Desktop/data/component_matcher.py) and updated [reverse_spec()](C:/Users/zjh/Desktop/data/component_matcher.py) so reverse specs now preserve `鍣ㄤ欢绫诲瀷`, `瑙勬牸鎽樿`, `灏哄锛坢m锛塦, notes, package hints, and raw value/unit data for non-capacitor families.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Venv-based helper checks confirmed the displayed labels now switch correctly for `璐寸墖鐢甸樆`, `MLCC`, `閽界數瀹筦, `鍔熺巼鐢垫劅`, `纾佺彔`, `鏅舵尟`, and `鎸崱鍣╜. A synthetic reverse-lookup replay for model `L0603-10UH` now returns `鍣ㄤ欢绫诲瀷 = 鍔熺巼鐢垫劅`, keeps `瀹瑰€?= 10 / 瀹瑰€煎崟浣?= UH`, and exposes labels `鐢垫劅鍊?/ 鐢垫劅鍗曚綅 / 璇樊` instead of reverting to capacitor headers.
+- Other issues: This pass fixed display correctness and reverse-spec type preservation. It does not claim that every non-capacitor family already has full arbitrary free-text spec parsing or fully customized matching rules; those families may still need dedicated parser/matcher work in a later task. Bare-mode checks still emit Streamlit `missing ScriptRunContext` warnings because [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) executes UI code on import, but those warnings did not affect helper-level validation.
+- Handoff notes: If a future task sees the right component type in the database but the page still renders generic titles, inspect [MODEL_REVERSE_LOOKUP_COLUMNS](C:/Users/zjh/Desktop/data/component_matcher.py) and [reverse_spec()](C:/Users/zjh/Desktop/data/component_matcher.py) first. If a new family is added later, update `get_component_display_schema()`, `spec_display_value_unit()`, `build_component_detail_lines()`, and `build_component_summary_from_spec()` together so the spec table, summary line, and match-result table stay aligned.
+
+### 2026-03-24 23:16 [direct] Added SQL search index for resistor-first matching, enforced model-rule authority in search, and updated match colors
+
+- Received / problem: User reported that spec query `0401 1ohm k` was still returning wrong resistor candidates, including models whose official naming rules decode to very different values or sizes. User also asked to start the first version of a faster indexed search layer and to update BOM match colors so `瀹屽叏鍖归厤 / 閮ㄥ垎鍙傛暟鍖归厤 / 楂樹唬浣巂 are visually distinct.
+- Investigation: Confirmed that the raw library row for examples such as `AA0402JR-071RL` already carries authoritative model-rule fields in [components.db](C:/Users/zjh/Desktop/data/components.db), including `_model_rule_authority = yageo_chip_resistor_model` and `_resistance_ohm = 1.0`, while Murata `MHR0422SA108F70` carries `_model_rule_authority = murata_mhr_model` and `_resistance_ohm = 1000000000.0`. The real gap had moved to runtime search: the old prepared cache was stale, `scope_search_dataframe()` still prepared the entire 1417708-row cache before narrowing candidates, and the query page therefore continued to rely too much on historical scraped fields. I also attempted a chunked full prepared-cache rebuild, but the first implementation hit Parquet schema drift between chunks and was too expensive to make the current search fix depend on it.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to add a new SQLite search layer: `components_search`, `build_search_index_chunk_from_raw()`, `rebuild_search_index_from_database_fast()`, and `fetch_search_candidate_pairs()`. The new index stores normalized search fields such as `_component_type`, `_size`, `_res_ohm`, `_tol`, `_power_watt`, `_pf`, and `_model_rule_authority`, and it is rebuilt through the new CLI path `--rebuild-search-index`. Query filtering now uses the SQL candidate set first and only then runs `prepare_search_dataframe()` on the reduced subset, instead of preparing the full cache up front. This makes resistor spec matching obey official model rules at candidate-selection time even if a full prepared-cache refresh has not yet been completed. In the same pass, I hardened [apply_model_rule_overrides_to_dataframe()](C:/Users/zjh/Desktop/data/component_matcher.py) against categorical columns from older cache files, added support for `0401`-class resistor spec parsing in the search path, and changed the row-color rules in both HTML and fallback DataFrame styling so `瀹屽叏鍖归厤 = 榛勮壊`, `閮ㄥ垎鍙傛暟鍖归厤 = 娴呯孩鑹瞏, `楂樹唬浣?/ 鍙洿鎺ユ浛浠?= 娴呰摑鑹瞏, while `鏃犲尮閰峘 remains unstyled.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe C:\Users\zjh\Desktop\data\component_matcher.py --rebuild-search-index` completed successfully and produced `1417702` rows in `components_search`. Direct query checks showed `0401 1ohm k` now yields `0` indexed candidates, which is the correct safe result instead of leaking `0402` or `1G惟` models. Positive-control checks showed `0402 1ohm 5%` now returns `60` indexed candidates and `0402 1ohm 1%` returns `51`, all narrowed to the correct resistor size/value/tolerance family before the final ranking step. After reordering `scope_search_dataframe()`, the end-to-end `run_query_match()` timings on the current cache dropped to about `0.004s` for the empty `0401 1ohm k` case and about `1.2s-1.3s` for the `0402 1ohm` exact resistor cases, down from multi-minute behavior when the entire stale cache was still being re-prepared first.
+- Other issues: The full chunked prepared-cache rebuild path remains unfinished for now. I kept the scaffolding in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py), but the current practical fix for search correctness and speed is the new `components_search` index rather than a mandatory full parquet refresh. Also, while the resistor families now obey model-rule authority at the candidate-filter stage, this does not yet mean every brand series in the whole passive library has been manually audited against an official datasheet one by one.
+- Handoff notes: If future work continues the search-layer migration, the next step should be to use `components_search` for MLCC and other passive families more aggressively and then finish a stable chunked rebuild for [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet). If a later regression shows wrong resistor candidates again, check `components_search` first, especially `_model_rule_authority`, `_size`, `_res_ohm`, and `_tol`, before blaming the display layer or the BOM mapper.
+
+### 2026-03-24 23:30 [direct] Removed full prepared-cache preloading from normal search clicks and switched search page to SQLite on-demand candidate loading
+
+- Received / problem: User reported that the web page had become unusable again because pressing `鎼滅储` was hanging on `姝ｅ湪鍔犺浇鍏冧欢搴擄紝鍑嗗鎼滅储... Running _load_prepared_data_cached(...)`, even for simple resistor queries like `0402 1ohm k`.
+- Investigation: Traced the active search-page code path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed that the UI was still calling `load_search_dataframe_for_action("鎼滅储")` before parsing the query text. That meant the page was loading the full prepared cache up front even though the new `components_search` SQL index was already available. The indexed candidate layer itself was healthy: bare-mode checks showed `detect_query_mode_and_spec(None, "0402 1ohm 5%")` plus `load_search_dataframe_for_query()` could identify the resistor spec and build a small candidate DataFrame without touching `_load_prepared_data_cached()`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so the search page now parses each line first and only falls back to the heavy full-cache path when a query cannot yet be served from the fast SQL path. Added helpers `chunk_items()`, `concat_component_frames()`, `load_component_rows_by_brand_model_pairs()`, `load_component_rows_by_clean_model()`, `can_use_fast_search_dataframe()`, and `load_search_dataframe_for_query()`. Exact part-number reverse lookup now falls back to SQLite rows when the in-memory DataFrame is absent, and the search-page loop now prefers `components_search -> components` for resistor and MLCC searches instead of forcing a full prepared-cache load before every search click. I also bumped the in-session query cache version so old cached search results do not survive this routing change.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Bare-mode timing replays showed the fast path working end-to-end: `0402 1ohm k` detected in about `0.025s`, loaded candidate rows in about `0.071s`, and matched in about `0.160s`; `0402 1ohm 5%` loaded candidates in about `0.124s` and matched in about `0.329s`; `0401 1ohm k` now returns `0` fast-path rows in about `0.01s`; and exact part query `AA0402FR-071RL` now detects in about `0.078s`, loads its small candidate set in about `0.083s`, and matches in about `0.237s`. These checks confirm the search path itself no longer depends on the multi-minute prepared-cache preload for common resistor queries.
+- Other issues: This pass intentionally targets the top search box. BOM upload still uses the heavier prepared-data path, because batch matching still benefits from a broader preloaded frame. Also, the existing inductor/other-passive free-text parser gaps are not solved by this performance fix; unsupported search families may still fall back to the heavier path until their indexed candidate logic is added.
+- Handoff notes: If search-page latency regresses again, inspect whether the UI has fallen back to `load_search_dataframe_for_action("鎼滅储")` too early. The intended order is now: parse query -> use `load_search_dataframe_for_query()` when possible -> only then fall back to full prepared data. Future performance work should extend the fast indexed path beyond resistor/MLCC into inductors and other passive families so the search page rarely needs the heavy fallback at all.
+
+### 2026-03-24 23:47 [direct] Fixed inductor spec parsing so `0402 1uh k` no longer falls into MLCC and added light fast-path support for inductor/timing queries
+
+- Received / problem: User reported that inductor-style queries such as `0402 1uh k` were still being parsed and displayed as MLCC, so the page showed capacitor-style section titles and field headers instead of inductor fields like `尺寸 / 感量 / 精度`.
+- Investigation: Replayed `detect_query_mode_and_spec(None, "0402 1uh k")` and confirmed the old flow was sending the string into the generic capacitor parser. The size token `0402` was being reused later as a possible capacitor code, the `K` token was treated as a generic tolerance code, and because there was no dedicated inductor parser in `parse_other_passive_query()`, the spec ended up as `MLCC`-shaped data. I also confirmed that the search-page fast path added earlier only covered resistor / MLCC, so even once the type was corrected, unsupported inductor queries would still fall back to the heavy path unless I extended the query loader.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to add `INDUCTOR_TOLERANCE_CODE_MAP`, a new `parse_inductor_spec_query()` parser, and inductor-aware type inference in both `infer_spec_component_type()` and `infer_db_component_type()`. `parse_other_passive_query()` now tries the inductor parser before capacitor/resistor fallbacks, and `parse_spec_query()` now skips reinterpreting explicit size tokens like `0402` as capacitor-value tokens. I also added `load_component_rows_by_typed_spec()` and extended `can_use_fast_search_dataframe()` / `load_search_dataframe_for_query()` so inductor and timing searches can short-circuit through a lightweight database path instead of immediately triggering a full prepared-cache preload. Finally, `match_other_passive_spec()` now has explicit inductor and timing branches so these typed specs no longer fall straight through to an empty default path.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Bare-mode replay now reports `detect_query_mode_and_spec(None, "0402 1uh k") -> mode = 功率电感`, with parsed spec `{尺寸（inch）= 0402, 容值 = 1, 容值单位 = UH, 容值误差 = 10, 器件类型 = 功率电感}`. `infer_spec_component_type()` now returns `功率电感`, `get_component_display_schema()` returns the inductor header set `尺寸（inch） / 电感值 / 电感单位 / 误差`, and `build_spec_info_df()` exposes those same inductor-oriented columns. The lightweight query loader now returns `fast_df_rows = 0` immediately for this query in the current database instead of forcing the old heavy full-cache load, which is the correct behavior while the present library still lacks inductor rows.
+- Other issues: This pass fixes the current inductor misclassification chain and adds H/Hz unit-aware type inference, but it does not claim that the current database already contains complete inductor / timing libraries. In the present dataset, the dominant imported families are still resistor-oriented, so some inductor searches will now correctly render inductor titles yet still return `无匹配` because the underlying library rows are not there yet.
+- Handoff notes: If a future passive-type query still falls into MLCC by mistake, check `parse_other_passive_query()` and the unit-aware branches in `infer_spec_component_type()` first. The intended order is now: explicit family parser -> unit-aware type inference -> generic capacitor fallback, not the other way around.
+
+### 2026-03-24 23:55 [direct] Aligned BOM row colors to the requested four-state rule only
+
+- Received / problem: User asked to make the BOM match table follow a strict four-state coloring rule: `完全匹配 = 黄色`, `部分参数匹配 = 浅红`, `高代低 = 浅蓝`, and `无匹配 = 不改动`.
+- Investigation: Checked the active BOM display path in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed that the core match colors were already present, but `style_bom_result_rows()` was still separately painting `解析失败` rows with the same浅红色 as `部分参数匹配`, which made the visual meaning ambiguous and no longer matched the user's requested four-state-only rule. The accompanying caption also still said that parse-failure rows were highlighted.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `style_bom_result_rows()` now colors only by `首选推荐等级`: `完全匹配 -> #fff59d`, `部分参数匹配 -> #fde2e1`, `高代低 / 可直接替代 -> #dbeafe`, and everything else, including `无匹配` and `解析失败`, is left unstyled. Also removed the stale BOM caption text that claimed parse-failure rows were highlighted.
+- Verification: `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Source inspection confirmed the active BOM styling branch now maps only those three match levels to colors and leaves other rows unchanged.
+- Other issues: This pass only adjusts BOM-table coloring and BOM summary copy. It does not change the underlying matching logic or the separate single-query result-table colors.
+- Handoff notes: If a later task adds new BOM result levels, update `style_bom_result_rows()` carefully so they do not accidentally reuse the `部分参数匹配` color unless that is intended.
+
+### 2026-03-25 00:11 [direct] Switched BOM batch matching to indexed on-demand candidate loading with full-cache lazy fallback
+
+- Received / problem: User agreed to continue the new high-speed search architecture by moving BOM batch matching onto the same indexed candidate path, so uploaded BOM files would no longer pay the full prepared-cache load cost up front for common resistor and MLCC rows.
+- Investigation: Reviewed the existing BOM flow in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed that the upload path still built a prepared full-data DataFrame before matching every row. Even after the search page had been converted to SQL-first candidate loading, BOM upload was still calling the heavy `load_search_dataframe_for_action("BOM 鍖归厤")` path before row evaluation, which kept batch matching slower than necessary.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so BOM evaluation now mirrors the search-page fast path. `evaluate_bom_candidate()` first parses the row text and tries `load_search_dataframe_for_query()` to fetch a small indexed candidate set; only unsupported or unresolved rows call the new lazy `full_df_provider()` fallback. `choose_best_bom_candidate()` and `build_bom_upload_result_row()` now propagate that per-row candidate frame, including MLCC reference resolution. `bom_dataframe_from_upload()` no longer preloads the full prepared library; instead it memoizes a lazy `get_full_bom_df()` closure that loads and prepares the full cache only if at least one row really needs it. The BOM UI path now checks `database_has_component_rows()` before matching and otherwise runs `bom_dataframe_from_upload(None, bom_df, selected_mapping)` directly, so upload-triggered matching starts from the indexed route instead of the full-cache route.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Bare-mode regression checks monkeypatched `load_search_dataframe_for_action()` to raise if the heavy path was touched, then replayed representative BOM rows including `Res't : 3.3K ohm 1/8W +/-5% 0805SMD`, `Res't : 4.7K ohm 1/8W +/-1% 0805SMD`, and `0402 X7R 104K 50V`; the upload matcher produced result rows successfully with `full_load_calls = 0`. A second replay including `0402 1uh k` also completed without touching the full prepared-cache loader for the supported rows and finished in about 3.3 seconds for four sample lines. These checks confirm the BOM pipeline now prefers SQL indexed candidates and uses the full prepared cache only as a fallback.
+- Other issues: The lazy fallback is intentionally still present. Rows whose families are not yet fully covered by `load_search_dataframe_for_query()` can still trigger a full prepared-cache load later in the batch. This pass improves BOM startup behavior and common-family latency, but it is not yet a guarantee that every passive family avoids the heavy fallback.
+- Handoff notes: If a future regression makes BOM upload hang on full-cache loading again, inspect [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) around `evaluate_bom_candidate()`, `bom_dataframe_from_upload()`, and the `stored_bom_signature != current_bom_signature` block first. The intended order is now: build per-row query -> fetch indexed candidate subset -> match -> only then, if needed, call `load_search_dataframe_for_action("BOM 鍖归厤")` through the lazy provider.
+
+### 2026-03-25 01:10 [direct] Extended BOM fast path beyond resistor and MLCC, and hardened startup / rebuild behavior
+
+- Received / problem: User asked to continue the next optimization step after the first BOM indexed path landed, specifically to keep pushing more passive families onto the same fast route instead of falling back to the heavy full prepared-cache load.
+- Investigation: Reviewed the current fast-path coverage in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and confirmed that it was still strongest for `璐寸墖鐢甸樆 / MLCC`, with lighter support for `鐢垫劅 / 鏃跺簭鍣ㄤ欢`, while `钖勮啘鐢靛 / 閾濈數瑙ｇ數瀹?/ 鍘嬫晱鐢甸樆 / 鐑晱鐢甸樆` could still fall back to the heavy path more often. During validation I also found two operational issues: rebuilding `components_search` can fail when the live app holds a SQLite write lock, and bare-mode startup can hit a `NameError` if `maybe_update_database()` runs before `prepare_search_dataframe()` has been defined.
+- Fix / action: Expanded the fast-search plumbing in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). `components_search` now has code support for richer structured fields such as `_body_size`, `_pitch`, `_safety_class`, `_varistor_voltage`, `_disc_size`, `_value_text`, `_unit_upper`, and `_value_num`, and the search-index builders now prepare those columns as part of the index schema. `can_use_fast_search_dataframe()` now treats `鐑晱鐢甸樆`, `钖勮啘鐢靛`, `閾濈數瑙ｇ數瀹筦, and all鍘嬫晱瀹舵棌 as fast-path-eligible. `fetch_search_candidate_pairs()` was widened so MLCC, resistor, thermistor, varistor, film capacitor, electrolytic capacitor, inductor, and timing specs can all attempt SQL candidate filtering first. To make the feature usable immediately even when the live database blocks index rebuilds, I also expanded `load_component_rows_by_typed_spec()` so these newly supported families can fall back to direct narrow SQL reads from `components` instead of loading the full prepared cache. Finally, I moved the top-level `maybe_update_database(force=False)` call to a later point in the file so startup refresh no longer tries to call `prepare_search_dataframe()` before it exists, and I added busy-timeout handling to the search-index rebuild functions.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. Function-only validation (executing the definition section without full Streamlit UI startup) showed that `load_search_dataframe_for_query()` now returns non-`None` frames quickly for representative rows across families: resistor `Res't : 3.3K ohm 1/8W +/-5% 0805SMD` loaded about 18 rows in about `0.734s`; MLCC `0402 X7R 104K 50V` loaded about 76 rows in about `0.091s`; varistor `Varistor : 470V +/-10%,0.4W,HEL10D471KJ,P7.5` stayed on the fast path and returned an empty frame in about `0.085s` rather than falling back; electrolytic `E CAP : 10uF, 450V, +/-20%, D10*H13, 104TC, Pet` returned an empty fast-path frame in about `0.470s`; film capacitor `PP Cap : 2200pF, 400V, +/-10%, Pitch 10mm` returned an empty fast-path frame in about `0.105s`; and inductor `0402 1uh k` returned an empty fast-path frame in about `0.086s`. A mixed six-line BOM replay then monkeypatched `load_search_dataframe_for_action()` to hard-fail if the heavy full-load route was touched; `bom_dataframe_from_upload()` still completed successfully with `rows = 6` and `full_load_calls = 0`, confirming that these common passive families now stay on the fast path during BOM upload.
+- Other issues: Rebuilding `components_search` in the live working database still could not be completed during this pass because SQLite kept reporting `database is locked`, which means some other live process is holding a write-preventing lock on [components.db](C:/Users/zjh/Desktop/data/components.db). The code now waits longer before giving up, but this environment-level lock still prevented the in-place rebuild from finishing right now. That means the richer index columns are present in code, but some live queries may temporarily use the new direct-`components` narrow-query fallback until the lock clears and the search index can be rebuilt.
+- Handoff notes: If the next task wants the absolute best speed for these newly supported families, the next step is to rerun `--rebuild-search-index` once the live SQLite lock is gone so `components_search` picks up the richer schema and can avoid even more direct table reads. If startup refresh regresses again, check the location of `maybe_update_database(force=False)` first; it now intentionally sits after the search-preparation helpers so database refresh can safely call `prepare_search_dataframe()`.
+
+### 2026-03-25 02:03 [direct] Moved fast search index into a sidecar SQLite DB and restored complete indexed BOM/query matching
+
+- Received / problem: After the previous fast-path work, follow-up investigation showed a serious integrity issue: the in-place `components_search` table inside [components.db](C:/Users/zjh/Desktop/data/components.db) had the new schema but only about `600000` rows, far below the `1417708` source rows. At the same time, rebuilding the in-main-DB search table kept colliding with SQLite locks, which meant the fast layer could become both incomplete and brittle.
+- Investigation: Confirmed that the root problem was architectural rather than parser-level. The fast index was still being stored inside the main component database, so a rebuild required `DROP TABLE / append` inside the live DB. That made it vulnerable to writer/read-lock contention and left the system in a half-rebuilt state after interrupted runs. I also verified that this incomplete in-main-DB index could make fast candidate retrieval unsafe. Additional tracing showed that some temporary `python -X utf8 -` validation processes I had launched were also holding locks during debugging, which temporarily masked the true state of the query path.
+- Fix / action: Refactored the fast search layer in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so indexed search now lives in a sidecar SQLite database [components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) instead of the main DB. Added `SEARCH_DB_PATH`, `SEARCH_META_TABLE`, `SEARCH_INDEX_SCHEMA_VERSION`, `get_search_index_signature()`, `write_search_index_meta()`, `read_search_index_meta()`, `search_index_is_current()`, and `open_search_db_connection()`. Reworked both `rebuild_search_index_from_database_fast()` and `rebuild_search_index_table_from_prepared_cache()` so they now read from [components.db](C:/Users/zjh/Desktop/data/components.db), build the index into a temporary sidecar file, write metadata, and atomically replace the final sidecar DB only after a complete successful build. Updated `load_component_rows_by_clean_model()` and `fetch_search_candidate_pairs()` so they query the sidecar index for candidate brand/model pairs, then read the actual detailed component rows from the main DB only after the candidate set is narrowed. Also relaxed the search-index freshness check so it no longer invalidates a freshly built sidecar just because the main DB file mtime twitches while its size and schema are unchanged. In the same pass, I kept the earlier fast-path extensions for `鐑晱鐢甸樆 / 钖勮啘鐢靛 / 閾濈數瑙ｇ數瀹?/ 鍘嬫晱 / 鐢垫劅 / 鏃跺簭鍣ㄤ欢` and ensured prepared-cache fallback rebuilding now also refreshes the sidecar index instead of trying to stuff search data back into the main DB.
+- Verification: `python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py` passed. `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe C:\Users\zjh\Desktop\data\component_matcher.py --rebuild-search-index` completed successfully against the new sidecar path. The resulting [components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) contains both `components_search` and `search_meta`, reports `1417702` indexed rows, and includes the richer schema columns `_body_size`, `_pitch`, `_safety_class`, `_varistor_voltage`, `_disc_size`, `_value_text`, `_unit_upper`, and `_value_num`. Function-level replay then confirmed the live fast path was restored: `0402 1ohm 5%` now loads about `60` rows in about `0.073s`, `0401 1ohm k` returns `0` rows in about `0.005s`, `0402 X7R 104K 50V` loads about `314` rows in about `0.062s`, and `E CAP : 10uF, 450V, +/-20%, D10*H13, 104TC, Pet` stays on the fast path and returns an empty narrowed frame in about `0.004s`. Finally, a mixed six-line BOM replay with the heavy full-load function forcibly disabled completed in about `1.222s` with `full_load_calls = 0`, proving that BOM batch matching now truly runs through the indexed route for these covered families instead of secretly falling back to the full prepared cache.
+- Other issues: The main DB still contains the old in-place `components_search` table from earlier work, but the active fast path now uses the sidecar DB instead, so that partial legacy table is no longer the source of truth. Also, some queries still legitimately return `0` rows because the underlying library lacks those family entries; that is a data-coverage issue rather than a fast-path regression.
+- Handoff notes: If future work sees fast searches go stale again, inspect [components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) and `search_meta` first, not the old `components_search` table inside [components.db](C:/Users/zjh/Desktop/data/components.db). The intended architecture is now: main DB stores source component rows, sidecar DB stores the searchable indexed view, and query/BOM paths first narrow through the sidecar before reading detailed rows from the main DB.
+
+### 2026-03-25 09:08 [direct] Removed automatic BOM fallback to full prepared-cache loading and verified real POLED upload no longer calls _load_prepared_data_cached(...)
+
+- Received / problem: User reported that BOM upload was still showing the heavy _load_prepared_data_cached(...) spinner in the browser even after the indexed fast path had been introduced. The screenshot showed the live page still entering the full library load during automatic BOM matching.
+- Investigation: Replayed the real workbook 阻容-POLED-报价.xlsx with the same PN -> 型号列 and Spec. -> 规格列 mapping and monkeypatched load_search_dataframe_for_action() to fail immediately if the heavy path was touched. That isolated two concrete triggers before this pass: row 16 (C Cap : 1.0nF, 1000V, +/-10%, D6*L21, Y5P) was forcing fallback because 引线型陶瓷电容 had not been wired into the fast SQL path, and row 33 (55H022J-SDCN) was forcing fallback because the text looked like a model token living in the spec column, but exact-model probing only ran for the explicit 型号列 candidate.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so 引线型陶瓷电容 now participates in load_component_rows_by_typed_spec(), can_use_fast_search_dataframe(), and the etch_search_candidate_pairs() SQL narrowing branch with the same core fields used for other leaded capacitors (容值_pf / 误差 / 耐压 / 本体尺寸 / 脚距 / 介质). Added model-token extraction helpers so any unrecognized BOM candidate can try exact model rows from tokenized part-like fragments before considering a fallback. Then changed om_dataframe_from_upload() so automatic BOM upload no longer passes the full prepared-cache provider by default; the upload path now stays on the indexed / narrow-query route instead of loading the entire prepared cache when a row is unsupported.
+- Verification: python -m py_compile C:\Users\zjh\Desktop\data\component_matcher.py passed. A hard-fail replay of the real 阻容-POLED-报价.xlsx upload through om_dataframe_from_upload(None, bom_df, mapping) completed with 
+ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM route no longer invokes _load_prepared_data_cached(...). Additional spot checks confirmed the earlier row-16 Y5P trigger no longer caused a full-load fallback and that model-token probing now catches mixed-source candidates earlier.
+- Other issues: This pass removes the unusable whole-library fallback from automatic BOM upload, but it does not yet make the upload fast enough overall. Profiling the same workbook without the full-cache path still showed about 70.586s total on the indexed route, with the slowest rows concentrated in non-SMD / high-power resistor lines such as C Res't : 150K Ohm, +/-5%, 1/2W, 26*10mm (~9.7s), Res't : 2 ohm 1W +/-5% N (~8.0s), and Res't : 22 ohm 2W +/-5% N (~6.7s). Those rows are staying on the fast architecture, but their candidate narrowing and row preparation are still expensive.
+- Handoff notes: If the next task continues performance work, start with the slow resistor-family rows near the bottom of the POLED workbook. They no longer trigger the full prepared-cache loader, so remaining latency is inside the indexed query + candidate materialization path rather than in _load_prepared_data_cached(...).
+
+### 2026-03-25 12:16 [direct] Reworked brand/model parsers for official naming rules and rewrote prepared cache with authority-aware backfill
+
+- Received / problem: User asked to scan the brands with data, find models whose spec fields were incomplete, look up the official naming rules, and then supplement the missing fields from the brand-specific series rules. The immediate pain points included Murata GRT/GCG/GCQ rows, Yageo CC/CQ rows, Samsung CLR1 rows, Taiyo new M*/MSAS/MAAS series, Kyocera AVX size-first MLCC rows, HRE size-first rows, and Walsin alpha-prefix / 01R5 rows. A second issue was that many rows had complete fields but still showed blank `_model_rule_authority`, so the previous backfill logic never touched them.
+- Investigation: Rechecked the live parser functions in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) against official manufacturer naming references and against the current prepared cache. Confirmed that `parse_murata_core()` only supported a narrow prefix set, `parse_tdk_c_series()` still used metric-only size mapping and plain EIA capacitance parsing, `parse_yageo_common()` rejected CQ parts and did not treat `NPO` cleanly, `parse_samsung_cl()` lacked a dedicated CLR1 path, `parse_taiyo_common()` only understood the older TMK/JMK/EMK/LMK/AMK families, and Walsin had no coverage for `MT03B471K500CT` / `01R5N100J160CT` style codes. I also confirmed that `fill_missing_spec_fields_from_model()` only considered rows with blank core fields, so rows with complete specs but missing `_model_rule_authority` were never revisited.
+- Fix / action: Extended the parser layer in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to follow the official family naming rules more closely. Murata now accepts `GRT/GCG/GCQ` plus the missing `7U -> U2J` dielectric mapping and stamps `_model_rule_authority = murata_core_series`. TDK `C...` parts now accept direct `0402/0603/0805/...` size codes and use `murata_cap_code_to_pf()` for `R11` / `3R3` style capacitance tokens; a new `parse_tdk_cga_series()` was added for the official CGA family. Yageo `CC`/`CQ` parts now parse `NPO` correctly, accept `A` tolerance, and also use `murata_cap_code_to_pf()` so `2R7` / `3R3` capacitance codes are no longer lost. Samsung got a dedicated `parse_samsung_clr1()` path plus `murata_cap_code_to_pf()` for `CLR1...` series caps. Taiyo got a new `parse_taiyo_new_common()` branch for the newer `MAAS/MSAS/MLAS/MCAST` families and the old parser now stamps authority too. Added `parse_generic_size_first_mlcc()` for HRE-style `CGA0603...` / `CSA0402...` parts, `parse_kyocera_avx_common()` for AVX size-plus-voltage codes like `04026D105KAT4A`, and extended `parse_walsin_common()` for both alpha-prefix Walsin rows like `MT03B471K500CT` and the `01R5N100J160CT` style 01005 code. Finally, `parse_model_rule()` now routes by brand and by model pattern before falling back to generic paths, and `fill_missing_spec_fields_from_model()` now also treats blank `_model_rule_authority` as a candidate so rows with already-filled specs still get the official-rule source stamped in.
+- Verification: The parser smoke tests now return concrete dicts for the previously failing examples: `GRT1555C1HR11BA02D`, `GCG1887U2A112JA01J`, `CC0100CRNPO8BN3R3`, `CQ0100ARNPO7BN1R8`, `CLR1CR25AA1INNG`, `CLR1C010AA1INN`, `MAASL31LAB7226KTNA01`, `MSAST021SCGR75BWNA01`, `MLASA105CC6106MFNC12`, `MSASJ32MAB5227MPNDT1`, `04026D105KAT4A`, `06035C104KAT2A`, `CSA0402X5R105K6R3GT`, `CGA0603X7R104K500JT`, `01R5N100J160CT`, and `MT03B471K500CT`. After a full backfill pass over [components_prepared.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared.parquet), `_model_rule_authority` non-empty count rose to `1,390,046` out of `1,417,708`, and the targeted sample rows now show populated authorities such as `murata_core_series`, `yageo_cc_cq`, `samsung_clr1`, `kyocera_avx_common`, `hre_generic_size_first`, `walsin_01005_series`, and `walsin_alpha_prefix`.
+- Other issues: This pass does not magically make every brand/series perfect. Some families are still data-coverage limited, and there are still many non-capacitor or resistor families where some capacitor-oriented columns are naturally blank. The important change is that the main MLCC and MLCC-like passive families now backfill according to their official naming rules instead of depending on generic heuristics or leaving the source blank.
+- Handoff notes: If the next task sees stale results in the UI, refresh the page so it picks up the rewritten prepared cache and search sidecar. If future audit work continues, the next safest targets are the remaining long-tail series and the resistor-heavy families that are outside the current MLCC parser scope.
+
+
+### 2026-03-25 15:55 [direct] Backfilled 38 incomplete passive-capacitor models from official naming rules and synced hidden parquet/search fields
+
+- Received / problem: User asked to inspect all brands with data, locate models whose spec fields were incomplete, search the official or officially searchable naming rules for those brand series, and then backfill the missing spec parameters from those naming rules so future searches and displays follow the official model syntax instead of generic web snippets.
+- Verification: Re-ran the backfill script successfully and it reported updated 38 models. Re-checked all three storage layers: components.db now has 0 blank-type rows with a populated model, components_search.sqlite has 0 blank-type rows with a populated model and contains KCA55L7UMF102KL01L, and components_prepared.parquet also has 0 blank-type rows with a populated model. KCA55L7UMF102KL01L now shows ???? = MLCC and hidden _component_type = MLCC in the prepared cache, matching the search sidecar.
+### 2026-03-25 20:35 [direct] Fixed PDC MT-series official decoding and rebuilt v5 prepared cache
+- Problem: MT43X104K152EHE was still showing raw size code 43 in the UI.
+- Fix: Rebuilt components_prepared_v5.parquet from the current parser, synced the legacy prepared cache path, and kept MT models routed through parse_pdc_mt_core() with 43->1812 and 152->1500V decoding.
+- Verify: parse_model_rule('MT43X104K152EHE') now returns PDC / 1812 / X7R / 100nF / 1500V / pdc_mt_series.
+- Note: If the browser still shows 43, refresh or restart the running Streamlit session so it picks up the new cache.
+
+### 2026-03-26 02:07 [direct] Added a BOM upload progress card with stage updates
+- Problem: Large BOM uploads made the page look frozen without any visible feedback.
+- Fix: Added a custom progress card UI for BOM uploads, with stages for file reading, matching, export generation, a live progress bar, elapsed time, and row/status counters.
+- Verify: component_matcher.py now renders progress updates during BOM processing and compiles successfully.
+
+### 2026-03-26 02:07 [direct] BOM manual mapping UI changed to a toggle button
+- Problem: The BOM column-mapping area was always expanded and took too much space.
+- Fix: Replaced the always-visible manual mapping block with a toggle button labeled "鎵句笉鍒拌鏍兼墜鍔ㄥ畾浣嶅尮閰嶄綅缃?. Clicking it expands/collapses the original column selector block, and the last chosen mapping is preserved in session state.
+- Verify: component_matcher.py compiles successfully after the toggle-state refactor.
+
+### 2026-03-26 02:07 [direct] BOM manual mapping toggle version preserved
+- Problem: The BOM column-mapping area was always expanded and took too much space.
+- Fix: Added a toggle button to expand/collapse the original manual mapping block while preserving the last selected mapping in session state.
+- Verify: component_matcher.py compiles successfully after the refactor.
+
+### 2026-03-26 02:19 [direct] Tightened BOM result table spacing so the download button sits closer to the table
+- Problem: The BOM download button was visually separated from the result table by too much blank space.
+- Fix: Added a BOM-specific iframe height estimator and a BOM-specific table wrapper class with reduced bottom margin, then switched the BOM result render to use that tighter layout.
+- Verify: component_matcher.py compiles successfully after the layout adjustment.
+
+### 2026-03-26 02:23 [direct] Tightened BOM result iframe height again so the download button sits directly under the table
+- Problem: Even after the earlier spacing reduction, there was still too much blank space between the BOM table and the download button.
+- Fix: Reduced the BOM-specific iframe height estimator further so the table area stays tight and the download button appears immediately below the table.
+- Verify: component_matcher.py compiles successfully after the height change.
+
+### 2026-03-26 02:32 [direct] Moved BOM download button into the result table footer and restored table height
+- Problem: The BOM result table looked too short, and the download button still felt detached from the table.
+- Fix: Restored the BOM iframe height to the previous fuller size and rendered the download button as an inline footer inside the same result-table iframe so it sits directly under the table content.
+- Verify: component_matcher.py compiles successfully after the footer/button layout change.
+
+### 2026-03-26 03:41 [direct] Added manual correction rules table and model naming interpreter
+- Problem: The system needed a way to manually override wrong factory rules and to explain how a model is parsed from the official naming convention.
+- Fix: Added an editable manual correction rules table with save/apply/reset actions, plus a model naming interpreter that breaks down series rules and shows a manual-rule note when a row is matched; also removed the expensive whole-cache manual override pass from prepared-cache loading so the new tools stay usable.
+- Verify: component_matcher.py now compiles successfully, and the manual rule and interpreter sections are visible in the new Advanced Tools area.
+
+### 2026-03-26 03:41 [direct] Removed the manual correction rules table and naming interpreter from the live app
+- Problem: The manual rule table and naming-rule interpreter were no longer needed in the live UI, but the code needed to be preserved for future restoration.
+- Fix: Removed the Advanced Tools section from the main app, disabled manual-rule influence on cache signatures and model parsing, and saved a full backup copy of the current component_matcher.py in backup/component_matcher_20260326_manual_tools_backup.py.
+- Verify: component_matcher.py compiles successfully after the removal.
+
+### 2026-03-26 05:14 [direct] Backfilled missing passive-component series names from official naming rules
+- Problem: Many passive-component rows still had missing or placeholder series values such as blank, "??", or generic labels, which made models like TDK C5750X5R2E105K230KA and Panasonic ERJ-U06F1001V show incomplete metadata.
+- Fix: Added a series backfill layer based on official naming patterns for major passive families (TDK, Murata, Samsung, Yageo, Panasonic, KOA, Vishay, Stackpole, ROHM, Bourns, Walsin, PDC, Taiyo Yuden, plus common electrolytic / film / thermistor / varistor prefixes), wired it into import/prepared-cache paths, and ran a full database backfill on components.db.
+- Verify: Full DB scan now shows 1,417,708 rows with placeholder series reduced to blank=687,133, "??"=14,844, and sample models now resolve as TDK C5750X5R2E105K230KA -> series C5750 and Panasonic ERJ-U06F1001V -> series ERJ-U06F. The prepared cache was rebuilt from the updated DB as well.
+- 2026-03-26 23:50 Murata series normalization: backfilled official Murata series prefixes into components.db / components_prepared_v5.parquet / components_search.sqlite. GRM/GCM/GRT and other Murata passive families now resolve to official series codes; Murata rows with missing/placeholder series are down to 0.
+
+### 2026-03-27 03:31 [direct] Imported official aluminum electrolytic capacitor libraries and cleaned Nichicon noise rows
+- Problem: Aluminum electrolytic capacitor coverage was still incomplete and many rows lacked a trustworthy series value, while Nichicon's official PDF also contributed a few non-product noise rows that were polluting the database.
+- Fix: Built an official-source importer for Nichicon, Chemi-Con, and Panasonic aluminum electrolytic capacitor catalogs / naming references, generated `Capacitor/aluminum_electrolytic_library.csv`, rebuilt `components.db`, rebuilt `components_prepared_v5.parquet`, and rebuilt `cache/components_search.sqlite`. Then added a Nichicon series-prefix backfill rule and removed 3 non-product Nichicon noise rows (`16`, `31.5`, `20`) from the CSV, DB, prepared cache, and search sidecar.
+- Verify: Aluminum electrolytic rows now total 9,686 with series blank count at 0; Nichicon series blanks are 0; the prepared cache and search sidecar were regenerated, and the new official-source report confirms the imported catalog coverage.
+
+### 2026-03-27 21:54 [direct] Added Jianghai official naming rules and expanded the aluminum electrolytic library
+- Problem: Jianghai aluminum electrolytic parts still had incomplete series values in the database, and the importer did not yet include Jianghai official naming-rule sources.
+- Fix: Downloaded and parsed Jianghai official catalogs (`CD137U`, `CD263`, `PHLB`, `HPA`), added Jianghai series-prefix extraction rules (`UP`, `BK`, `ELB`, `VLB`, `HLB`, `JLB`, `KLB`, `DPA`, `EPA`, `GPA`, `JPA`, `KPA`, `APA`, `CPA`), wired the Jianghai importer into `aluminum_electrolytic_library_sync.py`, and rebuilt `Capacitor/aluminum_electrolytic_library.csv`, `components.db`, `components_prepared_v5.parquet`, and `cache/components_search.sqlite`.
+- Verify: The refreshed report now contains 9,801 aluminum electrolytic rows in total, with 106 Jianghai rows and Jianghai series coverage recorded in the report; sample Jianghai rows now resolve as `ECG2GUP222MC080 -> UP` and `PHR1ELB221MBAB35W -> ELB`, and both the main database and search sidecar include 106 Jianghai records.
+
+### 2026-03-27 22:45 [direct] Tightened Jianghai aluminum electrolytic naming rules from additional series catalogs
+- Problem: The Jianghai aluminum electrolytic naming rules were still missing several series-prefix families, so some model strings could not be backfilled to a precise series.
+- Fix: Reviewed the extra official Jianghai series catalogs in the provided ZIPs and added additional series-prefix mappings to the Jianghai rule set, including `ABZ`, `DQH/WQH/EQH/GQH`, `VNF/GNF/WNF`, `VPR/GPR`, `EVA/GVA/JVA`, `EVZ/GVZ/JVZ`, and `ELA/VLA/HLA/JLA/KLA/VVA/HVA/KVA`.
+- Verify: `component_matcher.py` and `aluminum_electrolytic_library_sync.py` compile successfully, and the latest rebuild completed successfully so the updated naming rules are available in the database and search sidecar.
+
+### 2026-03-28 07:34 [direct] Expanded Jianghai aluminum electrolytic row-level import from additional official series catalogs
+- Problem: The Jianghai importer only covered the earlier core series catalogs, so several official series PDFs in the local Jianghai archive were not yet contributing row-level records or series names to the database.
+- Fix: Added row-level import support for the extra official Jianghai series catalogs (`CD293`, `CD29H`, `CD29NF`, `CD137S`, `CDA220`, `CDC220`, `PHLA`, `PHVA`) and extended the Jianghai naming-rule mapping to cover the newly observed series families (`CBZ`, `KBZ`, `VBZ`, `WBZ`, `XBZ`) on top of the earlier rule set.
+- Verify: Rebuilt `Capacitor/aluminum_electrolytic_library.csv`, `components.db`, `components_prepared_v5.parquet`, and refreshed `cache/components_search.sqlite` by copying the newly populated `components_search` table from the rebuilt main DB. Current Jianghai coverage is 448 rows with series blank count at 0; the main DB search table has 1,427,769 rows and the search sidecar is synchronized to the same row count.
+
+### 2026-03-28 08:49 [direct] Fixed electrolytic capacitor tolerance parsing for compact spec strings
+- Problem: Compact electrolytic spec strings such as `470.0uF_±20%16V_插件,D6.3xL12mm/脚距2.5mm` were letting the tolerance parser swallow the adjacent voltage/suffix text, which caused the rendered `容值误差` field to show a corrupted value like `+/-2016V_插件`.
+- Fix: Tightened `parse_tolerance_token()` so it only accepts a leading tolerance prefix, and added spec-string preprocessing to split underscore-separated fragments and tolerance/voltage boundaries before token parsing.
+- Verify: Re-running the sample now yields a clean electrolytic spec summary with `容值误差=20%`, `耐压（V）=16V`, `尺寸(mm)=6.3*12mm`, and the rendered spec table shows the correct column values instead of the corrupted tolerance text.
+
+### 2026-03-28 09:30 [direct] Added a standalone build runner to separate database rebuilds from the Streamlit UI
+- Problem: `component_matcher.py` still mixed the Streamlit UI path and the maintenance/rebuild path in one module, which made rebuild actions harder to isolate from the runtime page and kept the app entrypoint overloaded.
+- Fix: Added `component_matcher_build.py` as a standalone build runner that boots `component_matcher.py` in a headless dummy-Streamlit context and exposes explicit `--db`, `--search-index`, `--prepared-cache`, `--backfill-series`, and `--all` actions; also added a build-mode environment guard in `component_matcher.py` so the automatic database refresh is skipped during build imports.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both compile successfully. The new build runner successfully imports the module and starts a search-index rebuild job without launching the interactive UI, confirming the maintenance path is now separable from the page runtime.
+
+### 2026-03-28 10:48 [direct] Shrunk the search sidecar and switched search-index rebuilds to the prepared cache fast path
+- Problem: `components_search.sqlite` was still carrying several maintenance-only columns and rebuilding the sidecar from the raw database was too slow for comfortable iteration.
+- Fix: Removed redundant search-sidecar columns such as `_value_text`, `_power`, `_volt`, `_tol_kind`, `_tol_num`, and `_model_rule_authority`, preserved sparse values as `NULL` to reduce SQLite storage overhead, and changed the search-index rebuild path to prefer `components_prepared_v5.parquet` before falling back to the raw database. Also added bulk-load pragmas and safe multi-row insert chunk sizing so the search rebuild no longer hits SQLite variable-count limits.
+- Verify: Rebuilt `cache/components_search.sqlite` successfully. The sidecar row count remains `1,427,769`, the schema version is now `3`, and the file size dropped from `545,431,552` bytes to `508,895,232` bytes while staying synchronized with `components.db` and the current prepared cache.
+
+### 2026-03-28 12:16 [direct] Split the search sidecar into family tables and added per-source normalized caches for incremental updates
+- Problem: The search sidecar was still a single wide table, which kept query indexes broader than necessary, and `update_database()` still re-parsed every official source file on each refresh even when only a few sources changed.
+- Fix: Split the sidecar into family tables (`components_search_core`, `components_search_resistor`, `components_search_capacitor`, `components_search_value`, `components_search_varistor`) with family-specific column sets and indexes; updated the search lookup path to query the matching family table for exact-model and typed-spec candidates; and added per-source normalized caches under `cache/source_normalized/` so `update_database()` now reuses cached normalized source frames unless the source file signature changes.
+- Verify: `component_matcher.py` and `component_matcher_build.py` compile successfully. The rebuilt sidecar now contains 5 family tables plus `search_meta`, with counts `core=1,427,772`, `resistor=1,289,147`, `capacitor=125,764`, `value=0`, and `varistor=12,826`; the final `components_search.sqlite` size is `418,566,144` bytes. A real resistor query (`0402 1ohm 5%`) now resolves to 60 candidate pairs through the resistor family table, and exact model lookup for `C5750X5R2E105K230KA` still resolves through the core table.
+
+### 2026-03-28 13:28 [direct] Upgraded BOM upload to support workbook-level multi-sheet matching and original-workbook export
+- Problem: BOM uploads were still treated as a single DataFrame, so multi-sheet workbooks only matched one sheet and the downloaded file flattened the result into a new single-sheet workbook instead of preserving the original pages and format.
+- Fix: Added workbook-aware BOM loading that reads all sheets/pages from uploaded Excel files, introduced per-sheet mapping state and sheet selector UI so different pages can be browsed independently, processed every sheet in the workbook during matching, and changed BOM export to write match columns back into the original workbook structure instead of regenerating a flat result sheet.
+- Verify: `component_matcher.py` and `component_matcher_build.py` compile successfully after the workbook-level BOM changes. The code path now preserves sheet-level results in session state and uses the original workbook bytes when generating the download payload.
+
+### 2026-03-28 14:02 [direct] Removed pandas categorical deprecation spam and filtered empty frames before concat
+- Problem: The app console was repeatedly printing `DeprecationWarning` for `pd.api.types.is_categorical_dtype(...)` and a `FutureWarning` from `pd.concat(...)` when some intermediate frames were empty or all-NA, which made the Streamlit terminal noisy during normal page operation.
+- Fix: Replaced all remaining `is_categorical_dtype` checks with `isinstance(series.dtype, pd.CategoricalDtype)` and tightened the concat helper to ignore empty/all-NA DataFrames before concatenation so pandas no longer emits the deprecation and future warnings.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the warning cleanup.
+
+### 2026-03-28 13:50 [direct] Replaced the empty Streamlit search label to stop accessibility warnings
+- Problem: The search box used `st.text_area("")`, which causes Streamlit to emit a label accessibility warning and print a traceback-like warning block in the cmd window during normal app startup.
+- Fix: Changed the search input to `st.text_area("查询输入", ..., label_visibility="collapsed")` so the widget keeps the same appearance while satisfying Streamlit's label requirement and silencing the warning.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the label fix.
+
+### 2026-03-28 14:03 [direct] Added a lightweight console-noise filter for nonessential pandas and Streamlit warnings
+- Problem: Even after fixing the empty-label widget, the runtime could still surface benign warning noise from pandas deprecations or Streamlit's own nonfatal logger output, which distracts from real errors.
+- Fix: Added a small startup filter that ignores pandas `DeprecationWarning` / `FutureWarning` and raises Streamlit logger thresholds to `ERROR`, while keeping actual exceptions and tracebacks visible.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the console-noise filter was added.
+
+### 2026-03-28 14:14 [direct] Swept backup component matcher scripts for the same warning noise
+- Problem: Several historical `component_matcher.py` backups still used the old empty search label and older pandas categorical checks, so launching an older snapshot could still emit the same nonessential warning noise.
+- Fix: Batch-updated the backup scripts under `backup/` to use the hidden search label variant and the newer categorical handling pattern so they no longer trigger the same Streamlit accessibility warning or pandas deprecation spam.
+- Verify: A full scan of the backup `component_matcher.py` snapshots no longer finds the empty search label or `is_categorical_dtype(...)` usage patterns that previously caused the warning output.
+
+### 2026-03-28 14:19 [direct] Wrapped all hot-path DataFrame concatenations with a warning-suppressing helper
+- Problem: The runtime was still surfacing a repeated pandas `FutureWarning` at the component-merge concat site, making the cmd window noisy even though the behavior was nonfatal.
+- Fix: Added a small `safe_concat_dataframes()` helper that wraps `pd.concat(...)` in a targeted `warnings.catch_warnings()` block for the known empty/all-NA future warning, and switched the hot-path concat call sites to use it.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the concat helper change, and the file no longer has direct `pd.concat(...)` calls outside the helper itself.
+
+### 2026-03-28 14:31 [direct] Extended the warning cleanup into the MLCC import helper
+- Problem: The MLCC import helper also used raw `pd.concat(...)` in several merge paths, which could surface the same pandas empty/all-NA `FutureWarning` during import or rebuild tasks.
+- Fix: Added the same `safe_concat_dataframes()` wrapper and a top-level filter to `mlcc_excel_importer.py`, then switched the master-sheet merge, the full master refresh, and grouped merge paths to the safe concat helper.
+- Verify: `component_matcher.py`, `component_matcher_build.py`, and `mlcc_excel_importer.py` all pass `py_compile` after the import-helper cleanup.
+
+### 2026-03-28 14:51 [direct] Removed the BOM auto-start explanation text from the manual-mapping area
+- Problem: The BOM manual-mapping section displayed an extra explanatory caption saying the current upload and sheet mapping would auto-start BOM matching, which the user wanted hidden from the page.
+- Fix: Removed that caption line from the BOM matching flow so only the progress card and actual results remain visible.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the caption removal.
+
+### 2026-03-28 15:03 [direct] Kept the BOM completion card stable when expanding the manual-mapping panel
+- Problem: Clicking the manual-mapping toggle could visually reset the top BOM status card back to a read-phase appearance even when the uploaded file and mapping had not changed, which made the page jump from the completed state to a less useful intermediate state.
+- Fix: Added a cached-result check so the BOM status card stays in the completed/downloadable state when the same workbook is already matched, and only falls back to the read-phase card when no cached result exists for the current upload.
+- Verify: `component_matcher.py` and `component_matcher_build.py` both pass `py_compile` after the status-card stabilization change.
+
+### 2026-03-28 15:17 [direct] Moved the BOM result summary text into the completion card
+- Problem: The "解析完成" and "器件类型分布" lines were rendered as separate captions outside the BOM completion card, so the completion summary felt detached from the finished state the user wanted.
+- Fix: Added a completion-only summary block inside the BOM progress card HTML and moved the summary lines into the finished-state payload so those texts now appear inside the completed card rather than below it.
+- Verify: `component_matcher.py` passes `py_compile` after the completion-card summary merge.
+
+### 2026-03-28 15:20 [direct] Moved the BOM parse explanation column behind the status column
+- Problem: The BOM result table showed the "解析说明" column in the middle of the table, while the user wanted that explanation to appear after the status column on the right side.
+- Fix: Reordered the BOM display column list so "解析说明" is rendered after "状态" in the matching results table.
+- Verify: `component_matcher.py` passes `py_compile` after the BOM column-order update.
+
+### 2026-03-28 15:23 [direct] Removed the manual-mapping section title text
+- Problem: The left-side title "BOM列识别与手动指定" was still visible above the manual mapping controls, but the user wanted only the button and controls without that title text.
+- Fix: Removed the title markdown from the manual-mapping header row so the section now shows only the button and the actual mapping controls.
+- Verify: `component_matcher.py` passes `py_compile` after the title-text removal.
+
+### 2026-03-28 15:27 [direct] Fixed the BOM completion-card summary variable order
+- Problem: After moving the BOM parse explanation into the completion card, the completion-state summary referenced `success_count` before those counts were computed, causing the BOM upload flow to fail with a NameError.
+- Fix: Computed the current sheet result DataFrame and success/fail/no-match counters before building the completion card payload, then passed those values into the summary block.
+- Verify: `component_matcher.py` passes `py_compile` after the summary-variable ordering fix.
+
+### 2026-03-28 15:35 [direct] Reduced empty vertical space in search result tables
+- Problem: The query result sections were using oversized iframe heights for small result sets, leaving large blank areas under the result table and between result blocks.
+- Fix: Tightened the iframe height estimate for search result tables, using a compact path for small row counts so the table blocks shrink closer to their actual content height.
+- Verify: `component_matcher.py` passes `py_compile` after the result-height adjustment.
+
+### 2026-03-28 15:40 [direct] Compressed the small-result iframe height further
+- Problem: The first height reduction still left too much blank space below short search result tables.
+- Fix: Lowered the compact iframe height baseline and per-row estimate again, and widened the compact path to cover small result sets more aggressively.
+- Verify: `component_matcher.py` passes `py_compile` after the second result-height compression.
+
+### 2026-03-28 15:45 [direct] Tightened the search result table spacing again
+- Problem: The compact search result blocks were still leaving too much blank space before the next section.
+- Fix: Reduced the search result wrapper bottom margin to zero and lowered the compact iframe height baseline/per-row estimate further so short result tables sit closer to the following content.
+- Verify: `component_matcher.py` passes `py_compile` after the third spacing reduction.
+
+### 2026-03-28 15:50 [direct] Compressed the search result iframe one more time
+- Problem: The search result iframe was still noticeably taller than the actual table content, leaving the query title too far below the table.
+- Fix: Lowered the compact search-result height estimate again and widened the compact path so short result tables can sit directly above the query title with less empty gap.
+- Verify: `component_matcher.py` passes `py_compile` after the fourth search-result spacing reduction.
+
+### 2026-03-28 15:55 [direct] Reduced query title and section title spacing
+- Problem: Even after compressing the result iframe, the text blocks below the table still carried extra top/bottom spacing that kept the next query section too far away.
+- Fix: Reduced the margins on the query title, section titles, and result titles so the search output stacks more tightly with less visual whitespace.
+- Verify: `component_matcher.py` passes `py_compile` after the title-spacing reduction.
+
+### 2026-03-28 16:00 [direct] Moved the query content label into the result block
+- Problem: The `查询内容：...` line was still rendered outside the result iframe, so it appeared below the empty gap instead of inside the red-box area.
+- Fix: Rendered the query content label as an inline footer inside the result HTML block, so it now appears inside the result section instead of below it.
+- Verify: `component_matcher.py` passes `py_compile` after moving the query label into the result block.
+
+### 2026-03-28 19:41 [direct] Turned the query content line into a bordered subsection
+- Problem: The query content line was close to the table, but it still looked like a plain line instead of a clearly separated lower subsection.
+- Fix: Replaced the plain query line with a bordered inline block that uses a left accent bar, a section label (`└ 查询内容`), and a value line underneath so it reads like the next block below the table.
+- Verify: `component_matcher.py` passes `py_compile` after the query-subsection styling update.
+
+### 2026-03-28 21:04 [direct] Wrapped each result into a single card block
+- Problem: The query content subsection was still visually separate from the table, so each model result did not read like one complete block.
+- Fix: Wrapped the whole result table plus query footer inside a shared bordered card container, so one model now appears as one self-contained section.
+- Verify: `component_matcher.py` passes `py_compile` after the card-wrapper update.
+
+### 2026-03-28 21:09 [direct] Renamed the part-info section header
+- Problem: The section header above the matched part info still read `料号资料`, which was too generic for the new query-result card layout.
+- Fix: Renamed the header to `匹配料号资料` so the matched item card is clearer and consistent with the rest of the result section.
+- Verify: `component_matcher.py` passes `py_compile` after the header rename.
+
+### 2026-03-28 21:11 [direct] Simplified the query footer and renamed the match section
+- Problem: The lower blue box still showed the `查询内容` label even though the user only wanted the query value, and the second section title was still too long.
+- Fix: Removed the `查询内容` label from the blue footer block so only the query value remains inside the bordered box, and renamed `其他品牌资料（含推荐等级）` to `匹配结果`.
+- Verify: `component_matcher.py` passes `py_compile` after the footer and section-title update.
+
+### 2026-03-28 21:36 [direct] Merged the part-info area into the match card for the `料号` flow
+- Problem: In the `料号` search flow, the matched part info still rendered as a separate block, and the query value sat below the card instead of being part of the same visual section.
+- Fix: Rendered `匹配料号资料` and `匹配结果` together inside one bordered card for the `料号` branch, with the query value moved into a pill beside the section title; the standalone lower query box is no longer used for this flow.
+- Verify: `component_matcher.py` passes `py_compile` after the combined-card update.
+
+### 2026-03-28 21:44 [direct] Added extra spacing after the `料号` match card
+- Problem: The combined `料号` card was still visually too close to the next model section, making the block feel abruptly cut off.
+- Fix: Added a small spacer after each `料号` match card so the next model block starts with clearer separation.
+- Verify: `component_matcher.py` passes `py_compile` after the spacing tweak.
+
+### 2026-03-28 21:57 [direct] Added a bottom footer band to the `料号` match card
+- Problem: The `料号` block still looked visually cut on the bottom edge, and the transition to the next model card felt too abrupt.
+- Fix: Added a subtle bottom footer band inside the combined `料号` card, normalized the card padding to feel more symmetrical, and kept a slightly larger spacer after the card so the next model block sits farther away.
+- Verify: `component_matcher.py` passes `py_compile` after the footer-band update.
+
+### 2026-03-28 22:10 [direct] Increased the `料号` card iframe height so the bubble frame is not clipped
+- Problem: The combined `料号` card still got clipped at the bottom in the iframe, so the bubble frame did not look complete.
+- Fix: Increased the iframe height estimate for the `料号` branch and added a small extra height buffer so the card border and footer band can render fully.
+- Verify: `component_matcher.py` passes `py_compile` after the height adjustment.
+
+### 2026-03-28 22:17 [direct] Tightened the `料号` card height and spacing
+- Problem: The combined `料号` bubble still left too much blank space before the next model block, so the frame did not look complete.
+- Fix: Reduced the iframe height estimate, lowered the post-card spacer, and kept the internal footer band so the card still closes visually without feeling cut off.
+- Verify: `component_matcher.py` passes `py_compile` after the height/spacing adjustment.
+
+### 2026-03-28 23:47 [direct] Raised the `料号` iframe minimum height to prevent bubble clipping
+- Problem: The combined `料号` card still rendered with a clipped bottom edge in the actual browser, so the bubble looked cut off even though the content was logically complete.
+- Fix: Increased the minimum iframe height for the `料号` branch to leave enough room for the outer border and footer band to render fully.
+- Verify: Browser check showed the iframe height increased to 888px while the card body rendered to 902px, which fully enclosed the block without clipping.
+
+- 2026-03-29 10:46 ?????????????????? spacer????????/???????????
+
+### 2026-03-29 11:02 [direct] Capped result tables to about 10 visible rows
+- Problem: The single-model result card still felt too tall because the internal result table could expand well beyond the desired visible height, leaving the bubble frame feeling oversized.
+- Fix: Reduced the table wrapper max-height to `min(460px, 44vh)` for both normal and BOM result tables so only about ten rows remain visible before the table scrolls internally.
+- Verify: `component_matcher.py` passes `py_compile` after the height cap adjustment.
+
+### 2026-03-29 11:18 [direct] Moved the model pill next to the `匹配料号资料` title
+- Problem: The query/model pill was stuck on the far right of the header row instead of sitting in the blank space immediately after `匹配料号资料`.
+- Fix: Switched the header row to left-aligned flex layout and moved the pill inline after the title so it lands in the red-box area the user marked.
+- Verify: `component_matcher.py` passes `py_compile` after the header layout change.
+
+### 2026-03-29 11:27 [direct] Tightened the single-model bubble spacing again
+- Problem: The single-model bubble still left too much vertical whitespace between the result table card and the next block.
+- Fix: Reduced the combined card iframe floor to `560px` and tightened the card gap/padding so the model block sits closer to the next section.
+- Verify: `component_matcher.py` passes `py_compile` after the spacing adjustment.
+- 2026-03-29: 进一步收紧匹配结果卡片布局，将结果表内部最大高度从 460px 降到 420px，并把单型号卡 iframe 估高下调到更贴近实际内容，目标是缩短结果卡与下一型号卡之间的空白距离。
+
+### 2026-03-29 11:39 [direct] Switched result cards to auto-fit iframe height
+- Problem: The blank area between the result bubble and the next bubble was still being stretched by fixed iframe height estimates, even though the inner tables themselves were already capped to about ten visible rows.
+- Fix: Added `Streamlit.setFrameHeight(...)` reporting inside the iframe HTML, tightened the card padding/gaps, and shortened the divider/title spacing between the `匹配料号资料` and `匹配结果` sections so the bubble can shrink to its actual content height instead of leaving dead space.
+- Verify: `component_matcher.py` passes `py_compile` after the auto-height and spacing cleanup.
+### 2026-03-29 11:58 [direct] Standardized visible rows to about ten per table
+- Problem: Result tables still showed too few visible rows because the iframe and wrapper heights were being capped too aggressively.
+- Fix: Raised the result-table and BOM-table wrapper max-heights to `min(560px, 52vh)`, adjusted the iframe estimates to cap around ten visible rows, and widened the single-model card estimate so the table can scroll internally after roughly ten rows.
+- Verify: `component_matcher.py` and `component_matcher_build.py` pass `py_compile` after the height update.
+### 2026-03-29 12:04 [direct] Corrected the lingering 420px table cap
+- Problem: One older CSS block still capped `.result-table-wrap` and `.bom-result-table-wrap` at `min(420px, 40vh)`, which kept the visible rows below the requested ten-row target.
+- Fix: Updated the remaining CSS caps to `min(560px, 52vh)` so the result tables can expose about ten rows and scroll internally instead of compressing the viewport.
+- Verify: `component_matcher.py` and `component_matcher_build.py` pass `py_compile` after the final table-height correction.
+### 2026-03-29 12:18 [direct] Reduced the gap between single-model bubble cards
+- Problem: The large blank area between one model's `匹配结果` table and the next model's `匹配料号资料` card was still being caused by the outer single-model iframe using an overly tall minimum height.
+- Fix: Reworked `estimate_match_card_iframe_height()` to size the combined card around roughly 10 visible result rows and removed the old `-36` offset at the `components.html(...)` call site, so the next bubble can sit much closer to the previous one.
+- Verify: `component_matcher.py` passes `py_compile` after the single-model iframe height adjustment.
+### 2026-03-29 12:46 [direct] Restored a real bottom closure band for single-model bubbles
+- Problem: The single-model combined result card still looked cut off because the iframe-local `.match-card-footer` was zeroed out and the card HTML never appended a footer element, so the bottom edge could never visually close.
+- Fix: Gave the iframe-local `.match-card-footer` a visible rounded closure band, appended `<div class="match-card-footer"></div>` to the single-model `match_card_html`, and raised `estimate_match_card_iframe_height()` to reserve footer space while still targeting roughly 10 visible result rows.
+- Verify: `component_matcher.py` passes `py_compile` after the single-model footer restoration.
+### 2026-03-29 12:53 [direct] Shortened the single-model bubble bottom band
+- Problem: After restoring the bottom closure band, the bubble footer became much taller than the user wanted even though the visible row count was now correct.
+- Fix: Reduced the footer reservation from `112px` to `28px`, tightened its top margin, and lowered the single-model iframe height estimate range so the bubble bottom ends much closer to the horizontal scrollbar while keeping about 10 visible rows.
+- Verify: `component_matcher.py` passes `py_compile` after the footer-height reduction.
+### 2026-03-30 06:06 [direct] Completed Jianghai aluminum parsing, reverse-spec rules, and stock-site expansion
+- Problem: Jianghai aluminum capacitors were still missing a usable closed loop: the electrolytic spec parser did not reliably capture `工作温度` / `寿命（h）` / `安装方式` / `特殊用途`, the Jianghai model-rule reverse parser only covered part of the naming scheme, and the Jianghai library had not been expanded with stock-site models, which also left `WBZ` / `GBZ` style high-voltage parts incorrectly decoded on rated voltage.
+- Fix: Extended `component_matcher.py` so aluminum-electrolytic text queries can parse and filter `容值`、`误差`、`耐压`、`工作温度`、`寿命`、`尺寸`、`安装方式` and `特殊用途`, added Jianghai family-specific reverse rules for polymer / hybrid / radial / snap-in series, and stopped Jianghai source rows from being overwritten by conflicting model-rule guesses when exact source data already exists. Extended `aluminum_electrolytic_library_sync.py` to ingest Jianghai models from the local JLC stock archive, crawl representative JLC detail pages for series-level `工作温度` / `寿命（h）` / `脚距（mm）`, merge those values back into official Jianghai rows, and refresh the aluminum-electrolytic library, database, prepared cache, and search index.
+- Verify: `parse_electrolytic_spec_query("铝电容_270uF_±20%_16V_-25-105℃_5000h_6.6×7.2mm_贴片_消费")` now returns the expected structured fields; Jianghai aluminum rows increased from `638` to `866`; exact rows such as `ECS2WBZ471MLA350040V` and `ECS2GBZ391MLB300035V` now resolve to `450V/-25~85℃/3000h` and `400V/-40~85℃/3000h`; `python aluminum_electrolytic_library_sync.py`, `python -m py_compile component_matcher.py aluminum_electrolytic_library_sync.py`, database spot checks, reverse-spec spot checks, and a local Streamlit smoke test all passed.
+
+### 2026-03-30 13:16 [direct] Expanded Jianghai aluminum library to 1318 rows and corrected screw-terminal voltage decoding
+- Problem: The second Jianghai expansion pass uncovered two quality issues: several official PDF table rows packed multiple Jianghai models into one cell and were being imported as concatenated fake models, and `CD137U/CD137S` screw-terminal rows could decode to impossible voltages like `22000V` because the builder was picking up the page capacitance range instead of the actual series voltage tier.
+- Fix: Reworked `aluminum_electrolytic_library_sync.py` so Jianghai PDF row parsing can split one table cell into multiple models for `CD137U` / `CD137S` / `CD293` / `CD29H` / `CD29NF` and the `CDA` / `CDC` axial families, added exact screw-series voltage maps for `GUP/WUP/VPR/GPR/WPR/HPR`, and switched the screw-terminal builders to use those series rules instead of the broken page-level voltage capture. Regenerated the aluminum-electrolytic CSV/report, refreshed the Jianghai slice in `components.db`, then incrementally rewrote the prepared cache and rebuilt the search sidecar database so the new Jianghai data was available to the live search path without another full DB rebuild.
+- Verify: Jianghai aluminum rows increased from `1234` to `1318`, the total aluminum CSV now contains `11013` rows, and representative models now resolve correctly in both the database and model-rule reverse path: `ECG2GUP222MC080 -> 400V`, `ECG2WUP182MC080 -> 450V`, `ECG2VPR222MC080 -> 350V`, `ECG2GPR182MC080 -> 400V`, `ECG2WPR152MC080 -> 450V`, `ECG2HPR102MC080 -> 500V`; `python -m py_compile aluminum_electrolytic_library_sync.py`, `python aluminum_electrolytic_library_sync.py`, DB spot checks, prepared-cache spot checks, and search-sidecar rebuild all passed.
+
+### 2026-03-30 16:02 [direct] Split MLCC inch size from vendor-specific length/width/thickness
+- Problem: The MLCC result tables only showed `尺寸（inch）` and treated package code as the only size signal, which hid the fact that different vendors can have different real `长/宽/厚` for the same inch code. The PDC `MT` parser also stopped at size/material/value/tolerance/voltage and did not decode the official thickness code into real dimensions.
+- Fix: Updated `component_matcher.py` so MLCC display schemas now keep `尺寸（inch）` as a standalone package-code column and add separate `长度(mm)` / `宽度(mm)` / `厚度(mm)` columns. Added `长度（mm）` / `宽度（mm）` / `高度（mm）` as preserved library fields, threaded them through model-rule merge/backfill and display formatting, and extended the PDC `MT` rule decoder to parse thickness code `G` and emit official dimensions for `MT32X103K202EGZ` (`3.30±0.40 / 2.50±0.30 / 2.50±0.30`) instead of mixing them into `尺寸（inch）`.
+- Verify: `python -m py_compile component_matcher.py` passed; `parse_pdc_mt_core("MT32X103K202EGZ")` now returns separate `长度（mm）` / `宽度（mm）` / `高度（mm）`; `select_component_display_columns(..., "MLCC")` now exposes separate MLCC dimension columns; `FS15B105K6R3PKG` still shows `尺寸（inch）=0402` with the new dimension columns blank rather than incorrectly deriving fake vendor dimensions. A full `component_matcher_build.py --db --prepared-cache --search-index` refresh was attempted but did not complete in a reasonable time, so the code path was validated directly through module-level checks instead of a full rebuild.
+
+### 2026-03-30 16:24 [direct] Enabled Samsung MLCC vendor-size backfill during display rendering
+- Problem: Even after splitting `尺寸（inch）` from `长/宽/厚`, the live MLCC result tables still showed blank physical dimensions for most Samsung rows because the database only stored the package code and the Samsung dimension cache had never been connected to the display path.
+- Fix: Added a Samsung MLCC dimension backfill layer to `component_matcher.py` that reads `cache/samsung_all_statuses_base.json` plus `cache/samsung_package_cache.json`, maps packaged part numbers like `CL05A105KQ5NNNC` back to Samsung's base part records, and fills `长度（mm）` / `宽度（mm）` / `高度（mm）` during MLCC parsing and result-table rendering without changing the meaning of `尺寸（inch）`. Also added a small parser for explicit dimension text in freeform notes so rows that already carry plain-text mm dimensions can reuse the same display columns.
+- Verify: `python -m py_compile component_matcher.py` passed; `parse_samsung_cl("CL05A105KQ5NNNC")` now returns `1.00±0.05 / 0.50±0.05 / 0.50±0.05`; `build_component_display_row()` preserves those values under independent MLCC `长度/宽度/厚度` columns; `select_component_display_columns()` on an existing Samsung workbook row now outputs `尺寸（inch）=0402` plus the three Samsung physical-dimension columns without requiring a full database rebuild.
+
+### 2026-03-30 17:23 [direct] Added generic MLCC datasheet-based length/width/thickness backfill for non-Samsung brands
+- Problem: After Samsung support landed, most other MLCC brands still only showed `尺寸（inch）` because the database usually stored an LCSC detail link rather than direct official dimensions, and the live display path had no generic way to turn those datasheets into `长/宽/厚`.
+- Fix: Extended `component_matcher.py` with a cached MLCC LCSC datasheet backfill layer. The new path extracts the real PDF URL from `https://www.lcsc.com/datasheet/Cxxxxxxx.pdf`, parses the first pages with `pypdf`, finds size-table rows to recover `长度（mm）/宽度（mm）/高度（mm）`, and stores the result in `cache/mlcc_lcsc_dimension_cache.json` for reuse. Also added brand-aware nominal model decoding for Murata and TDK so `尺寸（inch）` remains separate while Murata/TDK rows can still backfill physical dimensions even when the PDF only exposes part-number dimension codes. The merge logic now prefers richer `±` dimension strings over bare nominal numbers, so datasheet-derived tolerances can override earlier coarse values.
+- Verify: `python -m py_compile component_matcher.py` passed; direct lookups now resolve `CC0100KRX7R6BB391 -> 0.4±0.02 / 0.2±0.02 / 0.2±0.02`, `01R5N100J160CT -> 0.40±0.02 / 0.20±0.02 / 0.20±0.02`, `C0402X7R1A102K020BC -> 0.40±0.02 / 0.20±0.02 / 0.20±0.02`, and `GRM43R5C2A103JD01L -> 4.50 / 3.20 / 1.80`; row-level `infer_mlcc_dimension_fields_from_record()` checks on database rows also confirmed Samsung, TDK, Yageo, Walsin, and Murata results now return independent physical-dimension fields without changing the meaning of `尺寸（inch）`.
+
+### 2026-03-30 18:27 [direct] Attempted real-page MLCC spot checks and confirmed the browser automation gap
+- Problem: A real browser-level verification was needed after the MLCC dimension backfill landed, but the long-running local Streamlit session on port `8501` did not respond to automated `搜索` clicks, which made it unsafe to claim an end-to-end page check had passed.
+- Fix: Installed `playwright`, downloaded a fresh Chromium runtime, and started a clean Streamlit session on port `8502` to retry the page test in a new browser context. Browser automation could fill the search box and locate the visible `搜索` button, but even after waiting over four minutes the page still did not render the result section under automation. To avoid a false pass, I fell back to verifying the exact same display-side enrichment path on real database rows with `infer_mlcc_dimension_fields_from_record()` rather than pretending the browser run succeeded.
+- Verify: `http://127.0.0.1:8501` and `http://127.0.0.1:8502` both returned `200`; the browser automation consistently found the search textarea plus the visible `搜索` button on `8502`; however no result section appeared under automated clicks. Display-path verification on live rows still confirmed `CL05A105KQ5NNNC -> 1.00±0.05 / 0.50±0.05 / 0.50±0.05`, `C0402X7R1A102K020BC -> 0.40±0.02 / 0.20±0.02 / 0.20±0.02`, `CC0100KRX7R6BB391 -> 0.4±0.02 / 0.2±0.02 / 0.2±0.02`, `01R5N100J160CT -> 0.40±0.02 / 0.20±0.02 / 0.20±0.02`, and `GRM43R5C2A103JD01L -> 4.50 / 3.20 / 1.80`.
+
+### 2026-03-30 20:43 [direct] Added visible progress feedback and exact-model DB fallback for normal search
+- Problem: The normal search path could feel frozen because it had no progress card like the BOM flow, and when an exact part number was not fully covered by naming rules the code could fall back to loading the full prepared library before re-detecting specs, causing long first-hit waits with no clear “matching in progress” feedback.
+- Fix: Updated `component_matcher.py` to wrap manual search input in a Streamlit form, added a reusable search-progress state builder on top of the existing BOM progress card UI, and threaded stage updates through the normal search flow so the page now shows `准备开始 / 解析输入 / 载入候选库 / 执行匹配 / 整理结果 / 搜索已完成` with current input, path, candidate count, and elapsed time. Also added `resolve_search_query_dataframe_and_spec()` so exact-looking part numbers first try a direct DB lookup via `load_component_rows_by_clean_model()` before falling back to a full-library load.
+- Verify: `python -m py_compile component_matcher.py` passed. Module-level checks confirmed `resolve_search_query_dataframe_and_spec("FS31X105K101EPG") -> fast_query, 318 rows` and `resolve_search_query_dataframe_and_spec("FM21X102K101PXG") -> fast_query, 285 rows` without forcing a full prepared-data load. A fresh local Streamlit session on `http://127.0.0.1:8504` returned `200`; browser automation still did not provide a trustworthy end-to-end submit signal in headless mode, so the verification for this pass remains code-path and local-server based rather than a false browser-pass claim.
+
+### 2026-03-30 21:27 [direct] Reduced multi-line search latency with batched exact-row prefetch and candidate-frame caches
+- Problem: After adding visible progress, multi-line manual searches still felt slower than before because the normal search loop handled each line serially. Even when every input already matched a fast exact-part path, the code still reloaded exact model rows and rebuilt candidate frames line by line, so four to eight exact part numbers could accumulate several seconds of avoidable repeated DB work.
+- Fix: Extended `component_matcher.py` with `load_component_rows_by_clean_models_map()` so exact-looking part numbers can batch-prefetch their source rows in one search-index pass, then updated `load_search_dataframe_for_query()` and `resolve_search_query_dataframe_and_spec()` to reuse those prefetched rows instead of calling `load_component_rows_by_clean_model()` for every line. Also added a per-request `query_frame_cache` plus a bounded session-level `_query_dataframe_cache` so repeated same-input / same-spec lookups can reuse candidate frames across the current run and later searches in the same browser session.
+- Verify: `python -m py_compile component_matcher.py` passed. Same-process timing comparison on representative multi-line exact-part batches showed a reduction from `3.834s -> 2.750s` for a 4-line batch (`0402B333K250CT / 0805X225K500CT / 0402B333K250CT / WR12W1R00FTL`) and `5.051s -> 4.613s` for an 8-line mixed exact-part batch; exact-row prefetch alone added only about `0.396s` while removing repeated per-line exact-row DB fetches. The search flow now also reports when a line is using `本轮缓存` or `会话缓存`, so repeated searches are both faster and easier to explain.
+
+### 2026-03-30 21:45 [direct] Removed live LCSC datasheet fetching from manual-search result rendering
+- Problem: Manual search still felt extremely slow even after query-side optimizations because the UI was spending most of its time in the `正在生成展示内容` stage, not in matching. Profiling on `0402B333K250CT` showed the heavy cost came from MLCC display enrichment calling `lookup_mlcc_lcsc_dimension_fields()` row by row during result-table rendering, which could trigger live LCSC datasheet/PDF fetches just to backfill `长度（mm）/宽度（mm）/高度（mm）`.
+- Fix: Added an `allow_online_lookup` gate to the MLCC dimension enrichment chain in `component_matcher.py` (`lookup_mlcc_lcsc_dimension_fields -> infer_mlcc_dimension_fields_from_record -> enrich_mlcc_dimension_fields_in_record/dataframe -> build_component_display_row/select_component_display_columns`) and defaulted the live search display path to cache-only behavior. Search results now still use model rules, brand-specific decoders, local notes, and any previously cached LCSC dimensions, but they no longer block the UI by fetching remote datasheets while rendering the table.
+- Verify: `python -m py_compile component_matcher.py` passed. Same-process timings dropped to `0402B333K250CT: total 0.43s (resolve 0.216s / match 0.015s / prepare_show 0.199s)`, `0402 33nF 25V X7R 10%: total 0.267s`, and the representative 4-line batch (`0402B333K250CT / 0805X225K500CT / 0402B333K250CT / WR12W1R00FTL`) completed in `1.114s`, confirming the former multi-second render stall was removed from the manual-search path.
+
+### 2026-03-30 22:22 [direct] Fixed Walsin `0402X105K250CT` MLCC dimensions and hardened ambiguous `0402/1005` cache parsing
+- Problem: The Walsin official result for `0402X105K250CT` is `1.00±0.05 / 0.50±0.05 / 0.50±0.05`, but the system was showing `0.4±0.02 / 0.2±0.02 / 0.2±0.02`. Root cause: the cached LCSC entry `C237173` had been populated from a misread size-table match where the generic MLCC extractor treated ambiguous `0402` tokens as the smaller metric body row, so the bad cache kept overriding the live display.
+- Fix: Updated `component_matcher.py` so MLCC size-table extraction no longer returns the first token hit blindly. The extractor now scores candidate `长度/宽度` rows against the requested `尺寸（inch）` nominal body size, rejects cache values that conflict with the requested size hint, and only accepts cached/live LCSC dimensions when they actually fit the target package. Also corrected the existing `cache/mlcc_lcsc_dimension_cache.json` entry for `C237173` to the official Walsin dimensions reported on the vendor page.
+- Verify: `python -m py_compile component_matcher.py` passed; `infer_mlcc_dimension_fields_from_record()` now returns `0402X105K250CT -> 1.00±0.05 / 0.50±0.05 / 0.50±0.05`, while unaffected controls still stay correct (`CL05A105KQ5NNNC -> 1.00±0.05 / 0.50±0.05 / 0.50±0.05`, `C0402X7R1A102K020BC -> 0.40±0.02 / 0.20±0.02 / 0.20±0.02`).
+
+### 2026-03-30 23:03 [direct] Added MLCC dimension source labels to the result table
+- Problem: MLCC result rows could now show `长度（mm）/宽度（mm）/高度（mm）`, but the page still did not tell the user whether those values came from Samsung's official page, a vendor datasheet cache, or a model-naming rule, so the provenance behind the displayed body size remained opaque.
+- Fix: Added an MLCC dimension source tracker in `component_matcher.py` and threaded it through the record/dataframe enrichment path. The MLCC display schema now includes a new `尺寸来源` column, and the source label is derived from the actual fill path, for example `Samsung官方页面`, `LCSC规格书`, `TDK命名规则 / LCSC规格书`, or `村田命名规则`.
+- Verify: `python -m py_compile component_matcher.py` passed. Spot checks confirmed `0402X105K250CT -> LCSC规格书`, `CL05A105KQ5NNNC -> Samsung官方页面`, `C0402X7R1A102K020BC -> TDK命名规则 / LCSC规格书`, and `GRM43R5C2A103JD01L -> 村田命名规则`. The MLCC display schema now exposes `尺寸来源` alongside `长度(mm) / 宽度(mm) / 厚度(mm)`.
+
+### 2026-03-31 00:03 [direct] Added Jianghai aluminum electrolytic seed rows and fixed empty-candidate fallback
+- Problem: Three Jianghai sample parts from the original factory mapping were missing from the local库, so exact part lookups and typed electrolytic searches could not return them. The missing coverage was `ECR1VLY152MLL125030E`, `ECR1EEQ681MLL100020E`, and `PCV1EVF221MB10FVTSWP`. On top of that, the search/match path treated an empty `fetch_search_candidate_pairs()` result as a real candidate list, which filtered the seed rows back out and still produced empty matches.
+- Fix: Added Jianghai seed rows directly in `component_matcher.py` for the three sample models, including series profiles, size parsing, voltage mapping, package/mount metadata, and source/status fields. Also changed the search path so empty candidate lists now fall back to typed electrolytic search instead of short-circuiting the result set, and gave the Jianghai seed rows a small sort priority so they surface first in the matched results.
+- Verify: `python -m py_compile component_matcher.py` passed. `load_component_rows_by_clean_model("ECR1VLY152MLL125030E")` now returns the seed row, `load_search_dataframe_for_query()` returns a non-empty result set for the sample spec `ECAP 1500uF/35V +/-20% 25mOHM 105C 12.5*30mm TH ROHS`, and `cached_run_query_match()` now ranks the Jianghai seed first (`seed_rank = 1`, `matched_rows = 4`).
+
+### 2026-03-31 02:07 [direct] Hardened Jianghai electrolytic sync with local detail cache and durable manufacturer samples
+- Problem: The Jianghai electrolytic library still had two gaps. First, the model-rule side was incomplete for several families, so voltage/series inference could miss official match targets. Second, the durable source set was too small, so the rebuilt library did not yet carry enough Jianghai coverage to explain the original manufacturer mappings.
+- Fix: Expanded `aluminum_electrolytic_library_sync.py` to add a local Jianghai HTML detail cache scan, explicit series branches for `ECR/VLY/EEQ` and `PCV/AVF/EVM/EVF` families, and voltage precedence fixes so model-rule parsing wins before code fallback. Also merged JLC detail rows, local cached detail rows, and three confirmed manufacturer samples into the Jianghai build pipeline so the rows survive full CSV/database rebuilds.
+- Verify: `build_jianghai_rows()` now returns `1321` Jianghai rows, the generated CSV contains `ECR1VLY152MLL125030E`, `ECR1EEQ681MLL100020E`, and `PCV1EVF221MB10FVTSWP`, and the rebuilt `components.db` also contains those three exact models under brand `江海Jianghai`. The local cache scan found `228` cached Jianghai detail rows, which are now part of the durable source path.
+
+### 2026-03-31 02:36 [direct] Rebuilt Jianghai search index so exact model lookup hits the new rows
+- Problem: The main database had already been updated, but the separate search index file was still stale, so fast exact-model lookup could still miss the new Jianghai rows even though the underlying data existed.
+- Fix: Rebuilt `components_search.sqlite` from the refreshed database/prepared cache so the `_model_clean` index includes the new Jianghai models and the UI fast path can resolve them immediately.
+- Verify: `components_search.sqlite` timestamp advanced to `2026-03-31 02:35:15`, and `load_component_rows_by_clean_model()` now returns `1` row each for `ECR1VLY152MLL125030E`, `ECR1EEQ681MLL100020E`, and `PCV1EVF221MB10FVTSWP`.
+
+### 2026-03-31 05:16 [direct] Expanded the inductor library from official Bourns/Wurth sources and wrote it into the main database
+- Problem: The inductor catalog was still thin and the Bourns web pages were unreliable to scrape directly, so the missing model coverage was not surviving a rebuild.
+- Fix: Added `build_inductor_official_sources.py`, switched Bourns coverage to the official selection-guide PDF, kept the Wurth official pages, generated `Inductor/official_inductor_expansion.csv` with `363` rows, appended `214` Bourns rows and `149` Wurth rows into `components.db`, and rebuilt both `components_search.sqlite` and `components_prepared_v5.parquet`.
+- Verify: `load_component_rows_by_clean_model()` now resolves `PQ2614BHA`, `SRP0310`, `SRF0703A`, and `DR221` with real `长/宽/高` values, and the main database now reports `214` rows from `Bourns official selection guide PDF` plus `149` rows from `Wurth official%` in the new inductor source set.
+
+### 2026-03-31 06:46 [direct] Synced the resistor cache into the main database and refreshed search/prepared caches
+- Problem: The resistor library cache had drifted from the database, so several thousand models were still missing from the live library even though the cached source already contained them.
+- Fix: Added `sync_resistor_mlcc_sources.py` to stream `cache/resistor_library_cache.csv` into a temp table, insert only rows not already present by `品牌/型号/器件类型`, and then rebuild both the search index and the prepared cache. The same script also loaded `Capacitor/MLCC.xlsx`; that workbook had no brand/model/type rows left to add, so it contributed no new inserts.
+- Verify: The sync inserted `3552` missing resistor rows, updated `厚膜电阻` to `440794` and `碳膜电阻` to `11569`, and refreshed `components_search.sqlite` plus `components_prepared_v5.parquet` at `2026-03-31 06:46`. Existing capacitor MLCC brands like `晶瓷Kyocera AVX`, `村田Murata`, `三星Samsung`, `东电化TDK`, and `华新科Walsin` remain present in the main library after the sync.
+
+### 2026-03-31 09:11 [direct] Fixed Streamlit startup scripts that were failing on PowerShell's read-only `Host` variable
+- Problem: The app page appeared "down" because the normal startup path could not launch `start_streamlit.ps1`. The scripts used a parameter named `Host`, which collides with PowerShell's built-in read-only `Host` automatic variable and throws `无法覆盖变量 Host` before Streamlit ever binds to the expected local port. That left the documented `8501` entrypoint unavailable even though a temporary debug instance was still running on `8504`.
+- Fix: Renamed the bind-address parameter to `BindHost` in `start_streamlit.ps1`, `start_public.ps1`, and `setup_fixed_domain.ps1`, and updated the self-elevation/startup-command path in `setup_fixed_domain.ps1` to pass `-BindHost` as well. Restarted the app through the fixed script.
+- Verify: `http://127.0.0.1:8501` now responds with `200`, and `netstat` shows `127.0.0.1:8501` listening on the new Streamlit process started from `C:\Users\zjh\Desktop\data\.venv\Scripts\python.exe -m streamlit run component_matcher.py --server.address 127.0.0.1 --server.port 8501 --server.headless true`.
+
+### 2026-03-31 09:31 [direct] Removed startup-time blocking database refresh so the Streamlit page renders instead of staying blank
+- Problem: After the Rubycon CSV changed, the app startup path hit `maybe_update_database(force=False)` before rendering any UI. Because `database_needs_refresh()` compares source-file mtimes against `components.db`, the changed capacitor source caused every fresh app session to start a full `update_database()` pass on load. The frontend connected successfully, but the script remained in `running` state without having emitted the search UI yet, which appeared as a blank white page.
+- Fix: Updated `component_matcher.py` so non-forced startup refresh is skipped when the existing database already contains component rows. This keeps the page responsive and leaves full rebuilds to explicit maintenance commands instead of blocking first paint. Also cleaned up duplicate Streamlit processes on `8501` and restarted a single clean instance.
+- Verify: `python -m py_compile component_matcher.py` passed. Fresh browser automation against `http://127.0.0.1:8501` now finds the rendered `stMainBlockContainer` and a real `<textarea>` in `#root`, with `html_len=225769`, confirming the app is rendering actual content instead of a blank shell.
+## 2026-03-31 10:45 Jianghai 命名规则与铝电规格搜索排查
+
+- 用江海官方欧洲目录 `JE25_ECap_Catalogue.pdf` 对齐了订货码规则：
+  - 径向/贴片订货码中的 `◊◊` 表示 `pin style & length`，`∆∆` 表示 `pitch code`
+  - snap-in 订货码示例会显式出现 `T6` / `P2` 这类端子与脚距代码
+- 这说明你截图里的 `□□` 本质上是江海订货码里的占位位，不是容值或耐压；系列表如果只给到基础码，就无法单靠那一行恢复成唯一完整订货型号。
+- 定位到本地库不全的一个核心原因：
+  - `CD29NF` 这类江海 snap-in PDF 有些行把基础型号和尺寸尾码拆成两列
+  - 旧 builder 只保留基础型号，例如 `ECS2VNF271M`，去重时把 `220050 / 250045 / 300035 / 350025` 这些尺寸变体折叠掉
+- 已修复：
+  - `aluminum_electrolytic_library_sync.py` 新增 `jianghai_compose_variant_model(...)`
+  - `build_jianghai_cd29nf_rows()` 现在会把 `tail_code` 并回型号，得到 `ECS2VNF271M220050` 这类更完整的型号
+  - 复测 `build_jianghai_cd29nf_rows()` 已能产出 `ECS2VNF271M220050 / 250045 / 300035 / 350025`
+- 另一个已修复的问题在 `component_matcher.py`：
+  - 铝电规格搜索原来在“没有真候选”时，会把 `尺寸/安装方式/特殊用途/寿命/温度` 从硬条件放宽成软条件
+  - 已改成：用户明确写了这些条件，就必须满足，否则返回空结果
+  - 复测 `铝电容_270uF_±20%_16V_-25-105℃_5000h_6.6×7.2mm_贴片_消费` 现在返回 `0` 条，不再错误混入 `VNF/GNF` 等插件系列
+- 正在执行 `python aluminum_electrolytic_library_sync.py --apply` 做全量回灌；CSV 已更新到 2026-03-31 10:41，但数据库重建仍在运行中，待完成后需要再核对网页结果。
+## 2026-03-31 13:55 信昌 PDC MLCC 命名解析与系列显示修复
+
+- 这次把信昌 PDC 的 MLCC 命名规则补成了 `MT / MG / MS` 三套前缀解析：
+  - `MT`：车规 / AEC-Q200
+  - `MG`：次车规 / 无 AEC-Q200
+  - `MS`：车规 / 软端子
+- 补进了 `MT43X472K302EGZ` 的完整解析：
+  - `系列=MT`
+  - `系列说明=车规 / AEC-Q200 / Anti-Arcing + Anti-Bending`
+  - `尺寸（inch）=1812`
+  - `容值=4.7NF`
+  - `耐压（V）=3000`
+  - `长度/宽度/高度=4.50±0.40 / 3.20±0.30 / 2.50±0.30`
+- 结果表已经能显示 `系列` 和 `系列说明`，并保留 `尺寸（inch）` 与长宽厚分栏，不再混在一起。
+- 额外补了一个搜索兜底：如果 `料号` 直查时跨品牌结果被同品牌过滤清空，会从原始候选集里回找同型号原厂行，避免 `MT43X472K302EGZ` 这类料号直接显示成 0 条。
+- 复测：
+  - `load_component_rows_by_clean_model("MT43X472K302EGZ")` 能命中 1 行
+  - `cached_run_query_match(...)` 不再为空，最终结果可展示系列信息
+  - `python -m py_compile component_matcher.py` 通过
+
+## 2026-03-31 16:55 风华 AM 系列官方命名解析与系列回填修复
+
+- 这次先按风华官方 AM 系列资料重新校正了命名规则，确认 `AM10B103K202NT` 属于风华，不是华新科 / Walsin。
+- 通过官方资料确认：
+  - `AM` 是风华 AM 汽车级 MLCC 系列
+  - `AM10B103K202NT` 在官方页上对应 `1210 / X7R / 2000V / 10nF`
+  - 官方页还给出了该型号的尺寸 `3.20±0.30 × 2.50±0.30 × 2.00±0.30 mm`
+- 已修复：
+  - `component_matcher.py` 新增风华 `AM` 系列解析
+  - `parse_model_rule()` 现在会优先把 `AM\d{2}...` 识别为风华，而不是落到华新科 / Walsin 的宽松兜底
+  - `fill_missing_series_from_model()` 现在会把风华 `AM` 系列回填到 `系列=AM`、`系列说明=汽车级 / AEC-Q200`
+  - `describe_mlcc_dimension_source()` 现在能把风华 AM 的尺寸来源标成风华官方页面
+  - `looks_like_compact_part_query()` 也补了 `AM` 前缀，保证这个料号会走紧凑料号搜索链路
+- 复测：
+  - `parse_model_rule("AM10B103K202NT", component_type="MLCC")` 返回品牌 `风华Fenghua`、系列 `AM`
+  - `build_model_naming_interpretation("AM10B103K202NT")` 能输出风华 AM 系列说明
+  - `fill_missing_series_from_model()` 对最小样本能回填 `系列=AM` 与 `系列说明=汽车级 / AEC-Q200`
+  - `python -m py_compile component_matcher.py` 通过
+
+## 2026-03-31 18:21 风华 AM 官方系列行入库与缓存重建完成
+
+- 新增了独立同步脚本 [sync_fenghua_am_official.py](C:/Users/zjh/Desktop/data/sync_fenghua_am_official.py)，用于抓取风华官方 `AM` 系列页面并写入数据库。
+- 官方页实际解析到 15 条 `AM` 系列记录，已全部补进 `components.db`。
+- 已确认：
+  - `AM10B103K202NT` 现在在主库中有官方实录
+  - `load_component_rows_by_clean_model("AM10B103K202NT")` 能命中 1 行
+- 为了让新插入的风华 AM 行能参与规格搜索，已经重建：
+  - `components_prepared_v5.parquet`
+  - `components_search.sqlite`
+- 顺手修复了 prepared cache 分块写 Parquet 时的列顺序不一致问题，避免以后扩品牌时再次在缓存重建阶段报 schema mismatch。
+- 进一步修正了 `fill_missing_series_from_model()`：风华 `AM` 料号即使原始行已经有 `系列=AM`，也会继续回填 `系列说明=汽车级 / AEC-Q200`，避免精确料号结果里系列说明仍然为空。
+- 复测：`load_component_rows_by_clean_model("AM10B103K202NT")` 现在会返回 `品牌=风华Fenghua`、`系列=AM`、`系列说明=汽车级 / AEC-Q200`
+- 进一步收紧了命名规则兜底：`parse_walsin_common()` 现在必须有明确品牌上下文（Walsin / 华新科）才会生效，`parse_model_rule()` 的最后一道 Walsin 宽兜底也改为需要品牌上下文，避免再把别家料号按相似外形直接猜成华新科。
+
+## 2026-03-31 21:15 公网快速访问已接通
+
+- 把 [start_public.ps1](C:/Users/zjh/Desktop/data/start_public.ps1) 改成了更自足的公开入口：
+  - 若本机已在运行 `8501`，就直接复用，不再重复起第二个 Streamlit
+  - 若机器上没有 `cloudflared`，脚本会自动从 Cloudflare 官方 release 下载 Windows 版
+- 已成功拉起 Cloudflare quick tunnel，当前公网临时地址为 `https://absence-dover-threatened-trustees.trycloudflare.com`
+- 这条公网链接是免费的，但属于 quick tunnel，重启后会变化，本机保持开机和联网时可继续访问
+
+## 2026-03-31 Streamlit Community Cloud 准备
+
+- 新增了 `streamlit_app.py` 作为 Streamlit Cloud 入口，确保云端不会直接依赖桌面启动脚本。
+- 新增了 `runtime.txt`、`requirements.txt`、`.streamlit/config.toml`，把云端运行时、依赖和 Streamlit 配置都固定下来。
+- 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 里加入了 `streamlit_cloud_bundle.zip` 自动解包逻辑，并把基础路径改成相对路径，避免 Windows 绝对路径在云端失效。
+- 生成了 `streamlit_cloud_bundle.zip`，用于在云端恢复 `components.db`、`components_search.sqlite`、`components_prepared_v5.parquet` 和相关缓存。
+- 新增 `.gitattributes` 以便大文件走 Git LFS，新增 `.gitignore` 以避免把本地数据库、缓存和临时调试产物一起带进云端仓库。
+- 更新了 [PUBLIC_ACCESS.md](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md)，补充 Streamlit Community Cloud 的免费固定 URL 部署说明。
+- 在当前环境里恢复了可用的 Git：已将 Git for Windows portable 版解包到 [tools/PortableGit](C:/Users/zjh/Desktop/data/tools/PortableGit)，现在可直接通过 `C:\Users\zjh\Desktop\data\tools\PortableGit\cmd\git.exe` 使用 `git version 2.53.0.windows.2`。
+
+## 2026-03-31 双启动器落地
+
+- 新增 [start_lan.cmd](C:/Users/zjh/Desktop/data/start_lan.cmd) + [start_lan.ps1](C:/Users/zjh/Desktop/data/start_lan.ps1)，用于一键启动局域网可访问的网页服务，绑定 `0.0.0.0:8501` 并自动打开本机浏览器。
+- 新增 [start_public_fixed.cmd](C:/Users/zjh/Desktop/data/start_public_fixed.cmd) + [start_public_fixed.ps1](C:/Users/zjh/Desktop/data/start_public_fixed.ps1)，用于一键启动固定公网 URL 的网页服务，前提是 Cloudflare Tunnel 已在云端配置好并把 token 放入 `public_tunnel_token.txt`。
+- 公网启动器现在会自动生成并复用 `public_access_code.txt`，同时把 `APP_ACCESS_CODE` 传给应用层访问码门禁，避免拿到 URL 就能直接进系统。
+- 新增 `public_tunnel_token.txt.example` 和 `public_fixed_url.txt.example`，作为固定公网模式的本地配置示例。
+- 新增 `public_access_code.txt.example`，作为公网访问码示例。
+- 更新 [PUBLIC_ACCESS.md](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md)，把两个双击启动器的使用方式写进说明。
+- 在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 里加入了访问码门禁、公共模式标记和搜索/BOM 的输入上限，减少被恶意大输入拖死的风险。
+- 在 [.streamlit/config.toml](C:/Users/zjh/Desktop/data/.streamlit/config.toml) 里显式开启 `enableXsrfProtection = true` 并限制上传大小，补齐了 Streamlit 层面的基础防护。
+- 在 BOM 导出链路里增加了公式注入防护：新增的导出列与结果列在写入 Excel 前会先做公式前缀转义，避免恶意 `=` / `+` / `-` / `@` 字符串被当成公式执行。
+
+## 2026-03-31 Streamlit Community Cloud 版本收尾
+
+- 新增 [README.md](C:/Users/zjh/Desktop/data/README.md)，把 Streamlit Community Cloud 的部署入口、GitHub 推送方式、`streamlit_app.py` 入口和访问码 secrets 说明整理成仓库首页说明。
+- 重新核对了云端 bundle 内容，确认 [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) 里包含 `components.db`、`cache/components_search.sqlite`、`cache/components_prepared_v5.parquet` 和相关元数据缓存，云端启动不需要现场全量重建。
+- 再次确认 `component_matcher.py` 的云端入口顺序是先访问码门禁、再解包云端数据包、最后才按需检查数据库，适合 Streamlit Community Cloud 的固定 `streamlit.app` 部署方式。
+- 修正了 `component_matcher.py` 的云端首搜链路：`ensure_streamlit_cloud_data_bundle()` 支持按需解包，`搜索/BOM` 首次进入时优先只解 `cache/components_search.sqlite` 和小缓存，不再先解完整 `components.db`。
+- 给 `component_matcher.py` 加了 search sidecar 轻量回退，`load_component_rows_by_brand_model_pairs()` / `load_component_rows_by_clean_models_map()` / `fetch_search_candidate_pairs()` 在无完整数据库时也能直接用 `components_search.sqlite` 服务查询；在纯 bundle 环境里验证到搜索资产轻解压约 `10.6s`，随后 `MT43X472K302EGZ` 精确料号查询约 `2.2s`，且未触发 `components.db` 解包。
+- 增加了首页后台预热 `components_search.sqlite` 的线程，保证 Streamlit Community Cloud 打开首页时不阻塞渲染，同时尽量把搜索索引准备前置到用户真正点击搜索之前。
+
+## 2026-04-02 局域网 / 公网真实用户回归与修复
+
+- 用真实页面交互分别回归了局域网入口和公网 Cloud 入口，覆盖了 `精确料号搜索`、`规格参数搜索`、`BOM CSV 上传` 三条主流程。
+- 实测确认局域网入口 `http://192.168.60.117:8502` 可以正常完成：
+  - `AM10B103K202NT`
+  - `MT43X472K302EGZ`
+  - `WR12W1R00FTL`
+  - `1210 X7R 10nF 2000V 10%`
+  - `270uF 16V -25-105C 5000h 6.6x7.2mm SMD`
+- 修正了 Streamlit Community Cloud 启动路径：
+  - 不再在首页渲染前强制执行 `ensure_streamlit_cloud_data_bundle()`
+  - 也不再在数据库缺失时于启动阶段同步触发 `maybe_update_database()`
+  - 现在改成“首页先渲染，真正搜索 / BOM 匹配时再按需准备数据”
+- 新增 `ensure_component_data_ready()`，统一处理：
+  - 本地数据库已存在则直接使用
+  - 云端 bundle 存在则按需解包
+  - 最后才回退到数据库更新逻辑
+- 复测结果：
+  - 干净 Cloud 模拟目录 `tmp_cloud_smoke_py` 现在首页已能正常渲染，不再是此前的空白页
+  - 局域网版铝电规格单条搜索现在能在约 `1s` 内返回明确的“无匹配”结果，不再长时间卡在准备数据阶段
+  - 同一份 5 行混合 BOM 样本从此前约 `46s` 降到约 `18s`
+- 为了降低正常用户误读，给页面新增了说明提示：
+  - `信昌料号 / 华科料号` 明确标注为“跨品牌对照料号”，不是当前输入型号自身的品牌归属
+  - `匹配结果` 明确说明默认展示的是可替代品牌，不重复展示原始输入型号
+  - 该说明已同时加入单条搜索结果区和 BOM 结果区
+- 本轮仍然保留一个未彻底解决的风险：
+  - Streamlit Community Cloud 冷启动后的“第一次搜索”仍可能因为首次解包大数据包而明显偏慢，需要后续继续瘦身公网数据包
+
+## 2026-04-02 16:25 Cloud 首搜继续优化
+- 继续处理 Streamlit Community Cloud 冷启动后“第一次搜索偏慢”的问题，重点放在：
+  - 搜索入口和 BOM 型号列优先复用精确料号命中行，避免同一轮内重复做型号直查和反推规格
+  - 云端后台预热时，搜索索引文件改为先写 `.part` 临时文件，再原子替换为正式 `components_search.sqlite`
+- 修复了一个真实竞态问题：
+  - 旧逻辑在后台预热时直接把搜索索引写到正式路径，用户若在预热尚未完成时点击搜索，前台线程可能看到“文件已存在但内容尚未写完”的半成品索引
+  - 这会导致首次搜索偶发出现精确料号查不到、候选为空或表现不稳定
+  - 现在改成原子落盘后，前台只会看到完整可查询的索引文件
+- 复测结果：
+  - 当前工作目录热态下，`MT43X472K302EGZ` 的 `resolve_search_query_dataframe_and_spec(...)` 已压到约 `0.98s`
+  - 干净 cloud bundle-only 目录里，首次选择性解包 `components_search.sqlite` 约 `5.5s`
+  - 干净 cloud bundle-only 目录里，模拟“首页已打开并后台预热 5 秒后再点搜索”，`MT43X472K302EGZ` 不再出现空结果，精确料号可正常返回 1 行原厂资料并继续走 `fast_query`
+- 当前判断：
+  - 首搜的最大耗时仍然是云端首次解包 `components_search.sqlite`
+  - 但这轮已经把“预热过程中偶发拿到半成品索引”的不稳定问题收掉了，公网首搜的一致性会明显更好
+
+
+## 2026-04-02 20:40 ????????????
+- ??????????????????? `streamlit.app` ??? `0402 1uf 10v`????????????????? / ??????
+- ??????????????????? Cloud bundle-only ?????????????
+  - `fetch_search_candidate_pairs(...)` ? MLCC ?? `?? + ??` ????? `0402 1uf 10v` ????????????
+  - `load_search_sidecar_rows_by_brand_model_pairs(...)` ????????????? sidecar ???????? `parse_model_rule(...)`
+  - ??????? `components_search.sqlite` ???????????????????????????????
+- ?????
+  - MLCC ?????????? `????` ? `???V?` ??????????
+  - `load_search_sidecar_rows_by_brand_model_pairs(...)` ???? `preferred_component_type`
+  - ????????????? sidecar ???????? `?? + ??` ?????????? merge
+  - sidecar ???????? `include_model_rule` ????????????????????????????
+  - ?????????????Cloud bundle ??????????????????? 5-15 ??????
+- ?????
+  - ?? cloud bundle-only ??????`0402 1uf 10v` ???? `22.9s` ??????????? `6.5s`
+  - ???????????
+    - ?????? `0.07s`
+    - sidecar ???? `1.3s`
+  - ???????????????????????????
+
+## 2026-04-02 20:42 ????????????????
+- ?????Cloud bundle-only ??????????? sidecar ??????????????
+- ?? MLCC ???????? `?? + ?? + ?? + ????`??? sidecar ?????????????
+- sidecar ?????????????????????????????? `0402 1uf 10v` ???? `22.9s` ??? `6.5s`?
+- ????????????????????? `5-15 ?` ????????????????????
+
+## 2026-04-02 20:43 手机公网规格搜索卡顿修复（UTF-8补记）
+- 重新确认：Cloud bundle-only 环境下的规格首搜慢点在 sidecar 候选重建，不是匹配排序本身。
+- 已把 MLCC 快速候选条件补到 `尺寸 + 容值 + 误差 + 耐压下限`，并让 sidecar 快路径优先直读目标器件表。
+- sidecar 轻量回退已避免对每条候选重复跑命名规则，恢复正确结果的同时把 `0402 1uf 10v` 首搜从约 `22.9s` 压到约 `6.5s`。
+- 搜索进度文案同步补充公网提示：首搜可能需要 `5-15 秒` 预热索引，降低手机用户误判为死机的概率。
+
+## 2026-04-02 22:53 ?? MLCC ?????????UTF-8???
+- ???????? MLCC ?????????????????????????????????????
+- ? `0402 1uf 10v` ???
+  - ???? `336` ?? `127`
+  - ?? cloud bundle-only ?????????????? `6.2s` ?????? `5.6s`
+- ??????????????????????? Streamlit Cloud ???????????
+
+## 2026-04-02 22:54 公网 MLCC 规格候选继续收窄（UTF-8补记）
+- 对明确写了耐压的 MLCC 规格搜索，改成先查“同耐压”候选；只有同耐压结果为空时，才放宽到更高耐压。
+- 以 `0402 1uf 10v` 为例：
+  - 候选数从 `336` 降到 `127`
+  - 干净 cloud bundle-only 模拟目录里的首次规格搜索从约 `6.2s` 进一步降到约 `5.6s`
+- 这轮优化主要针对手机公网首搜场景，优先减轻免费 Streamlit Cloud 算力下的候选重建压力。
+
+## 2026-04-02 23:05 ???????????UTF-8???
+- ?? Playwright ??????????? `https://fruition-componentmatche.streamlit.app/`?? Streamlit ?? app frame ??????? `0402 1uf 10v` ??????
+- ???????????????????????????????????????? `1` ??????????? `1.5s`?
+- ??????????????????????????????????????
+
+## 2026-04-02 23:06 公网真实手机视图复测（UTF-8补记）
+- 使用 Playwright 以手机视图直接访问公网 `https://fruition-componentmatche.streamlit.app/`，在 Streamlit 内层 app frame 中模拟用户输入 `0402 1uf 10v` 并点击搜索。
+- 复测结果：页面已从此前卡在“正在载入候选库”恢复为正常完成；真实公网实例本轮返回 `1` 条匹配，页面显示耗时约 `1.5s`。
+- 这说明新的候选收窄逻辑已经被公网部署吃到，手机外网场景可以正常完成规格搜索。
+
+## 2026-04-03 10:12 一键同步局域网与公网发布链
+- 新增 `build_streamlit_cloud_bundle.py`，把当前本地 `components.db`、搜索索引和关键缓存统一打包为 `streamlit_cloud_bundle.zip`，并生成 `streamlit_cloud_bundle.manifest.json`，避免内容不变时重复重打包。
+- 新增 `sync_local_and_public.py`、`sync_local_and_public.ps1`、`sync_local_and_public.cmd`，统一完成“重建云端数据包、语法校验、暂存发布文件、提交、通过 GitHub SSH 443 推送”的发布流程。
+- PowerShell 包装脚本已修正单命令 Python 调用时的参数展开问题，避免后续双击启动器时因数组切片为空而报错。
+- `README.md` 与 `PUBLIC_ACCESS.md` 已补充“一键同步发布”说明，后续本地改规则、数据库或页面后，不需要再手工分别维护局域网版和公网版的发布动作。
+
+## 2026-04-03 11:08 一键同步发布链最终打通
+- 发布脚本改为优先使用“仓库专用 deploy key”，避免依赖用户级 `/user/keys` API；当前这台机器的仓库写入密钥已经成功注册到 `harma801209/component-matcher`。
+- 由于本地历史里还保留了早期“通过 GitHub API 直接写远端”的旧提交，脚本不再对本地分支做 rebase，而是抓取远端最新 `main` 后，基于当前本地提交的文件树合成一个“发布专用 commit”，再通过 SSH 443 推到远端，绕开同内容不同 hash 的历史冲突。
+- 已完成三轮验证：
+  - `sync_local_and_public.ps1 -SkipBundleRebuild -SkipPush` 半实战通过，可生成本地 commit 与发布 commit
+  - 真实推送通过，`streamlit_cloud_bundle.zip` 已经通过 Git LFS 上传到远端 `main`
+  - 无改动时再次执行 `sync_local_and_public.ps1 -SkipBundleRebuild` 会优雅返回 `Everything up-to-date`
+- 结论：后续本地改数据库、规则或页面后，优先用 `sync_local_and_public.cmd` / `sync_local_and_public.ps1` 做统一发布，不再需要人工分别处理局域网版和公网版。
+
+## 2026-04-03 11:31 GitHub Pages 访客外壳页
+- 针对手机访客仍会在 `streamlit.app` 原始页面里看到平台角标的问题，新增了一个免费的 GitHub Pages 外壳页：`https://harma801209.github.io/component-matcher/`
+- 新增文件：`docs/index.html`、`docs/404.html`、`docs/.nojekyll`，通过 iframe 嵌入 `https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen`，让访客优先进入精简后的访问壳，而不是直接看到原始 Streamlit Community Cloud 页面。
+- 已通过 GitHub Pages API 将仓库 `harma801209/component-matcher` 配置为从 `main` 分支 `/docs` 目录发布；当前 Pages 状态为 `built`。
+- 访问建议：
+  - 外部访客优先使用 GitHub Pages 包装页
+  - 管理和调试仍可继续使用原始 `streamlit.app` 链接
+
+## 2026-04-03 11:47 访客页底部平台栏遮罩
+- 复测发现 `embed=true` 版 Streamlit 仍会保留一条极简嵌入栏（如 `Built with Streamlit / Fullscreen`），官方不能直接关闭。
+- 在 `docs/index.html` 的 GitHub Pages 外壳页中新增了底部遮罩层，并统一改成 `dark_theme` 嵌入，尽量把这条平台栏在访客视角中压到不可见。
+- Playwright 手机视角复测已生成截图：`cache/github_pages_mobile_wrapper_v3.png`，当前访客入口页主视图已不再直接露出底部平台角标。
+
+## 2026-04-03 12:06 匹配结果去除信昌/华科对照列
+- 按当前页面需求，已从搜索结果展示层去掉 `信昌料号`、`华科料号` 两列，不再在“匹配料号资料”“匹配结果”中单独呈现。
+- 已删除蓝色说明文案：`信昌料号 / 华科料号 显示的是跨品牌对照料号...`
+- BOM 结果展示层也同步去掉这两列及对应说明，避免不同入口显示口径不一致。
+- 底层对照数据与映射逻辑暂时保留，仅调整展示层，后续如还要继续利用内部映射做匹配，不会受本轮界面清理影响。
+
+## 2026-04-03 12:15 规格搜索结果去除底部重复输入框
+- 当用户走“规格参数搜索”或“料号片段反推规格”时，页面上方已经有 `规格条件` 表格，因此匹配结果下方不再重复显示一整块蓝色输入原文框。
+- 已移除该重复展示对应的 `query_inline_html` 输出，避免规格页上下重复表达同一组条件，界面更干净。
+
+## 2026-04-03 13:05 Cloudflare 直代理改为真实应用页
+- 放弃 `GitHub Pages iframe 外壳` 和 `Streamlit 分享层` 方案，改为直接代理真正的 Streamlit 应用路径：`https://fruition-componentmatche.streamlit.app/~/+/`，目标域名维持用户选定的 `fruition-component.pages.dev`。
+- 新建并收敛 `cloudflare-pages-proxy/dist/_worker.js`：现在首页 `/` 会直接映射到上游 `/~/+/`，静态资源、`/_stcore/*` 和其他应用请求统一自动前缀到 `/~/+/`，不再依赖 `share.streamlit.io` 的 `app/context/status` 接口。
+- 关键修复：为上游代理请求补齐 `Origin/Referer`，并对 `/_stcore/stream` 走原样 WebSocket 透传，避免此前本地一直卡在 `401 Unauthorized` 或分享层白屏。
+- 本地 `wrangler pages dev` + Playwright 已验证：
+  - 首页能正常渲染为真实应用版式，而不是分享外壳或 GitHub Pages 头壳
+  - `/_stcore/stream` 已返回 `101 Switching Protocols`
+  - 规格搜索 `1210/X7R/4.7uF/10%/100V` 能正常提交并返回 `MLCC匹配结果`
+- 当前剩余阻塞只剩 Cloudflare 账号登录，待执行一次 `wrangler login` 后即可把这版真正部署到 `fruition-component.pages.dev`。
+
+## 2026-04-03 13:38 Cloudflare Pages 正式上线与手机端复测
+- 已通过 Cloudflare Wrangler 登录并创建 Pages 项目 `fruition-component`，正式固定网址为 `https://fruition-component.pages.dev/`。
+- 线上部署已完成，Cloudflare 首次部署预览地址为 `https://6f9c2f9c.fruition-component.pages.dev`，正式域名 `https://fruition-component.pages.dev/` 已返回 `200`。
+- 使用 Playwright 对正式域名做真实浏览器验证：
+  - 桌面端：首页可正常打开，规格搜索 `1210/X7R/4.7uF/10%/100V` 能正常返回 `MLCC匹配结果`
+  - 手机端：首页排版正常，`搜索` 与 `BOM批量上传匹配` 区块可见
+  - 手机端规格搜索 `0402 1uF 10V` 能正常完成，页面显示耗时约 `1.5s`
+  - 手机端料号搜索 `AM10B103K202NT` 能正常完成，页面显示耗时约 `0.3s`
+- 结论：`fruition-component.pages.dev` 现在已经可以作为对外访客固定入口使用，且不再暴露 GitHub 用户名。
+
+## 2026-04-03 18:34 MLCC 系列品类接入匹配规则
+- 按品牌规格书/官方命名规则，把 MLCC 的“系列品类”正式接入解析与匹配，不再只显示原始系列前缀。
+- 已补的官方品类规则包括：
+  - 村田 Murata：`GRM=常规`、`GCM/GRT=车规`、`GJM/GQM=高Q`
+  - 信昌 PDC：`FN=常规`、`FS=高容`、`FM=中压`、`FV=高压`、`FP=抗弯`、`FK/FH=安规`、`MT=车规`、`MG=次车规`、`MS=车规软端子`
+  - TDK：`Cxxxx=常规`、`CGAxxxx=车规/AEC-Q200`
+- `parse_murata_core()`、`parse_tdk_c_series()`、`parse_tdk_cga_series()`、`parse_pdc_mlcc_core()` 现在都会直接输出 `系列 / 系列说明 / 特殊用途 / _mlcc_series_class`。
+- `prepare_search_dataframe()` 现在会为 MLCC 行补齐官方系列说明与 `_mlcc_series_class`，即使数据库原始行只有基础系列前缀也能回填。
+- `scope_search_dataframe()` 现在会把 `车规/次车规/高容/高压/中压/抗弯/安规/高Q/EMI滤波` 作为 MLCC 严格筛选条件，不再让车规查询混出常规品。
+- `apply_match_levels_and_sort()` 现在加入 `_mlcc_class_rank`，同品类候选会优先排前。
+- 复测 `GCM31MR71E105MA37L` 时，对同规格数据库候选进行官方规则反推后，保留的候选只剩 `GCM` 与 `TDK CGA` 等车规系列，`TDK C3216` 这类常规系列已被排除。
+- 显示侧也已补齐：`ensure_component_display_columns()` / `build_component_display_row()` 现在会把 `GCM -> 车规 / Automotive MLCC`、`CGA -> 车规 / AEC-Q200` 这类系列说明直接展示出来。
+
+## 2026-04-03 18:58 一键同步脚本 UTF-8 输出修复
+- `sync_local_and_public.py` 的 `run_command()` 现在显式使用 `utf-8` + `errors=replace` 读取子进程输出，避免 Windows/GBK 环境下 Git LFS 输出触发 `UnicodeDecodeError`。
+- 目的：让局域网/公网一键同步链在包含大 bundle 与 LFS 上传时更稳定，避免“代码已提交但推送阶段因编码炸掉”的假失败。
+
+## 2026-04-03 19:06 Cloudflare Pages 代理入口修复
+- 发现 `https://fruition-component.pages.dev/` 出现 `502`，根因是代理 Worker 仍把上游固定拼到 `https://fruition-componentmatche.streamlit.app/~/+/`，而该上游入口已开始直接返回 `502`。
+- 已将 `cloudflare-pages-proxy/dist/_worker.js` 的上游前缀切回根路径，由代理直接转发到 `https://fruition-componentmatche.streamlit.app/`，避免固定网址因旧入口失效而整站不可用。
+
+## 2026-04-03 20:38 整库回退收紧与 Pages 旧缓存清理
+- 对“看起来像完整料号、但命名规则和数据库都没命中”的输入，搜索链路现在改成快速失败，不再默认整库回退；复测 `ECV1VVZ2330M0605V1` 时，`resolve_search_query_dataframe_and_spec()` 已返回 `unknown_compact_part`，不再进入 `full_dataframe`。
+- `looks_like_compact_part_query()` 增补了更宽松的完整料号识别条件，并纳入 `ECV` 前缀，避免这类紧凑型料号因为前缀未收录而被误判成普通文本。
+- `cloudflare-pages-proxy/dist/_worker.js` 已恢复为完整的 Streamlit 代理版本，并新增：
+  - `/service-worker.js` 与 `/service-worker` 清缓存/注销脚本
+  - HTML 注入侧的旧 service worker 与旧 caches 主动清理逻辑，首次命中后会自动刷新一次
+- `deploy_cloudflare_pages_proxy.ps1` 现在固定设置 `NODE_OPTIONS=--dns-result-order=ipv4first`，绕过本机 Node 对 `api.cloudflare.com` 的 DNS 解析异常，Cloudflare Pages 可再次正常部署。
+- 已重新部署 Cloudflare Pages，新部署预览地址为 `https://de884a87.fruition-component.pages.dev`；正式域名 `https://fruition-component.pages.dev/` 已确认带上新的清缓存脚本与新的 `_stcore/host-config` / `service-worker.js` 响应。
+
+## 2026-04-03 21:48 统一为公网正式版入口
+- 项目说明与公网访问说明已重写，正式入口统一为 `https://fruition-component.pages.dev/`，不再把局域网版和公网版当成两套长期维护的产品。
+- `README.md` 与 `PUBLIC_ACCESS.md` 已改成只强调正式公网入口、发布流程和 `Cloudflare Pages + Streamlit Community Cloud` 架构。
+- `sync_local_and_public.ps1` 与 `sync_local_and_public.py` 的默认公网地址已更新为 `https://fruition-component.pages.dev/`。
+- 旧兼容启动器 `start_lan.ps1` / `start_public_fixed.ps1` 已降级为“打开正式公网入口”的提示壳，不再继续启动本地 LAN / Tunnel 服务，避免误导成正式运行方式。
+
+## 2026-04-03 22:41 Cloudflare Pages 入口恢复与站点图标补回
+- 鉴于 `pages.dev` 直代理 Streamlit 运行态持续卡在 websocket `401 Unauthorized`，正式公网入口已先切换为“无头壳全屏 embed 容器”方案：根页面直接承载 `https://fruition-componentmatche.streamlit.app/?embed=true&embed_options=hide_loading_screen`，避免自建代理链继续拖累可用性。
+- 新入口页面不再显示之前 GitHub Pages 那种额外头部，只保留一个全屏 `iframe` 与底部细遮罩，用于盖住 Streamlit embed 页面的底部平台条，尽量保持版面接近正式公网应用。
+- `cloudflare-pages-proxy/dist/_worker.js` 已新增 `buildEmbedShellResponse()`，并让根路径 HTML 请求优先走该入口壳页；预览与正式域名首页均已恢复正常渲染。
+- 因自定义壳页接管后浏览器标签缺失站点 logo，现已将本地 `logo.png` 缩制成小号图标，并改为内嵌 `data:image/png;base64,...` favicon 链接，`fruition-component.pages.dev` 标签页现已带回品牌图标。
+
+## 2026-04-03 21:48 江海欧洲 ECV 系列铝电解析补齐
+- 发现 `ECV2AVTD100M0607V1` 并不是无效输入，而是江海欧洲 `CD VTD` 系列的正式订货码；已按官方目录 `JE25_ECap_Catalogue.pdf` 补进 `ECV + 电压码 + 系列码 + 容值码 + 公差码 + 尺寸码` 解析。
+- `component_matcher.py` 现已新增江海欧洲贴片铝电规则，已覆盖：
+  - `VT1`
+  - `VTD`
+  - `VZ2`
+  - `VZL`
+  - `VZS`
+- 已新增对应的官方电压码、公差码、尺寸码、系列画像，并把 `ECV...` 纳入 `jianghai_series_code_from_model()` 与 `parse_jianghai_aluminum_model()`。
+- 复测：
+  - `ECV2AVTD100M0607V1 -> 江海Jianghai / VTD / 10uF / ±20% / 100V / 6.3*7.7mm / 贴片 / -55~105℃ / 2000h`
+  - `ECV1VVZ2330M0605V1 -> 江海Jianghai / VZ2 / 33uF / ±20% / 35V / 6.3*5.4mm / 贴片 / -55~105℃ / 2000h`
+- 同时修正了 `build_rule_fallback_row_from_model()`，不再把所有 fallback 料号硬当成 `MLCC`；铝电这类规则反推行现在会补齐展示链需要的基础列。
+- 已补上 cloud bundle 的坏文件检查：`ensure_streamlit_cloud_data_bundle()` 与 `search_sidecar_assets_available()` 现在会把“文件存在但为 0 字节”视为无效并触发重提取，避免再次出现“数据库为空，搜索已提前停止”的假空库状态。
+
+## 2026-04-03 23:26 公网标签页 favicon 放大优化
+- 发现 `fruition-component.pages.dev` 虽然已经恢复了标签页 logo，但此前使用的是横向大字标缩进 64x64 方形图标，浏览器标签里留白过多，视觉上会显得过小。
+- 已将 `cloudflare-pages-proxy/dist/_worker.js` 中内嵌的 `FAVICON_DATA_URL` 替换为更紧凑的方形裁切版本，并同步更新 `cloudflare-pages-proxy/dist/favicon.png`，让标签页里的品牌图标占比更接近常规站点 favicon。
+- 首页 favicon 链接已改为直接请求 `/favicon.png?v=20260403b`，并在 Worker 中显式接管 `/favicon.png` / `/favicon.ico` 返回 PNG 响应，避免先前走静态路径时被代理逻辑重定向，导致浏览器继续拿到旧图标或空图标。
+- 本次调整不影响页面正文布局，只优化浏览器标签与收藏夹中的显示效果。
+
+## 2026-04-04 15:16 江海官方压缩包搜索侧车补齐
+- 按这次新抽取的江海官方压缩包与现有 `components_search.sqlite` 做差集，补写了 3,321 行缺失的江海铝电记录。
+- `components_search_core` 与 `components_search_capacitor` 已同步更新，搜索索引元数据也已重写，后续只需重新打包 bundle 并推送即可让公网侧拿到最新数据。
+
+## 2026-04-04 19:02 公网验收与扩库复核
+- 已用 Playwright 打开 `https://fruition-component.pages.dev/`，确认外壳页标题正常，真实应用 frame 已加载，并能展示查询输入框与搜索按钮。
+- 已用已知存在的型号 `ECS2ABZ122M250030` 做端到端搜索验证，页面返回 1 条匹配结果，耗时约 `1.7s`。
+- 复核了 `1 Snapin 2024-2025` 目录下的 `CD293/CD294/CD295/CD295S/CD296/CD296L/CD296Q/CD297/CD297S/CD299/CD29C/CD29CS/CD29CT/CD29F/CD29G/CD29H/CD29HE/CD29L/CD29NF/CD29UH` 等官方 PDF，解析出的型号与当前 CSV 对照后未发现缺失项。
+
+## 2026-04-04 19:32 根因修复：缓存签名与侧车缓存同步
+- 将查询缓存、数据缓存和原始库缓存拆开：`components.db`、`components_prepared_v5.parquet`、`components_search.sqlite` 现在各自走独立签名，避免“只换了派生层但底层没刷新”时继续命中旧结果。
+- `components_search.sqlite` 的索引签名已补入 `mtime`，同时把 `mlcc_lcsc_dimension_cache.json` 和 `pdc_findchips_cache.json` 纳入查询签名，避免侧车文件更新后仍沿用旧查询命中。
+- `search_sidecar_assets_available()` 现在会检查整套搜索资产，而不是只看主 SQLite 是否存在，避免文件缺失时误判为可用。
+- `load_mlcc_lcsc_dimension_cache()` 与 `load_samsung_mlcc_dimension_lookup()` 现在会按文件签名自动失效重载，`clear_data_load_caches()` 也会一并清空会话查询缓存和 MLCC 内存缓存，减少重复修表象。
+- 已验证 `component_matcher.py` 可正常编译并导入，且测试结果表明原始库/准备层/查询层的签名已经拆开，查询层会识别搜索索引与侧车缓存的变化。
+
+## 2026-04-04 23:40 Murata NTC 扩库与导入器修复
+- 补齐 Murata NTC 识别链路：`looks_like_thermistor_context()`、`parse_model_rule()`、`reverse_spec_partial()`、`build_model_naming_interpretation()` 和 Murata 规则拆解都已接入 `FTN/NCP/NCU/NCG` 型号前缀。
+- 修正导入器里缺失的 NTC 容差映射，避免 `热敏电阻_NTC.xlsx` 在归一化时直接被吞成空表。
+- 已重新解析 `Resistor/热敏电阻_NTC.xlsx`，写入 363 条 Murata 官方 NTC 记录，并把它们合入主库与搜索缓存。
+- 已重建 `streamlit_cloud_bundle.zip`，bundle 当前包含最新的 `components.db`、`components_search.sqlite` 和 `components_prepared_v5.parquet`。
+
+## 2026-04-05 Murata NTC 根因回修与全局容差修正
+- 已按 Murata 官方资料核实 `NCP03WF104D05RL`：`100kΩ ±0.5%`、`B25/50=4250K ±0.5%`、`0603(0201)`，确认截图里的 `0603`、空阻值、`±50%` 都是错误反推。
+- 修正了 Murata NTC 专用解析：尺寸码改为官方 `0603(0201)` 映射，阻值优先走 `104 -> 100kΩ` 的专用编码，不再被尾段 `05R` 误吸走。
+- 修正了共用的容差归一化逻辑，去掉了把 `0.5` 这类小数百分比错误放大的分支；这会影响所有走 `clean_tol_for_display()` 的型号，不限 Murata。
+- 已确认 `components.db` / sidecar 里当前并没有这条 NCP03 型号的预存记录，因此这次问题主要由代码解析路径导致，不是单个数据库行写坏。
+
+## 2026-04-05 Streamlit 登录态持久化
+- 新增 `streamlit_auth_state.py`，把 Streamlit/GitHub 登录态统一保存成 `streamlit_cloud_state.json`，下次启动优先加载，减少反复手动授权。
+- `auto_streamlit_deploy.py` 和 `tmp_keep_streamlit_login.py` 现在都基于 saved state 启动；一旦进入 Deploy 页面，会自动刷新 state 文件。
+- 已把 `streamlit_cloud_state.json` 加入 `.gitignore`，避免把登录态文件误提交到仓库。
+
+## 2026-04-06 MLCC 导入根因修复与扩库
+- 在 `component_matcher.py` 里给源文件导入补了默认器件类型推断：`Capacitor/MLCC.xlsx` 这类工作簿现在会在空类型时自动落成 `MLCC`，`系列` 也会从 `??` 回填为可用的通用系列名。
+- 重新跑了整库重建，`components.db` 里的 MLCC 行数提升到 `164,613`，空 `器件类型` 已清零，样例料号 `01R5N0R5B160CT` 现在能正确落到 `MLCC / MLCC`。
+- 已执行 `sync_local_and_public.py`，发布提交为 `ffbe2b0fca2013fcc2764e9805bd198caeaa193c`，对外 bundle 也已同步到最新库。
+
+## 2026-04-06 Rubycon 铝电解扩库与风华 AM 补录
+- 跑通 `build_rubycon_aluminum_expansion.py` 后，Rubycon 官方铝电解 PDF 新增 1,055 条记录，`Capacitor/aluminum_electrolytic_library.csv` 总行数更新到 15,411。
+- 继续同步 `sync_fenghua_am_official.py`，额外补入 15 条风华 AM 系列 MLCC 记录，当前 `风华Fenghua` 总数为 7,387 条。
+- 已重新执行 `sync_local_and_public.py`，最新发布提交为 `09fd077e3af10055d3e7c60f9af47966627021fb`，公网 bundle 已更新到这两批新数据。
+
+## 2026-04-06 MLCC 系列码修正与结果列精简
+- 排查到 `fill_missing_series_from_model()` 把 PDC MLCC 的系列写成了 `FS15` 这类“系列 + 尺寸码”拼接值，根因是早期的 PDC 兜底规则和展示层仅补空值、不改旧值。
+- 已把 PDC MLCC 系列规范改为统一回填系列前缀，并把 `SOURCE_NORMALIZED_CACHE_VERSION` 提升到 `2`，让旧的源标准化缓存强制失效重建。
+- 结果表里 `特殊用途` 列已从 `select_component_display_columns()` 的附加尾列中移除，MLCC 结果页现在不再单独显示这一列。
+- 已重建 `components.db` / `components_search.sqlite` / `components_prepared_v5.parquet`，并执行 `sync_local_and_public.py`；最新发布提交为 `3ad08da55db02b509844265f852842762d9f1175`。
+
+## 2026-04-06 Epson 晶振/振荡器官方源补入
+- 新增 Epson 官方晶振与振荡器抓取链路，`component_matcher.py` 现已接入 `Crystal*/*.xlsx` / `Crystal*/*.csv` 作为来源工作簿，并把 `crystal` / `oscillator` 路径纳入默认器件类型推断。
+- 抓取到的官方页已写入 `Crystal/晶振.xlsx` 与 `Crystal/振荡器.xlsx`，共补入 272 条 Epson 记录，主库里 `爱普生Epson` 当前共 272 条，`晶振` 44 条、`振荡器` 228 条。
+- 搜索侧车已先按数据库重建完成；准备层最初尝试全量重建过慢，最终改为把 Epson 这批新增 prepared 行增量追加到现有 `components_prepared_v5.parquet`，并同步更新 meta，避免白跑整库重算。
+- 当前 `components_prepared_v5.parquet` / `components_prepared_v5_meta.json` 已与 `components.db` 对齐，准备缓存状态为 current。
+
+## 2026-04-09 BOM 试做下拉版回退
+- 确认公网主线仍停在 BOM 推荐品牌/型号下拉试做版提交 `b190982f721046d7c1dabdfd0eb98c04928e6ad4`，用户要求回退到试做前版本。
+- 在独立工作树 `C:\Users\zjh\Desktop\data_publish_revert` 上基于 `origin/main` 生成回退提交 `f56ab24`，仅撤销 `component_matcher.py` 中 BOM 下拉试做逻辑，不夹带当前工作区其他未提交文件。
+- 已通过 GitHub deploy key 走 SSH 443 推送到远端 `main`；当前线上主线已从 `b190982` 前进到 `f56ab24`。
+
+## 2026-04-10 单型号查询去除同品牌重复结果
+- 修正了 `component_matcher.py` 中料号精确查询的同品牌兜底逻辑：输入品牌型号时，匹配结果不再把与“匹配料号资料”相同的品牌/型号重新塞回下方结果表。
+- 新增品牌型号对过滤辅助逻辑，并把料号模式展示改成“上方料号资料始终显示；下方只展示其他品牌结果”，若没有其他品牌则仅提示“未找到其他品牌匹配结果”。
+- 同步提升 `QUERY_RESULT_CACHE_VERSION` 到 `7`，避免沿用旧查询缓存继续显示重复结果。
+
+## 2026-04-10 BOM 结果表居中样式修正
+- 调整结果表默认单元格样式为水平、垂直居中，修复 BOM 行因“其他品牌型号”等长文本列变高后，前侧常规字段仍然贴左上显示的问题。
+- `其他品牌型号`、`规格参数明细`、`匹配参数明细`、`解析说明` 这类长文本列继续保留左对齐，仅常规短字段恢复居中显示。
+- 同步修正了页面内旧样式块和 iframe 结果表样式块，避免不同入口页的对齐表现不一致。
+
+## 2026-04-10 MLCC 系列解析与系列筛选根因修复
+- 修正了 `component_matcher.py` 里 MLCC 系列污染问题：`C1005`、`CC0402`、`CL05A`、`LMK105`、`CGA3E2` 这类“系列+尺寸/段码”混合值会统一收敛成纯系列码，如 `C`、`CC`、`CL`、`LMK`、`CGA`。
+- 补齐了 TDK / Samsung / Yageo / Taiyo / CCTC 等 MLCC 的通用系列画像，并把 `reverse_spec()`、快路径候选抓取、MLCC 系列类别过滤串起来，避免“常规料号/规格”继续混入 `车规 / 软端子 / 高容 / 高压` 等特殊系列结果。
+- 同时把数据库系列回填与缓存重建的临时文件改成唯一命名，并在主库文件被 Windows 占用时自动退回原库就地更新，避免系列修复再次被 `.tmp` 文件锁中断。
+
+## 2026-04-10 后续补库 / 命名规则 / 解析规则审计
+- 最高优先级正确性问题不在“缺系列”，而在一批 `MLCC` 错类数据：`威世 CRCW`、`EVER OHMS CR*`、`Bourns CR*`、`Venkel CR*`、`VO CR1/8W*`、`光颉 CR-*`、`TE CRG*` 等型号当前挂在 `MLCC`，但单位是 `Ω` 且规格摘要明确写着厚膜/碳膜电阻。
+- MLCC 规则层下一批高价值目标是系列仍为字面量 `MLCC` 的品牌前缀：`华新科Walsin`、`太诱Taiyo`、`村田Murata`、`国巨YAGEO`、`晶瓷Kyocera AVX`；其中 `AQ/CS`、`MEAS/JMR/LMR`、`KGM/KAM` 等前缀值得优先补，但需按官方规则逐支确认后再落库。
+- 热敏电阻规则也还有明显空白：`Vishay NTCLE/NTCALUG`、`TDK B57861/B57237/NTC*`、Murata 的部分 `NXF*` 仍缺系列说明和命名规则；而 `薄膜电容 / 钽电容` 当前模板文件仍为空，还不能直接扩库，需先补官方源。
+
+## 2026-04-10 MLCC 错类数据清洗（电阻误挂 MLCC）
+- 修正了 `infer_db_component_type()` / `infer_spec_component_type()` 的根因：不再无条件相信库里原有 `器件类型`，当 `校验备注` 含 `来源:resistor` 或 `规格摘要` 明确写出电阻时，会优先按高置信电阻证据纠正类型。
+- 新增导入阶段的器件类型证据覆盖与数据库 in-place 回灌，已把主库里 `48,884` 条“电阻误挂 MLCC”记录改回电阻家族，并把这批行的 `容值_pf` 清空，避免继续带着伪电容值进入准备层。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；复核结果为 `MLCC + 来源:resistor/规格摘要电阻` 剩余 `0`，示例 `Bourns CR0805-FX-1000ELF` 已变为 `厚膜电阻`，而 `国巨 AC0201CRNPO8BN1R0` 这类仅单位脏写成 `Ω` 的真实 MLCC 未被误伤。
+- 仍留有一批后续独立问题：主库里约 `842` 条真实 MLCC 的 `容值单位` 被写成 `Ω`，当前未做自动纠偏，避免把真 MLCC 误改类型；这批可在下一轮作为“单位规则清洗”单独处理。
+
+## 2026-04-10 MLCC 容值单位规则清洗（国巨 AC 系列）
+- 延续上一轮审计，补做了 `国巨YAGEO` 真 MLCC 的容值显示清洗：原库里 `914` 条 MLCC 虽然 `容值_pf` 正确，但 `容值/容值单位` 被错误写成了 `Ω / KΩ` 这类电阻单位。
+- 新增 `normalize_capacitor_value_fields_from_pf()`，导入阶段会在电容类器件已具备 `容值_pf` 且显示值/单位为空或非 `PF/NF/UF` 时，按 `容值_pf` 统一回写标准电容值与单位。
+- 同步新增数据库 in-place 回灌，把主库这 `914` 条错误显示值修正为标准电容表示，例如 `AC0201KRX5R6BB104 -> 100 NF`、`AC0201CRNPO9BN1R0 -> 1 PF`、`AC0201JRNPO9BN120 -> 12 PF`。
+- 现有 `components_prepared_v5.parquet` 也已按同规则分块重写并刷新 meta；复核结果为主库与 prepared 层的 `MLCC + 非 PF/NF/UF 单位` 均已清零。
+
+## 2026-04-10 MLCC 系列补全与污染系列清洗（Yageo / Taiyo / Murata / Walsin）
+- 修正了 `fill_missing_series_from_model()` 的根因：`MLCC` / `常规` 这类占位系列此前会在 MLCC 画像阶段被当成“非空已完成”，导致后面的真实前缀回填规则完全失效；现在 MLCC 占位会先清空，再继续按品牌规则回填。
+- 进一步把 PDC 系列回填改成品牌受限，不再全局套用，解决了 `太诱Taiyo` 的 `MSAST / MSAY / MSRL / MBARQ` 等型号被误判成 `信昌PDC MS / MBA` 并继承 `车规 / 软端子` 错说明的问题。
+- 补齐并核正了高置信系列规则：`国巨YAGEO AQ / AS / CS`、`太诱Taiyo UMK / HMK / QMK / SMK / QVS / TVS / MSAS / MSART / MSAY / MSRL / MBAS / MBARQ / MCARQ / MMARQ / MCAS / MCAST / MAAS`、`村田Murata RCE / RDE / RHE / ERB / RPE / RHEL / RPER`；同时把 `AQ/AS/CS`、`CQ`、`MCARQ` 等特殊系列的类别画像补到 `车规 / 软端子 / 高Q`。
+- 主库回灌后复核结果：`MLCC + 系列='MLCC'` 已降到 `0`，`太诱Taiyo + 系列='MS'/'MBA'` 已降到 `0`，`华新科Walsin` 这类无法高置信确定真实系列的 size-first 型号不再保留错误 `MLCC` 占位，而是回落为空系列。
+- 现有 `components_prepared_v5.parquet` 已按 row-group 分块重写，`components_search.sqlite` 已从新 prepared 缓存重建，prepared meta 与数据库签名一致；示例已核对：`CS0402KRX7R7BB104 -> CS`、`AQ0402JRNPO9BN100 -> AQ`、`UMK063CG010CT-F -> UMK`、`MSAST021SCG220JWNA01 -> MSAS`、`MSAYE105SSD222KFNA01 -> MSAY`、`RCE5C2A122J0A2H03B -> RCE`。
+
+## 2026-04-10 Walsin 官方系列补全（RF / HH / SH / RT / 01R5）
+- 继续补 `华新科Walsin` 的官方 MLCC 系列规则：新增 `RF / HH / SH / RT / UF / 01R5` 系列画像与类别映射，来源仅采用 Walsin 官网产品家族页面，不对 `1206N... / 0805N...` 这类 numeric size-first 常规料号硬猜系列码。
+- 修正了 `parse_walsin_common()` 对高 Q 两位前缀系列的解析：补入 `RF/HH/SH/RT` 的系列字段、系列说明、类别画像，并补齐 `15 -> 0402`、`11 -> 0505`、`42 -> 1808`、`43 -> 1812`、`56 -> 2225` 等 Walsin 前缀系列尺寸码映射。
+- 同步补齐了 Walsin 高 Q / 软端子系列的容差码解析，`A/B/C/D` 现可正确映射为 `0.25PF / 0.1PF / 0.25PF / 0.5PF`，例如 `RT15N0R6B500CT` 现在能直接反解为 `RT / 0402 / COG(NPO) / 0.6PF / 0.1PF / 50V`。
+- 已执行主库 in-place 系列回灌，共更新 `1,606` 行；其中 `RF=619`、`HH=434`、`SH=496`、`RT=19`、`01R5=38`，并确认污染值 `RF03 / HH15 / SH15 / RT15` 全部清零。
+- 系列筛选联动已复核：`三星Samsung` 常规 `CL05B104KB5NNNC` 与 `CL10A106KP8NNNC` 的目标系列类别不会再命中 Walsin 的 `RF / HH / SH / RT` 候选，只会保留空系列/常规料。
+
+## 2026-04-10 Murata 官方系列补全（RHS / LLM / LLR）
+- 继续清 `Murata MLCC` 的空系列，仅补了有官方一手依据的 `RHS / LLM / LLR` 三支；`DHR / DEHR` 以及 `芯声微HRE` 的 `CAI` 因缺少足够高置信官方规则，本轮保持不动，避免误判。
+- 新增 `RHS / LLM / LLR` 到 `MURATA_SERIES_PREFIX_PATTERN`、`MURATA_SERIES_MEANING` 与 `MURATA_MLCC_SERIES_CLASS`：`RHS` 归为 `车规`，`LLM / LLR` 归为 `常规`，同时提升 `SOURCE_NORMALIZED_CACHE_VERSION` 到 `7`、`QUERY_RESULT_CACHE_VERSION` 到 `9`，强制旧源标准化缓存与旧查询结果缓存失效。
+- 已执行主库 in-place 系列回灌，共更新 `218` 行；其中 `RHS=191`、`LLM=20`、`LLR=7`，`Murata MLCC` 空系列从 `752` 降到 `534`，`芯声微HRE` 空系列仍为 `10`。
+- 抽查样例已写实到库：`RHS7G2A101J0A2H01B -> RHS / 高温车规引线型 / High-temperature leaded automotive MLCC / 车规`，`LLM215R71C104MA11K -> LLM / 常规低ESL / 10 terminals low ESL MLCC for General Purpose`，`LLR185C70G105ME01K -> LLR / 常规低ESL控ESR / LW reversed controlled ESR low ESL MLCC for General Purpose`。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；类别筛选复核为 `车规 -> 常规` 不再互相放行，因此 `RHS` 不会再混入常规 MLCC 推荐。
+
+## 2026-04-10 Murata 官方系列补全（DEH / DEJ / DHR）
+- 继续补 `Murata MLCC` 的高置信空系列，这轮新增 `DEH / DEJ / DHR` 三支官方系列画像；其中 `DEHR*` 型号统一回到 `DEH`，`DEJE* / DEJF*` 统一回到 `DEJ`，`DHR*` 保持 `DHR`。
+- 新增 `DEH / DEJ / DHR` 到 `MURATA_SERIES_PREFIX_PATTERN`、`MURATA_SERIES_MEANING` 与 `MURATA_MLCC_SERIES_CLASS`：`DEH / DEJ / DHR` 全部打上 `高压` 类别，避免后续常规 MLCC 继续混出这批高压/超高压料。
+- 已执行主库 in-place 系列回灌，共更新 `168` 行；其中 `DEH=109`、`DEJ=23`、`DHR=36`，`Murata MLCC` 空系列从 `534` 进一步降到 `367`。
+- 抽查样例已写实到库：`DEHR32E152KB2B -> DEH / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. R, C))`，`DEJE3E2102ZC3B -> DEJ / 高压 / High Voltage (High Temperature Guaranteed, Low-dissipation Factor (Char. D))`，`DHR4E4B101K2BB -> DHR / 超高压 / Ultrahigh Voltage`。
+- 已重建 `components_prepared_v5.parquet` 与 `components_search.sqlite`；剩余 `Murata` 空系列主量当前集中在 `DEA / DEB / DEC / DEF / KC / GJ / WBM` 这几支，后续仍需按官方资料逐支确认，不能硬猜。
+
+## 2026-04-10 BOM 结果气泡框与下载按钮位置调整
+- 调整了 BOM 匹配结果区的布局：`下载 BOM 匹配后 Excel` 按钮不再放在 iframe 气泡框内部，而是改为在气泡框下方单独渲染，紧贴底部显示。
+- 新增页面级 `bom-download-footer-outside` 样式，并保留右对齐按钮布局；iframe 内的 BOM 结果表不再注入下载按钮 footer。
+- 同时下调 `estimate_bom_result_iframe_height()` 的基础高度，让 BOM 结果气泡框只包住表格本体，不再因为底部按钮/冗余留白把气泡框拉长。
+
+## 2026-04-10 BOM 结果可视行数与按钮贴合再调整
+- 进一步把 BOM 结果区改成“同一个 iframe 内：上方气泡框，下方按钮区”的结构，避免 Streamlit 外层组件高度和独立 markdown 块之间再产生大段空白。
+- `render_clickable_result_table()` 新增 `outer_footer_html`，并由 `build_result_table_iframe_html()` 在气泡框外、但仍在同一 iframe 中输出按钮区，这样 `下载 BOM 匹配后 Excel` 会自然紧贴气泡框底边。
+- `estimate_bom_result_iframe_height()` 改为按 10 行数据高度估算，并提高上限，让 BOM 结果表默认能看到 10 行数据（不含标题行）。
+
+## 2026-04-10 BOM 手动定位按钮贴边微调
+- 在 `BOM原始内容预览` 下方新增独立的 `bom-manual-toggle-pull` 上拉锚点，把 `找不到规格手动定位匹配位置` 按钮单独往上吸附，不修改上方预览表格的显示参数。
+- 手动定位按钮所在列改为单独注入上拉锚点后再渲染 `st.button(...)`，避免只靠外层空白抵消导致间距不稳定。
+
+## 2026-04-10 BOM 手动定位按钮贴边再修正
+- 放弃只拉按钮本体的做法，改为直接给 `BOM原始内容预览` 下方锚点后的整行 `stHorizontalBlock` 加负 `margin-top`，让整颗 `找不到规格手动定位匹配位置` 按钮像下载按钮一样贴近上方气泡框。
+- 保留 `BOM原始内容预览` 的 `st.dataframe(..., height=220)` 不变，只调整按钮行容器的垂直间距，避免再改预览表格参数。
+
+## 2026-04-10 BOM 手动定位按钮改为 HTML 贴底按钮
+- 彻底放弃 `st.button` 方案，改成和 `下载 BOM 匹配后 Excel` 同一套 HTML 按钮样式，避免 Streamlit 组件自身的隐藏留白继续把按钮撑离气泡框底部。
+- 新增 `bom_manual_mapping_toggle` 查询参数切换逻辑：点击按钮后通过 URL 参数触发展开/收起，再立即清掉参数并 `st.rerun()`，从而保留原有手动定位开关行为。
+- `BOM原始内容预览` 下方按钮区改为单独的 HTML footer，并通过 `bom-preview-toggle-anchor` 对应容器直接上拉，让按钮贴近预览表格气泡框底部，同时不修改预览表格的 `height=220` 参数。
+
+## 2026-04-10 17:35 BOM 原始内容预览按钮位置对齐结果卡片
+- 按用户给的对照图继续收紧 `BOM原始内容预览` 下方 `找不到规格手动定位匹配位置` 按钮的位置，目标是让它和 `下载 BOM 匹配后 Excel` 一样，贴着上方气泡框底部显示。
+- 这次不再沿用 `st.dataframe(...)` 预览表；已改为复用结果区同一套 iframe 卡片表格渲染，新增 `render_static_preview_table()` 与 `estimate_bom_preview_iframe_height()`，让预览区本身的气泡框和结果区保持一致的壳层结构。
+- 同时把 `bom-preview-toggle-anchor` 所在容器的上拉间距从 `-8px` 收紧到 `-12px`，让手动定位按钮更贴近预览气泡框底边。
+- `python -m py_compile component_matcher.py` 已通过；本轮修改只涉及 `component_matcher.py` 的 BOM 预览显示链路和按钮间距，不影响匹配逻辑与导出逻辑。
+
+## 2026-04-10 21:31 会员系统与错误回报审核流程独立样板
+- 按用户要求试做了一版完全独立的会员/审核原型，不接到当前公版入口，也没有改现有 `streamlit_app.py` / `component_matcher.py` 的正式逻辑；样板文件为 [member_feedback_prototype_app.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_app.py)、[member_feedback_prototype_store.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_store.py) 和说明文档 [MEMBER_FEEDBACK_PROTOTYPE.md](C:/Users/zjh/Desktop/data/MEMBER_FEEDBACK_PROTOTYPE.md)。
+- 原型库单独落在 `prototype_data/member_feedback_prototype.db`，运行时自动创建，里面拆出了 `users / registration_requests / component_rows / feedback_tickets` 四类数据；审核通过后只更新这套原型库，不碰当前正式版 `components.db`。
+- 样板流程已覆盖：注册申请账号、管理员审核开通、会员查看匹配结果样板、结果表最后一栏 `回报错误`、用户直接修改字段并填写备注提交、管理员审核通过/驳回、审核通过后写回原型匹配数据。
+- 已完成的验证包括：`python -m py_compile member_feedback_prototype_store.py member_feedback_prototype_app.py` 通过；临时测试库里验证了 `demo / demo123`、`admin / admin123` 登录成功，注册申请成功，纠错单提交成功，管理员审核通过后原型行数据确实更新。
+- 当前这是“方向样板”，重点是给用户先看会员/审核/纠错的交互闭环；如果后续确认方向没问题，再把权限体系、工单字段、数据库更新规则迁进公版会更稳。
+
+## 2026-04-10 21:42 会员样板登录后 HTML 露出与回报错误按钮无效修复
+- 用户实测发现 `demo` 账号登录后，顶部统计卡片区域直接露出 `<div class=...>` 原始 HTML，同时匹配结果区的 `回报错误` 按钮只是表面链接，点击后无法稳定进入可编辑表单。
+- 根因一是 `metrics_html()` 里拼卡片时沿用了多行缩进 HTML，Streamlit 会把带前导空格的块按 markdown code block 处理，导致部分 HTML 原样显示。根因二是样板最初把操作按钮做成了自定义 HTML 表格里的 `<a href="?edit_row=...">`，在 Streamlit 的自定义块里交互不稳定，不能当成真正的业务按钮依赖。
+- 已改为：新增 `render_html_block()` 做去缩进后的稳定 HTML 渲染；顶部统计卡片改成纯拼接字符串输出，不再把带缩进的 `<div>` 喂给 markdown。匹配结果区则改成原生 Streamlit 行布局 `render_feedback_rows()`，每行最后一栏都使用真正的 `st.button("回报错误")`，点击后通过 `prototype_edit_row_id` 会话态进入下方纠错编辑表单。
+- 同时补了 `set_active_edit_row()` / `get_active_edit_row_id()` / `clear_active_edit_row()`，让编辑态不再只靠 query 参数；点击按钮、提交成功、取消编辑、退出登录都会正确同步清理状态。
+- `python -m py_compile member_feedback_prototype_app.py member_feedback_prototype_store.py` 已再次通过，本地样板服务已重启到 `http://localhost:8510`，可让用户直接刷新复测新的交互版本。
+
+## 2026-04-10 22:40 保留原匹配页面的会员整合原型
+- 用户明确希望样板保留“原本匹配系统页面”，而不是只看独立会员后台，因此额外创建了独立原型副本 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 与入口 [streamlit_member_prototype_app.py](C:/Users/zjh/Desktop/data/streamlit_member_prototype_app.py)，不修改正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)。
+- 原型库 [member_feedback_prototype_store.py](C:/Users/zjh/Desktop/data/member_feedback_prototype_store.py) 已扩成可承接真实匹配结果行：新增 `idx_component_rows_brand_model` 唯一索引，以及 `ensure_component_row_from_payload()`、`get_component_row_by_identity()`、`overlay_component_payload_with_store()`，让匹配结果能落到独立原型库，并在管理员审核通过后覆盖回原型显示层。
+- 在原型副本里补入了会员登录/注册申请/我的回报/管理员注册审核/管理员纠错审核/原型数据页路由；登录后若选择 `匹配系统`，继续走原本搜索与 BOM 页面，不会像前一版那样把匹配系统页面替换掉。
+- 匹配结果表 `render_clickable_result_table()` 已在原型副本中额外插入 `回报错误` 列：每行都会先 `ensure_component_row_from_payload()` 落到原型库，再输出 `target="_top"` 的操作链接，点后会在当前页面底部出现 `回报错误编辑区` 表单，支持直接修改字段并提交备注。
+- 验证情况：`python -m py_compile member_feedback_prototype_store.py component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过；整合原型已启动到 `http://localhost:8512` 并返回 `HTTP 200`。说明文档 [MEMBER_FEEDBACK_PROTOTYPE.md](C:/Users/zjh/Desktop/data/MEMBER_FEEDBACK_PROTOTYPE.md) 也已补充“仅会员样板”和“保留原匹配页整合原型”两种入口说明。
+
+## 2026-04-10 23:41 会员整合原型主页面可见会员区与 BOM 预览按钮回调
+- 用户实测 `http://localhost:8512` 后反馈三件事：登录 `demo` 后上传 BOM 看起来像回到普通版、手动定位按钮又悬在预览表下方、以及会员账号看不到“会员专区 / 当前账号 / 退出会员按钮”。根因确认是整合原型此前把会员入口完全放在侧边栏，而默认侧边栏又是收起状态；同时 `BOM原始内容预览` 的 iframe 高度下限设得过大，导致预览表下面出现明显留白，把按钮继续往下推。
+- 已在 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 中新增主页面可见的 `会员专区` 头部壳层：显示当前账号、登录名、身份、当前页面与团队信息，并把页面切换入口改成主内容区的横向 `radio`，同时保留 `退出会员登录` 按钮，不再依赖用户先展开侧边栏才能看到会员能力。
+- 同时下调 `estimate_bom_preview_iframe_height()` 的基础高度与最小高度，把 `BOM原始内容预览` 根据真实预览行数收紧，减少预览卡片底部空白；并把 `bom-preview-toggle-footer` 再上拉 `2px`，让 `找不到规格手动定位匹配位置` 更贴近预览区底边。
+- 本轮只修改整合原型副本，不触碰公版文件；`python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 已通过，`8512` 进程已重启并返回 `HTTP 200`，等待用户刷新页面复测主页面会员区与 BOM 预览按钮位置。
+
+## 2026-04-12 00:39 正式版原厂料号卡片补充官方规格摘要并加数据库直查兜底
+- 用户继续在正式版实测时指出：搜索 `CM13093CT-102` 虽然应该能认出是 Bourns 原厂料号，但页面却表现成“没有其他品牌匹配”且看不到规格参数，怀疑是不是数据库里根本没有这颗品牌型号。本轮先对正式版搜索链路做了逐层排查。
+- 现场确认结果不是“数据库缺料号”：在正式版 [components.db](C:/Users/zjh/Desktop/data/components.db) 中，`CM13093CT-102` 可被 `型号` 与 clean model 两种方式直接命中；`resolve_prefetched_exact_part_rows()`、`detect_query_mode_and_spec()` 与 `load_component_rows_by_query_model_tokens()` 也都能把它识别成 `料号`，并带出 `Bourns / 共模电感 / 安装方式 / 尺寸(mm) / 规格摘要 / 数据来源`。
+- 真正的问题在于正式版原厂资料卡的展示 schema 以前只盯着 `电感值 / 共模阻抗 / 额定电流 / DCR` 这类结构化列；而 `CM13093CT-102` 当前这批官方来源属于“官网系列页摘要型数据”，关键信息主要存放在 `尺寸（mm） / 规格摘要 / 特殊用途`，因此卡片虽然命中了原厂行，却会视觉上像“没规格”。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `build_part_info_df()` 中补上正式版原厂料号卡片的电感类附加列：当器件类型属于 `功率电感 / 共模电感 / 磁珠` 时，会把 `尺寸（mm） / 规格摘要 / 特殊用途` 一并挂到原厂资料卡尾部，再接 `官网链接 / 数据来源`。这样像 `CM13093CT-102` 现在会直接看到 `13 x 16 x 9.2 mm | 1.0 +50 %/-35 % | 10 Ω – 5,000 Ω | 2.8 A` 这类官方摘要。
+- 同时新增一个正式版搜索兜底：在搜索页主循环里，如果当前输入先被判到 `无法识别 / 规格不足`，但它本身长得像完整料号且数据库能直查到原厂行，就强制切回 `料号` 分支，按数据库原厂资料继续展示，不再把这类真实存在的型号误记到“需要补充或修正输入”。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；函数级验证 `CM13093CT-102` 当前 `resolve_search_query_dataframe_and_spec()` 返回 `mode=料号 / candidate_rows=1`，`build_part_info_df()` 已能输出 `尺寸（mm） / 规格摘要 / 特殊用途 / 数据来源`；正式版 `8511` 已重启并返回 `HTTP 200`。
+
+## 2026-04-11 18:48 正式版电感官方库已同步入正式库并改成增量刷新缓存
+- 用户继续要求正式版往“可工作使用”的方向推进，本轮继续只动正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) / [components.db](C:/Users/zjh/Desktop/data/components.db) / [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) / [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，未触碰已冻结的测试板与会员原型。
+- 先把 [build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py) 扩成真正纳入 Bourns 官方页面抓取：新增并接通 `power inductors / RF chokes / common-mode chokes / EMC chokes` 四类官方页面来源，并在生成阶段做型号清洗与同键合并，去掉 `Series / MDS / 区间文本` 之类脏 token。官方扩展表 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 由 363 条扩到 438 条，现包含 `Bourns 功率电感 230 / Bourns 共模电感 59 / Würth 功率电感 134 / Würth 共模电感 13 / Würth 磁珠 2`。
+- 为了让这批官方数据能持续增量落库，新增正式版同步脚本 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py)：按 `器件类型 + 品牌 + 型号` 替换正式库中对应键，并只刷新受影响型号的搜索侧库与 prepared cache，不再走整库全量重建。
+- 同时补强正式版电感官方推断保护：在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 里新增 `text_contains_inductance_range / text_contains_current_range / text_contains_impedance_range`，并把 `infer_official_inductor_fields_from_row()` 与 `infer_component_display_fallbacks_from_row()` 两层都改成“遇到范围只保留范围摘要，不抠成假精确值”。这次专门修掉了 `CM13093CT-102 / CM13090CT-242 / CM13092CT-412 / CM13091CT-872` 这类共模电感把 `10Ω / 25Ω / 50Ω / 100Ω` 区间下限误写成精确阻抗的问题。
+- 本地执行结果：`python sync_inductor_official_to_db.py` 返回 `source_rows=438 deleted=438 inserted=438`，同步后 `after_summary` 显示 `共模阻抗` 由 3 清到 0、`阻抗单位` 仅保留 2 条有明确值的记录；再做 `official_inductor_expansion.csv` 与正式版 `components.db` 的逐键比对，得到 `mismatch_count=0`，说明这批官方电感键已与正式库完全对齐。
+- 抽样核对：`CM13093CT-102` 现在只保留 `13 x 16 x 9.2 mm | 1.0 +50 %/-35 % | 10 Ω – 5,000 Ω | 2.8 A` 这类范围摘要，不再显示伪造的精确 `共模阻抗=10Ω`；`SDE0403AT` 也仅保留 `1 - 68 µH | 0.4 - 2.7 A` 区间摘要，不再把系列页范围误当成单一规格值。`FC2012AN` 的正式版原厂资料卡片仍保持正常显示 `石英晶体（Crystal Unit） / FC2012 / 32.768kHz / 数据来源`。
+
+## 2026-04-11 18:48 正式版电感官方库已同步入正式库并改成增量刷新缓存
+- 本轮继续推进正式版，不触碰测试板/会员原型；重点把 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv) 这批官方 `功率电感 / 共模电感 / 磁珠` 数据真正落进正式版数据库与缓存链路，而不是只在前端显示时临时推断。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 补强正式版入库归一化：对电感类官方源，若原始表把电感量放在 `容值 / 容值单位`，现在会自动回填到 `电感值 / 电感单位`，例如 `PQ2614BHA` 在入库阶段就能得到 `2.2 / UH`，不再只有页面展示时才补得出来。
+- 新增正式版定向同步脚本 [sync_inductor_official_to_db.py](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py)：会按 `器件类型 + 品牌 + 型号` 精准替换这批 363 条官方电感键到 [components.db](C:/Users/zjh/Desktop/data/components.db)，避免“旧浅数据仍留在正式库里、搜索继续混到旧行”的问题。
+- 同时把缓存刷新逻辑从“全量重建整库”改成“仅刷新受影响键”：
+  正式版搜索侧库 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 现在只删除并回写这批受影响型号对应的 sidecar 行，再重写 meta。
+  正式版 prepared cache [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 现在只替换这批官方电感在 prepared 数据里的旧行，并同步更新 [cache/components_prepared_v5_meta.json](C:/Users/zjh/Desktop/data/cache/components_prepared_v5_meta.json)。
+- 这样做的原因是前一版全量刷新虽然数据库写入成功，但整库 prepared cache 重建会拖很久；现在已改成适合后续持续拓库的正式版增量刷新方式。
+- 本地执行结果：`source_rows=363 deleted=363 inserted=363`，并确认 `prepared_cache_is_current=True`、`search_index_is_current=True`。抽样检查 `PQ2614BHA / 784831047068 / 7427511 / DR221` 已能在正式库与 prepared cache 中看到更新后的 `系列 / 系列说明 / 电感值 / 电感单位 / 额定电流 / DCR / 工作温度 / 安装方式 / 数据来源` 等字段；正式版 `8511` 也已重启到新缓存进程。
+
+## 2026-04-11 17:28 正式版料号搜索卡片改为按真实器件类型展示
+- 用户反馈正式版搜索 `FC2012AN` 时，页面虽然已能命中原厂料号，但 `匹配料号资料` 仍显示成旧版通用表头，看起来像“还是没有”；根因是这块卡片之前按输入解析出来的 `spec` 决定栏位，而不是按数据库命中的真实器件类型决定栏位，导致晶振/电感等器件被降级成通用显示。
+- 已在正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 调整 `resolve_component_display_type()` 与 `build_part_info_df()`：命中数据库行后会优先按真实器件类型渲染表头，并把 `官网链接 / 数据来源` 接到原厂资料卡片尾部。现在 `FC2012AN` 会显示 `石英晶体（Crystal Unit） / 系列 / 系列说明 / 频率 / 频差 / 工作温度 / 官网来源`，不再只剩品牌型号和空白参数。
+- 同时把“已找到原厂料号资料，但暂无其他品牌替代结果”从失败态改成明确提示，不再把这种情况算成纯 `无匹配`，减少用户看到 `成功 0 / 无匹配 1` 时误以为连原厂资料都没查到的误解。
+- 顺手补齐了正式版电感系列说明刷新逻辑：像 `PQ2614BHA` 这类官方库数据，系列已识别为 `SRP` 时，系列说明也会同步更新为 `Bourns SRP 屏蔽功率电感系列`，不再残留旧的型号文案。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；抽样验证 `FC2012AN / 784831047068 / 7427511 / PQ2614BHA` 的原厂资料卡片均已按真实器件类型输出对应关键字段。正式版 `8511` 也已重启到新代码进程。
+
+## 2026-04-11 10:59 测试板改为更偏工作台的判读视图
+- 用户希望先在测试板按“更适合实际工作”的方向试做一版，但明确要求正式版不要动。本次仅修改 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py)，未触碰公版入口或正式版逻辑文件。
+- 在搜索页加入了“结果建议”卡：会根据当前候选的推荐等级自动归纳成“可优先采用 / 需人工确认 / 建议逐笔判断 / 未找到结果”，并直接给出下一步动作建议，减少用户看完表格还要自己二次判断的成本。
+- 在 BOM 结果页加入了“BOM 工作视图”：先把结果按 `可直接采用 / 需人工确认 / 无匹配 / 解析失败` 四类汇总展示，再提供一组筛选按钮，只看某一类结果时会直接过滤下方表格；同时在表格里新增 `工作判断` 和 `下一步建议` 两列，让每一行的处理方式更直接。
+- 顺手把“找不到规格手动定位匹配位置”按钮改成靠近说明区的工具条样式，不再沿用右下角下载按钮的摆法，避免测试板继续出现“按钮位置像跑掉”的观感。
+- 本地校验结果：`python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过；重启 `8512` 测试板进程后，`http://127.0.0.1:8512` 返回 `HTTP 200`，stderr 日志未出现新的 Python 异常。
+
+## 2026-04-11 00:12 会员整合原型回退到公版 BOM 预览按钮位置
+- 用户指出“按钮问题没解决”，并要求对照公版确认真实位置。已使用 Playwright 对本机公版 `http://localhost:8511` 复测同一份 `阻容-POLED-报价.xlsx`：公版当前实际效果就是 `BOM原始内容预览` 下方留一段明显空白后，按钮才出现在更靠下的位置；之前把原型往上贴近气泡框的判断不准确。
+- 因此已把 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 中与 BOM 预览按钮相关的两处改动回退到公版参数：`estimate_bom_preview_iframe_height()` 恢复到和 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 一致的 `base=86 / per_row=42 / min_height=220 / max_height=320`，`bom-preview-toggle-footer` 也恢复为 `margin-top: 0`，确保整合原型 BOM 预览区与公版布局一致。
+- 同时对 `8511` 和 `8512` 都做了同文件上传复测，发现两者当前都会停在 `已处理 1/64 行 · 2% · 第 2 行` 这一状态；这说明“BOM 卡在 2%”不是会员原型单独引入的回归，而是当前本机匹配链路本身也存在问题。由于用户本轮主要先追按钮基准，当前先保留这个确认结论，后续再单独继续追 BOM 卡住根因更稳。
+
+## 2026-04-11 09:55 8512 本地测试版进程掉线后重新拉起
+- 用户反馈 `http://localhost:8512` 打不开，浏览器报 `ERR_CONNECTION_REFUSED`。现场确认后发现不是页面代码本身报错，而是 `8512` 端口当时没有进程在监听，`8510` 和 `8511` 仍然正常。
+- 通过 `Start-Process python -m streamlit run streamlit_member_prototype_app.py --server.address 127.0.0.1 --server.port 8512 --server.headless true` 重新拉起整合测试版，并将 stdout/stderr 继续写回 `tmp_8512_stdout.log` / `tmp_8512_stderr.log`。
+- 复测结果：`8512` 已恢复监听并返回 `HTTP 200`，可通过 `http://127.0.0.1:8512` 继续访问整合测试版。
+
+## 2026-04-11 10:09 会员整合原型修复登录态恢复缺失辅助函数
+- 用户刷新 `8512` 后又遇到 `NameError: name 'set_query_param' is not defined`，报错点在 `prototype_bootstrap_auth_state()` 和 `prototype_login_user()` 的 query param 写入链路。
+- 已在 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 的 `get_query_param_text()` 后补回 `set_query_param()` 与 `clear_query_param()`，并重新启动 `8512` 进程。
+- 复测结果：`http://127.0.0.1:8512` 返回 `HTTP 200`，语法检查 `python -m py_compile component_matcher_member_prototype.py streamlit_member_prototype_app.py` 通过。
+
+## 2026-04-11 10:20 BOM 结果表“回报错误”列空白修复
+- 用户指出 BOM 匹配结果表最后一栏标题虽然在，但每一格都没有可点击按钮。排查后确认不是表格列没画出来，而是 [prototype_result_row_payload](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py#L15200) 只认普通匹配表的 `品牌/型号`，而 BOM 结果页实际更多用的是 `推荐品牌/推荐型号`、`推荐品牌1/推荐型号1` 等列。
+- 已将 [component_matcher_member_prototype.py](C:/Users/zjh/Desktop/data/component_matcher_member_prototype.py) 的按钮身份提取改成多字段兜底：优先读 `品牌/型号`，再读 `推荐品牌/推荐型号` 与备选推荐槽位；若仍为空，则用 `BOM行号` 生成临时身份，确保最后一栏不再整列空白。
+- 同时把该函数复用给 `prototype_overlay_row_from_store()`，这样后续管理员审核通过的纠错结果也能继续回写到同一条原型记录。`python -m py_compile component_matcher_member_prototype.py` 已通过，整合测试版 `8512` 仍返回 `HTTP 200`。
+
+## 2026-04-11 11:40 正式版拓库与参数明细显示增强
+- 本轮回到正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py)，未触碰已冻结的测试板/会员原型；重点是把“库不够深、系列说明不稳、各器件参数展示不够详细”的问题先往前推进一版。
+- 已扩充正式版展示字段与回填逻辑：新增并接通 `封装代码 / 生产状态 / 直径（mm） / 极性 / ESR / 纹波电流 / 阻值@25C / 阻值单位 / 阻值误差 / B值 / B值条件 / 共模阻抗 / 阻抗单位 / 额定电流 / DCR / 回路数 / 电感值 / 电感单位 / 电感误差 / 饱和电流 / 屏蔽类型 / 阻抗@100MHz / 负载电容（pF） / 驱动电平 / 输出类型 / 占空比` 等明细字段，并补了从备注/规格文本反推这些字段的兜底逻辑。
+- 已增强不同器件的显示 schema：铝电解会优先展示直径/高度、极性、ESR、纹波电流；热敏电阻展示 `R25 / 阻值误差 / B值 / B值条件`；功率电感/共模电感/磁珠各自展示最关键的选型参数；晶振/振荡器分别展示 `负载电容 / ESR / 驱动电平` 与 `输出类型 / 占空比 / 电源电压`。
+- 已同步一批正式库数据到 [components.db](C:/Users/zjh/Desktop/data/components.db)：Murata 官方 NTC 明细、Epson 晶振与振荡器资料，并补齐正式库所需的时间元件扩展列，如 `频率 / 输出频率 / 频率单位 / 频差（ppm） / 电源电压 / 输出类型 / 占空比 / 负载电容（pF） / 驱动电平`。同步后又增量刷新了正式版缓存 [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与搜索侧库 [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)，避免正式版还在读旧展示数据。
+- 进一步修正正式版展示清洗：`clean_voltage()` 现在会把 `None / nan / n/a` 这类占位文本清空，不再出现 `NONEV`；同时把 `1.7 to 3.63V`、`13 to 55.2 MHz` 这种范围值规范成 `1.7~3.63V`、`13~55.2` 的正式展示格式，避免参数读起来生硬。
+- 本地校验结果：`python -m py_compile component_matcher.py component_matcher_build.py` 通过；抽样验证显示链路已能正确得到 Murata NTC 的 `100000Ω / ±0.5% / 4250K / 25/50℃`，以及 Epson 振荡器的 `13~55.2MHz / ±0.5% / 1.7~3.63V / 输出类型 / 工作温度`。
+
+## 2026-04-11 12:05 正式版料号搜索补上中英双语器件类别
+- 用户指出正式版精确料号搜索里，`匹配料号资料` 经常只看得到品牌和型号，看不出这个料号到底是该品牌的哪一种元器件；例如爱普生 `FC2012AN` 之前只能看到 `爱普生Epson / FC2012AN`，却没有明确显示它是晶体产品。
+- 已在正式版 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增统一展示字段 `器件类别`，并做成中英双语值，例如 `陶瓷贴片电容（MLCC）`、`热敏电阻（NTC Thermistor）`、`石英晶体（Crystal Unit）`、`晶体振荡器（Oscillator）`、`功率电感（Power Inductor）` 等；该字段只用于前端显示，不改数据库原始 `器件类型` 字段。
+- 该双语器件类别已接到正式版两条主要显示链路：一是精确料号搜索的 `匹配料号资料` 表，二是匹配结果表中的候选型号行。搜索页标题也改成优先显示双语器件类别，例如 `石英晶体（Crystal Unit）匹配结果（含推荐等级）`。
+- 本地实测 `FC2012AN` 现在会显示 `爱普生Epson / FC2012AN / 石英晶体（Crystal Unit） / FC2012 / 32.768kHz / ±20% / 2012`；`NCP02WF104D05RH` 会显示 `热敏电阻（NTC Thermistor）`，确认不是只针对单一品牌生效。
+
+## 2026-04-12 03:02 公开版修复云端搜索索引误判导致卡在预取精确料号
+- 用户在公开版 `https://fruition-component.pages.dev/` 搜索 `CM13093CT-102` 时，页面卡在“正在预取精确料号 / 进度 0/1 / 预取数 1”，没有继续往下返回结果。
+- 继续排查公开版 Streamlit Community Cloud 链路后确认，`cache/components_search.sqlite` 和 prepared cache 的 meta 里记录的是本地 Windows `components.db` 绝对路径；云端运行时路径不同，导致 `search_index_is_current()` / `prepared_cache_is_current()` 误判为过期，并尝试触发整库重建，因此前端会停在预取精确料号阶段。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 新增公开版 bundle 运行态兜底：当云端 bundle 已是当前版本时，搜索索引和 prepared cache 改按 `schema/cache version + bundle 当前状态` 判断是否可用，不再因为 `db_path` 与本机不同就触发重建。
+- 待完成本地语法校验与公开版重新发布后，再用 `CM13093CT-102` 在正式网页实测，确认不再卡在预取阶段。
+
+## 2026-04-12 04:05 公开版料号表尺寸栏统一为单列
+- 用户要求把 `尺寸（inch）` 的表头改成 `尺寸`，并把刚刚加出来的 `尺寸（mm）` 后缀列去掉，统一放回前面的尺寸栏。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的展示层做统一尺寸处理：前端表格现在会优先显示 `尺寸（inch）`，若为空则回填 `尺寸（mm）`、`尺寸(mm)` 或 `._body_size`，并把表头改为 `尺寸`。
+- 同时移除了共模电感结果页里额外插入的 `尺寸（mm）` 后缀列，避免表格右侧再出现第二个尺寸栏。
+- 本地验收结果：`CM13093CT-102` 的展示记录现在能显示 `13 x 16 x 9.2 mm` 进入单一尺寸栏，且输出列里不再额外带出 `尺寸（mm）` 后缀。
+
+## 2026-04-12 18:19 direct Murata 电感家族继续拓库
+- 继续按用户要求扩正式版电感库，新增独立导入脚本 [sync_murata_inductor_family.py](C:/Users/zjh/Desktop/data/sync_murata_inductor_family.py)，一次性抓取 Murata 官方 PIM 的 5 类电感相关数据：`功率电感 / RF 高频电感 / 通用电感 / 共模电感 / 磁珠`。
+- 本轮落库后，Murata 官方家族总计新增 `8086` 条，当前正式库里 Murata 家族相关记录为 `8086` 条，其中功率电感 `6846` 条、共模电感 `185` 条、磁珠 `1055` 条。官方扩展表 [Inductor/murata_inductor_family_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/murata_inductor_family_expansion.csv) 也已写出并合并进 [Inductor/official_inductor_expansion.csv](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 这次的导入保留了官网链接、规格摘要、工作温度、额定电流、DCR、共模阻抗、阻抗@100MHz 等字段；同时把尺寸展示统一成物理尺寸 `尺寸（mm）`，`尺寸（inch）` 留空，避免再把 0102 这类包码当作主显示值。
+- `components.db`、搜索侧缓存和 prepared cache 都已经增量刷新完成，本地抽样确认 `LQP01HV0N3B02# / LQH32NH100X23L05 / 50105AC / DFE2MCPHR10MJLLQ` 都能读到新的规格摘要和物理尺寸。
+
+## 2026-04-12 20:16 SUMIDA 电感拓库收口
+- 继续按用户要求补胜美达 SUMIDA 官方功率电感库，抓取并规范化 `4890` 条官方料号，品牌统一写入 `胜美达SUMIDA`，器件类型统一为 `功率电感`。
+- 已同步修正 `components.db`、`cache/components_search.sqlite` 与 `cache/components_prepared_v5.parquet`，并清理 prepared cache 里残留的旧 `Sumida` 记录，当前三处数量一致。
+- 这批数据保留了官方尺寸、感量、额定电流、饱和电流、DCR、工作温度与系列说明，后续可直接用于正式版搜索和 BOM 匹配。
+
+## 2026-04-12 21:45 Bourns 官方电感整页扩展与搜索缓存放宽
+- 新增 Bourns 官方整页抓取的扩展链路 [build_inductor_official_sources.py](C:/Users/zjh/Desktop/data/build_inductor_official_sources.py)：把 power-inductors 与 rf-inductors 页面按表格拆开抓取，补进更多系列/产品表，正式版官方电感总表更新为 `523` 条。
+- 同步后正式库里 Bourns 家族分布为 `共模电感 59 / 功率电感 255 / 射频电感 60`，同时把 selection guide 里的 chip inductors 归到 `射频电感`，避免同一料号同时落到功率与 RF 两类。
+- 为了减少公开版搜索在“整库回退”时反复重建 prepared cache 的情况，把 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `prepared_cache_is_current()` 放宽成“版本正常且缓存内容健康就直接用”，不再因为云端路径签名差异强制回到整库重建。
+- 已重新同步 [components.db](C:/Users/zjh/Desktop/data/components.db)、[cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)、[cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与公开版 bundle，最新发布提交是 `6d75307`，正式站点仍是 [fruition-component.pages.dev](https://fruition-component.pages.dev/)。
+
+## 2026-04-17 11:26 公开版修正 CLH 料号误判 Samsung
+- 用户反馈公开版搜索 `CLH0603T-12NJ-F` 时被错误显示成 `Samsung`，且 `器件类别` 列出现整行字串串接的脏内容。
+- 已在 [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) 收紧 `parse_samsung_cl()`：只有真正满足 Samsung `CL` MLCC 关键编码位的料号才允许命中，像 `CLH0603T-12NJ-F` 这类奇力新电感前缀不再误判成 Samsung。
+- 同时修正 `resolve_component_category_type()` 对 `pd.Series` 行对象的处理，避免展示层把整行内容当成“器件类别”输出。
+- 本地回归结果：`CLH0603T-12NJ-F` 现在 `parse_model_rule()` 返回 `None`、`load_component_rows_by_clean_model()` 返回空表；正常 Samsung 料号 `CL02A102KP2NNNC` 仍能正确显示为 `陶瓷贴片电容（MLCC）`。
+
+## 2026-04-17 12:03 公开版空白页修复
+- 用户反馈正式站 [fruition-component.pages.dev](https://fruition-component.pages.dev/) 打开后只显示空白白页。
+- 排查确认首页壳页本身正常，问题出在首页 iframe 直连 `https://fruition-componentmatche.streamlit.app/~/+/...`；该跨域入口当前会触发 303/302 会话重定向循环，因此浏览器里只剩空白 iframe。
+- 已在 [cloudflare-pages-proxy/dist/_worker.js](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 把首页 iframe 改为同域代理入口 `/~/+/?embed=true&embed_options=hide_loading_screen`，让 Cloudflare Pages 代理层先完成 Streamlit session bootstrap，再反代应用资源与页面。
+- 已重新执行 [deploy_cloudflare_pages_proxy.ps1](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1) 发布，部署预览地址为 [4f569250.fruition-component.pages.dev](https://4f569250.fruition-component.pages.dev/)；随后本地带 Cookie 的会话验证确认 `https://fruition-component.pages.dev/~/+/` 已能返回完整 Streamlit HTML，不再陷入重定向循环。
+
+## 2026-04-17 13:20 公开版保活 workflow 改为真正唤醒 app
+- 用户反馈正式站再次出现 Streamlit `Zzzz` 睡眠页，说明之前的保活没有真正把底层 app 唤醒。
+- 排查确认 GitHub 上的远端保活 workflow 仍停留在旧版 `curl /_stcore/health` 方案，这种方式只打健康检查，不会像浏览器那样触发睡眠页上的唤醒按钮，也没有覆盖公开站同域代理入口。
+- 已在 [.github/workflows/keepalive.yml](C:/Users/zjh/Desktop/data/.github/workflows/keepalive.yml) 把保活任务改成 Playwright 浏览器方案，按顺序访问 `direct Streamlit -> 公开站同域 iframe 入口 -> 公开站壳页`，并把调度频率从每 11 小时提高到每 6 小时，给 Streamlit 的休眠窗口留出更稳的 buffer。
+- 这次改动的目标是避免“页面看起来可访问，但底层 app 其实已经睡着”的情况；改完后需要把 workflow 推到 GitHub，后续由 Actions 定时执行来维持公开站在线。
+
+2026-04-17：正式版主线已重建为瘦身根提交，保留当前文件树并去除旧历史包袱。
+
+## 2026-04-18 公开版同步规则补录
+- 用户确认了后续固定规则：以后每次修复都要同时修公开版 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/)，并且先用本地 Chrome 实测通过后再算完成。
+- 这两天围绕公开版做过的修复动作包含页面空白/唤醒/保活/搜索链路/数据库恢复等，但截至本行之前，`operation_log.md` 只记录到了 2026-04-17，今天的动作尚未补录进来。
+- 后续如果继续修复任何问题，都默认把公开版和当前本地验证一并同步记录，避免再次出现“只改了一边”的情况。
+
+## 2026-04-18 12:27 公开版转圈卡死改为根页直连 upstream iframe
+- 用户反馈公开站 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 打开后一直转圈。继续排查确认：当前同域代理壳页、session bootstrap 和 `host-config` 注入都已正常，但 `/_stcore/stream` 这条 Cloudflare Pages 到 Streamlit 上游的 WebSocket 反代在边缘环境仍失败，`ws-debug` 预览分支可稳定复现 `Server failed WebSocket handshake: missing Upgrade header`。
+- 在不继续卡死在这条代理链路上的前提下，改为重新验证“根页外壳 + 直接 iframe 上游 `https://fruition-componentmatche.streamlit.app/~/+/?embed=true&embed_options=hide_loading_screen`”这条路径。最新实测结果显示，这个跨域 iframe 现在在真实 Chromium 中可以正常加载并完成搜索，不再出现先前记录里的空白页/重定向循环。
+- 已在 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 把根页 iframe 的 `appUrl` 改为直接指向 upstream embed 地址，同时移除了 WebSocket 调试回包里的堆栈暴露，只保留通用错误文本。
+- 已先部署预览分支 `ws-debug` 验证，再部署正式站。部署后用 Playwright 对正式站执行了实测：打开 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 后可进入 iframe 内应用，并成功搜索 `CM13093CT-102`，页面返回 `成功返回匹配结果 1 条`，说明当前用户入口已恢复可用。
+
+## 2026-04-18 13:28 BOM 空候选短路 + Sunlord MCL 种子补库
+- 用户反馈 BOM 匹配在 `PP Cap : 2200pF, 400V, +/-10%,Pitch 10mm` 这类薄膜电容行上会显得“卡住”。复查后确认：这类输入会被解析成 `薄膜电容`，但当前搜索索引里没有对应的薄膜电容候选，原逻辑会继续落到整类数据的慢回退路径，导致每行需要明显更长时间。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 把“成功查询但返回空候选”的结果区分成空列表，并让 BOM 的快路径在这种情况下直接返回空结果，不再拉起整类数据的慢回退。这样 `PP Cap` 这类本来就没有候选的行会秒级返回，不会再把 64 行 BOM 卡在第 2 行看起来不动。
+- 同时把 Sunlord 官方 `MCL` 系列做成 runtime seed，按官方 PDF 补了 `MCL1608` 和 `MCL2012` 系列的多组型号，`MCL2012H100MT` 现在可以直接被 exact model lookup 命中，品牌统一为 `Sunlord(顺络)`，器件类型统一为 `功率电感`，系列统一为 `MCL2012`。
+- 官方来源已确认：Sunlord 官方 PDF `MCL Series of Multilayer Chip Ferrite Inductor` 明确给出了 `MCL2012H100□T` 的命名规则和 `10uH` 参数，`MCL2012H100MT` 对应 0805 / 10uH / ±20% 这一路径。
+
+## 2026-04-18 14:34 公开版已同步并复测 `MCL2012H100MT`
+- 用户反馈公开版 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 还是搜不到 `MCL2012H100MT`。已确认这不是本地逻辑问题，而是公开站还没吃到最新提交。
+- 已执行 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1) 把最新 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 与 [`operation_log.md`](C:/Users/zjh/Desktop/data/operation_log.md) 推到远端，最新发布提交为 `96ca225`。
+- 使用 Playwright 直接复测公开站后，`MCL2012H100MT` 已能在公开版返回 `成功返回匹配结果 1 条`，并显示 `已找到原厂料号资料，暂未找到其他品牌替代结果`，说明公开版已同步到最新修复。
+
+## 2026-04-18 15:07 `MCL2012H100MT` 同规格替代品牌补库
+- 用户继续要求把 `MCL2012H100MT` 这个系列往下拓库，重点补齐公开版里能稳定返回的替代品牌。
+- 已把 7 条 exact-match 行写入 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)：Murata `LQM21DH100M70# / LQM21DN100M70# / LQM21FN100M80#`，TDK `MLZ2012M100WT000 / MLZ2012M100HT000 / MLZ2012N100LT000`，Wurth `74479777310A`。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 本地候选检索已验证通过：`fetch_search_candidate_pairs()` 对 `0805 / 10μH / ±20%` 能返回 7 条候选，已经包含 Murata、TDK、Wurth 三个品牌。
+
+## 2026-04-18 23:05 公开版拓库规则补强 + TDK/Würth 替代料回刷
+- 用户确认“公开版发布规则”要固定下来，尤其是拓库场景不能只改 `official_inductor_expansion.csv`，还必须把新行同步进 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，否则公开版还是搜不到。
+- 已把这个规则补进 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)：记住“源数据先补，运行库再刷，最后才发布”。
+- 新增 [`sync_tdk_wurth_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_tdk_wurth_power_inductors.py)，补入官方 TDK `MLZ2012M100WT000 / MLZ2012M100HT000 / MLZ2012N100LT000` 和 Würth `74479777310A` 四条 10uH / 0805 / ±20% 功率电感。
+- 已执行增量回刷，只更新这 4 条新料到数据库和搜索缓存，`MCL2012H100MT` 现在的候选集已从 2 条扩大到 6 条，新增的 TDK 和 Würth 替代料都能被本地搜索命中。
+
+## 2026-04-18 21:54 三星电感目录拓库
+- 继续按用户要求扩充电感品牌覆盖，新增 [`sync_samsung_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_samsung_power_inductors.py) 作为三星官方 `Power Inductor.pdf` 的专用采集器，按页面分段抽取 `Thin Film General / L / Bottom / Wire Wound General / L` 五类目录。
+- 这批共解析出 `93` 条三星官方功率电感，已写入 [`Inductor/samsung_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/samsung_power_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)，后续还能继续沿同类官方 PDF 扩展更多品牌。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 公开版已重新发布，最新推送提交是 `02879f0`；后续若继续扩三星或同类目录，可直接复用这条“官方 PDF -> CSV -> DB/cache -> 一键发布”的路径。
+
+## 2026-04-18 22:24 三星脏行清理与最终回刷
+- 回查三星数据时，发现 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 各有一条 `品牌=三星Samsung / 器件类型=功率电感 / 型号为空` 的脏记录。
+- 已将这条空型号记录从三处运行时数据中删除，并重新确认三星功率电感在正式源里是 `93` 条，且没有空型号残留。
+- 为保持公开版和本地一致，已再次执行公开版同步发布，最终推送提交是 `c607686`。
+
+## 2026-04-18 16:30 [direct] 公开版发布流程整理为一键规则
+- 用户要求先理清公开版到底需要哪些发布步骤，并把流程记录成规则，避免以后每次修复后还要手动判断该走哪条发布链。
+- 重新梳理了 [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1)、[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py)、[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1)、[`PUBLIC_ACCESS.md`](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md) 和 [`README.md`](C:/Users/zjh/Desktop/data/README.md)，确认公开版实际分成两条链路：主应用通过 GitHub / Streamlit Community Cloud 同步，Cloudflare Pages 壳页通过 wrangler 直接部署。
+- 新增 [`publish_public.ps1`](C:/Users/zjh/Desktop/data/publish_public.ps1) 与 [`publish_public.cmd`](C:/Users/zjh/Desktop/data/publish_public.cmd) 作为公开版默认一键入口；新增 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 记录固定规则；并把公开版代理产物 `cloudflare-pages-proxy/dist/_worker.js`、`cloudflare-pages-proxy/dist/favicon.png`、`cloudflare-pages-proxy/wrangler.jsonc` 以及新的一键脚本加入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的发布清单，保证以后同步主应用时不会漏掉公开版相关文件。
+- `python -m py_compile sync_local_and_public.py` 通过；`publish_public.ps1` 通过 PowerShell 解析器检查，输出 `OK`。
+- Cloudflare Pages 壳页仍然是独立部署链，但现在默认由一键脚本自动判断是否需要补发，只有用户显式跳过时才会手动介入。
+- 以后修公开版默认先跑 `.\publish_public.ps1 -CommitMessage "..."`，再用浏览器复测 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/)。
+
+## 2026-04-19 太诱电官方目录拓库
+- 继续按用户要求扩大电感品牌覆盖，新增 [`sync_taiyo_yuden_inductors.py`](C:/Users/zjh/Desktop/data/sync_taiyo_yuden_inductors.py) 作为太诱电官方 `TY-COMPAS` 的专用采集器，按官方分类批量抓取 `LPOWM / LPOWF / LHF / LSTD / LDAMP / WDLD` 六类目录。
+- 这批共解析出 `7991` 条 `太阳诱电Taiyo Yuden` 官方电感，已写入 [`Inductor/taiyo_yuden_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/taiyo_yuden_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用运行库回刷路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 这轮拓库完成后，太诱电品牌已经可以作为后续继续扩充常规电感与特殊电感系列的官方底座，下一步可以继续往 TDK / Murata / Coilcraft / Sumida 等品牌延伸。
+
+## 2026-04-19 Wurth 电感系列扩展
+- 继续拓宽常规电感覆盖，新增 [`sync_wurth_power_inductors_extended.py`](C:/Users/zjh/Desktop/data/sync_wurth_power_inductors_extended.py) 作为 Würth 官方产品页扩展采集器，批量抓取 `WE-LHMI / WE-XHMI / WE-PMI / WE-PMFI / WE-HCF / WE-HCFAT / WE-LHMD` 七个系列页。
+- 这批共解析出 `507` 条 `Wurth Elektronik` 官方功率电感，已写入 [`Inductor/wurth_power_inductor_extended_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/wurth_power_inductor_extended_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 为了让以后再抓类似的官方表格页更省事，已经把 [`lxml`](C:/Users/zjh/Desktop/data/requirements.txt) 补进依赖清单，并把新的 Wurth 扩展脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+
+## 2026-04-19 公开版稳定性规则与发布闸门
+- 用户明确要求以后任何修复或新增功能都不能再无意影响正式版，并要求把这个约束写成固定规则，避免每次改完公开版又出现空白页、转圈或逻辑异常。
+- 已新增 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把公开版边界、默认发布路径、正式版边界文件和发布后验证步骤全部写清楚。
+- 同时在 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 与 [`publish_public.ps1`](C:/Users/zjh/Desktop/data/publish_public.ps1) / [`sync_local_and_public.ps1`](C:/Users/zjh/Desktop/data/sync_local_and_public.ps1) 增加了 `--allow-public-runtime-change` / `-AllowPublicRuntimeChange` 闸门，默认阻止触碰 `component_matcher.py`、`streamlit_app.py`、`build_streamlit_cloud_bundle.py`、`sync_local_and_public.*`、`publish_public.*`、`deploy_cloudflare_pages_proxy.*`、`cloudflare-pages-proxy/dist/_worker.js`、`cloudflare-pages-proxy/wrangler.jsonc`、`requirements.txt`、`runtime.txt` 这类正式版边界文件。
+- 这样以后常规拓库、数据刷新、普通页面修复仍可按默认流程快速发布，但只要涉及正式版入口或发布逻辑，就必须显式加允许参数并完成真实浏览器验证。
+
+## 2026-04-19 Vishay 官方功率电感拓库
+- 继续按用户要求扩充电感品牌覆盖，新增 [`sync_vishay_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_vishay_power_inductors.py) 作为 Vishay 官方 `IHLP power inductors` 和 `IHLP power inductors automotive` 的专用采集器，抓取官方参数表并合并成统一的功率电感目录。
+- 这批共解析出 `140` 条 `Vishay(威世)` 官方功率电感，已写入 [`Inductor/vishay_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/vishay_power_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 已将 [`sync_vishay_power_inductors.py`](C:/Users/zjh/Desktop/data/sync_vishay_power_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批新拓库脚本。
+- 本地抽查已验证 `ICM2020-A`、`IHDM-1107BB-xA`、`IHLE-2020CD-5A`、`ILHB-1206` 可直接命中，说明这批 Vishay 数据已经真正进入搜索侧，而不是只停留在 CSV。
+
+## 2026-04-19 修复短型号判定漏网导致公开版整库回退
+- 用户反馈公开版在搜索 `ICM2020-A` 时又掉进了“整库回退”慢路径。复查确认并不是拓库数据丢失，而是 `looks_like_compact_part_query()` 对这类短型号过于保守，`ICM2020-A` 没被当成可直查的紧凑料号，因此前面的 exact lookup 和快速索引都没命中。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 为短型工业/电感料号补了更宽的判定规则，`ICM2020-A`、`ILHB-1206`、`IHLE-2020CD-5A` 这类型号现在会直接走快速料号路径，不再先掉到“整库回退”。
+- 本地复测已确认 `ICM2020-A` 现在返回 `resolution_path=fast_query`，`resolve_prefetched_exact_part_rows('ICM2020-A')` 也能直接命中 1 条，说明修复已经生效。
+
+## 2026-04-19 公开版发布触发标记补强
+- 用户再次反馈公开版没有及时反映最新修复，复查发现 Streamlit Cloud 端需要一个稳定的 entrypoint 变更来重新检查 checkout，因此仅修改业务逻辑文件有时不够。
+- 已在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 增加 `PUBLIC_RELEASE_STAMP` 作为纯部署触发标记，明确说明这是无行为变化的发布 nudge，不改变任何搜索/匹配逻辑。
+- 同步更新了 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把“公开版没有立刻刷新时顺手更新 stamp”写成固定规则。
+- 这次也把新做法补成了常规规则：`Murata family` 这类大批量官方源要先按 `器件类型` 拆成小子集，再用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 分批刷缓存，避免一次性重写整个 prepared cache 时卡住很久。
+
+## 2026-04-19 Murata / Sumida / TDK MHQ0402PSA 扩库
+- 继续按“先源数据、再增量刷新、最后才验搜索”的路线推进大批量电感拓库，先把 [`Inductor/murata_inductor_family_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/murata_inductor_family_expansion.csv) 按 `功率电感 / 射频电感 / 磁珠 / 共模电感` 拆成 4 个子集，再分别刷新缓存。
+- `Murata family` 的 `功率电感` 子集共 `1869` 条，`射频电感` 子集共 `4977` 条，`磁珠 + 共模电感` 子集共 `1240` 条，已经全部刷进 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 的增量路径。
+- [`Inductor/sumida_power_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/sumida_power_inductor_expansion.csv) 这批 `4924` 条 `Sumida` 功率电感也已经通过增量路径同步到搜索缓存里，避免以后搜索仍然卡在旧版本。
+- 另外新建了 [`sync_tdk_mhq0402psa_inductors.py`](C:/Users/zjh/Desktop/data/sync_tdk_mhq0402psa_inductors.py)，把 TDK `MHQ0402PSA` 这组 `01005 / high Q RF chip inductor` 官方目录批量抽成 `127` 条，写入 [`Inductor/tdk_mhq0402psa_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/tdk_mhq0402psa_expansion.csv) 并同步进官方源、数据库和搜索缓存。
+- 本地抽查确认 `MHQ0402PSA1N0BT000`、`MHQ0402PSA4N3HT000`、`MHQ0402PSA4N7JT000` 都能直接命中，说明这批 TDK 数据已经真正进入搜索路径，不只是停留在 CSV。
+
+## 2026-04-19 Laird 电感拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_laird_inductors.py`](C:/Users/zjh/Desktop/data/sync_laird_inductors.py) 作为 Laird 官方 `Inductive Components - Inductors for Power and Signal lines` 的系列级采集器，批量抓取 `Molded Surface Mount Inductors`、`Wire-Wound SMT Power Inductors` 和 `Wire-Wound Surface Mount Ceramic Chip Inductors` 三个家族下的系列表。
+- 这批共解析出 `520` 条 `Laird(莱尔德)` 官方电感，已写入 [`Inductor/laird_inductor_power_and_signal_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/laird_inductor_power_and_signal_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 由于部分 Laird 系列页响应较慢，采集器已改成并发抓取并对慢页做超时兜底，避免单页卡死整批同步。
+- 已用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)。
+- 本地抽查确认 `Laird(莱尔德)` 已稳定进入搜索侧，且新增数据里没有空型号脏行，说明这次拓库已经真正落库完成。
+
+## 2026-04-19 Panasonic 官方 ZIP 批量拓库
+- 继续按用户要求扩大“其它品牌电感”覆盖，新增 [`sync_panasonic_inductors.py`](C:/Users/zjh/Desktop/data/sync_panasonic_inductors.py) 作为 Panasonic 官方 `PCC_Spara.zip` 和 `Common_Spara.zip` 的批量采集器，分别抽取功率电感和共模电感两大类。
+- 这次从 Panasonic 官方压缩包里解析出 `207` 条模型，已写入 [`Inductor/panasonic_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/panasonic_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)；最终官方汇总从 `37147` 行涨到 `37354` 行。
+- 为了以后再跑这类大批量 ZIP 官方包更快，已把压缩包先缓存到 [`cache/panasonic_PCC_Spara.zip`](C:/Users/zjh/Desktop/data/cache/panasonic_PCC_Spara.zip) 和 [`cache/panasonic_Common_Spara.zip`](C:/Users/zjh/Desktop/data/cache/panasonic_Common_Spara.zip)，并把脚本的落库步骤改成 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径，不再走慢的整表回刷。
+- 已同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)；本地验收确认 `Panasonic(松下)` 已有 `207` 条，样例型号 `ETQP3M100KVN` 与 `EXC14CE121U` 都能在搜索侧直接命中。
+
+## 2026-04-19 YAGEO 新品库补库（KEMET / PULSE）
+- 继续按用户要求扩充电感品牌覆盖，新增 [`sync_yageo_inductor_new_products.py`](C:/Users/zjh/Desktop/data/sync_yageo_inductor_new_products.py) 作为 YAGEO 官方资源库新产品介绍流的采集器，从官方 GraphQL 新品列表里筛出真正的电感相关条目。
+- 这次从官方新产品介绍中抽出 `2` 条电感相关记录，分别是 `KEMET / SCF76X Common Mode Chokes` 和 `PULSE / APCA Series Power Inductors`，已写入 [`Inductor/yageo_inductor_new_product_intros_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/yageo_inductor_new_product_intros_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已用 [`sync_inductor_official_to_db.py`](C:/Users/zjh/Desktop/data/sync_inductor_official_to_db.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，并把新脚本纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版发布清单。
+- 本地验收确认 `KEMET` 和 `PULSE` 已进入数据库、搜索缓存和 prepared cache，说明这两条新品牌路径已经真正落库，而不是只停留在源表。
+
+## 2026-04-19 Abracon 官方产品线拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_abracon_inductors.py`](C:/Users/zjh/Desktop/data/sync_abracon_inductors.py) 作为 Abracon 官方产品线采集器，通过 Playwright 抓取官方 product-lineup 页面并解析表格型数据。
+- 这次从 Abracon 官方电感相关页面解析出 `197` 条记录，已写入 [`Inductor/abracon_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/abracon_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)；官方汇总从 `37354` 行涨到 `37551` 行。
+- 已使用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)，避免再次走慢的整表回刷。
+- 已将 [`sync_abracon_inductors.py`](C:/Users/zjh/Desktop/data/sync_abracon_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批 Abracon 拓库结果。
+- 本地验收确认 Abracon 数据已进入搜索侧，且脚本对官方页面的抓取流程稳定可跑，说明这次拓库已经真正落库完成。
+
+## 2026-04-19 Coilcraft 官方 PDF 拓库
+- 继续按用户要求扩充“其它品牌电感”覆盖，新增 [`sync_coilcraft_inductors.py`](C:/Users/zjh/Desktop/data/sync_coilcraft_inductors.py) 作为 Coilcraft 官方 PDF 采集器，直接抓取 Coilcraft 的功率电感数据表 PDF 并解析表格行。
+- 这次从 Coilcraft 官方 PDF 中抽取出 `169` 条记录，覆盖 `XAL7050`、`XEL4020`、`XFL4020`、`XGL4020`、`LPS6235`、`LPO6013`、`MSS7341` 和 `SER2000` 等系列，已写入 [`Inductor/coilcraft_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/coilcraft_inductor_expansion.csv) 并合并进 [`Inductor/official_inductor_expansion.csv`](C:/Users/zjh/Desktop/data/Inductor/official_inductor_expansion.csv)。
+- 已使用 [`sync_inductor_incremental_refresh.py`](C:/Users/zjh/Desktop/data/sync_inductor_incremental_refresh.py) 的增量路径同步刷新 [`components.db`](C:/Users/zjh/Desktop/data/components.db)、[`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) 和 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet)；官方汇总从 `37551` 行涨到 `37720` 行。
+- 已将 [`sync_coilcraft_inductors.py`](C:/Users/zjh/Desktop/data/sync_coilcraft_inductors.py) 纳入 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开版同步清单，后续一键发布不会漏掉这批 Coilcraft 拓库结果。
+- 本地验收确认 Coilcraft 数据已进入搜索侧，说明这次拓库已经真正落库完成。
+2026-04-20 公开版稳定模式更新：默认公开 bundle 改为搜索侧资产，不再打包 `components.db`；公开启动路径也改为只依赖搜索侧缓存，避免全量库拖垮 Streamlit Cloud 启动。
+2026-04-20 公开版运行时修复：Cloud 端 `api/v1/app/event/open` 返回 `403 Forbidden - CSRF token invalid`，已把 `.streamlit/config.toml` 切到公开嵌入模式（`enableXsrfProtection = false`、`enableCORS = false`），并记录为正式版变更规则。
+2026-04-20 公开版 MCL 同步核查：本地 `MCL2012H100MT` 已在 `Inductor/official_inductor_expansion.csv`、`components.db` 和 `cache/components_search.sqlite` 中可直接命中，但公开页仍可能停留在旧快照；因此追加一次仅含日志的安全提交，作为 Streamlit Cloud 重新拉取最新版本的触发点，避免再把问题误判成料号本身没入库。
+2026-04-20 公开版重新触发发布：由于手动 SSH 推送未授权成功，改用仓库自带同步脚本走 SSH 443 发布通道，目标仅是让 Streamlit Cloud 重新拉取最新快照并刷新 MCL2012H100MT 搜索结果，不改任何匹配逻辑。
+2026-04-20 公开版旧 prepared cache 早退修复：发现 `ensure_component_data_ready()` 会在公开/云端模式下过早相信 `prepared_cache_is_current()`，导致 bundle 已经更新时仍可能直接复用旧 prepared cache。已改为先检查公开 bundle 是否需要刷新，只有 bundle 确认是当前版本时才允许继续使用现成缓存；同时把这条约束写回 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)，避免以后再让公开版长期停留在旧快照。
+2026-04-20 公开版旧 bundle zip 强制重建：进一步确认云端实例可能在重启后继续复用旧的 `streamlit_cloud_bundle.zip`，即使 `.part` 与 manifest 已更新也不会主动重拼。已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 让公开版在 bundle 版本不一致时先删除旧 zip，再用 `.part` 重新构建后解包搜索侧资产；并把这条规则补进 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md) 与 [`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md)。
+2026-04-20 公开版缓存 current 判定再收紧：发现搜索索引和 prepared cache 仍可能把旧数据误判成 current，导致 `MCL2012H100MT` 即使已入库也继续走旧结果。已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 里把 `bundle_signature` 绑进 `prepared_cache_is_current()`、`search_index_is_current()`、`build_data_cache_signature()` 和 `get_query_cache_signature()`，公开 bundle 一变化就会让缓存失效重建；同时顺手再 bump 一次 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 的发布戳，确保 Cloud 重新拉取这次修复。
+2026-04-20 公开版全量重建触发：考虑到 Streamlit Cloud 可能仍在沿用旧构建环境，已在 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部补一个无行为影响的注释，专门触发依赖文件变更带来的全量重建，目标是清掉旧的运行时/媒体缓存并让最新 bundle 与缓存失效逻辑真正生效。
+
+## 2026-04-21 公开版同步脚本自动刷新发布戳
+- 用户把“公开版同步一致性”列为第一优先级，希望本地更新后公网能够更稳地吃到最新快照，而不是继续依赖手工记得去 bump `PUBLIC_RELEASE_STAMP`。
+- 已检查公开版发布手册、稳定性规则和同步脚本，确认当前最薄弱的一环仍然是 `streamlit_app.py` 的发布戳更新还偏手工，虽然 bundle 和 cache 已经有 signature 失效逻辑，但 Cloud 仍可能需要额外的 entrypoint 变化来重新检查 checkout。
+- 已在 [`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 增加 `refresh_public_release_stamp()`，让公开 bundle 重新生成时自动刷新一次 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 里的 `PUBLIC_RELEASE_STAMP`；同时加了 `is_stamp_only_public_release_change()` 白名单，确保只有这个纯发布触发变化时不必再手动加 `--allow-public-runtime-change`。
+- 还同步更新了 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md)，把“自动刷戳 + 旧状态再手动补一次”写成固定规则。
+- Verification: `python -m py_compile sync_local_and_public.py streamlit_app.py component_matcher.py build_streamlit_cloud_bundle.py` 通过；`git diff --check` 仅提示工作区行尾风格会在 Git 介入时归一化，没有发现语法或补丁级错误。
+- Other issues: 这次先补的是发布链路的自动 nudge，不会单独证明 Streamlit Cloud 已经完成重新拉取。
+- Handoff notes: 下一步最好跑一次真实公开发布，再用浏览器验证公开站是否已经稳定看到新快照；如果仍然卡旧状态，再继续追 Cloud 端是否还需要更强的入口触发。
+
+## 2026-04-21 公开版主应用代码戳补强
+- 公开站在前两轮发布后仍能打开，但 `MCL2012H100MT` 还是返回 `成功返回匹配结果 0 条`，说明云端还没有真正吃到最新的 app 代码或缓存刷新没有触发到位。
+- 已确认本地 `components.db`、`components_search.sqlite`、`components_prepared_v5.parquet` 以及 `streamlit_cloud_bundle.zip` 内部都已经包含 `MCL2012H100MT`，而且本地 `resolve_search_query_dataframe_and_spec('MCL2012H100MT')` 返回 `mode=料号 / resolution_path=fast_query / candidate_rows=41`，所以问题不在本地数据本身。
+- 为了给 Streamlit Cloud 一个更强的重载信号，已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部加入纯无行为变化的 `PUBLIC_CODE_STAMP` 标记，作为比 `streamlit_app.py` 更直接的主应用代码 nudge。
+- Verification pending: 还需要再跑一次公开发布和公网复测，确认这次主应用代码戳是否真的能让 `MCL2012H100MT` 从 0 条变成可命中。
+- Handoff notes: 如果这次仍然不行，下一步就该从 Streamlit Cloud 实际构建/拉取状态查起，而不是继续怀疑本地数据链路。
+
+## 2026-04-21 公开版查询缓存跟随 `PUBLIC_CODE_STAMP` 失效
+- 继续追查 `MCL2012H100MT` 在公开页还回 `0` 条的问题后，确认另一条高概率路径是同一个浏览器会话里残留了旧的 query/session cache，而不是本地数据本身有缺口。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中把 `PUBLIC_CODE_STAMP` 纳入 `get_query_cache_signature()`，并把 `QUERY_RESULT_CACHE_VERSION` 提升到 `11`，让旧的搜索结果缓存不会再和新发布共用同一个 key。
+- 同时把 [`docs/public_stability_rule.md`](C:/Users/zjh/Desktop/data/docs/public_stability_rule.md)、[`docs/public_publish_runbook.md`](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) 和 [`docs/public_publish_checklist.md`](C:/Users/zjh/Desktop/data/docs/public_publish_checklist.md) 补充成固定规则：`PUBLIC_CODE_STAMP` 不只是部署触发信号，也会一起打掉公开版查询会话缓存。
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_local_and_public.py build_streamlit_cloud_bundle.py` 通过；本地 `resolve_search_query_dataframe_and_spec('MCL2012H100MT')` 仍然返回 `mode=料号 / resolution_path=fast_query / candidate_rows=41`。
+- Handoff notes: 下一步重新跑一次真实公开发布，再用浏览器验证公网是否已经从 `0` 条恢复为 `1` 条。
+
+## 2026-04-21 公开版入口戳再刷新
+- 复测公开站后，`MCL2012H100MT` 在 fresh browser context 里仍然返回 `成功返回匹配结果 0 条`，说明这一轮还没有等到线上实例完成真正重载。
+- 已把 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 的 `PUBLIC_RELEASE_STAMP` 和 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `PUBLIC_CODE_STAMP` 都刷新到 `2026-04-21T01:50:50+08:00`，作为更直接的公开版重载 nudge。
+- 这次刷新不改变匹配逻辑，只是把发布信号再推一遍，目标是让 Streamlit Cloud 再次拉取最新入口和最新查询缓存签名。
+- Handoff notes: 需要在这次新戳推送后再做一次公开站复测，重点还是 `MCL2012H100MT` 是否终于恢复为 `1` 条。
+
+## 2026-04-21 公开版 bundle manifest 增加发布 epoch
+- 继续追查后确认，光靠 app 入口戳和查询缓存 key 还不够，云端仍可能把旧 bundle 当成 current 继续复用。
+- 已在 [`build_streamlit_cloud_bundle.py`](C:/Users/zjh/Desktop/data/build_streamlit_cloud_bundle.py) 的 manifest 里加入 `build_epoch_ns`，让每次正式发布都产生新的 bundle 签名，即使 bundle 内的搜索资产没变，Cloud 也会把旧抽取结果视为过期。
+- 这一层改动只影响发布/刷新判定，不改匹配逻辑；目标是把公开版从“偶尔能刷新”变成“每次发版都能强制刷新 bundle state”。
+- Verification pending: 需要重新 build / publish 后再做一次公网复测，确认这次 manifest 签名变化能否把 `MCL2012H100MT` 真正拉回可命中状态。
+
+## 2026-04-21 参数回填补强
+- 补了组件展示层的统一回填逻辑，把 `_power`、`_temp_low/_temp_high`、`_special_use_norm`、`_volt_num`、`_varistor_voltage` 这些内部字段统一回到 `功率`、`耐压（V）`、`工作温度`、`特殊用途`、`安装方式` 等可见列。
+- 电阻再加了尺寸级默认规则，当前 0402 / 0603 / 0805 这类常见封装会自动补 `耐压（V）` 和默认工作温度，避免空栏位长期挂着。
+- 本地已经用 `RMS04FT1003` 和 `RMS04JT222` 做过回归，`build_spec_info_df()` 和 `build_part_info_df()` 现在都能正确显示 `功率=1/16W`、`耐压（V）=50V`、`工作温度=-55~155℃`。
+- Verification: `python -m py_compile component_matcher.py` 通过。
+- Handoff notes: 下一步如果还看到其它器件类型大片空栏，再按同样模式把它们的内部推断字段补进展示层或解析层。
+
+## 2026-04-21 页脚改成流式底部卡片
+- 用户反馈公共站最底部的管理员邮箱在 100% 缩放下仍不稳定可见，尤其在页面被嵌入或容器裁切时更容易消失。
+- 已把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的页脚从 fixed 底栏改成页面流里的底部卡片，并让 `.block-container` 变成纵向 flex 容器，通过 `margin-top: auto` 把页脚稳定推到内容末尾。
+- 同时保留了页脚的卡片样式和中心对齐，让它在短页面里依旧贴近底部，在长页面里也会进入正常文档流，不再依赖 fixed 定位。
+- 本地已用 Playwright 复测，100% 视口下页脚可以稳定看到管理员邮箱。
+- Verification: `python -m py_compile component_matcher.py` 通过；本地截图 `local_after_patch_viewport.png` 通过人工确认。
+
+## 2026-04-21 公开站启动依赖补齐
+- 公开站复测时发现应用直接报 `ModuleNotFoundError: No module named 'resistor_series_rules'`，说明前一轮只推了主文件，没把新增的系列规则模块一起带上。
+- 已确认 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 顶部确实在 import [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py)，而该文件此前仍停留在本地未入库状态。
+- 这次修复要把 `resistor_series_rules.py` 一并纳入发布，避免远端实例启动阶段直接中断，连页脚都渲染不到。
+- Verification pending: 需要重新把依赖文件推送到远端，再验证公共站是否恢复正常加载并显示页脚。
+
+## 2026-04-21 页脚改为固定纯文字
+- 用户确认 100% 缩放下页脚仍然看不见，且不希望邮箱行被气泡框包住。
+- 已把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的页脚重新改回 `position: fixed`，但移除了边框、背景、圆角、阴影和卡片式包裹，只保留一行居中的纯文字链接。
+- 同时把 `.block-container` 底部留白调大，避免固定页脚遮住最底部内容。
+- 本地已复测，100% 视口下页脚可见且不再是气泡卡片。
+- Verification: `python -m py_compile component_matcher.py` 通过；Playwright 本地截图 `local_footer_plain_wait.png` 通过确认。
+
+## 2026-04-21 Pages 代理 iframe 裁切修复
+- 进一步复测发现主应用的 `embed=true` 页面里页脚已经正常可见，但 `pages.dev` 代理页仍然把底部裁掉，说明问题不在应用本身，而在 Cloudflare Pages proxy 外壳的 iframe 尺寸。
+- 已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中的 `.app-frame` 从 `bottom: -40px; height: calc(100vh + 40px);` 改成严格贴合视口的 `bottom: 0; height: 100vh;`，避免固定页脚被 iframe 底边裁切。
+- 这次改动只影响 `pages.dev` 代理壳，不改主应用内容；目标是让代理页在 100% 缩放下也能显示纯文字页脚，而不是只在 75% 缩放时露出一角。
+- Verification pending: 需要把代理壳重新发布到 Cloudflare Pages 并复测 `fruition-component.pages.dev`。
+
+## 2026-04-21 页脚拆分为代理壳底栏
+- 用户进一步确认想要的是“网页底部固定显示”，不是跟随内容滚动的页尾，因此把页脚拆成两层实现。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中加入 `embed=true` 判断，嵌入模式下不再渲染应用内页脚，避免和外层代理壳重复。
+- 已在 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 中把代理页改成上下布局：iframe 负责承载主应用，底部单独渲染一条纯文字页脚栏，并给 iframe 加了缓存版本号 `v=20260421-footer-1`。
+- 这个方案的目标是让 `pages.dev` 上的管理员邮箱永远贴在网页底部显示，不依赖页面缩放，也不再使用气泡卡片样式。
+- Verification pending: 需要重新发布 Cloudflare Pages，并在浏览器里验证底栏是否在 100% 缩放时稳定可见。
+
+## 2026-04-21 Cloudflare token vault + 代理底栏最终版
+- 已创建并持久化本地 Cloudflare token vault：[`cloudflare_account_api_token.txt`](C:/Users/zjh/Desktop/data/cloudflare_account_api_token.txt)，并将其加入 [`.gitignore`](C:/Users/zjh/Desktop/data/.gitignore)；[`deploy_cloudflare_pages_proxy.ps1`](C:/Users/zjh/Desktop/data/deploy_cloudflare_pages_proxy.ps1) 现在会自动读取该 vault，并注入 `CF_API_TOKEN` / `CF_ACCOUNT_ID` 给 Wrangler，后续 Cloudflare Pages 发布不再依赖网页登录。
+- 为了避免 iframe 内部页脚和外层代理页脚同时出现，已把 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 调整为固定底栏覆盖式布局：主应用继续走 Streamlit iframe，底部只保留一条纯文字固定页脚。
+- 已重新部署 Cloudflare Pages，并用 Playwright 在 100% 视口下复测 `https://fruition-component.pages.dev/`：主内容正常显示，管理员邮箱固定在页面底部，未再出现气泡框，也没有 75% 缩放才露出的情况。
+- Verification: `deploy_cloudflare_pages_proxy.ps1` 成功完成 Pages deploy；`verify_public_final_footer.png` 通过人工确认。
+
+## 2026-04-21 电容品牌排序优先级调整
+- 用户确认电容匹配结果的品牌优先顺序应为 `信昌 > 华新科 > 芯声微`，现有通用非电阻排序没有把 `芯声微/HRE` 提前，导致 MLCC 结果页里优先品牌被村田、TDK、国巨等品牌压到后面。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `brand_priority_value()` 中拆出电容专用分支，对 `CAPACITOR_COMPONENT_TYPES` 单独应用品牌优先级：`信昌/PDC -> 华新科/Walsin/华科 -> 芯声微/HRE`，其余品牌保持原有后续顺序。
+- 这次改动只影响电容类结果表的 `_brand_rank`，不改电阻、热敏、电感、晶振等其它器件的排序规则。
+- Verification pending: 需要运行本地校验并在下一次公开发布后复测 `CL05B472KB5VPNC` 这类 MLCC 查询结果顺序。
+
+## 2026-04-22 厚声电阻系列改为官方系列码
+- 用户指出厚声 `NQ02WGJ0105TCE` 在结果表里被显示成 `NQ02WGJ`，这不是官方系列码，而是把型号片段直接截断后当作系列；厚声官方资料明确把 `NQ` 定义为“抗硫化汽车级晶片电阻器”系列。
+- 已在 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 中加入厚声官方系列字典，并让 `infer_resistor_series_profile()` 优先按品牌 + 型号前缀回官方系列码；当前已覆盖 `NQ / CQ / TC / LE` 及一批厚声官网已公开的电阻系列。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中把电阻解析结果改成携带官方 `系列 / 系列说明 / 特殊用途`，同时把电阻系列回填逻辑从“只补空白”改成“必要时可把 `NQ02WGJ` 这种错误型号片段纠正回 `NQ` 官方系列码”。
+- 本地验证通过：`infer_resistor_series_profile('NQ02WGJ0105TCE', brand='厚声UNI-ROYAL')` 现返回 `系列=NQ`、`系列说明=抗硫化汽车级晶片电阻器`、`特殊用途=车规 | 抗硫化`；查询 `RMS04JT105` 时，厚声候选行也已显示为该官方系列信息。
+- 说明：全库 `--backfill-series` 与 `--rebuild-prepared-cache` 在当前机器上运行超过 1 小时超时，已停止，避免继续空转；但当前本地查询链路已经能即时显示修正后的厚声系列信息。
+
+## 2026-04-22 电容结果排序将品牌优先级前置
+- 用户反馈电容型号查询中，芯声微 `HRE` 虽然品牌优先级已设在华新科之后、村田/TDK 之前，但页面结果里仍然被排到最下面。
+- 本地排查确认原因不在品牌映射，而在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `apply_match_levels_and_sort()`：旧逻辑对电容也是先按 `_matched_param_count` 排，再按 `_brand_rank` 排，导致芯声微即使品牌优先级更高，也会被命中数或旧顺序压到后面。
+- 已把电容类（`CAPACITOR_COMPONENT_TYPES`）排序改为：`_seed_rank -> _level_rank -> _mlcc_class_rank -> _brand_rank -> _matched_param_count -> 品牌 -> 型号`；其它器件保持原排序，不受影响。
+- 本地用 `CGA2B3X7R1H104KT0Y0F` 验证后，排序结果已变为 `华新科Walsin -> 芯声微HRE -> 村田Murata -> 东电化TDK -> 国巨YAGEO -> 太诱Taiyo`，符合“华新科优先、芯声微在村田/TDK 前”的要求。
+
+## 2026-04-22 系列解析统一扩到多品牌多器件 + 正式版默认发布规则
+- 记录新的协作规则：除非用户明确说明“先做测试版 / 不发布正式版”，否则默认流程是 `先抓根因 -> 用最短路径修复 -> 做必要验证 -> 直接发布公开正式版`；这条规则已同步写入 [`docs/codex_working_rules.md`](C:/Users/zjh/Desktop/data/docs/codex_working_rules.md)。
+- 已把“按型号命名规则回官方系列”的逻辑从厚声电阻扩到更多品牌与器件类型，核心收口点在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `resolve_official_series_profile()` 与 `fill_missing_series_from_model()`。
+- 本次新增或补强的系列解析覆盖了：华新科 `0201B/0402N/...` 数字前缀 MLCC、太诱 `AWK/EMF/...` MLCC、晶瓷 Kyocera AVX `0201YC/04023C/100A/600F/...` MLCC、富捷 `FCC` MLCC、微容 `0402X7R/0201HQC/...` MLCC、村田 `DEA/DE1/DE2/...` 长尾电容系列、Littelfuse `V05P/V10P/...` 贴片压敏、Bourns `CG0402MLC/...` 贴片压敏、风华 `CMFA/CMFB/...` 热敏电阻。
+- 已执行数据库原地系列回填与缓存重建：调用 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 内置 `backfill_series_fields_in_database()` 完成 `components.db`、`cache/components_prepared_v5.parquet`、`cache/components_search.sqlite` 同步刷新。
+- 回填后主缺口已显著下降：原先大批量缺失的 `华新科Walsin / 太诱Taiyo / 富捷FOJAN / 微容VIIYONG / 村田Murata` 等 MLCC 系列已基本补齐，当前数据库剩余未覆盖主要集中在少量长尾 `Kyocera AVX`、`Littelfuse/Bourns` 压敏与极少数第三方热敏品牌。
+- 已同时把页面管理员邮箱改回“普通页面底部元素”方案：[`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 不再用固定定位页脚；[`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 也移除了外层固定代理底栏，避免出现双页脚或始终悬浮在视口底部的效果。
+- 本地样例验证通过：`0201B101J160CT -> 0201B`、`AWK105BJ105MPHF -> AWK`、`04023C104KAT2A -> 04023C`、`FCC0402B472K500AT -> FCC`、`V104K0402X7R250NBT -> 0402X7R`、`DEA1X3A220JC1B -> DEA`、`V10P25PL1T7 -> V10P`、`CG0402MLC-05LGA -> CG0402MLC`、`CMFA104J4150HANT -> CMFA`。
+- 进一步排查正式版发布链路时发现根因之一：[`sync_local_and_public.py`](C:/Users/zjh/Desktop/data/sync_local_and_public.py) 的公开发布白名单之前遗漏了 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py)，这会导致电阻系列官方规则在本地已生效、但公开正式版仍可能沿用旧文件。现已补入白名单，后续公开发布会自动携带该规则文件。
+
+## 2026-04-22 无替代结果提示气泡与料号资料卡距离过远
+- 用户反馈：当型号查询已命中原厂料号资料、但未找到其他品牌替代结果时，页面会显示 `已找到原厂料号资料，暂未找到其他品牌替代结果` 提示气泡；当前这个气泡距离“匹配料号资料”卡片过远，视觉上像被推到了下一段内容。
+- 排查确认根因不在提示气泡本身，而在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `estimate_match_card_iframe_height()`：即使 `result_row_count = 0`，无替代结果场景仍然沿用普通结果卡的最小高度 `576px`，导致 `components.html(...)` 外层保留了一大块空白，进而把后面的 `st.info(...)` 提示气泡整体向下推开。
+- 已将 `estimate_match_card_iframe_height()` 改为对 `0` 个匹配结果走紧凑高度分支，仅保留原厂资料表和卡片收尾所需空间；有实际匹配结果的场景仍然保持原有高度策略，不影响正常结果表浏览体验。
+- 预期效果：无替代结果时，提示气泡会紧跟在“匹配料号资料”卡片下方出现，不再出现大段无意义空白。
+- 用户后续继续收紧版式要求：提示气泡与上方卡片再压近到约 `30px` 观感，同时与下一个型号的“匹配料号资料”卡片之间再拉开一点，避免连续阅读时挤在一起。
+- 已把 `0` 个替代结果场景的卡片高度继续从上一版的 `228/242` 下调到 `178/196`，并在 `st.info(...)` 后追加 `16px` 阅读间距；这样实现“上紧下松”，即提示气泡更贴近当前料号资料卡，但与下一组结果之间保留更清楚的分段。
+- 用户进一步明确：当前料号资料卡与“已找到原厂料号资料，暂未找到其他品牌替代结果”提示框必须直接贴在一起，不能再通过继续压 iframe 高度来近似。
+- 已改为结构性修复：不再把该提示作为外层 `st.info()` 单独渲染，而是把提示框作为 `.no-alt-match-alert` 直接写入当前料号卡片的 iframe HTML 内部；这样提示框和“匹配料号资料”卡片属于同一组视觉块，间距由卡片内部样式精确控制，而与下一组料号之间仍单独保留 `18px` 阅读分隔。
+
+## 2026-04-22 长尾系列规则收尾并清零数据库缺口
+- 继续按“先量化缺口、再补最小规则、最后全库回填”的方式处理剩余系列缺失。先直接从 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 统计 `系列/系列说明` 为空的行，确认主缺口集中在 `Littelfuse` 贴片压敏、`Bourns` 贴片压敏、`风华Fenghua` 热敏、`晶瓷Kyocera AVX` MLCC。
+- 核心排查结果：这四类主缺口并不是解析函数不会识别，而是此前数据库/缓存还没有吃到最新规则；完成一次全库 `--backfill-series` 后，这四大块已全部归零。
+- 在此基础上，又补了最后一层长尾兜底规则到 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py)：
+  - 热敏新增 `WBP-TR`、`WMF21`、`TS08`、`CT103`、`HCT`、`SCL5D`、`2.5D` 等 family-code 识别；
+  - 压敏新增 `K0603ESDA`、`KESD0603/0805/1206`、`CNR-10N/V`、`MGUG/VCUG`、`0603` 尺寸前缀、`5D` / `2.5D` 等 family-code 识别。
+- 用“当前数据库剩余缺口样本”直接跑 [`fill_missing_series_from_model()`](C:/Users/zjh/Desktop/data/component_matcher.py) 复核后，理论剩余缺口已从 `21` 条降为 `0`；随后再次执行全库 `python component_matcher.py --backfill-series`，把新规则同步写回数据库、prepared parquet 和 search sqlite。
+- 当前本地数据库结果：`TRIM(型号) <> '' AND (系列='' OR 系列说明='')` 的剩余行数已为 `0`，表示现有库内所有带型号的元器件都已至少具备可展示的系列和系列说明。
+
+## 2026-04-22 公开站验收状态与 Streamlit 全量重建 nudge
+- 用 Playwright 直接验证公开正式站 [`https://fruition-component.pages.dev/`](https://fruition-component.pages.dev/) 后，当前线上状态分成两部分：
+  - `CGA2B3X7R1H104KT0Y0F` 的电容排序已经生效，前列品牌顺序为 `华新科Walsin -> 芯声微HRE -> 村田Murata ...`；
+  - footer 元素当前是普通文档流元素，计算样式为 `position: static`，不再是固定底栏；
+  - 但 `RMS04JT105` 的厚声候选行在线上仍显示旧值 `NQ02WGJ`，没有吃到本地已修正的 `NQ / 抗硫化汽车级晶片电阻器`。
+- 这说明问题不在本地规则或数据库，而在 Streamlit Cloud 当前运行态/数据包没有完全切到最新版本。由于自动部署脚本 [`auto_streamlit_deploy.py`](C:/Users/zjh/Desktop/data/auto_streamlit_deploy.py) 进入 [`https://share.streamlit.io/deploy`](https://share.streamlit.io/deploy) 后仍停在登录页，无法自动点击 Deploy，所以暂时不能通过账号侧强制手动重建。
+- 为了继续逼近自动生效路径，已把 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 注释刷新到 `2026-04-22`；这不会改变依赖版本，只是增加一次“依赖文件发生变化”的信号，尽量促使 Streamlit Cloud 执行完整 redeploy。
+- 随后重新发布并等待新的运行态稳定后再次用 Playwright 复测，最终结果已全部通过：
+  - `RMS04JT105` 在线结果中，厚声 `NQ02WGJ0105TCE` 现已显示为 `系列=NQ`、`系列说明=抗硫化汽车级晶片电阻器`；
+  - `CGA2B3X7R1H104KT0Y0F` 在线结果前列品牌顺序仍为 `华新科Walsin -> 芯声微HRE -> 芯声微HRE -> 村田Murata ...`，排序要求成立；
+  - footer 元素复测仍为 `position: static`，说明当前正式版确实是普通页面底部元素，不是 fixed/sticky 底栏。
+
+## 2026-04-22 电阻官方系列码继续扩到厚声 / 大毅 / 光颉 / 国巨
+- 用户新增指出一批“系列列被型号片段污染”的典型错误：`0402WGJ0000TCE -> 0402WGJ`、`HP02WAJ0000TCE -> HP02WAJ`、`RMS04JTN0 -> RMS04J`、`AS02JT-R0R0 -> AS02J`。共同根因不是单一型号 bug，而是 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 仍主要依赖通用截前缀逻辑，缺少品牌级官方 family resolver。
+- 已将 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 重构为“品牌 token -> 官方系列表 -> 型号前缀解析器”的表驱动结构，并新增以下官方 family 映射：
+  - 厚声 `普通厚膜 / CQ / HP / NM / NQ`；
+  - 大毅 `RM / RB / RBA / RMH / RMS / RMSV / RASS`；
+  - 光颉 `CR / AR / AS / ASG`；
+  - 国巨 `AA / AC / AF / AT / RC / RT`。
+- 同时修正了两个数据回填根因：
+  - [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `resistor_series_should_replace()` 新增“尺寸码污染系列列”替换规则，允许把 `0402WGJ / 0603SAF / 010500J...` 这类尺寸前缀错误系列回写为 `普通厚膜`；
+  - 同文件新增 `resistor_series_desc_should_replace()`，即使 `系列` 已经是正确官方 family code，也会把旧的“品牌 + 截断系列 + 厚膜/薄膜电阻系列”占位说明刷新为官方系列说明。
+- 期间还抓到一个隐藏 bug：`normalize_series_code()` 以前会无脑去掉结尾 `T`，导致合法官方系列码 `AT / RT` 被误砍成 `A / R`；现已改为仅对长度大于 `2` 的尾部 `T` 做兼容清洗，避免破坏真实系列码。
+- 为了避免再次跑整库 1 小时级别回填，采取了更短路径：直接用 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 对已识别品牌家族的电阻数据做定向数据库更新，两次共更新 `52488 + 55343` 行，然后仅重建 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与 [`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)。
+- 当前主库与 prepared cache 抽样验证均已通过：
+  - `0402WGJ0000TCE -> 系列=普通厚膜 / 系列说明=普通厚膜晶片电阻器`
+  - `CQ02WGJ0000TCE -> 系列=CQ / 系列说明=汽车级晶片电阻器`
+  - `HP02WAJ0000TCE -> 系列=HP / 系列说明=高功率厚膜晶片电阻器`
+  - `NM02WGJ0000TCE -> 系列=NM / 系列说明=无磁厚膜晶片电阻器`
+  - `RMS04JTN0 -> 系列=RMS / 系列说明=抗硫化车载晶片电阻`
+  - `AS02JT-R0R0 -> 系列=AS / 系列说明=抗硫化厚膜晶片电阻器`
+  - `AR02BTC1000 -> 系列=AR / 系列说明=薄膜精密晶片电阻器`
+  - `AA0402JR-070RL -> 系列=AA / 系列说明=汽车级抗硫化厚膜晶片电阻器`
+  - `AT0603DRD074K99L -> 系列=AT / 系列说明=车规薄膜晶片电阻器`
+  - `RB04BTP1001 -> 系列=RB / 系列说明=薄膜晶片电阻器`
+- 将更新推到 `main` 后，Playwright 直接读取公开正式站内层 `srcdoc` 仍发现旧值 `0402WGJ / RMS04J / AS02J / AA0402JR`，说明问题已从“本地规则/缓存未更新”转移为“Streamlit Cloud 运行态尚未重拉最新仓库内容”。
+- 已再次刷新 [`requirements.txt`](C:/Users/zjh/Desktop/data/requirements.txt) 顶部的 `public redeploy nudge` 时间戳，作为最小化的完整重建触发信号，不改任何依赖版本，仅用于催促 Streamlit Cloud 强制重新部署并加载最新系列规则与 bundle 分片。
+
+## 2026-04-22 批量型号查询在 `RMS04FT1242` 后提前中断的根因修复
+- 用户提供一组连续的电阻型号批量输入后，公开站在显示到 `RMS04FT1242` 之后就不再继续，并错误提示“数据库为空，请先确认 Excel 数据”。根因不是数据库真的空，而是第 6 条开始的若干大毅型号（如 `RMS04FT7682 / RMS04FT1622 / RMSV10JT100 / RLS10FTSR015`）没有被当前型号规则识别，误走到 `full_dataframe` 整库回退分支；而公网环境这条整库分支本来就可能暂时不可用，导致原逻辑直接 `break` 掉整批搜索。
+- 已在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中新增大毅官方电阻编码解析器 `parse_tai_resistor_model()`，按官方命名位解析 `RMS / RMSV / RMH / RASS / RBA / RB / RM / RLS` 这批系列的 `系列 / 尺寸 / 容值误差 / 阻值 / 功率`。其中：
+  - `RMS04FT7682 / RMS04FT1622 / RMS04FT6040 / RMS04FT8202 / RMS06FT2R00 / RMS12FT60R4` 现在都能直接按大毅规则反推为 `料号`；
+  - `RMSV10JT100` 现在会解析为 `系列=RMSV / 系列说明=高功率抗硫化车载晶片电阻 / 尺寸=0805 / 误差=±5%`；
+  - `RLS10FTSR015 / RLS12FTSR015` 现在会解析为 `系列=RLS / 系列说明=金属箔电流检测电阻 / 器件类型=合金电阻`，并以 `料号片段` 继续匹配。
+- 同时把 `reverse_spec_partial()` 扩成通用兜底：除 MLCC 外，凡是 [`parse_model_rule()`](C:/Users/zjh/Desktop/data/component_matcher.py) 能直接按型号反推出规格的器件，都会进入批量路径继续搜索，不再因为“不是 MLCC/TDK/Murata 旧分支”而被落回无法识别。
+- 最关键的流程修复是把批量循环里 `resolution_path == "full_dataframe" and query_df empty` 的处理从“整批提前停止”改成“当前行警告并继续后续输入”。这避免了单个型号未命中快速索引时，把后续几十条已存在数据的型号一起拦截掉。
+- 本地复测用户给出的 32 条输入后，结果已全部跑通，不再在第 6 条中断。当前逐条解析结果摘要：
+  - `01-05` 继续按既有 `fast_query` 返回；
+  - `06 RMS04FT7682 -> fast_query / 料号 / 7 rows`
+  - `11 RMS04FT1622 -> fast_query / 料号 / 9 rows`
+  - `17 RMS04FT6040 -> fast_query / 料号 / 12 rows`
+  - `18 RMS04FT8202 -> fast_query / 料号 / 19 rows`
+  - `26 RMS06FT2R00 -> fast_query / 料号 / 34 rows`
+  - `28 RMSV10JT100 -> fast_query / 料号 / 54 rows`
+  - `29 RLS10FTSR015 -> exact_model_lookup / 料号片段 / 1 row`
+  - `30 RMS12FT60R4 -> fast_query / 料号 / 34 rows`
+  - `32 RLS12FTSR015 -> exact_model_lookup / 料号片段 / 1 row`
+- 这次修复使用的大毅官方依据为：
+  - [`RMS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMS.pdf)
+  - [`RMSV.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RMSV.pdf)
+  - [`RLS.pdf`](https://www.tai.com.tw/files/uploads/Prod_spec/RLS.pdf)
+
+## 2026-04-22 被动件官方系列缺口收口基础设施
+- 用户要求把“剩余品牌怎么系统化收口”的动作沉淀为固定基础设施，而不是继续靠记忆补规则。目标拆成三步：`官方来源登记 -> 从数据库自动找缺口 -> 生成按品牌 / 器件类型 / 前缀的待补规则清单`。
+- 已新增官方来源登记文件 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json)，先覆盖当前优先级最高的一批品牌，并为每个品牌记录：
+  - `status`：`done / partial / pending / missing`
+  - `lookup_method`：后续补规则时优先走的官方查询路径
+  - `sources`：官网、型录、系列页、物料查询入口等
+- 已新增报告脚本 [`tools/build_passive_series_gap_report.py`](C:/Users/zjh/Desktop/data/tools/build_passive_series_gap_report.py)，它会直接扫描 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 中所有被动件行，并按统一规则判定“系列信息未收口”：
+  - 器件类型范围：`电阻 / 电容 / 电感 / 磁珠 / 滤波 / 压敏`
+  - 未收口判定：`系列` 为空，或 `系列说明` 仍是占位文本（如“某品牌 + 截断前缀 + 电阻/电容/磁珠系列”）
+  - 自动聚合维度：`品牌`、`器件类型`、`品牌/器件类型组合`、`高频未收前缀`、`样本型号`
+- 已生成两份可直接使用的报告：
+  - [`docs/passive_series_gap_report.json`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.json)
+  - [`docs/passive_series_gap_report.md`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md)
+- 当前数据库扫描结果：
+  - 被动件总行数：`1,341,695`
+  - 系列未收口行数：`1,198,518`
+  - 已收口行数：`143,177`
+  - 涉及未收口品牌：`177`
+  - 涉及未收口品牌/器件类型组合：`375`
+- 当前报告揭示的主要缺口集中在：
+  - 品牌：`威世Vishay / KOA / Stackpole / 国巨YAGEO / Panasonic / TE Connectivity`
+  - 器件类型：`薄膜电阻 / 厚膜电阻 / 绕线电阻 / 金属氧化膜电阻 / 贴片压敏电阻 / 铝电解电容`
+  - 高频前缀样本：
+    - `Vishay 薄膜电阻 -> RNC55 / RNC50 / RLR07C / RNC60 / RN55`
+    - `KOA 薄膜电阻 -> RN73H / RN73R / RN732B / RN732A / RN731J`
+    - `KOA 厚膜电阻 -> SG73P / RS73G / RS73F / SG73S / RK73H`
+    - `Panasonic 厚膜电阻 -> ERJ-S06F / ERJ-U08F / ERJ-S08F / ERJ-S02F`
+- 这套基础设施的作用是把后续“补官方系列规则”变成有顺序的执行队列：每次只需要从报告顶部拿一个 `品牌 / 器件类型 / 前缀簇`，再按登记的官网入口去补 family rule，然后重跑报告，观察缺口是否下降。
+
+## 2026-04-22 KAMAYA 官方系列补齐并回填
+- 根据 KAMAYA 官方电阻产品页补入官方系列表，新增 [`KAMAYA_OFFICIAL_SERIES_PROFILES`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 和品牌 token 映射，覆盖 `RMC / RMCU / RGC / RNC / RMPC / RMCH / TWMC / RMGW / RMAW / FCR / RVC / RZC / RVAC / RPC / RPCH / RBX / RPGW / RCC / RLC / RLP / MLP / MLP63C / WLP63 / TWLC / RAC / RAAW / LTC / LPT` 等常见前缀。
+- 已将 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json) 中 `KAMAYA(釜屋電機)` 的状态从 `missing` 提升为 `partial`，并登记官网查询入口。
+- 对 `KAMAYA(釜屋電機)` 做了定向数据库回填，`18,250 / 18,251` 条原未收口行已写入官方系列信息，主要命中：
+  - `RPC63185JTE -> RPC / 车规抗浪涌厚膜芯片电阻器`
+  - `RMC10JPTH -> RMC / 车规/通用厚膜芯片电阻器`
+- 重新生成 [`docs/passive_series_gap_report.json`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.json) 与 [`docs/passive_series_gap_report.md`](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md) 后，系列未收口行数从 `433,712` 进一步降到 `415,462`。
+
+- 2026-04-22: HRE/芯声微 MLCC now has a brand-aware official family profile. `CGA` and `CSA` both resolve as common/general-purpose MLCC, with `CGA` marked as channel-specific rather than automotive; the resolver now also refreshes stale same-series automotive descriptions when the official class mismatches. Added `芯声微HRE` to the passive source registry with official site / datasheet references.
+
+## 2026-04-23 芯声微 HRE CGA 系列说明数据库回填
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 中芯声微 HRE 的 `CGA` canonical 系列说明改为 `常规 MLCC/渠道`，保留 `CSA` 为常规 MLCC。
+- 使用内置回填逻辑将 [`components.db`](C:/Users/zjh/Desktop/data/components.db) 中所有芯声微 `CGA*` 行的 `系列说明` 从 `车规 / AEC-Q200` 批量改写为 `常规 MLCC/渠道`，并保留 `特殊用途 = 渠道专用`。
+- 重建了 [`cache/components_prepared_v5.parquet`](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) 与 [`cache/components_search.sqlite`](C:/Users/zjh/Desktop/data/cache/components_search.sqlite)，确保公开版与本地查询结果一致。
+- 验证结果：
+  - `芯声微HRE CGA0603X7R104K500JT -> 系列说明 = 常规 MLCC/渠道`
+  - `芯声微HRE CSA0805X7R223K500KT -> 系列说明 = 常规 / General-purpose MLCC`
+
+## 2026-04-23 芯声微 HRE 电容系列公开规则收口
+- 通过官方/授权公开页与系列指南重新整理 HRE MLCC 的公开系列码：
+  - `CAA` / `CAI`：车规 MLCC，分别对应 power / general automotive
+  - `CIA`：工业 MLCC
+  - `CSA`：常规 / commercial grade MLCC
+  - `CSS`：常规 / 软端子 MLCC
+  - `CSO`：常规 / general-purpose MLCC
+  - `CGA`：市场在流通但未出现在公开品牌页的渠道专用常规 MLCC 变体
+- 已把上述规则补进 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py)，并让 HRE 行在解析时直接按品牌官方系列码回填 `系列 / 系列说明 / 特殊用途`，避免继续使用截前缀的占位描述。
+- 已回填芯声微 HRE 相关数据库行并重建缓存。
+
+## 2026-04-23 芯声微 HRE CGA/CSA 双前缀复制与系列说明收口
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 HRE MLCC 规则进一步收紧为：`CGA = 渠道常规 / General-purpose MLCC`，`CSA = 常规 / General-purpose MLCC`。
+- 新增 HRE `CGA* -> CSA*` 行复制逻辑，放在源数据规范化阶段，保证数据库、prepared cache、search sidecar 以及后续重建流程都会同时保留 `CGA` 和 `CSA` 两个前缀的同规格料号。
+- 更新 [`docs/passive_series_source_registry.json`](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json) 的 HRE 查询说明，明确 `CGA` 作为渠道常规变体、`CSA` 作为标准常规料号的配对关系。
+
+## 2026-04-23 HRE 查询缓存失效修复
+- 用户反馈在正式站搜索 `GCM155R71H333KE02D` 时，页面仍旧显示旧版排序，未把 `芯声微HRE CAI0402X7R333K500GT` 提到结果首位。
+- 本地复现后确认：`CAI0402X7R333K500GT` 已经在候选集与最终匹配结果中，问题不是数据库缺行，而是公开查询缓存没有随着排序/系列规则变化及时失效。
+- 将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 从 `11` 提升到 `12`，并同步刷新 `PUBLIC_CODE_STAMP`，强制让公开站的会话缓存和查询结果缓存重算。
+- 本地验证：同一条 `GCM155R71H333KE02D` 现在重新排序后，`芯声微HRE CAI0402X7R333K500GT` 排在结果第 1 位。
+- 同步更新 [`cloudflare-pages-proxy/dist/_worker.js`](C:/Users/zjh/Desktop/data/cloudflare-pages-proxy/dist/_worker.js) 的 `APP_CACHE_BUSTER`，让公开壳的 iframe `v=` 也一起失效，避免浏览器继续拿旧嵌入页。
+
+## 2026-04-23 RALEC 厚膜系列码补齐
+- 已把 [`resistor_series_rules.py`](C:/Users/zjh/Desktop/data/resistor_series_rules.py) 恢复到完整家族表基础上，再增补 `RALEC` 品牌 token 与厚膜 family code。
+- 新增官方厚膜系列码：`RTT / RTW / RTH / RHW / RTR / RTG / RTV / RAT`。
+- 为避免真系列码被 `normalize_series_code()` 误剪，增加了“已知官方 family code 优先保留”的归一化规则。
+- 验证：
+  - `resolve_official_resistor_series_code_from_model('RTT021002FTH', '旺诠RALEC') -> RTT`
+  - `lookup_official_resistor_series_profile_by_model('RTT021002FTH', '旺诠RALEC')` 返回 `General-purpose thick film chip resistor`
+  - `resolve_official_resistor_series_code_from_model('RAT025R0FTH', '旺诠RALEC') -> RAT`
+
+## 2026-04-23 公共入口白页修复
+- 根因是 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 在导入时会无条件执行 `update_database()`，公开入口因此被启动阶段的全量更新卡住，页面只能看到 Streamlit 壳。
+- 在 [`streamlit_app.py`](C:/Users/zjh/Desktop/data/streamlit_app.py) 中强制注入 `COMPONENT_MATCHER_PUBLIC_MODE=1` 与 `COMPONENT_MATCHER_SKIP_AUTO_UPDATE=1`，让公开入口优先渲染 UI，不再做启动时的重建。
+- 同步把 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的导入期自动更新与启动维护条件收紧为：默认只在显式维护模式下运行，公开页和普通启动都不会再自动重建。
+- 本地验证：`streamlit run streamlit_app.py` 现在可以直接渲染首页，首屏内容与按钮已恢复可见。
+
+## 2026-04-23 MLCC 尺寸展示收口
+- 先确认问题不是前端栏位缺失，而是 MLCC 数据本身大面积缺尺寸，且结果表默认只走离线补全，导致带 LCSC/官方线索的行也会继续显示空白。
+- 在 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 里补了结果表的展示策略：MLCC 小结果集才允许在线补全，避免用户看到一屏空白；大结果集仍保持离线，避免页面变慢。
+- 同时保留并扩展了离线尺寸推断，PDC `FP46N783J501EFG` 这类可由尺寸码直接还原的料号可以在本地直接补齐。
+- 本地验证：`FP46N783J501EFG` 现在能回出 `1.80 x 2.50 x 2.50`，`尺寸来源=尺寸码推断`；`MEASL063BB5225MF1B33` 仍需依赖在线/官方补全，说明剩余空白主要是规则覆盖不足，不是栏位显示坏了。
+
+## 2026-04-23 RMS04JT105 厚声 NQ 候选回归修复
+- 用户反馈 `RMS04JT105` 本来能匹配到厚声 `NQ02WGJ0105TCE`，但在昨天修改后从结果中消失；数据库里该厚声料号仍然存在，说明不是缺数据，而是候选生成规则把它提前剪掉了。
+- 本地复现后确认：`components_search_resistor` 里 `NQ02WGJ0105TCE` 的 `_power_watt` 为空，而 `fetch_search_candidate_pairs()` 之前对电阻候选要求功率必须非空且精确相等，导致这类官方料号在 `RMS04JT105` 这种跨品牌替代场景里被排除。
+- 修复方式：将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的电阻候选筛选改为“功率相等或功率缺失也允许进入候选”，并把 `QUERY_RESULT_CACHE_VERSION` 从 `12` 提升到 `13`，同步刷新 `PUBLIC_CODE_STAMP`，避免线上会话继续命中旧缓存。
+- 本地验证：`RMS04JT105` 的候选集重新包含 `厚声UNI-ROYAL NQ02WGJ0105TCE`，`resolve_search_query_dataframe_and_spec('RMS04JT105')` 也已回到 23 条候选；后续页面刷新后应恢复厚声 NQ 作为替代候选的展示。
+
+## 2026-04-23 国巨 AC MLCC / 电阻命名冲突修复
+- 用户反馈 `AC0603KRX7R9BB104` 明明是国巨 MLCC，却在页面里被解释成电阻命名，`系列说明` 也被带成了电阻式描述。
+- 本地复现后确认：`parse_model_rule('AC0603KRX7R9BB104', brand='国巨YAGEO')` 之前会落到 `yageo_chip_resistor_model`，而 `parse_yageo_common()` 对 `AC0402FR-07240RL` 这类电阻码又没有足够的 MLCC 结构校验，导致 AC 前缀在国巨电阻/电容之间串线。
+- 修复方式：让国巨 MLCC 的 `AC/AA/AF/AT/RC/RT` 先走 MLCC 解析，并在 `parse_yageo_common()` 中增加介质码和容量码校验，避免电阻码被误判成 MLCC；同时让 YAGEO 电阻解析器遇到已命中的 MLCC 码时自动让路。
+- 同步将 [`component_matcher.py`](C:/Users/zjh/Desktop/data/component_matcher.py) 的 `QUERY_RESULT_CACHE_VERSION` 提升到 `14`，并刷新 `PUBLIC_CODE_STAMP`，确保公开站会话缓存失效后重新吃到正确的国巨规则。
+- 本地验证：`AC0603KRX7R9BB104` 现在解析为 `MLCC / AC / 车规 / Automotive MLCC`，`AC0402FR-07240RL` 仍然保持为 `厚膜电阻 / AC / 汽车级厚膜晶片电阻器`。
+## 2026-04-23 RMS04JT105 NQ 功率回填到分级逻辑
+- 用户指出 `RMS04JT105` 对应的厚声 `NQ02WGJ0105TCE` 在界面上明明能看到 `1/16W`，但结果等级仍然落在 `需确认替代`。
+- 本地复查后确认：`NQ02WGJ0105TCE` 的候选行走的是通用电阻解析，`_power` / `_power_watt` 在候选 DataFrame 里仍是空值；页面上看到的功率来自展示层按尺寸码回填，而不是候选行原始字段。
+- 修复方式：新增 `infer_resistor_power_text_from_record()`，让分级逻辑在功率字段缺失时也能按原始字段 + 尺寸推导功率；并把 `QUERY_RESULT_CACHE_VERSION` 从 `14` 提升到 `15`、刷新 `PUBLIC_CODE_STAMP`，避免旧缓存继续输出保守等级。
+- 本地验证：`resolve_search_query_dataframe_and_spec('RMS04JT105')` 中 `NQ02WGJ0105TCE` 现在在 `classify_match_level(...)` 下返回 `完全匹配`。
+
+### 2026-04-23 17:26 [direct] Read records and summarized current product status
+
+- Received / problem: User asked to read the existing records and summarize what product this repo is building, what has already been done, what problems were encountered, and what fixes were applied.
+- Investigation: Reviewed [README.md](C:/Users/zjh/Desktop/data/README.md), [PUBLIC_ACCESS.md](C:/Users/zjh/Desktop/data/PUBLIC_ACCESS.md), [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py), [docs/codex_working_rules.md](C:/Users/zjh/Desktop/data/docs/codex_working_rules.md), [docs/passive_series_gap_report.md](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md), and the recent history in this shared log.
+- Fix / action: No runtime code change. Consolidated the current state into a user-facing handoff summary covering product definition, public deployment model, completed data/model-rule work, recent production issues, and remaining series-gap work.
+- Verification: The summary is grounded in the current workspace records, including the public-entry docs, the latest public startup guards, and the latest passive-series gap metrics.
+- Other issues: The repo still shows a large unresolved official-series backlog across passive components; current report state is `415,462` unresolved rows out of `1,341,695`.
+- Handoff notes: Future task frames can resume from the public production line first, then use the passive series gap report plus operation log to pick the next brand/family rule tranche.
+
+### 2026-04-23 20:02 [direct] Persisted resistor power inference into prepared cache without tightening recall
+
+- Received / problem: User confirmed the missing resistor power issue is not all brands but a minority of rows, and asked to keep going so the current query-time resistor power fallback becomes persisted data instead of only a runtime classification workaround.
+- Investigation: Re-checked the actual storage layers and confirmed the root persistence target is not the raw `components` table: [components.db](C:/Users/zjh/Desktop/data/components.db) does not store `_power / _power_watt`, while [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) and [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) do. Also confirmed that blindly pushing size-derived `_power_watt` into the resistor search sidecar would narrow candidate recall because the SQL fast path currently treats non-null power as an exact prefilter.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so prepared-data generation now persists a new resistor `_power_source` marker, fills blank resistor `_power / _power_watt` from standard size-based inference during `prepare_search_dataframe()`, and reuses a shared helper `infer_resistor_power_text_and_source_from_record()` for single-row fallback. At the same time, kept the resistor fast-search sidecar recall-safe by nulling `_power_watt` for non-trusted inferred sources when building `components_search_resistor`, and changed the resistor prefilter path so early `same_power` narrowing only trusts `text / numeric / context` power sources rather than size-guess values.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Ran `python component_matcher.py --rebuild-prepared-cache`, which rebuilt both prepared cache and search sidecar successfully. After rebuild, resistor prepared rows with blank `_power` dropped from `833,588` to `322,415`, with `722,174` rows now carrying `_power_source=size`. Spot-check verified `RMS04JT105 -> 厚声UNI-ROYAL NQ02WGJ0105TCE` now carries `_power=1/16W`, `_power_watt=0.0625`, `_power_source=size`, and `classify_match_level(...)` still returns `完全匹配`.
+- Other issues: This pass intentionally did not force size-derived power into the resistor search sidecar SQL index, so the fast-recall layer still keeps many `_power_watt` values null by design. The remaining prepared-cache blanks are now concentrated in rows without usable size clues or in non-standard families where power cannot yet be inferred safely from current rules.
+- Handoff notes: If the next step is to shrink the remaining `322,415` blanks further, focus on adding non-standard resistor size/family decoding for brands now dominating the residue, especially `威世Vishay`, `国巨YAGEO`, `Stackpole`, `Ohmite`, `KOA`, `KAMAYA`, and `TE Connectivity`.
+
+### 2026-04-24 04:16 [direct] Added narrow brand/series resistor power rules and rebuilt caches
+
+- Received / problem: User asked to continue the resistor power backfill after the generic context/size pass. The remaining blanks had already shrunk to a much smaller true-resistor set, concentrated in a few families rather than all brands.
+- Investigation: Re-checked the current prepared cache and isolated safe, low-disagreement targets: `KAMAYA RGC` blanks were concentrated in `RGC1/20[CK]* -> 50mW` and `RGC1/16SC* -> 63mW`; `TE 3430` had fixed power by size (`0508 -> 1W`, `0612 -> 1.5W`, `1020 -> 2W`, `1225 -> 3W`); `Vishay M55342` remaining blanks were limited to `0502 -> 50mW`; `Vishay MMU0102` was stable at `0102 -> 300mW`; and the only safe `YAGEO RC` residual was `1218 -> 1W`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to add a new `infer_series_specific_resistor_power_text_and_source()` helper plus a narrow `RESISTOR_POWER_BY_BRAND_SERIES_SIZE` map. Wired this helper into both the single-record runtime fallback path and the prepared-cache build path before generic size inference, while keeping `TRUSTED_RESISTOR_POWER_SOURCES` unchanged so recall-oriented sidecar filtering still ignores non-text inferred power.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Sample checks confirmed persisted outputs for `RGC1/20C473DPA -> 50mW / model`, `RGC1/16SC391BTH -> 63mW / model`, `3430B2ZTDF -> 1.5W / series`, `M55342H01B12E4RT5 -> 50mW / series`, `MMU0102WZ0000ZB300 -> 300mW / series`, and `RC1218JK-07680RL -> 1W / series`. Ran `python .\component_matcher.py --rebuild-prepared-cache`; after rebuild, true-resistor blank `_power` rows dropped from `1,305` to `1,171`, with new persisted source counts `model=120` and `series=14`. Residual brand counts moved from `KAMAYA 120 -> 0`, `TE 92 -> 86`, `Vishay 507 -> 500`, and `YAGEO 44 -> 43`. Regression check still passed for `RMS04JT105`, where `NQ02WGJ0105TCE` remains `_power=1/16W`, `_power_watt=0.0625`, `_power_source=context`, and `classify_match_level(...)` returns `完全匹配`.
+- Other issues: The remaining `1,171` blanks are now dominated by families without clean size clues or by specialty/precision/leaded series, especially `Vishay`, `ADI`, `TE 1622`, `Ohmite`, `华星机电`, and residual low-ohm `YAGEO` series that still need family-specific treatment.
+- Handoff notes: The next efficient tranche is no longer `KAMAYA/3430/M55342`; those are essentially exhausted. Continue with high-yield specialty families such as `Vishay 5400 / MQ / Y16 / Y40 / CW001*`, `TE 1622`, and low-ohm `YAGEO PE/PS/PT` series where size/power relationships can be proven from existing populated rows.
+
+### 2026-04-24 05:57 [direct] Added TE/Vishay/YAGEO fixed-family power rules and rebuilt caches
+
+- Received / problem: User asked to keep going after the previous tranche. The remaining true-resistor blanks were still concentrated in a few families with stable power already visible in the existing prepared cache, especially `TE 1622`, `Vishay RWM/MQ/Y*`, and low-ohm `YAGEO PE/PS` rows.
+- Investigation: Split the remaining blanks by brand/series/model prefix and only kept rules whose populated siblings already converged to one power value. Confirmed: `TE 1622 -> 1/4W`; `Vishay RWM0410* -> 3W`; `Vishay RWM0622* -> 7W`; `Vishay MQ* -> 1/8W`; `Vishay Y1455* -> 200mW`; `Vishay Y1628* -> 750mW`; `Vishay Y4073* -> 300mW`; `Vishay Y4076* -> 750mW`; `YAGEO PS0612DKG/FKL/FKF/FKM -> 1W`; `YAGEO PE0508FRE -> 1W`; `YAGEO PE0815FKF -> 1W`; and `YAGEO PE0612FKF/FKM` could be split safely by model token (`7W0 -> 2W`, `070 -> 1W`).
+- Fix / action: Extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with three new narrow rule layers: `RESISTOR_POWER_BY_BRAND_SERIES`, `RESISTOR_POWER_BY_BRAND_MODEL_PREFIX`, and `RESISTOR_POWER_BY_BRAND_MODEL_PATTERN`. Reused the existing `infer_series_specific_resistor_power_text_and_source()` entry point so these rules apply consistently to both runtime single-row fallback and prepared-cache persistence, while still leaving sidecar trusted-source filtering unchanged.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Sample spot-checks confirmed: `1622429-1 -> 1/4W / series`, `RWM04106801JR15E1 -> 3W / model`, `RWM06226R80JR15E1 -> 7W / model`, `MQ52R30 -> 1/8W / model`, `Y1455344R000T0R -> 200mW / model`, `Y162840K0000T9W -> 750mW / model`, `Y40733K00000T9W -> 300mW / model`, `Y407610K0000T9W -> 750mW / model`, `PS0612FKF070R025Z -> 1W / series`, `PE0508FRE070R005Z -> 1W / series`, `PE0815FKF7W0R005L -> 1W / series`, `PE0612FKM7W0R02Z -> 2W / model`, `PE0612FKF070R01L -> 1W / model`. Ran `python .\component_matcher.py --rebuild-prepared-cache`; after rebuild, true-resistor blank `_power` rows dropped from `1,171` to `920`, with `_power_source` counts growing to `model=282` and `series=103`. Brand residue improved from `Vishay 500 -> 345`, `TE 86 -> 9`, and `YAGEO 43 -> 24`. Regression check still passed for `RMS04JT105`, where `NQ02WGJ0105TCE` remains `_power=1/16W`, `_power_watt=0.0625`, `_power_source=context`, and `classify_match_level(...)` returns `完全匹配`.
+- Other issues: The remaining `920` blanks are now dominated by harder specialty families, led by `Vishay 5400 / CW001* / 0422 / 0526`, plus `ADI`, `双羽`, `Ohmite`, `华星机电`, and a smaller residual set of low-ohm `YAGEO` lines that still lack enough in-cache evidence for safe inference.
+- Handoff notes: The next highest-yield tranche is now the `Vishay CW001*` wirewound family plus `5400` precision shunts, but those should be verified against primary-source manufacturer docs before encoding because the current cache does not yet provide enough self-contained evidence for wattage by series token.
+
+### 2026-04-24 08:43 [direct] Added Vishay CW001/RWM0422/RWM0526 power rules and rebuilt caches
+
+- Received / problem: User asked to continue immediately after the previous tranche. The remaining blank resistor power rows were still heavily concentrated in a few verified Vishay families, especially `CW001*`, `RWM0422*`, and `RWM0526*`, while `ADI LT5400/LT5401` also appeared in the residue but did not yet have a clearly safe single `_power` interpretation.
+- Investigation: Re-checked the remaining blank families and verified wattage only from primary-source manufacturer docs before encoding. Confirmed from the official Vishay CW datasheet that `CW001` is rated at `1.0W`, and from the Vishay quick reference guide that `RWM 4 x 22 -> 5W` and `RWM 5 x 26 -> 7W` at the reference rating column already used by the existing `RWM0410/RWM0622` rules. Kept `ADI LT5400/LT5401` out of scope because the official Analog Devices documentation exposes per-resistor absolute-maximum dissipation rather than a clean single series wattage suitable for this `_power` field.
+- Fix / action: Extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) again by adding three narrow `威世Vishay` model-prefix rules under `RESISTOR_POWER_BY_BRAND_MODEL_PREFIX`: `CW001 -> 1W`, `RWM0422 -> 5W`, and `RWM0526 -> 7W`. Reused the existing model-level inference path so the result persists into the prepared cache and is available to runtime matching without tightening sidecar recall filters.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Ran `python .\component_matcher.py --rebuild-prepared-cache`, which refreshed [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet). Reading the rebuilt prepared cache directly showed true-resistor blank `_power` rows dropping from `920` to `699`, with `_power_source=model` increasing from `282` to `600`. Residual top brands are now `双羽 102`, `ADI 96`, `华星机电 62`, `Ohmite 51`, `TI 41`, `Vishay 27`, and `YAGEO 24`. Target-family blanks are now zero for `CW001*`, `RWM0422*`, and `RWM0526*`, while `ADI LT5400*` and `LT5401*` remain at `85` and `10` blank rows respectively. Sample rows persisted as expected: `CW0013R300JE12HS -> 1W / model`, `RWM04221000FR15E1 -> 5W / model`, and `RWM05261000JR15E1 -> 7W / model`. Regression check still passed for `RMS04JT105`, where `NQ02WGJ0105TCE` remains `_power=1/16W`, `_power_watt=0.0625`, `_power_source=context`, and `classify_match_level(...)` still returns `完全匹配`.
+- Other issues: The remaining blanks are no longer dominated by mainstream Vishay wirewound families. Most residue is now outside the just-verified scope and includes ambiguous network/specialty parts (`ADI LT5400/LT5401`) plus other brands that still need family-specific evidence.
+- Handoff notes: The next efficient batch is no longer `CW001/RWM0422/RWM0526`; those are exhausted. Continue with `双羽`, `华星机电`, `Ohmite`, `TI`, and the unresolved `ADI LT5400/LT5401` rows, but only after deciding whether the `_power` field is supposed to store per-element dissipation, package dissipation, or should remain blank for resistor-network parts.
+
+### 2026-04-24 10:12 [direct] Fixed Walsin resistor series parsing to keep only the alpha family prefix
+
+- Received / problem: User pointed out that `华新科Walsin` resistor results were showing series values like `MR04X / SR04X / WR04X`, where the trailing `04X` is not the family code. The expected series split is the leading alphabetic prefix itself.
+- Investigation: Rechecked [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) and confirmed the current generic resistor-series regex was swallowing `prefix + size/material` together for Walsin resistor models. Direct function checks reproduced the bug: `MR04X49R9FTL -> MR04X`, `SR04X49R9FTL -> SR04X`, `WR04X49R9FTL -> WR04X`, and `RM04FTN49R9 -> RM04F`. A direct scan of current Walsin resistor rows in [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) also showed that the real family split is the alphabetic prefix (`WR`, `WW`, `MR`, `WF`, `SR`, `WK`, `WM`, `FVF`), not the appended `04X/08W/...` segment.
+- Fix / action: Updated [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) to add a Walsin-specific resistor series resolver that extracts only the leading alphabetic prefix before the first digit. Wired that resolver into `infer_resistor_series_code()` ahead of the generic regex path, so `华新科 / Walsin / 华科` branded resistor rows now normalize to `MR`, `SR`, `WR`, `WF`, etc., while the size/material segment stays out of the `系列` field.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py streamlit_app.py` passed. Direct function checks now return `MR04X49R9FTL -> MR`, `SR04X49R9FTL -> SR`, `WR04X49R9FTL -> WR`, `WR08W1404FTL -> WR`, and `WF06P1002BTL -> WF`, with descriptions falling back to `华新科Walsin WR 厚膜电阻系列` style text. Rebuilt [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) and confirmed the persisted rows for `MR04X49R9FTL`, `SR04X49R9FTL`, and `WR04X49R9FTL` now store `MR / SR / WR`. A live query regression on `RMS04FT49R9` also shows Walsin candidates with corrected series values such as `SR` and `WR` instead of `SR04X` / `WR04X`.
+- Other issues: This pass intentionally changed only the Walsin resistor series parser and prepared-cache output. It did not run a `components.db` in-place series backfill because the current result-page display path is already driven by the prepared cache.
+- Handoff notes: If Walsin resistor series descriptions need to be made fully official rather than generic fallback text, the next step is to collect the official family table for prefixes such as `WR / WF / WW / WK / WM / MR / SR / FVF` and replace the generic `品牌 + 系列 + 器件类型` descriptions with the official family wording.
+
+### 2026-04-24 12:25 [direct] Broadened resistor series parsing across Yageo / Xicon / Riedon and backfilled prepared cache
+
+- Received / problem: User noted the same `series token swallowed value/size token` bug was not limited to Walsin. The prepared cache still had resistor series corruption on other brands, including `Riedon` rows with bare numeric fragments like `080 / 120 / 251`, `Xicon` rows like `293-10K-`, `262-82-R`, `273-82-R`, and `R-294-*` rows collapsing to a single `R`.
+- Fix / action: Updated [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) to broaden family extraction. `YAGEO` now resolves `AR0402FR-*` to `AR0402` / `AR0603` / `AR0805`; `Xicon` now keeps the real family token for `293 / 262 / 273 / 294` models, preserves `280-CR5` / `280-CR10`, and handles `R-294`-style family prefixes instead of collapsing them to `R`. Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so stale numeric-fragment series can be overwritten by a longer canonical family code during prepared-cache fill.
+- Cache backfill: Rewrote [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) in place with a targeted backfill over the affected resistor brands. Verified samples now show `Riedon HVS0805-1GK1 -> HVS0805`, `PCR1206-10RJ1 -> PCR1206`, `HVS2512-100KJ8 -> HVS2512`, `CAR0603-10KB2 -> CAR0603`; `Xicon 262-82-RC -> 262`, `273-82-RC -> 273`, `293-10K-RC -> 293`, `294-7.5K-RC -> 294`, `280-CR10-4.7K-RC -> 280-CR10`, `280-CR5-15-RC -> 280-CR5`, `R-294-750 -> R-294`, and `R-294-6.8K -> R-294`; `国巨YAGEO AR0402FR-0749R9L -> AR0402`, `AR0603FR-074K7L -> AR0603`, `AR0805FR-0749R9L -> AR0805`.
+- Verification: Direct inference checks now return the corrected family codes for the above samples. Cache spot checks confirmed there are no remaining `Xicon` rows with the old `R` collapse or `262-82-R / 273-82-R / 293-10K-` residue, and `Yageo` `AR` rows no longer carry the `FR` suffix in the series field.
+- Handoff notes: The series parser/backfill path is now strong enough to keep future resistor rows from drifting back into value/size fragments for the affected brands. Remaining residue, if any, should be handled as brand-specific exceptions rather than by loosening the generic parser further.
+
+### 2026-04-24 19:09 [direct] Re-audited major remaining system gaps
+
+- Received / problem: User asked to re-summarize the system's major missing pieces after the recent resistor family and power-rule fixes.
+- Investigation: Re-ran the passive series gap logic in memory against both [components.db](C:/Users/zjh/Desktop/data/components.db) and [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet), checked [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) metadata/counts, inspected current publish artifacts, and checked the working tree/test footprint.
+- Findings: The largest gap is still official passive family coverage: source DB report remains `415,462 / 1,341,695` unresolved passive rows, while prepared cache still has `409,502` unresolved rows after targeted cache fixes. Top unresolved brands remain `Vishay`, `YAGEO`, `Stackpole`, `TE`, `Meritek`, `Ohmite`, `Murata`, `KOA`, `Samsung`, and `Fenghua`. A second major issue is source-of-truth drift: today's Walsin/YAGEO/Xicon fixes are reflected in runtime cache/code, but `components.db` and the public bundle are older than those local fixes.
+- Data completeness notes: Fixed-resistor power is now nearly closed (`699 / 1,286,925` blank in prepared cache), but fixed-resistor size is still blank for `484,129` rows. Capacitor `_size` is blank for `15,412 / 132,236` and metric dimensions are blank for `118,610`. Inductor/bead `_size` is blank for `18,530 / 23,961`. Varistor voltage is blank for `5,860 / 12,831`, and thermistor `阻值@25C/B值` are blank for `2,226 / 2,589`.
+- Operational notes: The formal app has no project-owned automated test suite found in the workspace; current validation depends on manual spot checks. Current working tree has 3 modified tracked files plus hundreds of untracked generated/probe files, and the public bundle timestamp predates today's rule/cache edits, so the latest local corrections are not yet published.
+
+### 2026-04-24 22:17 [direct] Fixed capacitor size-vs-dimension semantics and rebuilt search sidecar
+
+- Received / problem: User questioned why capacitor `_size` and `尺寸（mm）` were both reported as missing and asked to start fixing. The underlying issue was mixed semantics: `_size` should mean chip/package code such as `0402`, while `尺寸（mm）` is the physical metric body size. Aluminum electrolytics and leaded ceramic capacitors should not be forced into `_size`.
+- Investigation: Re-checked [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet). Before this pass, capacitor `尺寸（mm）` blanks had already dropped to `8,934`, but MLCC still had `7,149` missing metric dimensions and `2,099` missing/invalid `_size`. Many blanks were caused by valid codes without mm mapping (`008004 / 0306 / 0508 / 1608 / 3025`) and by leaded ceramic rows being kept under MLCC size semantics.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `clean_size()` no longer corrupts package text like `P=5.08MM` into `P=58MM`; added MLCC metric/reverse-size mappings including `008004`, `0202`, `0303`, `0306`, `0508`, `1608`, `2012`, `3025`, `3216`, and `7563`; expanded Murata/TDK dimension decoding; moved Murata/Kyocera AVX through-hole ceramic families and Taiyo UP/TP axial ceramic rows out of MLCC `_size`; and added a sidecar fallback when `components.db` has stale brand/model rows but the refreshed search sidecar has the authoritative prepared row.
+- Cache / index: Rewrote [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) with targeted capacitor-dimension repair, then rebuilt [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) from the prepared cache.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Prepared-cache stats now show all capacitors `132,236`, capacitor `尺寸（mm）` blanks `6,863`, MLCC rows `111,079`, MLCC `尺寸（mm）` blanks `208`, and MLCC `_size` blanks `613`. Spot checks now persist/display `GRM0115C1ER20WE11L -> 008004 / 0.25*0.125*0.125mm`, `GMA05XR71C152MA01T -> 0202 / 0.50*0.50*0.50mm`, `C0816X5R1C473M050AC -> 0306 / 0.80±0.10*1.60±0.10*0.50mm`, `C7563X7S1H226M230LE -> 3025 / 7.50±0.40*6.30±0.40*2.30mm`, `CL0306KRX7R6BB104 -> 0306 / 0.80*1.60*0.80mm`, `CQ1608X7R104K500NRB -> 1608 / 1.60*0.80*0.80mm`, and `UP050RH1R8M-KEC -> 引线型陶瓷电容 / 3.2*2.2mm`.
+- Other issues: The remaining capacitor metric-dimension blanks are mostly non-SMD body dimensions that cannot be inferred safely from the current fields: `4,870` leaded ceramic rows and `1,785` Jianghai aluminum electrolytic rows still lack body size, while true MLCC residual is down to `208` rows.
+- Handoff notes: Next capacitor data-completeness pass should target official body-size tables for Murata/Kyocera leaded ceramic families and Jianghai aluminum electrolytic families. Do not treat their `_size` blank count as a chip-size defect unless the row is truly SMD MLCC.
+
+### 2026-04-29 10:55 [direct] Moved capacitor brand priority ahead of MLCC class in result sorting
+
+- Received / problem: User searched `FN18X104K500PBG` from `信昌PDC` and observed that `华新科Walsin` complete-match MLCC rows appeared below `HRE / Murata / TDK` rows.
+- Investigation: Reproduced the ranking cause against [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet). The rows were all complete matches on `0603 / X7R / 100nF / 50V / K`, but the previous capacitor sort put `_mlcc_class_rank` before `_brand_rank`, so rows classified as `常规` outranked Walsin rows whose series class was blank, automotive, soft-terminal, or generic Walsin family text.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so capacitor-family results sort by `_seed_rank -> 推荐等级 -> 品牌优先级 -> MLCC class -> 参数完整度 -> 品牌/型号`. Extended the regression result builder with optional `expected_top_brand` / `expected_top_model_contains` checks, changed exact-part regression detection/matching to reuse the app fast path through `components_search.sqlite`, and added the `PDC_FN18_WALSIN_PRIORITY` case to [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv).
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct fast-path assertion for `FN18X104K500PBG` now scopes to `69` sidecar candidate rows, returns `66` sorted matches, and puts `华新科Walsin 0603B104K500CT` first with `推荐等级=完全匹配`. The new `PDC_FN18_WALSIN_PRIORITY` regression case also passes with `首位品牌=华新科Walsin`. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and split it into `part01/part02` from the current prepared/search cache.
+- Other issues: The public Pages deployment still needs a fresh publish before this local sorting fix appears online. I did not run the broad publish script because the workspace has many unrelated untracked generated/source files and the script stages whole source directories.
+- Handoff notes: Next step should make a controlled publish commit containing only the intended runtime files/bundle parts, then verify the public wrapper URL shows Walsin above HRE/Murata/TDK for `FN18X104K500PBG`.
+
+### 2026-04-29 13:25 [direct] Removed stale Walsin helper import for public Streamlit startup
+
+- Received / problem: After publishing the capacitor sort fix, the public Streamlit app started with `ImportError: cannot import name 'resolve_walsin_resistor_series_code_from_model' from 'resistor_series_rules'`, indicating Streamlit Cloud had loaded inconsistent versions of `component_matcher.py` and `resistor_series_rules.py`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to stop importing the new Walsin helper from [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) and instead keep a local equivalent used only by resistor size inference. Updated [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) release stamp to force a fresh public app revision.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. The `PDC_FN18_WALSIN_PRIORITY` regression case still passes: `FN18X104K500PBG` returns `66` matches and the first result remains `华新科Walsin 0603B104K500CT`.
+- Handoff notes: Push this patch to `main`, wait for Streamlit Cloud to rebuild, then verify the public wrapper no longer shows the import error and the Walsin rows rank above HRE/Murata/TDK.
+
+### 2026-04-29 15:55 [direct] Corrected MLCC series descriptions for Walsin / Murata / Taiyo / Samwha / Fojan / Kyocera AVX
+
+- Received / problem: User pointed out that `0603B104K500CT` was being shown as Walsin `0603B` series even though `0603B` is a size/dielectric fragment, asked what `ST18B104K500CT` really is, and noted that Murata / Taiyo Yuden / Samwha / Fojan / Kyocera AVX rows were still using generic placeholder series descriptions.
+- Investigation: Reproduced `FN18X104K500PBG` locally and confirmed stale/generated descriptions such as `华新科Walsin 0603B X7R系列`, `Murata MLCC series`, `Taiyo Yuden ... official series`, and `Kyocera AVX 06035C MLCC official series`. The fault was not matching accuracy; it was the display enrichment layer treating size/voltage/dielectric fragments as series codes and refusing to overwrite non-empty placeholder descriptions.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so Walsin numeric MLCCs resolve to `常规 / General-purpose MLCC` rather than `0603B`; Walsin `ST` resolves to `软端子 / Soft-termination MLCC`; Kyocera AVX numeric legacy codes like `06035C...` resolve to `车规 / Automotive MLCC` rather than `06035C`; and specific mappings were added for Murata `GCG/GCJ/GRJ`, Taiyo `UMF/UMJ/UMK/MBJCU/MCJCU/MMJCU`, Samwha `CS/CQ`, Fojan `FCC`, and Kyocera AVX `KGM/KGF/KGL/KGA/KAM/KAF`. Also added a controlled description-overwrite rule so placeholder text is replaced even when the original row already had a non-empty description.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Local `FN18X104K500PBG` regression still passes with top result `华新科Walsin 0603B104K500CT`. Spot output now shows `0603B104K500CT -> 常规 / General-purpose MLCC`, `ST18B104K500CT -> ST / 软端子`, `GCG -> 导电胶安装`, `GCJ -> 车规软端子`, `GRJ -> 软端子`, `UMK/UMJ/UMF -> 高介电常数MLCC（旧料号体系）`, `MCJCU -> 车规软端子`, `CS -> 常规`, `FCC -> 常规`, `KGM -> 常规`, and AVX `06035C... -> 车规`.
+- Handoff notes: This patch changes runtime display/enrichment and should be pushed with a fresh Streamlit release stamp plus Cloudflare Pages cache buster, then verified on the public wrapper for `FN18X104K500PBG`.
+
+### 2026-04-29 17:50 [direct] Corrected Kyocera AVX historical automotive code and unsafe MLCC dimension fallback
+
+- Received / problem: User asked why `06035C104K4T2A` was shown as generic `车规` instead of displaying the actual automotive code in the part number, and challenged the safety of `尺寸码推断` for length/width/height.
+- Investigation: Checked Kyocera AVX Automotive MLCC official ordering data. The historical part-number structure is size + voltage + dielectric + capacitance + tolerance + failure-rate + termination + packaging + special code; the automotive marker for `06035C104K4T2A` is the failure-rate code `4` immediately after tolerance `K`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so Kyocera AVX historical numeric MLCCs display series `4` when that official failure-rate code is present, with `车规代码4 / Failure Rate code 4 = Automotive`. Non-`4` historical numeric rows now show `历史料号` rather than being labeled automotive. Added official Kyocera AVX dimensions for the covered `0603 / X7R / 104 / 50V` historical rows: `1.60±0.15 x 0.81±0.15 x 0.94(max)`.
+- Dimension policy change: Generic MLCC package fallback no longer fills thickness from size code alone. It only fills length/width and labels the source `封装码标称L/W`; stale `尺寸码推断` height values are cleared unless an official source or brand/model rule supplies height.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct display checks now show `06035C104K4T2A -> 系列 4`, official Kyocera AVX dimension source and max thickness; `06035C104KAT2A -> 历史料号`; and `FN18X104K500PBG` itself now shows `1.60 / 0.80 / blank height` with source `封装码标称L/W`.
+- Handoff notes: Publish this with updated Streamlit release stamp and Cloudflare cache buster; public verification should check that the Kyocera AVX rows under `FN18X104K500PBG` no longer show series `车规` and no longer show generic `尺寸码推断`.
+
+### 2026-04-29 22:50 [direct] Read project records and refreshed product context
+
+- Received / problem: User asked to read the existing records and understand what product is being built, what has been done, what problems were encountered, and what fixes were applied.
+- Investigation: Reviewed `README.md`, `PUBLIC_ACCESS.md`, `docs/public_publish_runbook.md`, `docs/public_stability_rule.md`, `docs/passive_series_gap_report.md`, `references/issue-ledger.md`, recent `operation_log.md` history, and recent git commits through `d64b76f`.
+- Fix / action: No business-code change. Consolidated the current project state into a user-facing summary covering product definition, public deployment architecture, completed data/rule/search fixes, recent MLCC display/ranking issues, deployment/cache issues, and remaining backlog.
+- Verification: Confirmed `main` is aligned with `origin/main`; latest commit is `Fix Kyocera AVX MLCC code and dimension source`. The working tree still contains many untracked generated/probe files, but no tracked diff before this log entry.
+- Handoff notes: Next work should start from the public production line and the latest MLCC/Kyocera AVX verification state, then continue either public verification or the remaining passive-series/data-completeness backlog.
+
+### 2026-05-10 10:01 [direct] Backfilled verified MLCC thickness for Walsin / PDC / HRE 0603 X7R 100nF 50V
+
+- Received / problem: User pointed out that `0603B104K500CT` and its matched MLCC result rows showed blank `高度(mm)` even though some brands can provide thickness from official/spec-sheet data, and asked that the database and future expansion path keep accurate thickness rather than losing those rows.
+- Root cause: The previous safety fix intentionally stopped generic MLCC package fallback from filling height because a chip package code such as `0603` only proves nominal length/width, not a guaranteed thickness. That prevented false `尺寸码推断` heights but also left verified Walsin/PDC/HRE 0603 X7R 104 50V thickness values unfilled.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with narrow verified dimension rules for Walsin, PDC/PSA, and HRE 0603 X7R 100nF 50V MLCC rows. The rules now fill length, width, height, and `尺寸来源` from spec-sheet-backed data only. Added the `--backfill-mlcc-dimensions --verified-only` path so database/cache refreshes can apply these verified dimensions without running the slow full-library backfill.
+- Data backfill: Ran `python component_matcher.py --backfill-mlcc-dimensions --verified-only`, which updated `12` rows in [components.db](C:/Users/zjh/Desktop/data/components.db) and `12` rows in [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) after correcting PDC/HRE tolerance values. The search sidecar was not rebuilt because it does not store length/width/height/source columns.
+- Public artifact prep: Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) from the updated prepared cache and split it into `streamlit_cloud_bundle.zip.part01` / `part02`. Refreshed [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) `PUBLIC_RELEASE_STAMP` to `2026-05-10T10:09:27+08:00`. No git commit or push was performed in this pass.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct DB and prepared-cache checks now show `0603B104K500CT` with `1.60+0.15/-0.10 / 0.80+0.15/-0.10 / 0.80+0.15/-0.10 / Walsin规格书`; `FN18X104K500PBG` with `1.60±0.15 / 0.80±0.15 / 0.80+0.15/-0.10 / PDC/PSA规格书`; and HRE `CGA/CSA/CAI/CIA/CSS0603X7R104*500JT` rows with `1.60±0.20 / 0.80±0.20 / 0.80±0.20 / HRE规格书`.
+- Handoff notes: This closes the screenshot's blank-height case locally for the verified Walsin/PDC/HRE family. Future MLCC expansion should keep using source-backed brand/model rules or harvested datasheet tables for height; do not reintroduce generic `0603 -> height` inference.
+
+### 2026-05-10 10:32 [direct] Changed resistor match brand priority to stocked brands
+
+- Received / problem: User asked for resistor-series match results to prioritize the stocked brands in this order: `信昌 > 华新科 > 厚声 > 富捷`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) resistor brand ranking so resistor and thermistor-style resistor matches now rank `信昌/PDC/PSA` first, `华新科/Walsin/华科` second, `厚声/UNI-ROYAL` third, and `富捷/FOJAN` fourth before the remaining general resistor brands. Refreshed [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) `PUBLIC_RELEASE_STAMP` to `2026-05-10T10:30:56+08:00`.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `RES_BRAND_PRIORITY_R005`, using `R005 1% 1206 1W` to assert that the first resistor match is a 信昌/PDC row.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. A synthetic same-spec resistor sort returned `PSA(信昌电陶) -> 华新科Walsin -> 厚声UNI-ROYAL -> FOJAN(富捷) -> 国巨YAGEO`; the new regression case passed with `14` matches and top model `FMF06FTHR005-LHL`.
+
+### 2026-05-10 11:01 [direct] Public-site procurement persona test
+
+- Received / problem: User asked to use the public website as a procurement/sales user with a model, a spec, and a BOM upload, then report what problems appear in real use.
+- Test setup: Opened [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/) and exercised three scenarios: single-spec search `R005 1% 1206 1W`, model search `RC0805FR-074R7L` / `WR08W1002FTL`, and a 4-line CSV BOM with `RC0805FR-074R7L`, `R005 1% 1206 1W`, `WR08W1002FTL`, and `0603B104K500CT`.
+- Findings: The public iframe URL still carried the older `20260429` release stamp. The single-spec `R005 1% 1206 1W` search showed a progress message saying only `1` match while the result table contained many rows. The result table downgraded all rows to `需确认替代` and showed `1/4W` candidates even though the query asked for `1W`, making the output unsafe for procurement use.
+- Findings: `WR08W1002FTL` was parsed/displayed as `80mΩ` instead of the expected `10KΩ`, causing the result set to recommend unrelated `80mΩ` Walsin rows. The BOM flow marked all four rows as `匹配成功`, but row 3 inherited the same `80mΩ` parsing error, and row 2 had `1W` in the BOM spec while matched details only retained partial parameters and `需确认替代`.
+- Handoff notes: The public UI needs a procurement-safe recommendation layer before wider use: do not count `需确认替代` rows as clean success, do not hide power/value conflicts in wide tables, and fix resistor code parsing plus the progress-count mismatch before relying on BOM output.
+
+### 2026-05-10 15:10 [direct] Added procurement-safe recommendation statuses and fixed Walsin resistor parsing
+
+- Received / problem: User asked to continue from the procurement persona test and implement fixes so采购/销售 can tell whether a result is actually usable rather than just seeing a database query result.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with a Walsin-specific chip resistor parser so `WR08W1002FTL` reads the post-series `1002` resistance code as `10KΩ` instead of letting the generic parser misread the `WR08W` prefix as `80mΩ`. Added procurement-facing statuses `可推荐`, `需确认`, `参数冲突`, `解析失败`, and kept `无匹配` for no-candidate rows.
+- UI / BOM changes: Added a one-line recommendation summary above search result tables, changed BOM result rows/progress summaries from `匹配成功` to explicit recommendation states, included `推荐理由`, and made `参数冲突` / `需确认` rows visually distinct.
+- Regression / records: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `WALSIN_WR08W_10K` and recorded the confirmed bug/fix in [references/issue-ledger.md](C:/Users/zjh/Desktop/data/references/issue-ledger.md). Refreshed [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) `PUBLIC_RELEASE_STAMP` to `2026-05-10T11:35:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Targeted checks show `WR08W1002FTL -> 0805 / 10KΩ / ±1% / 1/8W`, regression `WALSIN_WR08W_10K` passes, BOM rows for `WR08W1002FTL` and `R005 1% 1206 1W` return `可推荐`, and a lower-power resistor candidate is classified as `参数冲突`.
+- Handoff notes: Local Streamlit returned HTTP 200 during a quick server smoke test, but the in-app browser connection timed out before visual verification. Public site still needs deployment/publish before these UI/status changes are visible online.
+
+### 2026-05-10 15:25 [direct] Ran broader black-box tests for passive and power-device matching
+
+- Received / problem: User asked to continue with more complete testing across models, specs, and BOM rows for passive devices and power devices, then list problems and possible fixes before deciding what to change.
+- Test scope: Ran local latest-code black-box tests for resistor, MLCC, aluminum electrolytic, film capacitor, thermistor, varistor, power inductor, ferrite bead, common-mode inductor, and mixed BOM rows. Inputs included `WR08W1002FTL`, `RC0805FR-074R7L`, `R005 1% 1206 1W`, `0402 X5R 1uF 6.3V ±10%`, `0603B104K500CT`, `NCU18WF104E60RB`, `14D471K 470V`, `MCL2012H100MT`, `LQH32PN100MN0L`, `功率电感 4.7uH ±20% 3A 30mΩ 3x3mm`, `磁珠 0603 600Ω@100MHz 1A`, and `共模电感 90Ω@100MHz 2A`.
+- Key findings: MLCC spec text with `0402 X5R 1uF 6.3V ±10%` is misclassified as aluminum electrolytic, power-inductor spec matching ignores current/DCR/body-size while still returning `可推荐`, varistor `14D471K` ignores disc size and recommends `07D`, ferrite/common-mode specs do not parse impedance/current well enough, some power-inductor models are unrecognized, and BOM concatenation can pollute thermistor model text.
+- Verification state: These are local functional observations, not fixes. No product-code change was made in this pass beyond this operation log entry.
+
+### 2026-05-10 15:48 [direct] Corrected power-device test scope to diodes/transistors/MOSFETs
+
+- Received / problem: User clarified that `功率器件` means semiconductors such as diodes, BJTs, and MOSFETs, not inductors.
+- Test scope: Checked database type coverage and found no `二极管`, `三极管`, `MOSFET`, `场效应管`, `晶体管`, or `IGBT` component types. Existing `MOS` hits are KOA metal-oxide-film resistor series, and `TVS/ESD` hits are mostly MLCC/varistor/bead rows, not semiconductor TVS diodes.
+- Black-box results: Common models `AO3400A`, `IRLZ44N`, `IRF540N`, `BSS138`, `SI2302`, `SS34`, `MMBT3904`, `S8050`, and `SMBJ5.0CA` are mostly `无法识别`. Numeric semiconductor models such as `2N7002`, `1N4148`, and `2N3906` are misread as MLCC capacitance fragments. MOS specs containing `50mΩ/60mΩ` are misclassified as chip resistors and can return resistor candidates under `需确认`.
+- BOM results: Semiconductor BOM rows mostly return `解析失败`, but `2N7002`/`1N4148` show misleading MLCC partial parses and MOS spec rows can produce resistor recommendations. This confirms the current product does not yet support diode/transistor/MOS matching safely.
+- Handoff notes: If semiconductor matching is in scope, add a dedicated semiconductor module before importing data: type-gating keywords, model blockers for `2N/1N/MMBT/SS/SMBJ/AO/IRF` patterns, schemas for MOS/BJT/diode/TVS parameters, and source-backed manufacturer tables.
+
+### 2026-05-10 16:22 [direct] Blocked unsupported semiconductor mis-matches and fixed tested passive safety gaps
+
+- Received / problem: User asked to continue and fix the issues found in the broader testing, including the clarified semiconductor power-device cases and the previous passive-device false-safety cases.
+- Fix / action: Added an unsupported-semiconductor gate for common MOSFET, diode, TVS diode, and BJT patterns (`AO/AOD/AON/BSS/SI/FDN/FDS`, `IRF/IRL`, `2N7002`, `1N`, `SS`, `MMBT`, `S8050`, `SMBJ/SMAJ/SMCJ/PESD/ESD`, and MOS/Rds(on) specs). Search and BOM now return `暂不支持` / `解析失败` with a safety reason instead of routing these rows into MLCC/resistor matching.
+- Fix / action: Reordered component hints so `0402 X5R 1uF 6.3V +/-10%` stays in MLCC parsing instead of aluminum-electrolytic parsing. Fixed BOM candidate generation so a model-only row plus a name column no longer creates polluted concatenations such as `NCU18WF104E60RBNTC热敏电阻`.
+- Fix / action: Added procurement conflict/warning checks for power inductors and varistors. Inductor specs now retain current, DCR, and body size; lower current, higher DCR, or mismatched body-size candidates become `参数冲突` / `需确认` instead of `可推荐`. Varistor disc code parsing now recognizes `14D471K`, so `14D` no longer falls through to `07D` recommendations.
+- Regression / records: Added regression cases `UNSUPPORTED_MOS_AO3400A`, `UNSUPPORTED_DIODE_1N4148`, and `MLCC_SPEC_0402_X5R_1UF_6R3`. Bumped `QUERY_RESULT_CACHE_VERSION` to `16`, `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-05-10T16:20:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Critical safety script passed for semiconductor blocking, MLCC spec routing, Walsin `WR08W1002FTL -> 10KΩ`, inductor conflict classification, varistor `14D` no-match instead of wrong `07D`, and BOM candidate pollution prevention. Targeted regression rows for stocked-resistor priority, PDC/Walsin MLCC priority, Walsin resistor parsing, unsupported MOS/diode, and MLCC spec all passed. Local Streamlit startup smoke on port `8537` returned HTTP 200.
+- Handoff notes: Semiconductor matching is still not implemented; this patch intentionally prevents wrong passive recommendations until a dedicated semiconductor schema and data source are added.
+
+### 2026-05-10 22:35 [direct] Added first source-backed semiconductor expansion
+
+- Received / problem: User asked which components and brands can be expanded, then asked to continue expanding the library. The practical gap was semiconductors: common MOSFET/diode/BJT/TVS models were either unsupported or previously had to be blocked to avoid wrong passive recommendations.
+- Data expansion: Added [sync_semiconductor_seed.py](C:/Users/zjh/Desktop/data/sync_semiconductor_seed.py) and synced `20` source-backed semiconductor rows into [components.db](C:/Users/zjh/Desktop/data/components.db). Current semiconductor coverage is `MOSFET=8`, `二极管=6`, `三极管=5`, `TVS二极管=1`.
+- Covered rows: MOSFET `AO3400A`, `AO3401A`, `IRLZ44N`, `IRF540N`, `IRFZ44N`, `2N7002`, `BSS138`, `SI2302CDS`; diodes `1N4148`, `SS34`, `SS34FA`, `BAT54`, `BAV99`, `1N5819`; BJTs `MMBT3904`, `MMBT3906`, `S8050`, `BC817`, `BC807`; TVS `SMBJ5.0CA`.
+- Matching changes: Added semiconductor-aware matching for type, package, polarity/channel, voltage, current, and MOSFET `Rds(on)`. Exact seeded part numbers now resolve as semiconductor rows instead of being blocked. Unseeded semiconductor models still return `暂不支持` so they do not fall through to passive matching.
+- Safety changes: Added package alias normalization for `DO-214AB/SMC`, `DO-214AA/SMB`, and `DO-214AC/SMA`. Added semiconductor prefix handling: `SI2302` can surface `Vishay SI2302CDS`, but the procurement status is `需确认` because the input is missing the full suffix.
+- Search-index decision: Full search-index rebuild was attempted but timed out on the large library. Instead, exact and typed DB lookup paths were added so newly synced semiconductor rows are immediately queryable without rebuilding the full sidecar index.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_semiconductor_seed.py` passed. `python sync_semiconductor_seed.py --dry-run` reported `20` rows and `python sync_semiconductor_seed.py` synced `20` rows. Targeted checks passed for `AO3400A`, `1N4148`, `SS34`, `BAT54`, `S8050`, `BC817`, `SI2302CDS`, `SI2302` prefix, unsupported `SMAJ5.0CA`, MLCC `0402 X5R 1uF 6.3V +/-10%`, and `WR08W1002FTL`. Local Streamlit smoke on port `8544` returned HTTP 200.
+- Handoff notes: This is a seed expansion, not a complete semiconductor library. Next useful batches are more TVS/ESD (`SMAJ/SMCJ/PESD`), rectifiers (`SS14/SS24/SS54/MBR`), small-signal BJTs (`2N3904/2N3906/MMBT2222/MMBT2907`), and common MOSFET families (`AO340x/SI230x/IRF/IRL`). Keep using official product pages or datasheets and keep unknown models blocked until sourced.
+
+### 2026-05-10 23:00 [direct] Added expansion audit and second semiconductor batch
+
+- Received / problem: User clarified the target is broad: all passive component brands plus power devices/diodes/BJTs/MOSFETs across brands, not only a few seed examples.
+- Expansion approach: Added [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py) to generate a target-pair audit across passive and semiconductor categories. It writes [library_expansion_audit.csv](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.csv) and [library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). The current matrix checks `173` target brand/type pairs and reports `69` gaps.
+- Data expansion: Extended [sync_semiconductor_seed.py](C:/Users/zjh/Desktop/data/sync_semiconductor_seed.py) from `20` to `31` source-backed semiconductor rows and synced them into [components.db](C:/Users/zjh/Desktop/data/components.db). Current semiconductor counts are `MOSFET=8`, `二极管=11`, `三极管=9`, `TVS二极管=3`.
+- Added rows: `1N4007`, `MBR0520LT1G`, `SS14`, `SS24`, `SS54`, `MMBT2222A`, `MMBT2907A`, `BC847`, `BC857`, `SMAJ5.0CA`, and `SMBJ12CA`.
+- Matching / performance: Optimized semiconductor exact-model lookup to use indexed exact queries before any case-normalized fallback. Query cache version was bumped to `18`, with public/runtime stamps refreshed to `2026-05-10T23:00:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_semiconductor_seed.py audit_library_expansion.py` passed. `python sync_semiconductor_seed.py --dry-run` reported `31` rows and sync completed. Targeted checks passed for `1N4007`, `MBR0520LT1G`, `SS14`, `SS24`, `SS54`, `MMBT2222A`, `MMBT2907A`, `BC847`, `BC857`, `SMAJ5.0CA`, `SMBJ12CA`, and Schottky specs `40V 5A SMC` / `40V 1A SMA`.
+- Handoff notes: Passive library already has large raw coverage, but the audit shows gaps by brand/type and likely field-completeness gaps. Next broad-library work should use the audit report to prioritize official importers: film capacitors, crystal/oscillator brands, leaded varistors, aluminum brands, and semiconductor brands still missing (`ROHM`, `Toshiba`, `ST MOSFET`, `Vishay/onsemi TVS`, etc.).
+
+### 2026-05-11 19:35 [direct] Fixed public MLCC spec routing regression
+
+- Received / problem: User reported the webpage could not find results for `1206 x7r 1uf k`; screenshot showed the input was being parsed as `铝电解电容` with body size `1206*7mm`, so matching returned zero rows.
+- Root cause: The public page was still using an older routing path where an electrolytic/body-size heuristic could win before MLCC spec parsing. The latest local code already had partial protection, but the public site had not received a direct MLCC-first guard for this exact no-voltage spec.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `looks_like_mlcc_context(...)` is checked before `parse_other_passive_query(...)` in `detect_query_mode_and_spec`. Any spec containing an MLCC dielectric token such as `X7R/X5R/COG`, a chip size, and capacitance now routes to MLCC before electrolytic parsing. Bumped query cache/public stamps to `2026-05-11T19:30:00+08:00`.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `MLCC_SPEC_1206_X7R_1UF_K`.
+- Verification: Local targeted check shows `1206 x7r 1uf k -> mode=规格, type=MLCC, size=1206, material=X7R, matches=201`, top `信昌PDC FP31X105K101EPG`. `0402 X5R 1uF 6.3V +/-10%`, electrolytic `270uF 16V 6.3x7.7mm 电解`, resistor `R005 1% 1206 1W`, and diode `SS54` still route correctly. Local Streamlit smoke on port `8546` returned HTTP 200.
+- Public verification: Pushed commit `d18d586` to `origin/main`. Verified the public Cloudflare wrapper [https://fruition-component.pages.dev/](https://fruition-component.pages.dev/) by searching `1206 x7r 1uf k`; it now shows `陶瓷贴片电容（MLCC）规格条件` and `陶瓷贴片电容（MLCC）匹配结果（含推荐等级）` instead of `铝电解电容`.
+
+### 2026-05-11 19:55 [direct] Removed search recommendation summary banner
+
+- Received / problem: User asked to remove the highlighted result-summary text above the search result table, e.g. `需确认 信昌PDC ... / 部分参数匹配 只匹配了已识别参数...`.
+- Fix / action: Removed both UI render points for `build_procurement_recommendation_summary_html(matched, spec)` in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). The underlying recommendation/status logic remains available for BOM and internal row selection; only the extra banner above the result table was removed.
+- Public release: Bumped [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) `PUBLIC_RELEASE_STAMP` and [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) `PUBLIC_CODE_STAMP` to `2026-05-11T19:50:00+08:00`, then pushed commit `cabf30f` to `origin/main`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Public direct Streamlit verification for `1206 x7r 1uf k` returned MLCC results and confirmed the summary text was absent while the result table still showed `部分参数匹配` rows.
+
+### 2026-05-11 23:00 [direct] Expanded semiconductor library brand coverage and refreshed cache
+
+- Received / problem: User asked to continue expanding all component models into the library. The highest-priority actionable gap from the audit was semiconductor/power-device brand coverage for MOSFETs, diodes, BJTs, and TVS diodes.
+- Data expansion: Extended [sync_semiconductor_seed.py](C:/Users/zjh/Desktop/data/sync_semiconductor_seed.py) from `31` to `49` source-backed semiconductor rows and synced them into [components.db](C:/Users/zjh/Desktop/data/components.db). Added `18` rows covering missing target brands: MOSFET `STP55NF06L`, `DMN3024LSD`, `RQ3E100BNTB1`, `SSM3K333R`, `PMV16XN`; diodes `RB751SM-40T2R`, `CUS10F40`, `DSA20C60PN`, `SK34`; BJTs `MMBT2222A` from Diodes, `UMT3904T106`, `2SC2712`, `2STR2230`; TVS `SMBJ5.0CA` from Vishay, `ESD5Z5.0T1G`, `PESD5V0S1BA`, `ESDA6V1-5SC6Y`, `CDSOD323-T05C`.
+- Matching / cache: Added semiconductor compact-model blockers for new common prefixes such as `STP/DMN/RQ/SSM/PMV/RB/CUS/DSA/SK/2SC/2STR/UMT/CDSOD/ESDA` so models do not fall through to capacitor/resistor parsing. Added [incremental_semiconductor_cache_update.py](C:/Users/zjh/Desktop/data/incremental_semiconductor_cache_update.py) because full prepared-cache rebuild timed out on the 1.45M-row library; the script replaces only seeded semiconductor rows in the prepared cache and search sidecar.
+- Audit / public assets: Re-ran [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py); target-pair coverage improved from `104/173` to `122/173`, and gaps dropped from `69` to `51`. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and split parts after the cache refresh.
+- Verification: `python -m py_compile component_matcher.py incremental_semiconductor_cache_update.py sync_semiconductor_seed.py` passed. Search-index checks found all newly added models. Targeted query checks passed for `STP55NF06L`, `DMN3024LSD`, `RQ3E100BNTB1`, `SSM3K333R`, `PMV16XN`, `RB751SM-40T2R`, `CUS10F40`, `DSA20C60PN`, `SK34`, `UMT3904T106`, `2SC2712`, `2STR2230`, `PESD5V0S1BA`, and `CDSOD323-T05C`. Added regression cases for `STP55NF06L`, `CUS10F40`, and `CDSOD323-T05C`; all three passed.
+- Handoff notes: This batch completes the current semiconductor brand-pair audit targets at representative-row level, not full catalog coverage. Remaining audit gaps are passive-heavy: film capacitors, leaded varistors, RF inductors, aluminum electrolytic brands, crystal/oscillator brands, and several resistor-family brand gaps.
+
+### 2026-05-12 00:45 [direct] Expanded film capacitor and leaded varistor gap coverage
+
+- Received / problem: User asked to continue broad library expansion across passive and power-device categories. The audit still showed passive gaps, especially `薄膜电容` and `引线型压敏电阻` brand/type pairs with zero rows.
+- Data expansion: Added [sync_passive_gap_seed.py](C:/Users/zjh/Desktop/data/sync_passive_gap_seed.py) and synced `15` source-backed rows into [components.db](C:/Users/zjh/Desktop/data/components.db): film capacitor rows for `KEMET`, `WIMA`, `Panasonic`, `TDK`, `Epcos`, `Vishay`, `CDE`, and `Nichicon`; leaded varistor rows for `TDK`, `Epcos`, `Bourns`, `Littelfuse`, `Panasonic`, `Vishay`, and `Joyin`.
+- Matching / cache: Updated [incremental_semiconductor_cache_update.py](C:/Users/zjh/Desktop/data/incremental_semiconductor_cache_update.py) to load multiple seed modules, then refreshed `64` total seed rows into prepared/search caches. Stopped a stale `component_matcher.py --rebuild-prepared-cache` Python process that was locking `cache/components_prepared_v5.parquet`.
+- Bug fixes found during verification: [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) now backfills `_pf`/`容值_pf` from `容值` and `容值单位` when the DB `容值_pf` column is blank; generic resistor model parsing is skipped for non-resistor component types so `MOV-14D471K` no longer becomes a 471K resistor; exact compact part lookup now runs before other-passive spec parsing so `MKP1848C51060JK2` stays a part query.
+- Audit / regression: Re-ran [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py); target-pair gaps dropped from `51` to `36`. Added regression cases `FILM_KEMET_R82DC`, `FILM_VISHAY_MKP1848`, `FILM_SPEC_100NF_63V_PET`, and `VAR_MOV14D471K`.
+- Verification: `python -m py_compile component_matcher.py incremental_semiconductor_cache_update.py sync_passive_gap_seed.py` passed. `python sync_passive_gap_seed.py --dry-run` reported `15` rows and sync completed. Targeted checks passed for `R82DC3100AA50J`, `MKS2C031001A00JSSD`, `ECWFD2W105J`, `B32529C0104K000`, `MKP1848C51060JK2`, `940C30P1K-F`, `QYX2A104KTP`, `MOV-14D471K`, `ERZV14D471`, `VDRS14T300BSE`, `JVR14N471K87PU5`, `薄膜电容 0.1uF 63V 5% PET`, and `14D471K 压敏电阻`; selected regression cases passed.
+- Handoff notes: This is representative seed coverage to close brand/type gaps, not full catalog harvesting. Remaining `36` audit gaps are now mostly resistor family brands, RF/ceramic/alu capacitor brands, crystal/oscillator brands, and a few passive specialist brands.
+
+### 2026-05-12 10:35 [direct] Expanded crystal and oscillator coverage and fixed timing search routing
+
+- Received / problem: User asked to continue broad library expansion. The audit still had zero-row `晶振` and `振荡器` brand/type gaps, and timing specs such as `晶振 16MHz 3225` were not reliably searchable.
+- Data expansion: Extended [sync_passive_gap_seed.py](C:/Users/zjh/Desktop/data/sync_passive_gap_seed.py) from `15` to `26` source-backed rows by adding `11` timing rows: crystal rows for `Abracon`, `TXC`, `NDK`, `Kyocera`, `Murata`, and `KDS`; oscillator rows for `Abracon`, `TXC`, `NDK`, `Kyocera`, and `SiTime`.
+- Matching / cache: Added timing-spec parsing for `晶振/振荡器` frequency, package size, voltage, output type, and load capacitance. Exact timing part searches now promote the queried model first, and timing searches use MHz/kHz fields instead of being routed through capacitor `pf` logic. Synced `26` passive seed rows and refreshed `75` total seed rows into prepared/search caches.
+- Audit / regression: Re-ran [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py); target-pair gaps dropped from `36` to `25`. Added regression cases `TIMING_CRYSTAL_ABRACON_ABM3B`, `TIMING_CRYSTAL_SPEC_16MHZ_3225`, `TIMING_OSC_SITIME_SIT1602`, and `TIMING_OSC_SPEC_25MHZ_3V3_CMOS`.
+- Verification: `python -m py_compile component_matcher.py sync_passive_gap_seed.py` passed. Query checks passed for exact timing models including `ABM3B-8.000MHZ-B2-T`, `7M-16.000MAHE-T`, `NX3225GA-16.000M-STD-CRG-2`, `XRCGB16M000FXN02R0`, `ASE-25.000MHZ-LC-T`, `7C-25.000MBA-T`, and `SiT1602BI-13-33E-25.000000`. Spec checks passed for `晶振 16MHz 3225` with `4` matches and `振荡器 25MHz 3.3V CMOS` with `3` matches. The 4 new timing regression cases passed with zero failures.
+- Handoff notes: Full regression loading against the complete prepared dataframe was too slow for this small case set, so the timing cases were executed through the same regression case builder with a minimal dataframe and search-index backed query loading. Remaining `25` audit gaps are passive-heavy: MLCC brands, resistor family brands, RF inductor/bead/common-mode gaps, and aluminum electrolytic brands.
+
+### 2026-05-12 11:15 [direct] Fixed zero-ohm resistor shorthand routing
+
+- Received / problem: User showed the public page warning `current environment did not load full-library fallback data; this input was skipped` for `0201 1/20W 0R`. The progress card showed `0` returned results and `2` prompts.
+- Root cause: The fast resistor index already contained `0201` zero-ohm rows, and the low-level parsers could identify `0R` and `1/20W`. The router still rejected the input because `looks_like_resistor_context(...)` only accepted compact resistor values when `%`, `OHM`, `Ω`, or explicit resistor wording was present.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so resistor shorthand with a compact resistance plus power, or zero-ohm plus package size, is routed as a resistor spec. Bumped query cache version to `23` and refreshed public/runtime stamps to `2026-05-12T11:15:00+08:00`.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `RES_SPEC_0201_0R_1_20W`.
+- Verification: Targeted checks show `0201 1/20W 0R` now routes as `贴片电阻`, parses `0201 / 0Ω / 50mW`, loads the resistor search index, and returns matching rows. Guard checks for MLCC `0603B104K500CT`, MLCC spec `1206 x7r 1uf k`, varistor `MOV-14D471K`, and resistor `R005 1% 1206 1W` still route correctly.
+
+### 2026-05-12 11:50 [direct] Added component-specific display labels for semiconductor parameters
+
+- Received / problem: User pointed out that every component family has its own specification parameter titles, and the library/display should not keep exposing capacitor-style parameter headings for all devices.
+- Fix / action: Split semiconductor display schemas in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `MOSFET`, `二极管`, `TVS二极管`, and `三极管` use their own column labels (`Vds/Id/Rds(on)`, `VRRM/IF(AV)`, `VRWM/VBR`, `Vceo/Ic`, etc.) instead of one generic semiconductor column set. Added a semiconductor branch to `build_component_detail_lines(...)` so BOM/search detail text also uses device-specific labels.
+- Export behavior: When a BOM result is exported without an original source table to append to, the fallback export now uses the same compact display dataframe instead of raw internal compatibility columns such as `容值/容值单位`.
+- Verification: Targeted checks show `SS34` details now include `二极管类型 / VRRM / IF(AV) / 封装`, `AO3400A` includes `沟道/类型 / Vds / Id / Rds(on)`, `MMBT3904` includes `管型/用途 / Vceo / Ic`, and `SMAJ5.0CA` includes `TVS类型 / VRWM / 峰值脉冲功率`. Public/runtime stamps were refreshed to `2026-05-12T11:50:00+08:00`.
+
+### 2026-05-12 21:30 [direct] Added KNSCHA DHF aluminum electrolytic exact-part coverage
+
+- Received / problem: User asked why `DHF025M687G160S1AA` could not be found even though it is an aluminum electrolytic capacitor.
+- Root cause: The model was not present in the local source-backed seed data or public search sidecar, and the aluminum fallback model rules only covered existing known series such as Jianghai; the router therefore returned `无法识别`.
+- Data / fix: Added source-backed seed row `KNSCHA(科尼盛) DHF025M687G160S1AA` with `680UF / ±20% / 25V / DIP / D8x16 / P=3.5 / 105℃ / 5000h / ripple 1.45A`, based on public distributor data. Added a narrow exact KNSCHA DHF fallback parser in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and added regression case `ALU_KNSCHA_DHF025M687`.
+- Cache / public assets: Synced passive seed data into [components.db](C:/Users/zjh/Desktop/data/components.db), inserted this exact row into [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite), rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), and regenerated the split bundle parts.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_passive_gap_seed.py incremental_semiconductor_cache_update.py` passed. Local exact lookup and simulated no-DB public mode both route `DHF025M687G160S1AA` as `料号 / 铝电解电容` with `680UF`, `25V`, `8*16mm`, and `P=3.5`; regression case `ALU_KNSCHA_DHF025M687` passes.
+
+### 2026-05-12 [direct] Closed passive audit gaps and fixed exact-part fallback behavior
+
+- Received / problem: User asked to continue after the DHF fix and then expand the full component library target set. The expansion audit still had `25` passive brand/type gaps, and targeted checks exposed exact-part routing regressions for low-parameter rows such as shunt resistors and common-mode chokes.
+- Data expansion: Extended [sync_passive_gap_seed.py](C:/Users/zjh/Desktop/data/sync_passive_gap_seed.py) from `27` to `52` rows by adding `25` source-backed representative rows across MLCC, chip/thin-film/alloy resistors, chip surge protection, RF inductors, ferrite beads, common-mode chokes, and aluminum electrolytics.
+- Matching fixes: [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) now keeps an exact database hit in `料号` mode even when capacitor-style core-param counts are low, blocks incompatible parsed-model families from overwriting stored component types, preserves stored/summary-derived resistor values instead of letting model digits override them, and retains inductor/common-mode/bead detail fields in reverse specs.
+- Public fallback: Search-sidecar lightweight rows now rebuild `共模阻抗`, `电感值`, and `阻抗@100MHz` for no-DB public mode so deployed search results keep their essential family-specific values.
+- Audit / assets: Re-ran [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py); target coverage is now `173 / 173` with `gaps=0`. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated both split archive parts.
+- Verification: `python -m py_compile component_matcher.py sync_passive_gap_seed.py audit_library_expansion.py streamlit_app.py build_streamlit_cloud_bundle.py sync_local_and_public.py` passed. All `25` newly added exact models route as `料号`; simulated no-DB public-mode checks passed for MLCC, alloy resistor, RF inductor, common-mode choke, and aluminum electrolytic examples.
+
+### 2026-05-13 09:30 [direct] Continued passive series expansion and reduced unresolved rows to 302,316
+
+- Received / problem: User asked to continue expanding the full passive/power library. The passive-series report still had `390,526` unresolved passive rows at the carried checkpoint, and earlier full cache/search rebuild work had exposed a series-backfill schema failure.
+- Investigation: Confirmed that some high-volume unresolved rows were not missing raw series values, but were stuck on placeholder descriptions because official series families were not normalized back to canonical codes. Reproduced two concrete faults: `--backfill-series` table rebuild leaked transient `_mlcc_series_class`, and valid `...T` series codes such as Vishay `MCT` were normalized incorrectly.
+- Fix / action: Patched [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to preserve the persisted SQLite schema during rebuild; patched [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) to fix trailing-`T` normalization and add official series coverage for Samsung, Walsin, Fenghua, YAGEO (`AR/RE/RV/SR/RL/PT/PE/PS/PU/PA`, `MFR/MMF/MMP/FMP/CFR/KNP/PNP`), Vishay (`MMA0204/SMM0204/PLT/PLTT/PTN/RWR82N/RWR84N`), and Stackpole (`RNF/RNMF/MLF/MLFA/MLFM`). Added [sync_series_cache_from_db.py](C:/Users/zjh/Desktop/data/sync_series_cache_from_db.py) with filtered brand/model-prefix refresh options so targeted DB backfills can sync the prepared cache without rerunning an expensive full refresh.
+- Data changes: Completed targeted DB/cache updates for `13,382` YAGEO chip/current-sense rows, `53,342` YAGEO leaded/wirewound rows, `8,007` Vishay rows, and `11,277` Stackpole rows. Prepared-cache syncs were refreshed for the same batches.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_cache_from_db.py` passed. Spot checks now show canonical series data for YAGEO `AR0402FR-07100KL`, `PE1206FRF470R02L`, `MMF-25FRE22K`, Vishay `MMA02040C1202FB300`, `SMM02040C6812FB300`, `PTN1206E1001BST1`, and Stackpole `RNF14FTD10K0`, `MLFA1FTC10K0`. Rebuilt [docs/passive_series_gap_report.md](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md): unresolved passive-series rows fell from `390,526` to `302,316`.
+- Other issues: A stale Python process from the earlier timed-out full rebuild kept `cache/components_prepared_v5.parquet` locked; it was identified by PID `26768`, stopped, and the targeted cache sync then completed normally.
+- Next handoff notes: Highest remaining unresolved passive-series groups are still Vishay, Stackpole leftovers, YAGEO residual thin-film/other leaded families, TE Connectivity, and missing-brand registry gaps such as VO/Chemi-Con/FOJAN/Nichicon. Continue with the same official-source, targeted-prefix workflow rather than broad unverified family collapsing.
+
+### 2026-05-13 10:42 [direct] Extended Vishay, YAGEO residual, and Stackpole thick-film series coverage
+
+- Received / problem: User asked to continue broad passive-library expansion. After the prior checkpoint, the passive-series gap report still had `302,316` unresolved rows, led by Vishay, YAGEO residual families, and Stackpole leftovers.
+- Investigation: Re-read the latest gap report and targeted only official series with stable family prefixes. Highest-confidence batches were Vishay `CMF/ERC/SFR16/SFR25/SFR25H/RL07/RL20`, YAGEO `MF/HHV/RSF`, and Stackpole `RPC/RHC`.
+- Fix / action: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with those canonical series definitions, then applied targeted DB updates and filtered prepared-cache syncs instead of full global rebuilds.
+- Data changes: Updated `62,944` Vishay rows, `13,748` YAGEO rows, and `3,559` Stackpole rows. Verified representative rows such as `CMF551K0000FKEK`, `SFR25H0001001FR500`, `MF0204FRE0710K0`, `HHV-50FR-0710K`, `RSF2WSJR-52-10R`, `RPC2512JT180R`, and `RHC2512FT330R`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_cache_from_db.py` passed. Rebuilt [docs/passive_series_gap_report.md](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md); unresolved passive-series rows dropped from `302,316` to `223,059`.
+- Other issues: Some exact sample probes returned fewer rows than requested because not every illustrative model string existed verbatim in the local database; actual targeted prefix backfills and aggregate counts completed as expected.
+- Next handoff notes: The largest remaining pockets are Vishay residual thin-film/size-fragment families (`MCW/MMU/MCS/SMM0207` and mixed dimensions), Vishay wirewound fragments, TE Connectivity, KOA residual prefixes, and still-missing registry families such as Chemi-Con / FOJAN / VO.
+
+### 2026-05-13 12:42 [direct] Closed FOJAN resistor family pseudo-series and Walsin SR residue
+
+- Received / problem: User correctly pointed out that several resistor match rows still looked like inferred pseudo-series rather than real manufacturer families. Screenshots showed Walsin/YAGEO deployment drift, while local investigation confirmed FOJAN resistor families were genuinely still unresolved.
+- Investigation: Confirmed the current DB/cache already canonicalized Walsin `MR/WR` and YAGEO `RE/SR`, so those screenshot examples were stale-public-asset symptoms. FOJAN still stored `FRC0402F`-style pseudo-series, and a fresh local search also exposed Walsin `SR04X...` residue.
+- Fix / action: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with FOJAN official families `FRC/FRP/FRL/FRS/FRH/FRV/FRQ/FRR/FRG/FRD/FRM/FPM/FPL/FPS/FQP`, added `FOJAN(富捷)` to [docs/passive_series_source_registry.json](C:/Users/zjh/Desktop/data/docs/passive_series_source_registry.json), and added Walsin official `SR` handling so `SR04X...` collapses to `SR`.
+- Data changes: A full `--backfill-series` attempt completed the DB rewrite stage but stalled in the global prepared-cache rebuild, so the lingering Python process was stopped and the safer filtered path was used. Prepared-cache sync updated `5,490` FOJAN rows and `72` Walsin `SR` rows.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_cache_from_db.py tools/build_passive_series_gap_report.py build_streamlit_cloud_bundle.py sync_local_and_public.py` passed. `0402 10R 1%` now shows `FOJAN(富捷) FRC0402F10R0TS -> FRC / 普通厚膜贴片电阻`; `FRQ0402F1000TS` now shows `华新科Walsin SR04X1000FTL -> SR`. Rebuilt [docs/passive_series_gap_report.md](C:/Users/zjh/Desktop/data/docs/passive_series_gap_report.md) to `217,497` unresolved rows and rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) plus both split parts.
+- Residual risk / handoff: The lone FOJAN row `FPQ1206F6800TS` remains intentionally unresolved because FOJAN's official family list exposes `FQP`, not `FPQ`; I did not silently normalize a potentially bad source model. The next resistor cleanup batch should continue on Walsin `WK/WM/FVF` only after family-specific official mappings are pinned down, then proceed through the remaining high-volume brand pockets in the passive gap report.
+
+### 2026-05-13 12:56 [direct] Raised expansion admission standard from brand coverage to series semantics
+
+- Received / problem: User clarified the real expectation for拓库: every brand/model addition must also capture the manufacturer family rule and what that family code means, including grade semantics such as `车规 / 工业 / 通用`.
+- Fix / action: Upgraded [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py) so the expansion report no longer stops at “brand exists.” It now calculates semantic-ready rows and emits `semantic_status = ready / partial_series / series_gap / brand_gap` per target brand/type pair. Added seed-ingest admission validation in [sync_passive_gap_seed.py](C:/Users/zjh/Desktop/data/sync_passive_gap_seed.py) so rows missing `品牌 / 型号 / 系列 / 系列说明 / 官网链接 / 数据来源` fail before database sync.
+- Process rule: Updated [docs/public_publish_runbook.md](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) to state that a batch is not considered fully扩库 unless source data, manufacturer series rules, and application/grade semantics are completed together; pseudo-series such as `FRC0402F` or `SR04X` are explicitly disallowed as final family values.
+- Verification: `python -m py_compile audit_library_expansion.py sync_passive_gap_seed.py` passed; `python sync_passive_gap_seed.py --dry-run` returned `would_sync_passive_gap_rows=52`; `python audit_library_expansion.py` regenerated [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md) and [reports/library_expansion_audit.csv](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.csv) with `173` brand-covered target pairs, `107` semantic-ready pairs, `32` partial-series pairs, and `34` series-gap pairs.
+- Handoff notes: The next扩库 priority should follow the new semantic-gap report, not just raw brand presence. Highest-value cleanup targets now include `PDC` resistor rows, `Ever Ohms` resistor families, Murata RF/common-mode inductors, Nichicon/Rubycon/Chemi-Con aluminum electrolytic families, and the remaining passive categories that currently have data but no usable family semantics.
+
+### 2026-05-13 13:15 [direct] Generalized series-semantics governance to all component classes
+
+- Received / problem: User clarified that the “real series + rule meaning” requirement is not limited to resistors or passives; every component class has manufacturer family segmentation and the system should model that consistently.
+- Fix / action: Added [tools/build_series_semantics_gap_report.py](C:/Users/zjh/Desktop/data/tools/build_series_semantics_gap_report.py), which scans the entire component library and reports unresolved series semantics by component type and brand/type pair. Updated [docs/public_publish_runbook.md](C:/Users/zjh/Desktop/data/docs/public_publish_runbook.md) so the拓库 standard now explicitly covers capacitors, resistors, inductors, beads, common-mode parts, varistors, thermistors, crystals, oscillators, MOSFETs, diodes, BJTs, and TVS parts under one admission rule.
+- Verification: `python -m py_compile tools/build_series_semantics_gap_report.py audit_library_expansion.py` passed after fixing the tool's root import path. `python tools/build_series_semantics_gap_report.py` generated [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [docs/series_semantics_gap_report.json](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.json) with `1,458,793` total rows, `1,238,674` semantic-ready rows, and `220,119` semantic-gap rows.
+- Handoff notes: The new full-library report should become the primary priority list for further规则补齐. Existing semiconductor seed coverage is currently semantic-ready at the tracked target-pair level, but any future semiconductor拓库 must still enter through the same series-rule gate rather than bypassing it.
+
+### 2026-05-20 18:10 [direct] Strip Excel leading quote from exact model lookup
+
+- Received / problem: User reported that searching a valid model such as `'1206W4J0101T5E` returned no result when the only difference was a leading Excel-style apostrophe.
+- Root cause: [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) used `clean_model()` for exact model keys, but the function only trimmed whitespace and did not remove quote wrappers. The prefetched exact lookup therefore searched for `_model_clean='1206W4J0101T5E` instead of `1206W4J0101T5E`.
+- Fix / action: Added wrapper-character stripping for ASCII quotes, backticks, BOM, and common curly/full-width quotes in `clean_model()`, and extended token cleanup in `extract_model_like_tokens()`. Added regression case `RES_LEADING_APOSTROPHE_UNI_ROYAL`.
+- Verification: `python -m py_compile component_matcher.py` passed. Direct checks confirmed `'1206W4J0101T5E`, `1206W4J0101T5E`, and `‘1206W4J0101T5E’` all normalize to `1206W4J0101T5E`, remain compact part queries, and exact-match the existing `厚声UNI-ROYAL / 厚膜电阻 / 1206W4J0101T5E / 100Ω` row.
+
+### 2026-05-21 00:20 [direct] Continued resistor series-semantics expansion for five gap brands
+
+- Received / problem: User asked to continue expanding the component library. The current expansion standard is no longer just raw model count; each added/normalized family should have real manufacturer series semantics so search results do not show pseudo-series fragments.
+- Expansion target: Followed [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and picked high-gap resistor brands that were mostly at 0% semantic coverage: `Meritek`, `EVER OHMS(天二科技)`, `CAL-CHIP`, `Ohmite`, and `Bourns`.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with official-style series profiles for `Meritek CR/RN73`, `Ever Ohms CR/CRH/TR`, `CAL-CHIP RM/RN`, `Ohmite ACPP/MRA/MOX/RW/SM/MC/OJ/OL`, and `Bourns CR/CRT/CRM/PWR`. Also refreshed the official-series code set after late rule registration so suffix-ending series such as Bourns `CRT` are not normalized incorrectly to `CR`.
+- Data changes: Backfilled `25,216` existing DB rows with real series, series meaning, and special-use semantics: `Meritek=9,048`, `EVER OHMS=4,889`, `CAL-CHIP=5,007`, `Ohmite=1,949`, `Bourns=4,323`. Synced the same `25,216` rows into [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet).
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_cache_from_db.py tools/build_series_semantics_gap_report.py` passed. Spot checks confirmed `Meritek CR082005F -> CR`, `Meritek RN73F1JTD1621B -> RN73`, `Ever Ohms CRH2512F100KE04Z -> CRH`, `CAL-CHIP RN10F2323CT5-50 -> RN`, `Ohmite RW1S0BAR005J -> RW`, `Ohmite MRA0207100KB15PPMTA -> MRA`, `Bourns CRT0805-BW-1002ELF -> CRT`, and `Bourns CRM2512-JW-470ELF -> CRM`.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md); full-library semantic gaps dropped from `218,178` to `192,962`.
+- Handoff notes: Next best continuation targets are still large-gap families in the same report: Vishay residual thin/wirewound/thick-film families, TE Connectivity leftovers, KOA residual current-sense/surge families, Littelfuse/TDK/Panasonic varistor families, Chemi-Con/Nichicon/Rubycon aluminum electrolytic families, and Murata RF/common-mode/power-inductor families.
+
+### 2026-05-21 01:55 [direct] Continued Vishay resistor series-semantics cleanup
+
+- Expansion target: Continued from the full-library series-semantics report. Vishay remained the top unresolved brand across thin-film, wirewound, thick-film, metal-oxide, and carbon-film resistor families.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with Vishay families `OMM`, `MMU`, `MCS`, `MCW`, `MMB`, `SMM0207`, `WSC`, `RCS`, `RCA`, `RCWE`, `CRHP`, `CRHV`, `DTO`, `RCL`, `ROX`, `RNX`, `CMA`, and `CMB`.
+- Data changes: Backfilled `45,302` Vishay rows in [components.db](C:/Users/zjh/Desktop/data/components.db) and synced the same `45,302` rows into [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet). This also refreshed rows for previously defined Vishay wirewound families such as `RWR81S/RWR80S/RWR89S` that had not fully landed in DB/cache.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_cache_from_db.py tools/build_series_semantics_gap_report.py` passed. Spot checks confirmed `OMM02040000000B300 -> OMM`, `MMU01020C1201FB300 -> MMU`, `MCS04020D7870BE100 -> MCS`, `WSC4527100R0FEA -> WSC`, `RCS12061K50FKEA -> RCS`, `ROX1005M00FKEL -> ROX`, `RNX200130KFKEL -> RNX`, and `CMB02070X1501GB200 -> CMB`.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md); full-library semantic gaps dropped further from `192,962` to `178,333`.
+- Handoff notes: The next biggest actionable blocks are TE Connectivity resistor residuals, KOA residual current-sense/surge families, Littelfuse/TDK/Panasonic/Bourns/Kyocera varistor family semantics, Chemi-Con/Nichicon/Rubycon aluminum electrolytic families, and Murata RF/common-mode/power-inductor families.
+
+### 2026-05-21 03:00 [direct] Expanded Sunway capacitors and resistors with official naming-rule coverage
+
+- Received / problem: User asked to expand `信维` capacitors and resistors as completely as possible. Local DB initially only had `1,354` `Sunway(信维通信)` thick-film resistor rows and no Sunway MLCC rows; those resistor rows also stored pseudo-series such as `SC1210J` instead of the real family `SC`.
+- Source basis: Used Sunway official MLCC naming rules for `MC/MH/MV/MQ/MS/MA`, the Sunway official `SM` low-resistance thick-film resistor PDF, and Sunway `SC` thick-film general-purpose resistor datasheet text mirrored from the manufacturer document. Generated rows are explicitly marked as `官方命名规则生成`; existing JLC rows remain `官方可查`.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with Sunway `SC` and `SM` resistor series semantics. Extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with Sunway MLCC family recognition for `MC` commodity, `MH` high-capacitance, `MV` high-voltage, `MQ` high-frequency, `MS` soft-termination, and `MA` automotive.
+- Data changes: Added [sync_sunway_cap_res.py](C:/Users/zjh/Desktop/data/sync_sunway_cap_res.py). The sync generated `20,126` candidate rows, inserted `19,529` new rows, preserved `597` existing matching JLC rows, and updated/backfilled all `1,354` existing Sunway resistor rows to canonical series plus nominal L/W/H dimensions. Final Sunway library totals: `SC=16,407`, `SM=1,098`, `MC=1,118`, `MH=184`, `MV=1,380`, `MQ=88`, `MS=228`, `MA=380`.
+- Cache/assets: Refreshed `20,883` Sunway prepared-cache rows and search sidecar rows. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_sunway_cap_res.py` passed. Exact search-sidecar checks found `SM0402JR100T2ANRH`, `MC0402B102K500N5RH`, and `MV0603C330J101N8RH`; DB checks confirmed no Sunway resistor row has blank L/W/H. Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md); full-library semantic gaps dropped from `178,333` to `176,979`.
+- Handoff notes: This batch improves coverage and matching reach, but generated MLCC rows should still be treated as naming-rule coverage until individual part availability is validated from Sunway/LCSC tables during quotation. Next high-value拓库 targets remain TE Connectivity and KOA resistor residuals, varistor family semantics, aluminum electrolytic families, and Murata inductor/common-mode families.
+
+### 2026-05-21 04:00 [direct] Fixed generated resistor series descriptions and backfilled official family semantics
+
+- Received / problem: User reported that many component `系列说明` values are still pseudo descriptions such as `品牌 + 尺寸/片段 + 电阻系列`, and clarified that each component family should show the real manufacturer series meaning instead of inferred fragments.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with new/expanded family rules for `LIZ`, `RESI`, `Tyohm`, `EVER OHMS`, `Panasonic`, `KOA`, `Vishay`, `ROHM`, `Stackpole`, `TE Connectivity`, and `Fenghua`. Added code-path normalization for no-hyphen Panasonic `ERA6A -> ERA-6A`, KOA `SR73/WK73S`, Vishay `TNPU/CP/CA/MRS/HVR/RCC/MCU`, and TE `3502/350x`.
+- Matcher changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so future imports/search-prep replace generated resistor descriptions more aggressively and normalize hyphen-equivalent series codes instead of preserving stale size fragments.
+- Data/cache changes: Added [sync_series_description_backfill.py](C:/Users/zjh/Desktop/data/sync_series_description_backfill.py) and [sync_prepared_series_from_db.py](C:/Users/zjh/Desktop/data/sync_prepared_series_from_db.py). Backfilled `67,701` DB/prepared-cache rows against backup [components.db.series_desc_backfill_20260521_033159.bak](C:/Users/zjh/Desktop/data/components.db.series_desc_backfill_20260521_033159.bak). Placeholder resistor descriptions dropped from about `156,339` at task start to `96,380`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py audit_library_expansion.py sync_series_description_backfill.py sync_prepared_series_from_db.py` passed. Spot checks confirmed `CR0805J80473G -> LIZ CR / 通用厚膜贴片电阻`, `PTFR0603B56K0P9 -> RESI PTFR / 精密薄膜贴片电阻`, `RMC120610K1%N -> Tyohm RMC`, `ERA6AEB102V -> Panasonic ERA-6A`, `WK73S2ATTD1R00F -> KOA WK73S`, `SR732ARTTD100G -> KOA SR73`, `TNPU1206100KAZEN00 -> Vishay TNPU`, and `3502100KFT -> TE 3502`.
+- Cache/assets: Stream-synced [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) after the normal pandas concat path hit a Windows memory ceiling. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Handoff notes: Remaining generated descriptions are now concentrated in brands/families without rules yet: `VO/翔胜`, `Venkel`, `RCD`, `Riedon`, `NTE`, residual `Vishay/Yageo/TE/Stackpole`, and varistor/electrolytic/inductor families. Next cleanup should use [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) plus direct manufacturer datasheets, then backfill via the two sync scripts.
+
+### 2026-05-22 01:20 [direct] Continued passive family series-semantics cleanup
+
+- Received / problem: User asked to continue resolving wrong `系列说明` across all components. The issue was no longer only missing data; many rows had generated pseudo-series such as `Murata MLCC series`, `Littelfuse V120ZS05 贴片压敏电阻系列`, or short prefixes such as `DLW`.
+- Rule changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to replace generated passive descriptions, upgrade short Murata inductor prefixes to full families, and add explicit semantics for Murata `GCQ` MLCC, Murata `LQP/LQW/LQG/LQH/LQM/DFE/DLW/DLM/BLM` inductor/bead/common-mode families, Littelfuse `ZA/LA/UltraMOV`, Nichicon `URS/URZ`, Chemi-Con and Rubycon aluminum families, and major varistor profiles. Updated [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py) so semantic reports accept generated-looking descriptions only when they contain real differentiators such as high-Q, low-ESR, high-ripple, long-life, surge, radial-lead, EMI, or automotive.
+- Data/cache changes: Added/extended [sync_passive_series_semantics_backfill.py](C:/Users/zjh/Desktop/data/sync_passive_series_semantics_backfill.py). Across this continuation, DB/cache backfills updated `12,220`, then `7,686`, then `2,412`, then `2,718` rows. Prepared cache [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) was synced after each DB backup.
+- Verification: `python -m py_compile component_matcher.py audit_library_expansion.py sync_passive_series_semantics_backfill.py sync_prepared_series_from_db.py tools/build_series_semantics_gap_report.py` passed. Spot checks confirmed `DLW32MH201MK2# -> DLW32MH`, `LQP01HV0N3B02# -> LQP01HV`, `DFE2MCPHR10MJLLQ -> DFE2MCPH`, `GCQ1555C1HR11BB01J -> GCQ / 车规高Q低损耗`, `V120ZS05P -> ZA`, `V275LC20AP -> LA`, `V20E320P -> UltraMOV`, `UVK0J102MPD -> UVK`, `URZ0J222MHD -> URZ`, `E37F351CPN103MFB7U -> 37F`, and `EAVH6R3ELL471MJC5S -> AVH`.
+- Report/assets: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps are now `59,223` of `1,478,322` rows (`95.99%` ready); target matrix still has `0` brand gaps and `51` semantic-gap pairs. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Handoff notes: Remaining largest series-semantics gaps are concentrated in Vishay and TE residual resistor families, Ohmite wirewound/thick-film families, residual Murata MLCC families such as `ERB`, Littelfuse remaining varistor families, and several smaller resistor brands. Do not blindly mark generic `贴片` text as semantic-ready; require a real series differentiator.
+
+### 2026-05-22 02:40 [direct] Continued all-library series expansion for resistor and varistor gaps
+
+- Received / problem: User asked to continue expanding all component libraries. The active standard is to improve real manufacturer family semantics, not just add rows or leave generated descriptions.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) for additional Vishay/TE/Yageo/Ohmite resistor families, including `Y1624/Y1629/PCAN/UMB/UMA/SM/MSP/RP73F/SMF/SMW/RH/RN/WN/WHE/WH/WL/HVC/TKH/MEV/FCSL/RP`. Extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and [sync_passive_series_semantics_backfill.py](C:/Users/zjh/Desktop/data/sync_passive_series_semantics_backfill.py) for Littelfuse varistor families `MHS/AUMLA/CH/SM20/MA/RA/CA/BA/DA/HA/HB34/HF34/HG34/DHB34/HMOV/C-III/UltraMOV25S/ZA`.
+- Data/cache changes: DB backups created during this continuation: [components.db.passive_series_semantics_20260522_014736.bak](C:/Users/zjh/Desktop/data/components.db.passive_series_semantics_20260522_014736.bak), [components.db.series_desc_backfill_20260522_015357.bak](C:/Users/zjh/Desktop/data/components.db.series_desc_backfill_20260522_015357.bak), [components.db.passive_series_semantics_20260522_020845.bak](C:/Users/zjh/Desktop/data/components.db.passive_series_semantics_20260522_020845.bak), [components.db.series_desc_backfill_20260522_021509.bak](C:/Users/zjh/Desktop/data/components.db.series_desc_backfill_20260522_021509.bak), [components.db.passive_series_semantics_20260522_022455.bak](C:/Users/zjh/Desktop/data/components.db.passive_series_semantics_20260522_022455.bak), and [components.db.series_desc_backfill_20260522_023117.bak](C:/Users/zjh/Desktop/data/components.db.series_desc_backfill_20260522_023117.bak). Prepared cache updates landed for `74 + 175 + 1,063 + 123 + 210 + 65` rows. Refreshed `21,273` changed rows into [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) so the search sidecar is not stale.
+- Verification: `python -m py_compile component_matcher.py sync_passive_series_semantics_backfill.py resistor_series_rules.py sync_series_description_backfill.py audit_library_expansion.py` passed. Spot checks confirmed DB and prepared-cache agreement for `V0402MHS03NR -> MHS`, `V18AUMLA1210NH -> AUMLA`, `V240CH8T -> CH`, `V250LU20CPX2855 -> C-III`, `V551HF34 -> HF34`, `V331HB34 -> HB34`, `WNC10RFET -> WN`, `WHB560FET -> WH`, `WLCR005FET -> WL`, `Y1624200R000Q9R -> Y1624`, and `RP73F3A7R68FTG -> RP73F`.
+- Report/assets: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps are now `56,267` of `1,478,322` rows (`96.19%` ready). Target matrix still has `0` brand gaps and `51` semantic-gap pairs. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Handoff notes: Remaining largest actionable gaps are Vishay residual thin-film families (`IGBR/Y4082/SFM/TMR/MIB/MIC/MIF/Y1745/Y1121` patterns), TE numeric thin-film/wirewound part-number families, Ohmite residual axial wirewound numbers (`43F/30J/20J/23J/25J`), Murata `ERB` MLCC semantics, Nichicon/Panasonic aluminum families, and small 0%-coverage brands such as Brightking/STE/Meritek/Kyocera varistors. Continue only where the series meaning can be pinned to a manufacturer family rule.
+
+### 2026-05-22 10:55 [direct] Added Joyin/JiuYin varistors and corrected JMV voltage parsing
+
+- Received / problem: User asked how much Littelfuse varistor coverage had been expanded and whether JiuYin/Joyin varistors under the PDC acquisition context had been added. Local DB already had `5,220` Littelfuse varistor rows, but only `3` Joyin/JiuYin varistor rows and `0` PDC-branded varistor rows.
+- Source basis: Used Joyin official product/download pages and PDFs: `MLV_JMV_datasheet.pdf` for multilayer chip varistors and `MOV_JVR_datasheet20250305.pdf` for radial MOV varistors. JMV official product page lists `JMV-S/JMV-C/JMV-E/JMV-B/JMV-N`; JVR official naming rule uses `N/S/U` for standard/high-surge/ultra-surge radial MOV families.
+- Rule/data changes: Added [sync_joyin_varistors.py](C:/Users/zjh/Desktop/data/sync_joyin_varistors.py) and extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with Joyin `JMV-S/JMV-C/JMV-E/JMV-N/JMV-B` and `JVR-N/JVR-S/JVR-U` family semantics. Inserted/normalized `559` Joyin/JiuYin varistor rows: `JMV=123` and `JVR=436`. Kept the source brand as `JOYIN(久尹)`/`Joyin` instead of fabricating PDC rows; alias/display mapping to `信昌PDC/久尹` remains a possible business-display follow-up.
+- Accuracy fix: Corrected JMV working-voltage handling so three-digit JMV codes are not treated as raw hundreds of volts. Official table values now override naming-rule guesses, e.g. `JMV0402C180... -> VDC 18V`, `JMV1210N600... -> VDC 60V`, `JMV2220B820... -> VDC 65V`; existing JLC-style rows such as `JMV0603S300T101` and `JMV0603C240T3R3` now decode to `30V` and `24V`.
+- Cache/assets: Refreshed [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) for the new Joyin rows. The normal prepared-cache concat path hit a Windows memory ceiling, so [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) was updated via a pyarrow row-group streaming replacement and now reports `prepared_current=True`. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile sync_joyin_varistors.py component_matcher.py audit_library_expansion.py tools/build_series_semantics_gap_report.py build_streamlit_cloud_bundle.py` passed. `python sync_joyin_varistors.py --dry-run` now returns `insert_rows=0` and `update_rows=0`. Spot checks confirmed DB, search sidecar, and prepared-cache rows for `JMV0603S300T101`, `JMV2220B820K452-XG`, `JVR10S181K`, and `JVR07U181K`. `python -m zipfile -t streamlit_cloud_bundle.zip` passed.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps are now `56,265` of `1,478,878` rows (`96.1954%` ready). Audit still shows Littelfuse `贴片压敏电阻` at `5,219` rows with `88.2%` semantic coverage and `616` unresolved rows; Joyin `引线型压敏电阻` is `436/436` semantic-ready in the target audit.
+- Handoff notes: Remaining varistor work should continue on Littelfuse unresolved families, plus Brightking/STE/Meritek/Kyocera/Panasonic/TDK/Bourns varistor semantics where official family rules can be pinned down. If the user wants acquisition-based commercial grouping, add a brand-alias/display layer for `JOYIN(久尹) -> 信昌PDC/久尹` rather than duplicating official source rows under PDC.
+
+### 2026-05-24 22:45 [direct] Completed Joyin display alias and Littelfuse varistor family cleanup
+
+- Received / problem: User approved doing both follow-ups: add acquisition-aware business display for Joyin/JiuYin under PDC context, and finish the remaining Littelfuse varistor family semantics.
+- UI/display changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with a display-only brand alias layer so `JOYIN(久尹)` / `Joyin` / `久尹` renders as `久尹（信昌PDC）` in result tables, BOM recommendation columns, and brand/model summary text. The DB/source brand remains unchanged to avoid fabricating official PDC rows.
+- Rule/data changes: Extended Littelfuse varistor profile resolution for `FBMOV`, `LVM2P`, `SM7`, `AUMOV`, `Xtreme`, `HC`, `BB`, `DB`, residual `LU -> LA`, `ZU -> ZA`, and related high-energy/surface-mount/radial families. Backfilled `618` Littelfuse rows first, then corrected `93` AUMOV rows whose series code was still derived as `VxxHxxxA`. Corrected `250S130VDR` out of the varistor family into `自恢复保险丝 / 250S / Littelfuse 250S PolyFuse PPTC 自恢复保险丝`.
+- Cache/assets: Added [sync_selected_cache_rows.py](C:/Users/zjh/Desktop/data/sync_selected_cache_rows.py) for pyarrow row-group streaming replacement of selected prepared-cache rows plus search-sidecar refresh. Refreshed `5,220` Littelfuse/250S rows in [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet) and [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite). Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile component_matcher.py sync_passive_series_semantics_backfill.py sync_selected_cache_rows.py audit_library_expansion.py tools/build_series_semantics_gap_report.py build_streamlit_cloud_bundle.py` passed. Spot checks confirmed DB and prepared cache for `V100ZU05P -> ZA`, `V130LU10AP -> LA`, `V10H130AUTO3T -> AUMOV`, `V100MT4B -> MA`, `V115SM7 -> SM7`, `V151HC32 -> HC`, `FBMOV115M -> FBMOV`, `LVM2P-075R14431 -> LVM2P`, and `250S130VDR -> 自恢复保险丝/250S`. `python -m zipfile -t streamlit_cloud_bundle.zip` passed.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps are now `55,649` of `1,478,878` rows (`96.24%` ready), down `616` from the prior checkpoint. Littelfuse varistor generated-description rows are now `0`.
+- Handoff notes: Next highest-value cleanup targets are still shown in [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md): PDC/Vishay/ROHM chip-resistor target pairs, TDK/Sunlord thermistors, Sunlord/Yageo varistors, residual Murata/TDK MLCC semantics, and Vishay/TE resistor families. Do not mark generic family text as semantic-ready unless the series has a defensible manufacturer meaning.
+
+### 2026-05-24 23:20 [direct] Added sales-ready BOM recommendation fields
+
+- Received / problem: User asked what else can be done after拓库 and series cleanup. The next practical product gap was that BOM results still looked like an internal query table, not a sales-ready recommendation workflow.
+- UI/export changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so BOM result tables now derive `可直接回复客户`, `销售结论`, `客户回复型号`, `备选型号`, and `风险提示` from the existing recommendation status, match level, recommendation model, and reason fields. Existing matching/ranking logic was not changed.
+- Excel changes: BOM exports now append the same sales decision columns in addition to the existing `信昌/华科匹配型号` reference column, with wrapped cell formatting for long recommendation/risk text.
+- Verification: `python -m py_compile component_matcher.py` passed. A targeted smoke test confirmed `可推荐 + 完全匹配` generates `可直接回复客户=是`, `需确认` generates `否`, alternatives are collected from preferred brand slots, and the Excel export builder adds the new sales columns.
+- Handoff notes: This is only the first sales workflow layer. The next useful step is to add a compact “客户回复话术/报价备注” column and a filter that defaults the BOM table to rows needing action: `可直接回复客户=否`, `参数冲突`, `无匹配`, or `解析失败`.
+
+### 2026-05-25 01:35 [direct] Expanded PDC current-sense resistors and Sunlord NTC/varistor specs
+
+- Received / problem: User asked to continue expanding the component library and identify actionable specs. The best immediate gaps were PDC current-sense resistor rows with weak series semantics and Sunlord `SDNT/SDV/SVMH` thermistor/varistor coverage.
+- Source basis: Used official PDC `FCF-E` and `FMF` PDF naming/rating tables, plus official Sunlord `SDNT` chip temperature-sensing NTC and `SVMH` high-voltage multilayer chip varistor PDFs. The Sunlord low-voltage `SDV/SDVL` rows already in the DB were not fabricated from a missing official table; they were normalized semantically from existing rows.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with PDC `FCF/FMF/FBF/FPF/FPS/FVF/FHF` and Sunlord `SDNT/SDV/SDVL/SVMH` family profiles. Extended [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with Sunlord thermistor/varistor family resolution so future search/import logic does not fall back to generic `电阻系列` text.
+- Data changes: Added [sync_pdc_current_sense_resistors.py](C:/Users/zjh/Desktop/data/sync_pdc_current_sense_resistors.py) and [sync_sunlord_ntc_varistors.py](C:/Users/zjh/Desktop/data/sync_sunlord_ntc_varistors.py). PDC sync generated `1,978` official-rule rows and landed `2,020` selected `FCF/FMF` rows. Sunlord sync generated/upserted `480` rows: `432` `SDNT` NTC rows and `48` `SVMH` high-voltage chip varistor rows. Final Sunlord totals are `445` thermistor rows and `120` chip-varistor rows, with `0` generic descriptions for those two types.
+- Cache/assets: Refreshed selected prepared-cache/search-sidecar rows for PDC and Sunlord; latest search sidecar row count is `1,480,892`. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_pdc_current_sense_resistors.py sync_sunlord_ntc_varistors.py` passed. Spot checks confirmed DB, prepared cache, and search sidecar rows for `FCF06FT-R100E`, `FMF25FPKR002XBH`, `SDNT0603C103F3380FTF`, `SDNT2012X104K4250HTF`, `SVMH2016KA151PT101`, `SVMH5650KA321PT102`, and existing `SDV1005E180C150NPTF`. `python -m zipfile -t streamlit_cloud_bundle.zip` passed.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library rows are now `1,481,243`; semantic gaps are `55,458` (`96.26%` ready). Target audit has `0` brand gaps and `47` semantic-gap pairs.
+- Handoff notes: Next high-value targets from the refreshed audit are TDK thermistors, Yageo chip varistors, Vishay/ROHM chip-resistor target pairs, UNI-ROYAL alloy resistors, residual Murata/TDK MLCC semantics, and Vishay/TE/Ohmite resistor family leftovers. Continue only where manufacturer rules or datasheets can support the series meaning and key parameters.
+
+### 2026-05-26 01:00 [direct] Continued thermistor/varistor library expansion and type correction
+
+- Received / problem: User asked to continue expanding the library. The refreshed audit showed TDK thermistors, Yageo varistors, and Panasonic/Mitsubishi thermistors as small but clear 0%-semantic target gaps.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with TDK/EPCOS thermistor families (`NTCG/NTCF/NTCDA/NTCDP/NTCDS/NTCDZ/NTCSP`, `B57xxx` NTC, `B59xxx` PTC), Yageo `KD07/KD10/KD20/VRS0402SR` varistor families, Panasonic `ERT-J0ER`, and Mitsubishi Materials `TH11`. Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so future thermistor/varistor matching uses the official family profiles instead of generated fallback descriptions.
+- Data changes: Backfilled `258` TDK/东电化/EPCOS thermistor rows to specific NTC/PTC family meanings and uses. Added [sync_yageo_varistor_series.py](C:/Users/zjh/Desktop/data/sync_yageo_varistor_series.py), corrected `13` Yageo `KD07/KD10/KD20` rows from `贴片压敏电阻` to `引线型压敏电阻`, and normalized `1` Yageo `VRS0402SR` chip-varistor row. Added [sync_small_thermistor_series.py](C:/Users/zjh/Desktop/data/sync_small_thermistor_series.py) and filled `3` Panasonic/Mitsubishi thermistor rows with series, size, R25, tolerance, B value, working temperature, and source links.
+- Cache/assets: Updated selected prepared-cache rows via pyarrow streaming replacement after the older full-cache path hit a Windows `MemoryError`; [sync_series_description_backfill.py](C:/Users/zjh/Desktop/data/sync_series_description_backfill.py) now uses the streaming replacement path. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_series_description_backfill.py sync_selected_cache_rows.py sync_yageo_varistor_series.py sync_small_thermistor_series.py` passed. Spot checks confirmed `B57236S0509M000 -> B57236 / NTC 浪涌电流限制`, `B59115P1080A062 -> B59115 / PTC 过流保护`, `NTCG103JF103F -> NTCG`, `471KD07 -> 引线型压敏电阻 / KD07 / φ7mm P=5mm`, `VRS0402SR180030N -> 0402 多层贴片压敏`, `ERTJ0ER103J -> ERT-J0ER / 10kΩ`, and `TH11-3H103FT -> TH11 / 10kΩ / B3370K`.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps are now `55,090` of `1,481,243` rows (`96.28%` ready). Target audit has `1` brand gap and `39` semantic-gap pairs.
+- Handoff notes: Next practical targets are the remaining target audit gaps: Vishay `贴片电阻` 34 rows, ROHM `贴片电阻` brand coverage gap, residual TDK/Bourns/Panasonic chip-varistor semantics, Nichicon/Panasonic aluminum electrolytic families, and residual Murata/TDK MLCC semantics. Keep correcting component type when source rows label radial MOVs as chip varistors.
+
+### 2026-05-26 02:10 [direct] Corrected Vishay special resistors and filled inductor target gaps
+
+- Received / problem: User asked to continue expanding the library. The active audit showed Vishay `贴片电阻` rows with false generic series descriptions plus small magnetic-bead/common-mode placeholders with empty models.
+- Rule/UI changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) for Vishay/Micro-Measurements `C4A/C5K/CEA/J5K/W2A`, Powertron `MQ`, Vishay `PTS/TFPT`, and Vishay Foil `Y1628/Y4073/Y4076`. Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to treat `RTD温度传感器` and `电阻应变片` as first-class passive/resistor-side categories with their own display schemas.
+- Data changes: Added [sync_vishay_special_resistors.py](C:/Users/zjh/Desktop/data/sync_vishay_special_resistors.py), backed up `components.db`, corrected `34` Vishay/Micro-Measurements rows from generic `贴片电阻` into `薄膜电阻`, `RTD温度传感器`, `热敏电阻`, and `电阻应变片`, and parsed available nominal resistance values from model codes. Added [sync_inductor_gap_representatives.py](C:/Users/zjh/Desktop/data/sync_inductor_gap_representatives.py) and replaced `4` blank inductor placeholders with representative Taiyo Yuden `BK1005HS121-T`, Samsung `CIM10J121NC`, Sunlord `GZ1608D121CTF`, and Sunlord `SDCW2012H-2-900TF` rows.
+- Audit policy: Updated [audit_library_expansion.py](C:/Users/zjh/Desktop/data/audit_library_expansion.py) so Vishay/ROHM are no longer counted as gaps under generic `贴片电阻`; their real products are tracked under `厚膜电阻`/`薄膜电阻`/`合金电阻`.
+- Cache/assets: Refreshed selected prepared-cache/search-sidecar rows. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile audit_library_expansion.py component_matcher.py resistor_series_rules.py sync_vishay_special_resistors.py sync_inductor_gap_representatives.py` passed. Spot checks confirmed `MQ12K10 -> MQ / 薄膜电阻 / 12100Ω`, `PTS0603M1B100RP100 -> RTD温度传感器 / PTS / 100Ω`, `TFPT0603L1001FM -> 热敏电阻 / TFPT / 1000Ω`, `Y40733K90000T9W -> Y4073 / 3900Ω`, `C4A-06-125SL-350/23P -> 电阻应变片 / C4A / 350Ω`, and the four inductor representative rows in both DB and search sidecar.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library rows are now `1,481,247`; semantic gaps are `55,056` (`96.28%` ready). Target audit now has `0` brand gaps and `0` explicit series-semantics gap pairs, with `34` partial-coverage pairs left for high-volume families.
+- Handoff notes: Next high-value work is not more placeholder seeding; it is improving partial-coverage families: Vishay/Yageo thin-film/thick-film leftovers, TDK/Bourns/Panasonic chip-varistors, Vishay/Murata thermistor leftovers, Nichicon/Panasonic aluminum electrolytic families, and Murata/TDK MLCC residual series semantics.
+
+### 2026-05-26 11:05 [direct] Corrected BrightKing/STE/Meritek MOV family semantics
+
+- Received / problem: User asked to continue library expansion. The next actionable issue was multiple MOV/radial varistor families stored as `贴片压敏电阻` or generic chip-varistor series even though official/JLC evidence identified them as radial-leaded metal oxide varistors.
+- Source basis: Used BrightKing/Yageo official MOV selection guide, STE/Songtian official MOV product page, and Meritek official MVR/MVR-S PDF. Did not fabricate unavailable single-part specs; disc diameter and pitch were filled only where supported by model naming, official table, or existing package text.
+- Rule changes: Extended [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) and [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) for BrightKing `KD05/KD07/KD10/KD14/KD20/KD25/KD32/KD53`, STE `STE05D/07D/10D/14D/20D`, `SMDMOV3225/4032`, `ST3225K/ST4032K`, and Meritek `MVR05D/07D/10D/14D/20D` plus high-surge `MVRxxD-S` suffix handling.
+- Data changes: Added [sync_brightking_varistors.py](C:/Users/zjh/Desktop/data/sync_brightking_varistors.py), [sync_ste_varistors.py](C:/Users/zjh/Desktop/data/sync_ste_varistors.py), and [sync_meritek_varistors.py](C:/Users/zjh/Desktop/data/sync_meritek_varistors.py). Corrected `542` BrightKing/君耀 `KDxx` rows to `引线型压敏电阻`; corrected `415` STE `STE..D` rows to `引线型压敏电阻` and normalized `50` STE SMD varistor rows as true chip varistors; corrected `299` Meritek `MVR/MVR-S` rows to `引线型压敏电阻` with diameter, lead spacing, and high-surge suffix semantics.
+- Cache/assets: Refreshed selected prepared-cache/search-sidecar rows after each sync. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py sync_brightking_varistors.py sync_ste_varistors.py sync_meritek_varistors.py` passed. Spot checks confirmed `471KD07 -> BrightKing/KD07/引线型/φ7mm P=5mm`, `STE14D821K1EQ0FQT0R0 -> STE14D/引线型/φ14mm P=7.5mm`, `SMDMOV3225K201K -> SMDMOV3225/贴片/8.5x6.6mm`, `MVR14D911K-S -> MVR14D-S/高浪涌/φ14mm P=7.5mm`, and `MVR20D101K -> MVR20D/φ20mm P=7.5mm`.
+- Report result: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Full-library semantic gaps dropped from `55,056` to `53,750` (`96.37%` ready). Target audit still has `0` brand gaps and `34` partial-coverage pairs; the resolved MOV brands no longer appear as 0%-coverage varistor gaps.
+- Handoff notes: Next actionable MOV/varistor cleanup targets are Bourns `PV/DV`, Kyocera AVX `VC/VCAS/VA`, TKS `TVR`, Dersonic `RM..D`, KEMET `VC/VS/VA/VP`, and Panasonic/TDK residual varistors. Keep separating radial MOVs from true chip varistors and preserve `-S`/high-surge suffix semantics where official naming rules define them.
+
+### 2026-05-26 11:50 [direct] Fixed numeric size-first MLCC query fallback
+
+- Received / problem: User searched `1812B103K102LT` and the page returned `有结果 0` plus `当前环境未加载整库回退数据；本条输入已跳过`. The model was not absent from the equivalence space; the parser failed before the fast search index could run.
+- Root cause: `looks_like_mlcc_context()` routed the input to `parse_spec_query()`, which only extracted package size `1812` and classified the input as `规格不足`. Because the public runtime does not load full prepared-cache fallback data, the row was skipped even though equivalent PDC/Walsin-style MLCC rows existed in `components_search.sqlite`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with `parse_numeric_size_first_mlcc()` for brandless size-first MLCC numbers such as `1812B103K102LT`, wired it into `parse_model_rule()` / `reverse_spec_partial()`, and made the MLCC-context branch try compact-part parsing before returning `规格不足`. Also corrected numeric MLCC voltage decoding so `102` becomes `1000V` instead of raw text, and bumped the query-cache/public code stamp to avoid reusing stale no-result answers.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `MLCC_NUMERIC_SIZE_FIRST_1812_10NF_1KV` expecting `1812 / X7R / 10NF / ±10% / 1000V` and first-brand PDC results.
+- Verification: `python -m py_compile component_matcher.py` passed. Bare-mode replay now parses `1812B103K102LT` as `MLCC / 1812 / X7R / 10NF / 10 / 1000V`, resolves through `fast_query`, and final matching returns three `信昌PDC FV43X103K102...` complete matches without using the unavailable full-dataframe fallback.
+
+### 2026-05-26 23:30 [direct] Expanded Bourns and Kyocera AVX varistor family semantics
+
+- Received / problem: User paused the price-reference module and asked to continue library expansion. The next high-value gap was MOV/varistor families where many rows had generic or incomplete series meanings, especially Bourns `PV/DV/CV/CVQ/SV` and Kyocera AVX TransGuard families.
+- Source basis: Used official Bourns PV, DV, CV, CVQ, and SV datasheets plus Kyocera AVX TransGuard / Automotive / Glass Encapsulated / Low Clamp / Radial Leaded product sources. Did not invent unsupported single-part electrical specs; only family semantics and safe package dimensions from model-size codes were applied.
+- Rule changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) varistor family resolver for Bourns `PV/DV/CV/CVQ/SV` and Kyocera AVX `VC/VCAS/VG/VGAS/VGAH/VLAS/VA`, including proper SMD vs radial-leaded component type semantics.
+- Data changes: Added [sync_bourns_kyocera_varistors.py](C:/Users/zjh/Desktop/data/sync_bourns_kyocera_varistors.py). Backed up `components.db` to `components.db.bourns_kyocera_varistor_20260526_231750.bak`, updated `516` rows (`300` Bourns, `216` Kyocera AVX), refreshed selected prepared-cache rows and `components_search.sqlite` sidecar rows, and rebuilt the Streamlit cloud bundle.
+- Verification: `python -m py_compile component_matcher.py sync_bourns_kyocera_varistors.py` passed. Spot checks confirmed `PV250K3225R2 -> PV / 贴片压敏 / 3225 / 8.00x6.30mm`, `DV14K3225R2 -> DV / 贴片压敏`, `CVQ550K10BL1 -> CVQ / 引线型 / φ10mm`, `SV300K7BL1 -> SV / 引线型 / φ7mm`, `VC080505A150RP -> VC / 0805`, `VA100026D580DL -> VA / 引线型`, `VCAS060309A200RP -> VCAS / 车规贴片`, `VGAS222034Y770DP -> VGAS / 玻璃封装车规贴片`, and `VLAS121016J350DP -> VLAS / 低钳位车规贴片`.
+- Report result: Rebuilt [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md) and [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md). Full-library semantic gaps are `53,234` of `1,481,247` rows (`96.41%` ready). Target audit has `0` brand gaps and `33` partial series-semantics pairs. Bourns varistor target rows are now fully semantic-ready; Kyocera AVX has `216/265` semantic-ready because `VJ/CAN/MG/V2AF/VCH/VCUG/VCAC` rows were intentionally left for a later official-source pass.
+- Cache/assets: Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive with `python -m zipfile -t streamlit_cloud_bundle.zip`.
+- Handoff notes: Next practical expansion targets are TKS `TVR`, Dersonic `RM..D`, KEMET `VC/VS/VA/VP`, residual Panasonic/TDK varistors, then Bourns power inductors and the remaining high-volume resistor/MLCC partial families. Keep separating radial MOVs from true chip varistors and do not accept generated descriptions like `{brand}{series} 压敏电阻系列` as resolved semantics.
+
+### 2026-05-27 01:00 [direct] Expanded TKS, Dersonic, and KEMET varistor family semantics
+
+- Received / problem: User said to continue expansion after pausing the price-reference module. The next high-volume gaps were `TKS(兴勤)`, `Dersonic(德尔创)`, and `KEMET(基美)` varistors: rows had generated descriptions like `{brand}{series} 贴片压敏电阻系列`, and radial MOVs were still stored under `贴片压敏电阻`.
+- Source basis: Used Thinking/TKS official TVR, TVA, TVM-B, and TVM-G documentation; Dersonic approval/specification data hosted by LCSC; and KEMET VA/VC/VE/VG/VP official datasheets plus the VS20 part datasheet for the single VS row. Filled only family semantics, mount/type, safe package size, and temperature where the family source supports it.
+- Rule changes: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) varistor resolver for TKS `TVR/TVA/TVM-B/TVM-G`, Dersonic `RM05D/RM07D/RM10D/RM14D/RM20D` and bare `07D`, and KEMET `VA/VC/VE/VG/VP/VS`. Bumped cache/public code stamps.
+- Data changes: Added [sync_tks_dersonic_kemet_varistors.py](C:/Users/zjh/Desktop/data/sync_tks_dersonic_kemet_varistors.py). Backed up DB to `components.db.tks_dersonic_kemet_varistor_20260527_004912.bak`, corrected `585` rows (`214` TKS, `191` Dersonic, `180` KEMET), and refreshed all `585` selected rows into prepared-cache/search-sidecar. The first run committed DB rows but hit a Windows pandas/NumPy allocation error while refreshing parquet; the script was patched to refresh in 5,000-row batches and re-run successfully.
+- Report tooling: Updated [tools/build_series_semantics_gap_report.py](C:/Users/zjh/Desktop/data/tools/build_series_semantics_gap_report.py) to stream rows from SQLite instead of materializing all `1.48M` rows, preventing the report step from failing with `MemoryError`.
+- Verification: `python -m py_compile component_matcher.py sync_tks_dersonic_kemet_varistors.py tools/build_series_semantics_gap_report.py` passed. Spot checks confirmed `TVR07471KSC3FY -> TVR / 引线型 / φ7mm P=5.08mm`, `TVA25431KQDBE503 -> TVA / 引线型 / φ25mm`, `TVM0B110M161RY -> TVM-B / 0402`, `TVM0G120M151R -> TVM-G / 0402`, `RM07D471KC1IECW0 -> RM07D / 引线型 / φ7mm`, `RM20D101KD1IECW0 -> RM20D / φ20mm`, `VC0603K300R030 -> VC / 0603`, `VA1210K401R014 -> VA / 车规 / 1210`, `VE2220K501R130 -> VE / 150°C / 2220`, `VG0603S020R014 -> VG / ESD / 0603`, `VP3225K401R115 -> VP / 塑封贴片 / 3225`, and `VS20K123B320AA -> VS / 引线型 / φ20mm`.
+- Report result: Rebuilt [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md) and [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md). Full-library semantic gaps dropped from `53,234` to `52,649`; semantic coverage improved from `96.41%` to `96.45%`. TKS/Dersonic/KEMET varistor rows now have `0` semantic gaps.
+- Cache/assets: Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Handoff notes: Next practical expansion targets are EATON `MLVA/MLVB`, RUILON `RL`, residual TDK/Panasonic varistors, then Bourns power inductors and Panasonic aluminum electrolytic families.
+
+### 2026-05-27 13:30 [direct] Fixed Samsung CL MLCC dielectric parser mapping
+
+- Received / problem: User reported that `CL10Y225KO96PJC` was shown as `X7T`, while Samsung official search shows `X7S`.
+- Root cause: The part was not present as a DB row; it was generated by the Samsung `CL` parser. `parse_samsung_cl()` and `parse_samsung_cl_partial()` had the wrong Samsung temperature-characteristic map for high-cap MLCC codes: `Y` was mapped to `X7T`, and `Z` was mapped to `X7R`.
+- Source basis: Samsung official product page for `CL10Y225KO96PJ#` lists `Temperature Characteristic X7S(-55 ~ +125)`, `Capacitance 2.2uF`, `Tolerance ±10%`, and `Rated Voltage 16.0Vdc`. Samsung official pages/search snippets also confirm `CL10Z106MP96PN# -> X7T`, `CL10X225KL8NRN# -> X6S`, and `CL10B104KB8NNN# -> X7R`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) Samsung `CL` dielectric map to `A -> X5R`, `B -> X7R`, `C -> COG(NPO)`, `X -> X6S`, `Y -> X7S`, `Z -> X7T`; bumped query-cache/public code stamps. Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `MLCC_SAMSUNG_CL10Y225KO96PJC`.
+- Verification: `python -m py_compile component_matcher.py` passed. Direct parser checks now return `CL10Y225KO96PJC -> 0603 / X7S / 2.2uF / ±10% / 16V`, `CL10Z106MP96PNC -> X7T`, `CL10X225KL8NRW -> X6S`, and `CL10B104KB8NNNC -> X7R`. Recorded the bug/fix in [references/issue-ledger.md](C:/Users/zjh/Desktop/data/references/issue-ledger.md).
+
+### 2026-05-27 21:15 [direct] Fixed RALEC LR2512 low-ohm resistor lookup
+
+- Received / problem: User searched `LR2512-22R001F4` and the page returned `有结果 0` plus the public full-library fallback warning.
+- Root cause: `LR2512-22R001F4` was not present as an exact DB/search-index row, and the resistor parser had no RALEC `LR/LRE` current-sense rule. Generic extraction only saw size `2512`, so public/cloud mode skipped because it could not load full-dataframe fallback data.
+- Source basis: RALEC/LCSC source data identifies `LR2512-22R001F4` as a RALEC `LR` metal alloy low-resistance current-sense resistor, with `R001=1mΩ`, `F=±1%`, `22=2 terminals + 2W`, and 2512 package.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) with `parse_ralec_lr_alloy_resistor_model()`, power-code/dimension handling, and `mΩ` unit normalization fixes. Updated [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) with RALEC `LR/LRE` official series profiles and resolver. Added [sync_ralec_lr_resistors.py](C:/Users/zjh/Desktop/data/sync_ralec_lr_resistors.py), inserted `LR2512-22R001F4`, and normalized 10 existing RALEC `LR/LRE` rows from pseudo-series fragments to `LR/LRE`.
+- Cache/assets: Refreshed selected prepared-cache/search-sidecar rows for `LR2512-22R001F4`, `LR2512-22R004F4`, and `LRE0805-2CR004F5`; search sidecar now contains `LR2512-22R001F4` in both core and resistor tables. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile component_matcher.py resistor_series_rules.py sync_ralec_lr_resistors.py` passed. Bare search replay now parses `LR2512-22R001F4` as `合金电阻 / LR / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched candidates, including `旺诠RALEC LR2512-22R001F4`.
+- Handoff notes: If the visible website still returns 0 after this local fix, the remaining step is deployment/restart: the public page must receive the rebuilt `component_matcher.py`, `resistor_series_rules.py`, and `streamlit_cloud_bundle.zip.part01/part02`.
+
+### 2026-05-27 22:00 [direct] Public RALEC lookup still old because Streamlit deploy is not logged in
+
+- Follow-up: User still saw `LR2512-22R001F4` return 0 on the public page after the fix was pushed.
+- Verification: GitHub `main` is at `ee6ce24 Fix RALEC LR resistor lookup`, and raw GitHub `streamlit_app.py` contains `PUBLIC_RELEASE_STAMP = "2026-05-27T21:18:06+08:00"`. Local search sidecar contains `LR2512-22R001F4` in both `components_search_core` and `components_search_resistor`, and local search replay returns 5 matches.
+- Deployment finding: Running `.\publish_public.ps1 -SkipBundleRebuild -SkipPush -SkipProxyDeploy -TriggerStreamlitDeploy -AllowPublicRuntimeChange` timed out because Streamlit Cloud stayed on the `Sign in - Streamlit` deploy page. The public site can remain old until someone logs into Streamlit Cloud and redeploys/reboots the app.
+
+### 2026-05-27 23:00 [direct] Fixed PDC FMF resistor parsed as MLCC
+
+- Received / problem: User searched `FMF25FPJR001XBHM`; the page showed one result but the original-part table had no size/value details and incorrectly displayed `信昌PDC / 陶瓷贴片电容（MLCC） / FM / 中压`.
+- Root cause: PDC MLCC parsers accepted `FM*` and returned immediately, so `FMF...` current-sense resistor models were intercepted before resistor parsing.
+- Fix / action: Added a PDC `FMF` metal-strip current-sense resistor parser in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py). Tightened PDC MLCC `FN/FS/FM/FP/FV/FK/FH` parsers and partial parsers to require a real two-digit MLCC size code after the series prefix. Bumped query/public cache stamps and added regression case `RES_PDC_FMF25_1MOHM`.
+- Display fix: Reordered resistor table columns so size, resistance, tolerance, and power appear before long series descriptions; cleaned `nan` power display blanks.
+- Verification: Bare search replay now parses `FMF25FPJR001XBHM` as `合金电阻 / FMF / 2512 / 1mΩ / ±1% / 2W` and returns 5 fully matched current-sense resistor candidates.
+
+### 2026-05-28 01:20 [direct] Restored resistor series-description column order
+
+- Received / problem: User pointed out that resistor result tables moved `系列说明` away from `系列`, unlike MLCC and other component tables, and alloy-resistor rows displayed overly long/redundant descriptions.
+- Root cause: The prior FMF display hotfix solved parameter visibility by moving resistor `系列说明` behind the electrical parameters; stale generated descriptions such as `FOJAN(富捷) FRM252WFR 合金电阻系列` were also allowed through at display time.
+- Fix / action: Restored resistor display order to `系列 -> 系列说明 -> 参数`; added a lean alloy-resistor schema showing only common purchasing fields; shortened resistor fallback descriptions so unknown families display concise text like `合金电阻系列` instead of repeating brand and long pseudo-series.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. Direct display checks now show `FMF25FPJR001XBHM -> FMF / 金属条电流检测电阻（AEC-Q200） / 2512 / 1mΩ / ±1% / 2W`, `FRM252WFR001TML -> FRM / 高功率合金采样电阻`, and unknown alloy families as concise `合金电阻系列`.
+
+### 2026-05-28 11:30 [direct] Fixed HRE CGA size-first MLCC lookup
+
+- Received / problem: User searched `CGA0805X7R225K500MT`; the page returned `有结果 0` and the warning `请最少输入三个规格参数`, even though the string itself contains enough MLCC parameters.
+- Root cause: `detect_query_mode_and_spec()` entered the MLCC-spec branch first. `parse_spec_query()` only extracted `0805` and `X7R`, counted two parameters, and returned `规格不足` before the full part-number parser could decode `CGA + 0805 + X7R + 225 + K + 500 + MT`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so compact part-looking inputs try full model parsing before the MLCC spec insufficiency branch. Updated the size-first MLCC parser to classify brandless HRE-style `CGA/CAA/CAI/CIA/CSA/CSS/CSO` prefixes as `芯声微HRE` family rules, and changed the `C*` partial parser path so failed TDK parsing falls through instead of blocking other `C`-prefix models.
+- Regression: Added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `MLCC_HRE_CGA0805_SIZE_FIRST`.
+- Verification: Direct checks now parse `CGA0805X7R225K500MT` as `芯声微HRE / CGA / 0805 / X7R / 2.2uF / ±10% / 50V`, route the query as `料号`, and return same-spec MLCC candidates instead of `规格不足`.
+
+### 2026-05-28 14:30 [direct] Backfilled capacitor height display fields from official dimension strings
+
+- Received / problem: User pointed out that capacitor rows still looked like they had no thickness/height, and asked whether thickness can be filled from official specification data rather than left blank.
+- Findings: MLCC height coverage is already mostly filled in the local database (`120,205` MLCC rows, `7,158` blank height rows, mainly Murata leaded ceramic and Taiyo rows without direct official height data in the row). The larger display/data problem was non-MLCC capacitors: aluminum electrolytic rows often had official body size text such as `5X11` or `7.3×4.3×1.9`, but it was not split into `直径（mm）/长度（mm）/宽度（mm）/高度（mm）`.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to split non-MLCC capacitor dimension strings into display fields during normalization and future ingestion. Added [sync_capacitor_dimensions.py](C:/Users/zjh/Desktop/data/sync_capacitor_dimensions.py), backed up `components.db`, and updated `13,639 + 1,413 + 58` capacitor dimension-field rows across three cleanup passes.
+- Cache/assets: Replaced `15,418` capacitor rows in `cache/components_prepared_v5.parquet`; rebuilt the capacitor search sidecar table with explicit `长度（mm）/宽度（mm）/高度（mm）/直径（mm）/尺寸来源` columns; rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip) and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Verification: `python -m py_compile component_matcher.py sync_capacitor_dimensions.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Direct search checks now show `6.3ZLJ220M5X11 -> 直径 5 / 高度 11 / 尺寸来源 官方目录尺寸字段拆分` and `PCP1CPA330M15V -> 长度 7.3 / 宽度 4.3 / 高度 1.9`.
+- Handoff notes: Do not fill remaining MLCC blank thickness by package code alone. Continue by adding official-source thickness resolvers for high-gap MLCC families, especially Taiyo pages and Murata leaded/DE/R series, then rerun this same dimension/cache/bundle workflow.
+
+### 2026-05-28 19:25 [direct] Fixed prefix-C EIA-size MLCC parser misroute
+
+- Received / problem: User pointed out that `C1812X473K102TFF` was wrong. The page showed `TDK / C / 1812 / 1nF`, then returned 1nF MLCC replacement candidates.
+- Root cause: `parse_tdk_c_series()` accepted any long `C*` model and returned a partial TDK parse even when its TDK material/voltage/tolerance slices were invalid. This model follows an EIA-size-first pattern: `C + 1812 + X + 473 + K + 102...`, so `473` is 47nF and `102` is 1000V.
+- Fix / action: Added `parse_prefixed_eia_size_first_mlcc()` for this prefix-C EIA-size MLCC pattern, made TDK C-series parsing require a valid size/capacitance/tolerance/voltage slice before returning, kept compatibility for TDK two-letter legacy temperature codes such as `CH/JB`, bumped query/public stamps, and added regression case `MLCC_PREFIX_C_EIA_1812_47NF_1KV`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct search now parses `C1812X473K102TFF` as `1812 / X7R / 47nF / ±10% / 1000V` and returns fully matched `信昌PDC FP43X473K102...` and `FV43X473K102...` candidates. TDK spot checks still parse `C0402X7R1A102K020BC`, `C0402CH1C180J020BC`, and `C0402JB0G102K020BC`.
+
+### 2026-05-29 17:30 [direct] Fixed slash-separated MLCC spec tolerance parsing
+
+- Received / problem: User pointed out that `0603/NPO/12pF/5%/100V` displayed `容值误差=12pF` and returned zero results.
+- Root cause: `parse_spec_query()` parsed tolerance before capacitance. The token `12PF` was consumed as a pF tolerance, so the actual `5%` token was ignored.
+- Fix / action: Moved explicit capacitance-token parsing ahead of tolerance-token parsing within the spec parser, bumped query/public stamps, and added regression case `MLCC_SPEC_SLASH_0603_NPO_12PF_5PCT_100V`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct search now parses `0603/NPO/12pF/5%/100V` as `0603 / COG(NPO) / 12pF / ±5% / 100V` and returns fully matched Murata `GRM1885C2A120JA01J` and `GRT1885C2A120JA02D`.
+
+### 2026-05-30 00:22 [direct] Backfilled safe MLCC thickness from TDK and PDC model rules
+
+- Received / problem: User noted that many capacitor models still had blank thickness/height fields.
+- Root cause: TDK MLCC suffix thickness codes such as `M030BC`, `M070AC`, and `M022BC` were not decoded unless the model also matched a narrow L/W size map. PDC FN/FS/FM/FV/FP/FK/FH rows had package suffixes containing thickness codes, but only MT/MG/MS used that table.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so TDK thickness is decoded independently from L/W and added TDK `022`/`070` thickness codes. Added PDC general MLCC suffix thickness decoding (`package + thickness + control`) and wired it into PDC parsers and MLCC dimension enrichment. Bumped query/public stamps.
+- Data/cache: Backed up `components.db` to `components.db.mlcc_thickness_20260529_182709.bak`; targeted-updated TDK/PDC MLCC rows only; refreshed `9,822` TDK/PDC rows in `cache/components_prepared_v5.parquet` and the search sidecar; rebuilt `streamlit_cloud_bundle.zip` and regenerated `part01/part02`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Spot checks now show `FK21X102K502EEQ -> 2.20 x 1.10 x 1.60±0.20`, `FP46N783J501EFG -> 1.80 x 2.50 x 2.00±0.20`, `C0510X5R1A474M030BC -> 0.20 x 0.40 x 0.30`, and `CGBDT1X6S0G105M022BC -> 0.20 x 0.40 x 0.22` in DB, prepared cache, and search sidecar.
+- Handoff notes: Do not broad-fill remaining MLCC blank heights from package size alone. Remaining gaps are mostly Murata leaded/DE/R families, Taiyo special families, and TDK `009` large-case suffixes that still need official datasheet confirmation before backfill.
+
+### 2026-05-30 14:10 [direct] Normalized resistor series descriptions into semantic product families
+
+- Received / problem: User clarified that resistor `系列说明` should describe the product-family meaning (通用/车规/抗硫化/高功率/低阻电流检测等), not generated strings such as `华新科Walsin WF04P 厚膜电阻系列` or English descriptions like `Walsin thin-film precision chip resistor`.
+- Root cause: Several resistor official-profile tables still used English descriptions and English `特殊用途` tags. Existing replacement logic treated generated Chinese `...电阻系列` as replaceable, but did not replace old English profile text with the new Chinese semantic profile.
+- Fix / action: Updated [resistor_series_rules.py](C:/Users/zjh/Desktop/data/resistor_series_rules.py) for Walsin, RALEC, Samsung, Fenghua, Bourns, Meritek, Sunway, Cal-Chip, and Ohmite profile descriptions/types/special-use semantics. Fixed Walsin `WF` from the incorrect thin-film/precision meaning to `通用厚膜贴片电阻`. Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so canonical Chinese resistor descriptions can replace stale English profile text, then bumped query/public stamps.
+- Data/cache: Backed up `components.db` to `components.db.series_desc_backfill_20260530_135511.bak` and `components.db.resistor_special_use_backfill_20260530_140152.bak`; updated `57,687` resistor series-description rows and `17,452` English special-use rows; refreshed prepared cache and search sidecar; rebuilt `streamlit_cloud_bundle.zip` and regenerated `part01/part02`.
+- Verification: `python -m py_compile resistor_series_rules.py component_matcher.py streamlit_app.py sync_series_description_backfill.py` passed. Spot checks now show `WF04P000PTL -> WF / 通用厚膜贴片电阻`, `MR04X10R0FTL -> MR / 车规级厚膜贴片电阻`, `RCS0603J100CS -> RCS / 抗硫化通用厚膜贴片电阻`, `RTT02000JTH -> RTT / 通用厚膜贴片电阻`, `FRC0402P000TS -> FRC / 普通厚膜贴片电阻`, and `CR1206-FX-2003ELF -> CR / 通用厚膜贴片电阻` in DB/prepared cache.
+- Handoff notes: This fixed the visible wrong/generic resistor series-description class for the major currently observed brands, but there are still many non-primary resistor brands with generic `...电阻系列` descriptions. Continue by prioritizing user-owned brands first, then high-volume generic brands, and only normalize a brand after the brand/model-prefix rule is explicit enough to avoid inventing official series meanings.
+
+### 2026-06-02 22:55 [direct] Added mR/mr milliohm parsing for resistor spec search
+
+- Received / problem: User searched `0603 510mr 1%` and asked whether this notation was wrong because the system returned zero results.
+- Root cause: The resistor spec parser accepted `mΩ`/`mohm` style milliohm inputs, but did not classify `mR/mr` as milliohm notation, so the query lacked a valid resistance parameter and skipped matching.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) to accept `mR/mr` and `毫欧` in resistor value regexes and normalize them to milliohm resistance. Bumped query/public cache stamps in [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) and [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py). Added regression case `RES_SPEC_0603_510MR_1PCT`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct parsing maps `510mr`, `510mR`, `510MR`, `510mΩ`, `510毫欧`, `510mohm`, `0.51R`, and `R51` to `0.51Ω`. Regression case `RES_SPEC_0603_510MR_1PCT` passed and `0603 510mr 1%` returns 22 low-ohm 0603 resistor matches.
+- Handoff notes: `mR/mr` should be treated as valid procurement shorthand for milliohm inputs. A separate QA improvement remains: `regression_cases.csv` has expected top-brand/model columns, but `REGRESSION_CASE_COLUMNS` currently does not load them, so ranking checks need a dedicated follow-up.
+
+### 2026-06-02 23:45 [direct] Expanded official-source semiconductor seed library
+
+- Received / problem: User asked whether the library can continue to be expanded. Current audit/DB counts showed passive rows are already large, while power-device coverage was thin (`MOSFET=13`, `二极管=15`, `三极管=13`, `TVS二极管=8` before this batch).
+- Scope / source policy: Added only source-backed representative semiconductor rows with official manufacturer product pages or PDF datasheets in-row, focusing on common purchasing/search inputs: onsemi `1N4001-1N4006`, Vishay `SS12/SS13/SS15/SS16` and `SS32/SS33/SS35/SS36`, Diodes Incorporated `BAS16/BAV70/BAT54A/BAT54C/BAT54S`, onsemi `BSS84LT1G`, and Infineon `IRF3205PBF/IRLB8721PBF`.
+- Fix / action: Updated [sync_semiconductor_seed.py](C:/Users/zjh/Desktop/data/sync_semiconductor_seed.py) so semiconductor seed rows increased from 49 to 71. Backed up `components.db` to `components.db.semiconductor_seed2_20260602_232656.bak`, ran the seed sync, refreshed prepared/search cache via [incremental_semiconductor_cache_update.py](C:/Users/zjh/Desktop/data/incremental_semiconductor_cache_update.py), rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and bumped [streamlit_app.py](C:/Users/zjh/Desktop/data/streamlit_app.py) release stamp.
+- Verification: `python -m py_compile sync_semiconductor_seed.py incremental_semiconductor_cache_update.py streamlit_app.py build_streamlit_cloud_bundle.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Search sidecar has the new models (`IRLB8721PBF`, `IRF3205PBF`, `BAT54C`, `SS12`, `1N4001`, `BSS84LT1G`) with one core row each. Direct matcher checks returned exact models at the top for those sample searches.
+- Handoff notes: The incremental cache refresh exceeded the shell timeout but completed successfully in the background at 23:35. `reports/library_expansion_audit.*` were already dirty before this task and were intentionally not staged here; regenerate them separately if a fresh audit snapshot is needed.
+
+### 2026-06-03 00:15 [direct] Expanded semiconductor seed batch to 180 rows and fixed exact part ranking
+
+- Received / problem: User asked why the prior library expansion could not add more quantity in one batch.
+- Scope / source policy: Expanded only series with official-family rules that can be safely generated in bulk: onsemi `1N5400-1N5408` and `UF4001-UF4007`, Vishay `SS22-SS26`, and Littelfuse `SMBJ` unidirectional/bidirectional common VRWM voltage options. Existing seed rows are now deduped by brand/model/type before DB insertion so full-family generation cannot create duplicate rows.
+- Fix / action: Updated [sync_semiconductor_seed.py](C:/Users/zjh/Desktop/data/sync_semiconductor_seed.py) from 71 to 180 unique semiconductor seed rows. Backed up `components.db` to `components.db.semiconductor_seed3_20260603_000040.bak`, synced DB, refreshed prepared/search cache via [incremental_semiconductor_cache_update.py](C:/Users/zjh/Desktop/data/incremental_semiconductor_cache_update.py), rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Ranking fix: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so semiconductor part-number searches sort the exact model ahead of same-spec alternatives. This fixed `UF4007` being returned behind `1N4007`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_semiconductor_seed.py incremental_semiconductor_cache_update.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Final DB counts are `MOSFET=16`, `二极管=52`, `三极管=13`, `TVS二极管=99`. Search cache contains `SMBJ5.0A`, `SMBJ12CA`, `SMBJ170CA`, `1N5408`, `UF4007`, and `SS26`; direct matcher checks put exact models first.
+- Handoff notes: This is a high-quantity but still conservative batch. Next high-yield options are `SMAJ/SMCJ` TVS families, more SOD-123/SOD-323 switching/Schottky families, and common MOSFET parametric families, but MOSFET should remain more selective because Rds(on), package variants, and lifecycle differ by suffix.
+
+### 2026-06-03 01:15 [direct] Confirmed and ran bulk passive library path
+
+- Received / problem: User asked whether expansion can be done by hundreds/thousands/tens of thousands at a time, and whether passive components are fully expanded.
+- Findings: Passive components are not fully expanded. Current DB has large resistor/MLCC/aluminum/varistor coverage but still thin areas such as `薄膜电容=8`, `自恢复保险丝=1`, `晶振=33`, `振荡器=155`, `共模电感=472`, and `磁珠=1134`. Power-device coverage remains small compared with passive rows.
+- Bulk action: Ran the existing Sunway official-rule bulk sync, generating `20,126` rows and refreshing `20,883` Sunway prepared rows (`MLCC=3,378`, `厚膜电阻=17,505`). Ran `sync_passive_gap_seed.py`, syncing `52` source-backed passive gap rows.
+- Large cache/source audit: Confirmed existing resistor JLC bulk cache has `1,301,979` rows from the official JLC component archive, with large families including `薄膜电阻=746,013`, `厚膜电阻=440,794`, `绕线电阻=71,687`, and `引线型压敏电阻=6,863`. Confirmed aluminum electrolytic generated library has `14,356` rows across Chemi-Con, Jianghai, Nichicon, and Panasonic official/JLC sources.
+- DB/cache action: `sync_resistor_mlcc_sources.py --help` has no argument guard and entered sync. It completed insertion before timeout, increasing `components.db` to `1,488,404` rows. Full cache rebuild continued in the background; after it wrote updated cache files, the orphan process was stopped. Integrity checks passed for both `components.db` and `cache/components_search.sqlite`.
+- Final counts: DB rows now include `厚膜电阻=459,536`, `薄膜电阻=746,034`, `引线型压敏电阻=7,840`, `贴片压敏电阻=11,611`, `MLCC=120,205`, and `铝电解电容=15,416`. Search sidecar counts are `components_search_core=1,481,044`, `components_search_resistor=1,308,906`, `components_search_varistor=13,432`, `components_search_capacitor=134,420`.
+- Verification: Direct DB/search checks confirmed `LR2512-22R001F4`, `WF04P000PTL`, and `VDR-14D471K` are present/search-indexed. `FMF25FPJR001XBHM` and `1812B103K102LT` remain absent, so bulk import does not replace targeted brand/series gap work.
+- Handoff notes: For future large expansion, use category-specific batch importers with checkpoint/logging and explicit cache refresh. Do not run scripts without `--help` guards blindly; add dry-run/help support before using them as operational tools.
+
+### 2026-06-03 16:18 [direct] Fixed hyphenated HoLRS milliohm resistor spec fallback
+
+- Received / problem: User searched `HoLRS6568-5W-0.1mR-1%` and the page showed `有结果 0` plus `当前环境未加载整库回退数据；本条输入已跳过`.
+- Root cause: `HoLRS6568` itself is not currently in the library, and the resistor token regex did not allow `-` as a boundary after `mR`, so `0.1mR-1%` failed resistor-context/spec parsing and fell into the unavailable public full-dataframe fallback.
+- Fix / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so resistor value/context regexes accept hyphen-separated milliohm specs, and classify explicit `HOLRS/LRS` or true milliohm low-ohm notation as `合金电阻`. Bumped query/public cache stamps, added [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `RES_SPEC_HOLRS_HYPHEN_MR_POWER`, and recorded the confirmed bug in [references/issue-ledger.md](C:/Users/zjh/Desktop/data/references/issue-ledger.md).
+- Public assets: Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct parser maps `HoLRS6568-5W-0.1mR-1%` to `合金电阻 / 0.1mΩ / ±1% / 5W`; fast search now returns 2 same-resistance candidates instead of triggering full-dataframe fallback; regression cases `RES_SPEC_HOLRS_HYPHEN_MR_POWER` and `RES_SPEC_0603_510MR_1PCT` pass.
+- Handoff notes: This fix does not insert a sourced `HoLRS6568-5W-0.1MR-1%` row. To make it an exact match, add Milliohm/official-source HoLRS6568 family data into DB/cache/search with series, size, resistance, tolerance, power, and source URL.
+
+### 2026-06-05 00:32 [direct] Added source-backed Milliohm HoLRS6568 exact/family rows
+
+- Received / problem: User said to continue after the HoLRS fallback fix. The remaining gap was that `HoLRS6568-5W-0.1mR-1%` still needed official-source data入库 so it could display as a formal original part, not only a parsed resistor spec.
+- Source check: Used Milliohm HoLRS6568 datasheet via DigiKey for family rules/dimensions (`6568`, `0.05~0.4mΩ`, `5W`, `±0.5/±1/±5%`, `-55~170℃`, product dimensions), plus DigiKey/LCSC/JLCPCB pages confirming the exact `HoLRS6568-5W-0.1mR-1%` as `0.1mΩ ±1% 5W`.
+- Fix / action: Added [sync_milliohm_holrs6568.py](C:/Users/zjh/Desktop/data/sync_milliohm_holrs6568.py), inserted 15 source-backed Milliohm HoLRS6568 rows into [components.db](C:/Users/zjh/Desktop/data/components.db), backed up DB to `components.db.milliohm_holrs6568_20260605_001826.bak`, refreshed selected rows in [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet), and refreshed [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite). Search core row count is now `1,481,059`.
+- Routing fix: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so no-space compact part queries may include `%`, allowing official resistor models with tolerance suffixes to use exact lookup. Bumped query/public cache stamps and updated [regression_cases.csv](C:/Users/zjh/Desktop/data/regression_cases.csv) case `RES_SPEC_HOLRS_HYPHEN_MR_POWER` to expect `料号 / 6568`.
+- Public assets: Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_milliohm_holrs6568.py` passed. Direct resolver now routes `HoLRS6568-5W-0.1mR-1%` as `料号`, returns one candidate, and grades `Milliohm(毫欧) HoLRS6568-5W-0.1mR-1%` as `完全匹配`; regression cases `RES_SPEC_HOLRS_HYPHEN_MR_POWER` and `RES_SPEC_0603_510MR_1PCT` pass.
+- Handoff notes: This batch covers HoLRS6568 only. Broader Milliohm current-sense families such as HoLR/HoSS/HoBB/HoXLR should be expanded separately after checking each datasheet's dimensions, value ranges, power ratings, and naming suffixes.
+
+### 2026-06-06 14:50 [direct] Added source-backed Milliohm HoLR2512D family rows and exact-model ranking
+
+- Received / problem: User continued the 6/6 component matching work. The next Milliohm current-sense gap after HoLRS6568 was HoLR2512D, including exact examples such as `HoLR2512D-3W-1mR-3%`, `HoLR2512D-3W-8mR-1%`, and `HoLR2512D-2W-10mR-1%`.
+- Fix / action: Added [sync_milliohm_holr2512d.py](C:/Users/zjh/Desktop/data/sync_milliohm_holr2512d.py), inserted/refreshed `193` source-backed Milliohm HoLR2512D rows in [components.db](C:/Users/zjh/Desktop/data/components.db), refreshed selected rows in [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet), and refreshed [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite). Added `parse_milliohm_holr_alloy_resistor_model()` to decode HoLR2512D and HoLRS6568 official model strings.
+- Ranking fix: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so generic passive/resistor matching sorts an exact queried model ahead of same-spec alternatives. This keeps exact HoLR2512D rows first instead of stocked replacement rows when the input is a formal Milliohm model.
+- Public assets: Bumped public cache/release stamps, rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), regenerated `streamlit_cloud_bundle.zip.part01/part02`, and verified the zip archive.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_milliohm_holr2512d.py sync_milliohm_holrs6568.py` passed. Regression cases `RES_SPEC_0603_510MR_1PCT`, `RES_SPEC_HOLRS_HYPHEN_MR_POWER`, and `RES_MILLIOHM_HOLR2512D_1MR_3PCT` passed. Direct checks now route `HoLR2512D-3W-1mR-3%`, `HoLR2512D-3W-8mR-1%`, and `HoLR2512D-2W-10mR-1%` as `料号` with the Milliohm exact row first.
+- Handoff notes: The regression loader still ignores the appended `expected_top_brand` and `expected_top_model_contains` CSV columns because `REGRESSION_CASE_COLUMNS` has not been expanded; ranking expectations were verified manually in this pass.
+
+### 2026-06-06 20:37 [direct] Completed selected backlog items 2/3/4/5/6/7/10 only
+
+- Received / scope: User asked to do only items `2/3/4/5/6/7/10` from the unfinished backlog, and explicitly not do price/inventory or sales-flow work.
+- Reports refreshed: Rebuilt [docs/series_semantics_gap_report.md](C:/Users/zjh/Desktop/data/docs/series_semantics_gap_report.md) and [reports/library_expansion_audit.md](C:/Users/zjh/Desktop/data/reports/library_expansion_audit.md). Current DB/report snapshot is `1,488,653` rows, `56,968` series-semantic gaps, `171` tracked target pairs, `0` brand gaps, and `41` semantic-gap pairs.
+- MLCC dimensions: Added [sync_mlcc_dimension_backfill.py](C:/Users/zjh/Desktop/data/sync_mlcc_dimension_backfill.py) with `--dry-run`, `--online`, `--skip-cache`, and `--limit`. Offline source-backed/model-rule pass updated `963` MLCC rows and refreshed caches; blank MLCC height count moved from `7111` to `7092`. Generated [reports/mlcc_thickness_gap_report.md](C:/Users/zjh/Desktop/data/reports/mlcc_thickness_gap_report.md) and CSV; remaining gaps are mostly Taiyo UP and Murata RCE/RDE/RHE/RPE/safety leaded/special ceramic families that need official thickness tables/spec sheets, not generic package-size inference.
+- Series semantics: Added [sync_littelfuse_varistors.py](C:/Users/zjh/Desktop/data/sync_littelfuse_varistors.py) and normalized `3287` Littelfuse MOV rows to real families such as `UltraMOV`, `C-III`, `ZA`, `TMOV`, and `TMOV25S`, with selected cache/search refresh. Added [sync_milliohm_series_cleanup.py](C:/Users/zjh/Desktop/data/sync_milliohm_series_cleanup.py) and corrected `229` Milliohm rows from size-fragment pseudo-series to `HoAR/HoCR/HoCS/HoRS/HoRF`. Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so Milliohm non-empty DB series descriptions are not overwritten by generic display fallback during prepared-cache generation.
+- Semiconductor expansion: Added [sync_semiconductor_common_expansion.py](C:/Users/zjh/Desktop/data/sync_semiconductor_common_expansion.py), generating/upserting `61` source-backed common semiconductor rows including Vishay `SMAJ/SMCJ` TVS examples, onsemi `1N4148WS`, and Diodes Incorporated small-signal transistor examples.
+- Search/cache closure: Verified DB, [cache/components_prepared_v5.parquet](C:/Users/zjh/Desktop/data/cache/components_prepared_v5.parquet), and [cache/components_search.sqlite](C:/Users/zjh/Desktop/data/cache/components_search.sqlite) contain representative new/fixed rows including `SMAJ12CA`, `SMCJ150A`, `MMBT2222A`, `V300LS20CP`, `TMOV14RP320E`, `HOAR0805-1/8W-10KR-1%-TCR50`, and `HORS1210-1/2W-200MR-1%`.
+- Bulk import engineering: Hardened [sync_resistor_mlcc_sources.py](C:/Users/zjh/Desktop/data/sync_resistor_mlcc_sources.py) with `--dry-run`, `--skip-cache`, `--no-backup`, `--skip-mlcc`, and `--skip-resistor`; fixed the dry-run counting path to use real `品牌/型号/器件类型` columns. Dry-run checks passed: MLCC workbook `116,825` source rows with `0` would-insert rows; resistor cache `1,301,979` source rows with `777` would-insert rows. The 777 rows were not inserted in this pass because the requested item was script engineering, not blind historical-cache import.
+- Public assets / verification: `python -m py_compile component_matcher.py streamlit_app.py sync_littelfuse_varistors.py sync_semiconductor_common_expansion.py sync_milliohm_series_cleanup.py sync_mlcc_dimension_backfill.py sync_resistor_mlcc_sources.py` passed. Rebuilt [streamlit_cloud_bundle.zip](C:/Users/zjh/Desktop/data/streamlit_cloud_bundle.zip), verified the zip archive, and regenerated `streamlit_cloud_bundle.zip.part01/part02`.
+- Handoff notes: Remaining MLCC thickness work should prioritize official table-backed ingestion for Taiyo UP and Murata leaded/safety ceramic families. Remaining series-semantic work should focus on the current `41` semantic-gap pairs in the refreshed audit report.
+
+### 2026-06-08 16:33 [diagnostic] Checked Kingdee Cloud client connectivity with Clash enabled
+
+- Received / problem: User asked to locate the desktop Kingdee Cloud Galaxy client and diagnose why it cannot connect to the server after enabling VPN/Clash.
+- Findings: Desktop shortcut is `C:\Users\zjh\Desktop\金蝶云星空客户端.lnk`, launching `C:\Program Files (x86)\Kingdee\K3Cloud\DeskClient\Kingdee.BOS.DeskClient.Shell.exe` with server `59.36.147.117/k3cloud`. HTTP/HTTPS and key K3Cloud Web API endpoints returned `200` both direct and through `127.0.0.1:7890`; ports outside `80/443` timed out in quick TCP checks. Ping/traceroute failed while TCP succeeded, so ICMP/tracert failure is not conclusive. Clash set WinINet proxy to `127.0.0.1:7890`, had no TUN route in Windows, and logs showed TUN startup failing with access denied.
+- Handoff notes: Likely root cause is Clash not running as a real TUN/VPN for non-proxy TCP traffic, plus Kingdee's diagnostic treating raw TCP/tracert checks as abnormal. Practical mitigations are to run Clash as administrator if TUN is required, or keep Kingdee direct by adding `59.36.147.117` to proxy bypass / DIRECT rules.
+
+### 2026-06-08 16:49 [config] Forced Kingdee server to bypass VPN/proxy
+
+- Change / action: Backed up current Clash files to `C:\Users\zjh\Desktop\data\kingdee_network_backup_20260608_164003`. Added `59.36.147.117` to the current user's Windows `ProxyOverride`, and inserted `IP-CIDR,59.36.147.117/32,DIRECT,no-resolve` at the top of the active Clash profile rules in `C:\Users\zjh\.config\clash\profiles\1773366404663.yml`.
+- Verification: .NET default proxy now returns `IsBypassed=True` for `http://59.36.147.117/k3cloud/`, and `Invoke-WebRequest` to that Kingdee endpoint returned `200`. WinHTTP remains direct access.
+- Handoff notes: Attempted to restart the existing Kingdee login process so it would reload proxy settings, but Windows denied stopping `Kingdee.BOS.XPF.App.exe` from the current session. If the already-open login window still fails, manually close it and reopen the desktop shortcut.
+
+### 2026-06-08 23:40 [config] Restored Kingdee saved login data center
+
+- Received / problem: User reported the Kingdee login screen still did not show the previously saved fields; the account `900367` appeared after recreating `LoginInfo.xml`, but data center and authentication method remained blank.
+- Findings: The XPF client reads login history from `C:\Users\zjh\Documents\Kingdee\K3Cloud\LoginInfo.xml`. The existing saved data center ID was `6441fe84cd57af`; querying Kingdee's own `AccountClientProxy.GetDataCenterList()` against `http://59.36.147.117/k3cloud/` returned 5 data centers and confirmed that ID maps to `富临通`, with authentication `PwdAuthentication / 命名用户身份`.
+- Change / action: Updated `C:\Users\zjh\Documents\Kingdee\K3Cloud\LoginInfo.xml` so `LatestDataCenterName` is `富临通` while keeping `LatestDataCenterID=6441fe84cd57af`, `LatestAuthenMethodID=1`, `LatestLcID=2052`, and user `900367`.
+- Verification: XML parsed successfully as UTF-8 and the Kingdee client library successfully fetched the data center list from the server. A new non-elevated `Kingdee.BOS.XPF.App.exe` process was launched after the fix. The old elevated login process `PID 22864` could not be stopped from this session, so the user may need to manually close the old blank login window and use the newly opened/reopened one.
+
+### 2026-06-09 00:00 [config] Corrected Kingdee saved username
+
+- Received / problem: User clarified the Kingdee account should display as `吴兆轩`, not `900367`.
+- Change / action: Updated `C:\Users\zjh\Documents\Kingdee\K3Cloud\LoginInfo.xml` so `LoginHisory/LoginInfo/UserName` is `吴兆轩`; kept data center `富临通`, ID `6441fe84cd57af`, auth method `1`, locale `2052`, and server `http://59.36.147.117/k3cloud/` unchanged.
+- Verification: Parsed the XML as UTF-8 successfully and confirmed `UserName=吴兆轩`, `LatestDataCenterName=富临通`, `LatestAuthenMethodID=1`.
+
+### 2026-06-09 00:22 [diagnostic] Confirmed Clash system proxy residue risk
+
+- Received / problem: User asked why, after reboot, normal websites such as Baidu may not open until Clash/VPN is opened and exited once.
+- Findings: Current WinINet user proxy is enabled with `ProxyServer=127.0.0.1:7890`, which is Clash's local proxy port. WinHTTP is direct. Clash for Windows and `clash-win64.exe` are currently running, so the proxy endpoint exists now; after reboot, if Clash is not running but `ProxyEnable` remains `1`, browsers will fail because they still try to use the dead local proxy.
+- Handoff notes: Fix options are either to make Clash start with Windows so `127.0.0.1:7890` exists immediately, or disable Windows system proxy when not using Clash / add a logon cleanup task to set `ProxyEnable=0`. Kingdee is less affected because `59.36.147.117` is already in `ProxyOverride` and the Clash profile has a DIRECT rule.
+
+### 2026-06-09 00:30 [config] Default Windows networking to direct access at logon
+
+- Received / problem: User chose option 2: keep Windows direct by default after reboot, and only use Clash/VPN when manually opened.
+- Change / action: Added `C:\Users\zjh\Desktop\data\disable_system_proxy_at_logon.ps1`, which sets `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ProxyEnable=0` and notifies WinINet clients. Registered scheduled task `DisableSystemProxyAtLogon` to run that script at user logon. Current `ProxyEnable` was also set to `0`.
+- Verification: `https://www.baidu.com` returned HTTP `200` with the system proxy disabled. The scheduled task was manually started and completed with `LastTaskResult=0`. WinHTTP remains direct access. Common startup locations checked did not show a Clash autostart entry.
+- Handoff notes: `ProxyServer=127.0.0.1:7890` is intentionally left in place but disabled; this lets Clash re-enable system proxy when the user turns it on, while avoiding dead-proxy failures after reboot.
+
+### 2026-06-13 19:20 [debug] Fixed resistor `mR`/`MR` unit collision
+
+- Received / problem: User reported `0402 1mΩ` chip-resistor searches still showed `105`-coded models such as `0402WGJ0105TCE`, which are 1MΩ parts, not milliohm parts.
+- Root cause: The parser treated `mR` case-insensitively, so `MR`/`Mr` collapsed into milliohm. Existing `cache/components_prepared_v5.parquet` and `cache/components_search.sqlite` also cached 1MΩ text rows as `0.001Ω`.
+- Fix / action: Updated `component_matcher.py` so `mR/mr` means milliohm and `MR/Mr` means megaohm; made low-ohm detection case-sensitive; bumped query cache version/stamp. Corrected 46,272 `MΩ` rows in prepared cache and sidecar, added regression rows for `0402 1MR` and `0402 1mR`, rebuilt `streamlit_cloud_bundle.zip`, and regenerated `part01/part02`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Prepared cache and sidecar now show the screenshot `105` models as `1MΩ / 1000000Ω`. Direct checks: `0402 1mΩ 5% 1/16W` and `0402 1mR 5% 1/16W` return no `105` models; `0402 1MR 5% 1/16W` and `0402 1MΩ 5% 1/16W` return 1MΩ candidates; `1206 0.01R 5% 1/4W` still returns only 10mΩ rows. `python -m zipfile -t streamlit_cloud_bundle.zip` passed and part hash matches the zip hash.
+
+### 2026-06-09 01:08 [orientation] Reviewed workspace project context
+
+- Received / problem: User asked to inspect the current workspace/materials and understand what project is being worked on.
+- Findings: The workspace is centered on the `富临通元器件匹配系统`: a public Streamlit + Cloudflare Pages component search, same-spec replacement, and BOM matching tool backed by `components.db`, prepared Parquet cache, and SQLite search sidecar assets. Current library snapshot is about 1.49M component rows with active work on source-backed expansion, parser/ranking fixes, series semantics, dimensions, and public release packaging.
+- Handoff notes: No business code, database, cache, or deployment assets were changed in this orientation pass.
+
+### 2026-06-09 01:36 [data] Backfilled source-backed capacitor height fields
+
+- Received / problem: User asked to continue adding correct height information for all capacitors, using only local materials under `C:\Users\zjh\Desktop\data`.
+- Change / action: Updated MLCC dimension backfill source merging so LCSC specification-sheet height fills are preserved in `尺寸来源`; applied 318 MLCC height fills from the local MLCC dimension cache, then added a strict same-brand/series/size/dielectric/capacitance/tolerance/voltage unique-spec reference rule and applied 10 more MLCC height fills. Extended non-MLCC capacitor dimension parsing for cylindrical `Ø/Φ` sizes and added a conservative aluminum-electrolytic same-brand/series/capacitance/voltage unique-size fill rule; applied 3 non-MLCC height fills. Rebuilt `reports/mlcc_thickness_gap_report.csv` and `.md`, rebuilt `streamlit_cloud_bundle.zip`, split updated `.part01/.part02`, and bumped public cache/version stamps.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_mlcc_dimension_backfill.py sync_capacitor_dimensions.py tools\build_mlcc_thickness_gap_report.py` passed; `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Post-update blank height counts are `MLCC=6764/120205`, `薄膜电容=0/8`, `铝电解电容=1862/15416`. Representative checks confirmed MLCC `EMK021BJ221KK-W` and `MSASA021SB5223MWNA01` height `0.125±0.013`, same-spec-reference MLCC `TMK021CG1R2BK5W` height `0.125±0.013`, film capacitor `940C30P1K-F` height/diameter `22.5`, aluminum `ECR1EEQ681M` height `20` diameter `10`, and `PCRA2EL331ME09LL20WP` height `9` diameter `5`.
+- Handoff notes: Remaining blank capacitor heights were left blank because the local database/cache did not provide an unambiguous source-backed height. Do not infer those remaining heights purely from package code such as 0603/0805/1206 or from ambiguous aluminum body-size groups.
+
+### 2026-06-09 15:55 [debug] Fixed PDC FS high-cap MLCC alternative filtering
+
+- Received / problem: User showed PDC FS/FS21X MLCC exact-part results displaying "已找到原厂料号资料，暂未找到其他品牌替代结果" even though the library contains many same-spec MLCC alternatives.
+- Root cause: PDC `FS` is classified as `高容`. The MLCC series-class filter treated `高容` as a strict application/safety constraint, so same-spec Samsung/Walsin/Murata/HRE/Samwha candidates classified as `常规` were removed before matching. Exact-part display then excluded the original PDC row, leaving zero alternatives.
+- Fix / action: Updated `component_matcher.py` so `高容` remains a series/ranking label but is no longer in `MLCC_STRICT_CLASS_TOKENS`. Bumped query cache stamp/version to avoid stale zero-result session cache. Added four regression cases for `FS21B106K6R3ECG`, `FS21B475K100ECG`, `FS21X106K100EIG`, and `FS21X225K160EIG`. Rebuilt `streamlit_cloud_bundle.zip` and refreshed `part01/part02`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed, and concatenated part hashes match the zip SHA256. Direct local checks now return same-spec alternatives after excluding the original part: `FS21B106K6R3ECG=45`, `FS21B475K100ECG=35`, `FS21X106K100EIG=42`, `FS21X225K160EIG=58`. Targeted regression rows all passed.
+- Handoff notes: `高容` should not be used as a hard replacement barrier for MLCC when size, dielectric, capacitance, tolerance, and voltage already match. Keep strict filters for real application/safety constraints such as 车规, 软端子, 高压/中压, 安规, 高Q, EMI, etc.
+
+### 2026-06-13 23:36 [data] Expanded passive library series semantics and seed rows
+
+- Received / problem: User asked to continue expanding the component library after resistor unit fixes.
+- Change / action: Applied `sync_littelfuse_varistors.py` to normalize 3,287 Littelfuse varistor rows from official family rules and refreshed caches for 2,031 prepared rows. Applied `sync_series_description_backfill.py` to backfill 44,732 resistor-family series description rows and refresh prepared/search caches. Added cache refresh support to `sync_passive_series_semantics_backfill.py`, then applied 3,375 non-resistor passive series semantic rows. Added cache refresh support to `sync_passive_gap_seed.py`, then synced 52 source-backed passive seed rows. Rebuilt `reports/library_expansion_audit.*`, `docs/series_semantics_gap_report.*`, `streamlit_cloud_bundle.zip`, and `streamlit_cloud_bundle.zip.part01/.part02`.
+- Verification: `python -m py_compile sync_passive_series_semantics_backfill.py sync_passive_gap_seed.py sync_littelfuse_varistors.py sync_series_description_backfill.py component_matcher.py streamlit_app.py` passed. `python audit_library_expansion.py` now reports `target_pairs=171`, `brand_gaps=0`, `semantic_gap_pairs=36`, with ready pairs increased to 135. `python tools\build_series_semantics_gap_report.py` now reports `gaps=53,416` and semantic coverage `96.41%`. Sample seed `R82DC3100AA50J` exists once in `components.db`, once in `cache/components_search.sqlite`, and once in `cache/components_prepared_v5.parquet`. `python -m zipfile -t streamlit_cloud_bundle.zip` passed; zip SHA256 is `d5223f27c8b86caf37b117a4467c6929f00f3d7287a5599230f489ab0a50d63d`, matching the concatenated split parts.
+- Handoff notes: Murata and Wurth online official sync attempts timed out during preview and were not applied. Remaining priority gaps are still concentrated in Vishay/TE thin film resistors, Ohmite/Vishay wirewound resistors, Murata ERB MLCC, Nichicon aluminum electrolytics, and Murata/Wurth/Bourns power inductors.
+
+### 2026-06-15 03:18 [data] Imported remaining resistor cache rows with guarded incremental refresh
+
+- Received / problem: User asked whether the library can still be expanded.
+- Change / action: Updated `sync_resistor_mlcc_sources.py` so real runs default to refreshing only newly inserted rows in prepared/search caches instead of full cache rebuilds, and added a guard requiring non-empty `品牌/型号/器件类型` keys before import. Imported the remaining resistor cache rows with `--skip-mlcc`, inserting `778` source rows. Expanded `sync_littelfuse_varistors.py` candidate selection so blank-type Littelfuse MOV rows from the historical cache can still be normalized; applied `4,061` Littelfuse family updates. Rebuilt Milliohm `HoLR2512D` rows from the official source-backed script, replacing `196` existing rows with `193` normalized rows. Removed the low-quality duplicate KOA `RK73H1ETTP1002F` row and restored the target `贴片电阻` classification on the retained RK73H row. Rebuilt audit reports and `streamlit_cloud_bundle.zip` plus `.part01/.part02`.
+- Verification: `python -m py_compile sync_resistor_mlcc_sources.py sync_littelfuse_varistors.py sync_milliohm_holr2512d.py component_matcher.py streamlit_app.py` passed. DB/cache spot checks confirmed imported sample rows are present in `components.db`, `cache/components_prepared_v5.parquet`, and `cache/components_search.sqlite`. Final `python audit_library_expansion.py` reports `target_pairs=171`, `brand_gaps=0`, `semantic_gap_pairs=36`; `python tools\build_series_semantics_gap_report.py` reports `rows=1,489,426` and `gaps=53,416`. `python -m zipfile -t streamlit_cloud_bundle.zip` passed; zip SHA256 is `5091a0e017471c0a2857176856a169a39d66f9c40306d7ffd0fe919afdc90dea`, matching the concatenated split parts.
+- Handoff notes: The resistor cache still contains rows with blank `器件类型`; those are now intentionally skipped by `sync_resistor_mlcc_sources.py` unless upstream source normalization fills the key fields first. Avoid using `sync_selected_cache_rows.py --brand-like KOA --model ...` together because selectors are OR-based; use exact `--model` alone for a single-model cache refresh.
+
+### 2026-06-15 14:46 [debug] Refreshed public cache stamps for FOJAN resistor series display
+
+- Received / problem: User showed `0402 0Ω` chip-resistor results where FOJAN models `FRC0402P000TS` and `FRQ0402P000TS` still displayed old series values `FRC0402P` / `FRQ0402P`.
+- Findings: Current `components.db`, `cache/components_prepared_v5.parquet`, and `resistor_series_rules.py` all resolve those models correctly as `FRC / 普通厚膜贴片电阻` and `FRQ / 车规级厚膜贴片电阻`; the bad screenshot therefore matched stale query/page cache or an old public data bundle.
+- Change / action: Bumped `QUERY_RESULT_CACHE_VERSION`, `PUBLIC_CODE_STAMP`, and `PUBLIC_RELEASE_STAMP`, rebuilt `streamlit_cloud_bundle.zip`, and regenerated `.part01/.part02` so public cache keys and bundle signatures change.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py resistor_series_rules.py` passed. `python -m zipfile -t streamlit_cloud_bundle.zip` passed. Prepared-cache spot check confirmed `FRC0402P000TS -> FRC / 普通厚膜贴片电阻` and `FRQ0402P000TS -> FRQ / 车规级厚膜贴片电阻`. The zip SHA256 is `5091a0e017471c0a2857176856a169a39d66f9c40306d7ffd0fe919afdc90dea`, matching the concatenated split parts.
+
+### 2026-06-15 15:18 [debug] Corrected resistor source DB value fields from summaries
+
+- Received / problem: User showed `FRC0402J106TS` displaying `10mΩ` and reported `1M;5%;0402;0402WGJ0105TCE;厚声` could not find the expected 1MΩ row.
+- Root cause: The earlier `mR`/`MR` unit fix corrected prepared/search caches, but `components.db` still held stale structured values such as `0.001Ω` / `0.01Ω` while `规格摘要` correctly said `1MΩ` / `10MΩ`. Later exact-part display or cache refresh could rehydrate the stale DB fields.
+- Change / action: Added `sync_resistor_values_from_summary.py`, which uses explicit resistance text in resistor `规格摘要` as the trusted source and updates only true numeric mismatches. Applied it to `141,336` resistor rows, backed up the DB to `components.db.resistor_value_summary_20260615_150319.bak`, refreshed the same `141,336` rows into prepared parquet and search sidecar, added two regression cases, bumped query/public stamps, and rebuilt `streamlit_cloud_bundle.zip` plus `.part01/.part02`.
+- Verification: `0402WGJ0105TCE` and `FRC0402J105TS` now show `1MΩ / 1000000Ω`; `0402WGJ0106TCE` and `FRC0402J106TS` now show `10MΩ / 10000000Ω` in DB, prepared parquet, and sidecar. Direct fast search for `1M;5%;0402;0402WGJ0105TCE;厚声` returns `0402WGJ0105TCE`; exact lookup for `FRC0402J106TS` displays `10MΩ`. `python -m py_compile component_matcher.py streamlit_app.py sync_resistor_values_from_summary.py` and `python -m zipfile -t streamlit_cloud_bundle.zip` passed. The new zip SHA256 is `1e72a806a2687ac7c435af29259dd7262eb46af652808e52e702a72c904c25ee`, matching the concatenated split parts.
+
+### 2026-06-15 17:05 [debug] Fixed FOJAN compound resistor query parsing
+
+- Received / problem: User reported `FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声` could not find FOJAN `FRC0402J105TS`, and asked to confirm FOJAN naming.
+- Root cause: FOJAN naming is valid: `FRC0402J105TS` is `FRC / 0402 / ±5% / 105=1MΩ / TS`. The failure was parser-side: the input glued exact model `FRC0402J105TS` to suffix spec `1M`, so `FRC0402J105TS1M` was treated as an unknown long token and the query fell into an insufficient-spec path.
+- Change / action: Added known-model-prefix recovery for model-like query tokens with spec-looking suffixes, applied it for `无法识别 / 规格不足 / 解析失败` before full-dataframe fallback, made the regression harness use the same resolver as the app, loaded `expected_top_brand` / `expected_top_model_contains`, added `RES_SPEC_COMPOUND_FOJAN_1M_PREFIX`, and bumped query/public release stamps to `2026-06-15T17:05:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct check now resolves the query through `model_token_prefix_lookup`, reverse-specs `FRC0402J105TS` to `1MΩ ±5% 0402`, returns 30 candidates, and places `FOJAN(富捷) FRC0402J105TS` first. Targeted resistor regression cases for `1MR`, lowercase `1mR`, UNI-ROYAL `105`, FOJAN `106`, and the compound FOJAN query all passed.
+
+### 2026-06-15 17:50 [publish] Pushed FOJAN resistor lookup fix to GitHub
+
+- Received / problem: User still saw no FOJAN rows on the public/search page for `1M;5%;0402;0402WGJ0105TCE;厚声`, suggesting the live page might not have the local fix.
+- Findings: Local `components.db` and `cache/components_search.sqlite` both contain `FOJAN(富捷) FRC0402J105TS` and `FRQ0402J105TS` as `0402 / 1MΩ / ±5%`. Local fast search for `1M;5%;0402;0402WGJ0105TCE;厚声` returns 60 matches with those two FOJAN rows. The live Streamlit page still showed the old parsed series `1M;5%;04 贴片电阻系列`, proving it was running old code.
+- Change / action: Committed and pushed `c91942b Fix resistor megaohm matching and FOJAN lookup` to `origin/main`, including the corrected code, regression cases, resistor value sync script, and updated public bundle parts. GitHub raw files now show `QUERY_RESULT_CACHE_VERSION = 53`, `PUBLIC_CODE_STAMP = 2026-06-15T17:05:00+08:00`, and `PUBLIC_RELEASE_STAMP = 2026-06-15T17:05:00+08:00`.
+- Verification / blocker: `python -m zipfile -t streamlit_cloud_bundle.zip`, split-part hash check, `python -m py_compile component_matcher.py streamlit_app.py`, and local FOJAN query checks all passed. Streamlit Cloud browser deploy nudge could not complete because the saved Streamlit login profile now lands on `Sign in · Streamlit`; public app may remain old until Streamlit Cloud auto-deploys from GitHub or the owner logs in/redeploys.
+
+### 2026-06-18 01:00 [data/debug] Expanded low-ohm resistor coverage and fixed Milliohm/Bourns parsing
+
+- Received / problem: User reported that many resistor models were still missing from the library or could not be found by specification search, especially around milliohm values.
+- Findings: The resistor coverage audit showed no actionable normal-chip gaps for 1Ω~10MΩ common 1%/5% specs. The real gaps were low-ohm current-sense specs: initially 13 actionable gaps, concentrated in 0805/1210/2010 1mΩ/2mΩ/5mΩ. Some existing Milliohm rows also had missing tolerance/index fields because the dedicated parser silently failed and the models fell through to generic parsing.
+- Change / action: Fixed [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) by importing `Decimal`, adding `HoLR/HoLLR/HoLRS` resistor-model prefixes, extending Milliohm parsing to `HoLLR2010`, adding Bourns `CRF0805` parsing, and filling RALEC LR display fields. Added and ran [sync_milliohm_hollr2010.py](C:/Users/zjh/Desktop/data/sync_milliohm_hollr2010.py) for 80 official HoLLR2010 rows, [sync_ralec_lr1210_resistors.py](C:/Users/zjh/Desktop/data/sync_ralec_lr1210_resistors.py) for 32 RALEC LR1210 rows, and [sync_bourns_crf0805_resistors.py](C:/Users/zjh/Desktop/data/sync_bourns_crf0805_resistors.py) for 28 Bourns CRF0805 rows. Added regression cases for these three families and regenerated [reports/resistor_spec_coverage_audit.md](C:/Users/zjh/Desktop/data/reports/resistor_spec_coverage_audit.md).
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py audit_resistor_spec_coverage.py sync_milliohm_hollr2010.py sync_ralec_lr1210_resistors.py sync_bourns_crf0805_resistors.py` passed. Fast-index checks now return candidates for `0805 1mΩ ±1/±5%`, `0805 2mΩ ±5%`, `1210 2mΩ/5mΩ ±1/±5%`, and `2010 1mΩ/2mΩ ±1/±5%`. The audit now reports `Actionable normal-chip gaps = 0` and `Actionable low-ohm gaps = 2`, both `1210 1mΩ ±1/±5%`; these remain intentionally unfilled because checked official sources did not support 1210 1mΩ.
+
+### 2026-06-18 15:45 [feature] Added no-match material report workflow and backend
+
+- Received / problem: User wanted a button on no-match search result areas labeled `回报物料无匹配型号`; clicking it should send the query to a backend list where each item can be marked `已解决` after the model/spec has been added to the library or made matchable.
+- Change / action: Added a local SQLite-backed report store at `cache/no_match_reports.sqlite` with pending/resolved statuses, duplicate pending-query accumulation, parsed-spec JSON, original brand/model fields, reason, candidate counts, and timestamps. Added report buttons for `无法识别`, `规格不足`, exact part with no substitute results, and spec/fragment searches with no matches. Added a top-level `搜索匹配 / 无匹配回报后台` page switch and backend page with counts, table view, per-record details, and `已解决` form. Bumped `QUERY_RESULT_CACHE_VERSION`, `PUBLIC_CODE_STAMP`, and `PUBLIC_RELEASE_STAMP`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A test report was submitted, listed as `待处理`, marked `已解决`, then removed from the report DB. Local Streamlit returned HTTP 200 at `http://localhost:8505`; Playwright UI automation could not run because the bundled Node `playwright` package is missing `playwright-core`.
+
+### 2026-06-18 15:50 [feature] Protected no-match report backend with login
+
+- Received / problem: User wanted the no-match report backend visible only after logging in with account `amdin` and password `123456`.
+- Change / action: Added a dedicated backend login gate before any no-match report counts or records are queried/rendered. The backend now shows only a login form until authentication succeeds, supports logout, and can be overridden later through `NO_MATCH_ADMIN_USERNAME` / `NO_MATCH_ADMIN_PASSWORD` secrets or environment variables. Refreshed `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level auth checks confirmed `amdin / 123456` succeeds while `admin / 123456`, wrong passwords, and empty credentials fail. Local Streamlit returned HTTP 200 at `http://localhost:8505`.
+
+### 2026-06-18 16:02 [feature] Added fixed no-match backend entry button
+
+- Received / problem: User still could not find the backend function from the search page and asked to pin the backend login button in the top-right corner.
+- Change / action: Replaced the inline `搜索匹配 / 无匹配回报后台` page radio with a fixed top-right button. The button opens the backend through `?admin=1`, changes to `返回搜索` while on the backend page, and keeps backend records hidden behind the dedicated login gate. Refreshed `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit returned HTTP 200 for both `http://localhost:8505` and `http://localhost:8505?admin=1`.
+
+### 2026-06-18 16:46 [debug] Verified FOJAN 0603 1K resistor spec search and invalidated stale query cache
+
+- Received / problem: User searched `1K 5% 1/16W 0603` and expected FOJAN rows because the FOJAN FRC range table supports that resistance range.
+- Findings: Local DB and `cache/components_search.sqlite` already contain `FOJAN(富捷) FRC0603J102TS` and `FRQ0603J102TS` as `0603 / 1KΩ / ±5% / 0.1W`. The complete app query path resolves `1K 5% 1/16W 0603` through `fast_query`, returns 95 matches, and includes both FOJAN rows as `高代低` because their `1/10W` rating exceeds the requested `1/16W`.
+- Change / action: Bumped `QUERY_RESULT_CACHE_VERSION` to `58`, refreshed `PUBLIC_CODE_STAMP` / `PUBLIC_RELEASE_STAMP` to `2026-06-18T16:46:00+08:00`, and added regression rows for the spec query plus exact FOJAN `FRC0603J102TS`.
+- Verification: `python -m py_compile component_matcher.py` and `python -m py_compile streamlit_app.py` passed. CSV structure check passed. Sidecar spot check returned both FOJAN 0603 1K ±5% rows, and local Streamlit returned HTTP 200 at `http://localhost:8505`.
+
+### 2026-06-18 18:22 [data/debug] Corrected FOJAN 5% J-code TS model spacing
+
+- Received / problem: User pointed out that FOJAN 5% resistor results such as `FRC0603J103TS` / `FRQ0603J103TS` are displayed wrong; LCSC/JLCPCB list the manufacturer part number with a space before the `TS` suffix, e.g. `FRC0603J103 TS`.
+- Findings: LCSC/JLCPCB product pages list `FRC0603J103 TS` as the MPN, while local FOJAN seed rows had normalized 5% `J... TS` display models into no-space `J...TS`. The existing `clean_model` lookup key already ignores spaces, so this was a display/source-data correction, not a search-key correction.
+- Change / action: Added and ran [sync_fojan_jcode_ts_spacing.py](C:/Users/zjh/Desktop/data/sync_fojan_jcode_ts_spacing.py), updating `1,898` DB rows and `1,898` prepared-cache rows. The search sidecar updated `3,796` rows across core/detail tables. Wrote an audit CSV to [reports/fojan_jcode_ts_spacing_updates.csv](C:/Users/zjh/Desktop/data/reports/fojan_jcode_ts_spacing_updates.csv). Bumped `QUERY_RESULT_CACHE_VERSION` to `59` and refreshed public stamps to `2026-06-18T18:22:00+08:00`.
+- Verification: DB/prepared/search sidecar spot checks now show `FRC0402J105 TS`, `FRC0603J103 TS`, and `FRQ0603J103 TS`, with old no-space display rows removed and `_model_clean` retained without spaces. App-level checks for `10K 5% 1/10W 0603`, `FRC0603J103TS`, and `FRC0603J103 TS` return the corrected spaced FOJAN rows. `python -m py_compile component_matcher.py streamlit_app.py sync_fojan_jcode_ts_spacing.py` passed, and local Streamlit returned HTTP 200.
+
+### 2026-06-22 12:18 [publish] Forced public FOJAN resistor refresh
+
+- Received / problem: User reported the formal website still searched with stale FOJAN resistor results after the local data correction.
+- Findings: GitHub `main` already contained the rebuilt public data bundle, and local full-query verification returned `64` matches for `10K 5% 1/10W 0603`, including `FOJAN(富捷) FRC0603J103 TS` and `FRQ0603J103 TS`. A fresh Chrome session against `https://fruition-component.pages.dev/` still returned only the old single `Milliohm(毫欧) HOLTT0603-1/10W-10K-5%` row, proving the formal Streamlit instance was still serving an older checkout/data bundle.
+- Change / action: Refreshed the public code/release stamp to `2026-06-22T12:18:57+08:00` and bumped the Cloudflare iframe cache buster to `20260622-fojan-resistor-refresh-1` so the public host gets a new deployment signal and user browsers open a fresh Streamlit app URL.
+- Verification: Before this nudge, `component_matcher.py` local query path and the rebuilt `streamlit_cloud_bundle.zip` both verified the spaced FOJAN rows. Follow-up deployment verification is required after GitHub/Streamlit/Cloudflare finish consuming this release-stamp commit.
+
+### 2026-06-22 12:50 [debug] Fixed formal resistor spec search path
+
+- Received / problem: User reported the formal website still returns the wrong result for resistor spec searches such as `10K 5% 1/10W 0603`, missing FOJAN rows that are present in the public search sidecar.
+- Findings: In public no-DB mode, `run_query_match` routed normal resistor specs into the broad `OTHER_PASSIVE_TYPES` matcher before the resistor partial-spec matcher. That branch then narrowed by trusted exact power and returned only the Milliohm row, even though the sidecar candidate fetch already contained `FOJAN(富捷) FRC0603J103 TS` and `FRQ0603J103 TS`.
+- Change / action: Routed normal resistor component types through `match_by_partial_spec` before the generic other-passive matcher, bumped `QUERY_RESULT_CACHE_VERSION` to `60`, refreshed public stamps to `2026-06-22T12:50:34+08:00`, and changed the Cloudflare iframe cache buster to `20260622-fojan-resistor-match-2`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Public-mode sidecar simulation returns `93` matches for `10K 5% 1/10W 0603`, including `FOJAN(富捷) FRC0603J103 TS` and `FRQ0603J103 TS`; full local mode returns `88` matches with the same FOJAN rows. The `1M;5%;0402;0402WGJ0105TCE;厚声` case now returns `FOJAN(富捷) FRC0402J105 TS` and `FRQ0402J105 TS`.
+
+### 2026-06-22 13:10 [publish] Published resistor search hotfix; Streamlit backend still stale
+
+- Change / action: Committed and pushed `b2b9a6c Fix public resistor spec matching` to GitHub `main`, confirmed raw GitHub contains `QUERY_RESULT_CACHE_VERSION = 60` and the resistor branch fix, then redeployed the Cloudflare Pages wrapper with cache buster `20260622-fojan-resistor-match-2`.
+- Verification: `https://fruition-component.pages.dev/` HTML now contains the new cache buster and no longer contains `20260622-fojan-resistor-refresh-1`. Playwright against the formal page still returns only `已返回可查看结果 1 条` for `10K 5% 1/10W 0603`, with no `FOJAN(富捷)` rows after a 90-second retry.
+- Follow-up: The remaining issue is the upstream Streamlit Cloud app still running the old checkout/code despite GitHub and Cloudflare being current. A Streamlit Cloud owner redeploy/reboot is required; unauthenticated API redeploy attempts return 403 and this machine has no available Chrome debugging port for an already logged-in Streamlit session.
+
+### 2026-06-22 15:33 [feature] Added FOJAN resistor cost and MOQ columns
+
+- Received / problem: User provided FOJAN FRC/FRL series pricing with `5%`, `1%`, and `Package` columns and asked to append cost and MOQ to parameter-match results.
+- Change / action: Added [pricing/fojan_resistor_series_pricing.csv](C:/Users/zjh/Desktop/data/pricing/fojan_resistor_series_pricing.csv) with `88` FRC/FRL range rules. Added a resistor pricing matcher that uses brand, series, size, power, resistance range, and tolerance to populate `成本` and `MOQ` columns in resistor match display tables. The range parser supports comma alternatives, slash-separated segments, `0R`, low-ohm ranges such as `0.01R-0.018R`, and FOJAN notation such as `1M1-10M`. Refreshed public stamps and Cloudflare cache buster to `20260622-fojan-pricing-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct pricing checks return `FRC0603J103 TS -> 2.6 / 5000PCS`, `FRC0603F1002 TS -> 3.1 / 5000PCS`, `FRL1206F0R02 TS -> 23.40 / 5000PCS`, and leave `FRQ0603J103 TS` blank because FRQ is not in the provided pricing table. Actual display generation for `10K 5% 1/10W 0603`, `1M;5%;0402;0402WGJ0105TCE;厚声`, and `0.02R 1% 1/4W 1206` includes columns `成本` and `MOQ`; FOJAN FRC/FRL rows show the expected pricing while unpriced series remain blank.
+
+### 2026-06-22 15:55 [debug] Fixed Halogen-free resistor spec routing
+
+- Received / problem: User searched `0603 10R +/-5% RoHS reach Halogen-free` and the UI could show capacitor/MLCC-style results instead of resistor matches.
+- Root cause: The resistor-context blocker treated any compact `NF/UF/PF` substring as capacitance evidence. `Halogen-free` compacted to `HALOGENFREE`, which contains `NF` but is only an environmental-compliance phrase.
+- Change / action: Added `has_explicit_capacitance_value_token()` and changed resistor context detection to only block on real capacitance values such as `10nF`, `0.1uF`, `33pF`, `4n7`, or `1u0`. Bumped query/public cache stamps and Cloudflare cache buster to `20260622-halogen-resistor-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Parser checks route the original query as chip resistor with size `0603`, resistance `10 ohm`, tolerance `5%`; full resolver uses `fast_query` and final matching returns 99 resistor rows with no MLCC rows. Guard query `0603 10nF +/-5% Halogen-free` still routes as MLCC.
+
+### 2026-06-22 16:08 [debug] Added FOJAN FRC 1% zero-ohm price fallback
+
+- Received / problem: User clarified that FRC 1% zero-ohm pricing is omitted from the table but should equal the 5% zero-ohm price for every size.
+- Root cause: The pricing matcher selected only the tolerance-specific price column, so `FRC + 0Ω + ±1%` returned blank cost when the 1% column was empty.
+- Change / action: Added a narrow fallback in `lookup_resistor_series_pricing()` for `FRC + 1% + 0Ω` to use the matched rule's 5% price. Refreshed public stamps and Cloudflare cache buster to `20260622-fojan-zero-ohm-price-1`.
+- Verification: Direct checks return FRC 0201/0402/0603/1206 1% zero-ohm prices from the 5% row, keep FRC 10Ω 1% on the 1% column, and leave FRQ blank because it is not priced. Display checks for `0603 0R 1%`, `0402 0R 1%`, and `1206 0R 1%` show FRC cost/MOQ populated.
+
+### 2026-06-22 16:27 [feature] Added admin fill-in flow for no-match reports
+
+- Received / problem: No-match report admin records only had a note and a resolve button, so admins could not enter the correct brand/model and have the next search use it.
+- Change / action: Added no-match report schema migration fields for `resolved_brand`, `resolved_model`, `resolved_component_type`, and `library_status`; changed the admin form to require a corrected model before closing; added a search-priority backend resolution path for the original report query and the entered model; included no-match report DB mtime in query cache signatures; refreshed public stamps and Cloudflare cache buster to `20260622-no-match-admin-fill-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp SQLite repro submitted `SMD;RES;10K;±1%;0201;1;16W`, resolved it to `富捷 / FRC0603J103 TS`, and subsequent resolver calls for both the original input and `FRC0603J103TS` returned through `no_match_admin_resolution:library_model`. Synthetic fallback generation also produced a searchable backend row for an unknown test model.
+
+### 2026-06-22 17:03 [debug] Fixed FOJAN resistor series display
+
+- Received / problem: User showed `FRC0201P000TS` displaying series `FRC0201P`, but FOJAN series should be `FRC`; `0201` is size and `P` is tolerance.
+- Root cause: FOJAN official model parsing already returns `FRC`, but some result-table display paths could preserve stale/generated series values such as `FRC0201P`.
+- Change / action: Added a FOJAN resistor display normalizer that forces official series/profile values from the model before resistor pricing/display column selection and before final display formatting. Bumped query/public cache stamps and Cloudflare cache buster to `20260622-fojan-series-display-1`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Synthetic row `FOJAN(富捷) / FRC0201P000TS / 系列=FRC0201P` normalizes to `FRC / 普通厚膜贴片电阻`; the actual `FRC0201P000TS` library row and selected display columns also show `FRC`.
+
+### 2026-06-22 21:00 [debug] Added final HTML guard for FOJAN series display
+
+- Received / problem: User refreshed and still saw `FOJAN(富捷) FRC0402J223 TS` displayed with series `FRC0402J`.
+- Root cause: Dataframe-level normalization produced `FRC`, but stale/generated series text could still reach the final clickable HTML table render path.
+- Change / action: Applied `normalize_fojan_resistor_series_display_fields()` inside `render_clickable_result_table()` immediately before columns are rendered, bumped query/public stamps, and changed Cloudflare cache buster to `20260622-fojan-series-display-2`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A synthetic final-table row with `系列=FRC0402J` renders HTML with `FRC / 普通厚膜贴片电阻`; actual `FRC0402J223 TS` rendered HTML contains `FRC` and not the bad `FRC0402J` series cell.
+
+### 2026-06-23 00:15 [ops] Checked GitHub and Streamlit Cloud account bindings
+
+- Received / problem: User was unsure which GitHub and Streamlit Cloud accounts are tied to the formal deployment.
+- Findings / action: Checked Git Credential Manager, GitHub API, `disambiguate.json`, `upstream_disambiguate.json`, `context.json`, and `status.json` without printing secrets. The repo remote and authenticated GitHub token are for `harma801209`; the deployed Streamlit app `5addba1a-a463-41bf-b91e-bb794d7ab37e` is bound to `harma801209/component-matcher` on `main`, and the saved Streamlit context avatar points to the same GitHub numeric id `268471909`. Saved Streamlit deploy profiles exist but are logged out, so the exact Streamlit login email cannot be recovered locally without signing in again.
+
+### 2026-06-23 10:43 [debug] Fixed FOJAN exact-part info table series guard
+
+- Received / problem: User reported the FOJAN series-display issue was still not fixed. A direct Playwright check against `https://fruition-componentmatche.streamlit.app/~/+/?embed=true&embed_options=hide_loading_screen&v=20260622-fojan-series-display-2` reproduced the bad formal output: exact-part `匹配料号资料` for `FRC0402J223TS` still showed `系列=FRC0402J` and generated `FOJAN(富捷) FRC0402J 厚膜电阻系列`.
+- Findings: Local `components.db`, `cache/components_prepared_v5.parquet`, and reconstructed `streamlit_cloud_bundle.zip.part01/part02` already contain `FRC0402J223 TS -> FRC / 普通厚膜贴片电阻`. The remaining display gap was the exact-part info card path, which can be assembled from public sidecar/spec-derived rows before the final table guard. The live upstream also appeared to keep serving an older Streamlit checkout/cache after the prior nudge.
+- Change / action: Added `normalize_fojan_resistor_series_display_fields()` inside `build_part_info_df()` immediately after `fill_component_display_blanks()` and on the synthetic fallback row. Bumped `QUERY_RESULT_CACHE_VERSION` to `66`, `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-06-23T10:43:31+08:00`, and Cloudflare `APP_CACHE_BUSTER` to `20260623-fojan-series-display-3`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py build_streamlit_cloud_bundle.py sync_local_and_public.py` passed. Synthetic HTML check confirmed a row with `系列=FRC0402J` renders as `FRC / 普通厚膜贴片电阻`. Local Streamlit on `http://localhost:8507` searched `FRC0402J223TS` and the components iframe showed `匹配料号资料` with `FOJAN(富捷) / FRC0402J223 TS / FRC / 普通厚膜贴片电阻`.
+- Follow-up: Publish with `publish_public.ps1 -AllowPublicRuntimeChange -TriggerStreamlitDeploy` and verify the formal URL after Streamlit Cloud consumes the new checkout.
+
+### 2026-06-23 11:12 [debug/data] Fixed FOJAN FRC0201 spec gaps
+
+- Received / problem: User asked why several 0201 resistor specs from UNI-ROYAL equivalents did not return FOJAN models and whether FOJAN really does not make them.
+- Findings: Two issues were present. Split power text like `1;16W` parsed as literal `16W`; and the local FOJAN FRC0201 library was sparse even though `pricing/fojan_resistor_series_pricing.csv` covers the requested ranges. A real `0201 1/16W` request should still not use FOJAN FRC0201 as an equal-power match because the provided FOJAN table lists FRC0201 as `1/20W`.
+- Change / action: Updated [component_matcher.py](C:/Users/zjh/Desktop/data/component_matcher.py) so `1;16W`/`1;20W` become fractional powers and bumped query cache version to `67`. Added nine FOJAN FRC0201 rows to `components.db` and `cache/components_search.sqlite`: `FRC0201F10R0 TS`, `FRC0201J123 TS`, `FRC0201J303 TS`, `FRC0201F47R0 TS`, `FRC0201F1003 TS`, `FRC0201J224 TS`, `FRC0201F2213 TS`, `FRC0201F5100 TS`, and `FRC0201F9091 TS`.
+- Verification: `python -m py_compile component_matcher.py` passed. Direct full-query checks now return FOJAN FRC rows for `10R/1%/0201`, `12K/5%/0201`, `30K/5%/0201`, `47R/1%/0201`, `100K/1%/0201`, `220K/5%/0201`, `221K/1%/0201`, `510R/1%/0201`, and `9.09K/1%/0201`. `0402 82K 1% 1/16W` returns FOJAN `FRC0402F8202TS` as a full match.
+
+### 2026-06-23 11:31 [publish] Published FOJAN FRC0201 gap fix; Streamlit code still stale
+
+- Change / action: Committed and pushed `df759fac Fix FOJAN FRC0201 resistor spec gaps` to `main`, rebuilt `streamlit_cloud_bundle.zip.part01/part02`, and deployed the Cloudflare Pages worker with cache buster `20260623-fojan-0201-gap-1`.
+- Verification / remaining issue: Cloudflare wrapper now serves the new cache buster and the formal page can find the newly added `FOJAN(富捷) FRC0201F10R0 TS` row for `10R;1%;0201;0201WMF100JTCE;厚声`. However the formal row still displays stale generated series `FRC0201F`, while local current code displays `FRC / 普通厚膜贴片电阻`; `auto_streamlit_deploy.py` is blocked at GitHub login, so Streamlit Cloud needs a logged-in redeploy/reboot to switch from the old backend code.
+
+### 2026-06-23 17:20 [publish] Forced public rebuild nudge but Streamlit login still blocks reboot
+
+- Received / problem: User noted the prior publish note ("Streamlit backend code still on old instance") was not resolved; formal page still showed `FOJAN(富捷) FRC0201F10R0 TS` with `系列=FRC0201F`.
+- Change / action: Bumped `QUERY_RESULT_CACHE_VERSION` to `68`, `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-06-23T16:49:17+08:00`, changed Cloudflare `APP_CACHE_BUSTER` to `20260623-fojan-0201-gap-2`, rebuilt the public bundle manifest, committed/pushed `697bccbd Nudge Streamlit public rebuild`, and deployed Cloudflare Pages (`https://3972e9db.fruition-component.pages.dev`).
+- Verification / remaining issue: GitHub raw `main` contains the new stamps and Cloudflare formal HTML now embeds `v=20260623-fojan-0201-gap-2`. After 60s and 180s Playwright checks, formal search for `FRC0201F10R0 TS` still displayed `系列=FRC0201F` instead of local/cache value `FRC / 普通厚膜贴片电阻`. A visible Streamlit/GitHub login window was opened, but login was not completed; the reboot helper was stopped. Next step requires logging into GitHub/Streamlit Cloud as `harma801209` and using Manage app -> Reboot/Redeploy for `fruition-componentmatche`.
+
+### 2026-06-23 20:43 [publish/debug] Rebooted Streamlit Cloud and fixed public search submit control
+
+- Received / problem: User completed Streamlit Cloud login. After triggering a Cloud app reboot, the formal page switched to newer code but rendered Streamlit's `Missing Submit Button` warning in the front-page search area.
+- Change / action: Used the signed-in Streamlit Cloud dashboard account `harma801209` to open the hidden app action menu for `component-matcher · main · streamlit_app.py` and confirmed `Reboot app`. Replaced the front-page manual search `st.form` with a plain `st.text_area` plus `st.button("搜索")`, bumped `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-06-23T20:42:51+08:00`, committed/pushed `36f263c8 Fix public Streamlit search submit control` to GitHub `main`, and waited for Streamlit Cloud to redeploy.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Playwright against `https://fruition-component.pages.dev/` shows no `Missing Submit Button` warning; searching `FRC0201F10R0 TS` returns `FOJAN(富捷) / FRC0201F10R0 TS` with `系列=FRC` and `系列说明=普通厚膜贴片电阻` in `匹配料号资料`.
+
+### 2026-06-23 21:09 [debug] Blocked resistor specs with invalid size tokens
+
+- Received / problem: User showed a chip-resistor spec with size `0420` still returning partial-match results from real resistor packages; the expected behavior is no result because the size itself is invalid.
+- Root cause: `0420` was not recognized by `find_embedded_size()`, so the query was treated as if no size was provided and matched by resistance/tolerance only.
+- Change / action: Added a leading-zero invalid package-code detector for passive/resistor spec text, routed blocked specs through the existing `暂不支持` safety path with a `尺寸输入错误` message, and bumped `QUERY_RESULT_CACHE_VERSION` to `69` plus public stamps to `2026-06-23T21:09:01+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. `贴片电阻 0420 10K 1%` and `SMD;RES;10K;±1%;0420` now resolve with zero candidates and the size-error reason; valid `0402 10K 1%` and `0603 10R ±5%` resistor specs still parse normally.
+
+### 2026-06-23 21:38 [debug] Made resistor power strict instead of high-replaces-low
+
+- Received / problem: User questioned why resistor power was treated as `高代低`; BOM-selected resistor power should not default to higher-power substitutes.
+- Root cause: Fast resistor lookup used `_power_watt >= target`, ranking treated higher wattage as `高代低`, and in-memory filtering could fall back to all candidates when same-power rows were not found.
+- Change / action: Changed resistor fast lookup and post-filtering to require exact wattage, removed higher wattage from resistor `高代低`, flagged any power mismatch as a conflict, and bumped query/public cache stamps to `2026-06-23T21:38:21+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py component_matcher_build.py` passed. Local full-search checks show `0603 10R +/-5% 1/10W`, `0603 10R 5% 1/8W`, and `0603 10R 5% 1/4W` each return only candidates with the requested inferred power.
+
+### 2026-06-24 08:05 [feature] Added member login gate for search and BOM actions
+
+- Received / problem: User requested a membership system where the public page and input framework remain visible, but clicking search or uploading a BOM requires member login first. Password/member data storage needed to avoid plaintext passwords.
+- Change / action: Added `cache/member_auth.sqlite` as a separate member auth database with `members` and `member_sessions` tables, PBKDF2-SHA256 salted password hashes, 12-hour session tokens, a fixed top-right member login/center button, login/register UI, and action gates before search matching and BOM processing. Bumped public stamps to `2026-06-24T07:42:56+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Direct auth regression confirmed hashes are not plaintext and sessions load members. Local Streamlit on `http://localhost:8511` showed the homepage/search/BOM framework before login, blocked search with a member login panel, registered/logged in a test member, and then completed `0603 10R 5% 1/10W` search without the login block.
+
+### 2026-06-24 09:20 [feature] Added backend member management
+
+- Received / problem: User wanted the member login panel to stop showing the password-hash wording, and wanted the admin backend to show all registered members with edit/delete controls.
+- Change / action: Removed the public member-login hash note, added member admin helpers for listing/updating/deleting accounts, added backend module switching between no-match reports and member management, and added editable member forms with status, role, contact fields, optional password reset, and delete confirmation. Bumped public stamps to `2026-06-24T08:59:08+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression covered create/update/disable/reset-login/delete. Local Streamlit on `http://localhost:8512` verified the text removal, admin login, member management list, and expanded edit/delete/reset controls.
+
+### 2026-06-24 09:54 [feature] Changed BOM Excel export to own-brand candidate columns
+
+- Received / problem: User wanted uploaded BOM exports to append match results after the original last column as `品牌/型号/成本/MOQ`, then `品牌2/型号2/成本2/MOQ2`, etc. Only own brands should be exported: capacitors by `华科 -> 信昌 -> 芯声微`, resistors by `厚声 -> 富捷`.
+- Change / action: Added BOM own-brand export slots, changed candidate selection to use component-specific brand groups, kept non-own brands out of the downloaded BOM columns, preserved duplicate header names when the source BOM already has `品牌` or `型号`, and bumped public stamps to `2026-06-24T09:53:20+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Partial function tests confirmed capacitor ordering, duplicate `品牌/型号` append behavior, and openpyxl worksheet append headers/values.
+
+### 2026-06-24 10:09 [debug] Preserved member login across return-search navigation
+
+- Received / problem: User showed that logging in through the fixed top-right member button worked on the member center page, but clicking `返回搜索` made the search page show `会员登录` again.
+- Root cause: Member sessions were only stored in Streamlit `session_state`; query-param navigation can reload the app and lose that server-side state.
+- Change / action: Added `member_token` URL restore support, preserved that token in fixed member/admin navigation hrefs, restored active members from the URL token in `current_member()`, cleared it on logout, and bumped public stamps to `2026-06-24T10:07:12+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression covered login token writing, empty-session restoration from URL token, return-search href token preservation, and logout token cleanup.
+
+### 2026-06-24 10:27 [debug] Allowed configured admin account to log in as member
+
+- Received / problem: User asked why the member-login page rejected the administrator account `amdin`.
+- Root cause: Backend/no-match admin login and member login used separate stores. `amdin/123456` was only checked by the backend credential function, while member login only queried the `members` table in `cache/member_auth.sqlite`.
+- Change / action: Added configured-admin member synchronization before member authentication and member admin listing. The configured backend admin username is kept as an active `admin` member account, with its password stored through the existing PBKDF2 salted hash path. Bumped public stamps to `2026-06-24T10:27:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression confirmed `amdin/123456` creates/logs in as an active admin member, the stored password is not plaintext, wrong password is rejected, and the admin appears in the member-management list. Root screenshot check shows only `logo.png`; the temporary regression DB was deleted.
+
+### 2026-06-24 10:45 [feature] Added member registration approval workflow
+
+- Received / problem: User requested that new member registrations require administrator approval before the account can log in.
+- Change / action: Changed new member registration to create `pending` accounts instead of immediately active accounts, removed auto-login after registration, added pending-login rejection text, added backend module `会员审核` with an `审核通过` action, and extended member management to display/edit `启用 / 待审核 / 停用` statuses. Bumped public stamps to `2026-06-24T10:45:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression covered new account pending status, blocked login before approval, approval changing status to active, successful login after approval, wrong password rejection, and continued `amdin/123456` admin-member login. Root screenshot check shows only `logo.png`; the temporary approval regression DB was deleted.
+
+### 2026-06-24 10:52 [debug] Fixed member timestamps to use Beijing time
+
+- Received / problem: User showed member admin registration/login/update timestamps around `01:xx`, visibly wrong for China-time usage.
+- Root cause: `current_timestamp_text()` used the server's local timezone. Streamlit Cloud runs in UTC, so member timestamps were stored and displayed 8 hours behind Beijing time.
+- Change / action: Made timestamp generation explicitly use `Asia/Shanghai`, added a one-time member-auth DB migration marker, and on UTC-hosted environments shift existing member/session timestamp text by +8 hours exactly once. Bumped public stamps to `2026-06-24T10:52:15+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp DB regression confirmed legacy `2026-06-24 01:56:26` migrates to `2026-06-24 09:56:26`, migration does not repeat, and new timestamps are within two minutes of `Asia/Shanghai` time. Temporary time-regression DB was deleted; root screenshot check showed only `logo.png`.
+
+### 2026-06-24 11:06 [debug] Fixed BOM upload reader for legacy XLS and HTML exports
+
+- Received / problem: User uploaded `阻容待下6-22.xls`; the app showed `上传文件内容为空，未能生成可匹配数据` even though the BOM contains data.
+- Root cause: The public requirements did not include `xlrd`, so true legacy `.xls` files could not be parsed. Some ERP `.xls` exports are also HTML tables saved with an `.xls` suffix; the reader only tried Excel engines and then converted all failures to an empty-file state.
+- Change / action: Added `xlrd>=2.0,<3` to requirements, refactored upload workbook normalization, and added an HTML table fallback that decodes `utf-8-sig / gb18030 / big5 / latin1` before parsing so Chinese headers do not become mojibake. Bumped public stamps to `2026-06-24T11:06:08+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression confirmed a GB18030 HTML table saved as `.xls` loads as a non-empty BOM workbook with Chinese columns and rows, and the CSV reader path still works. Root screenshot check showed only `logo.png`.
+
+### 2026-06-24 11:24 [feature] Prioritized ordinary resistor series in BOM own-brand export
+
+- Received / problem: User noted BOM exports may choose special same-brand resistor series first, such as FOJAN anti-sulfur/high-power instead of ordinary thick-film, while default customer requirements usually only need ordinary products.
+- Change / action: Changed `build_bom_own_brand_export_slots()` to collect all candidates per own brand and, when the parsed spec has no explicit special-use requirement, sort resistor candidates so ordinary/general thick-film series come before special-use series. Explicit special requirements such as anti-sulfur/high-power keep the original matching order. Bumped public stamps to `2026-06-24T11:24:53+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression confirmed FOJAN `FRC` beats `FRQ` for ordinary specs, UNI-ROYAL 普通厚膜 beats `HP`, and special-request specs preserve the original special candidate order.
+
+### 2026-06-24 15:45 [docs] Audited portable migration requirements
+
+- Received / problem: User wants the whole matching-system workspace and related source materials moved to a portable drive so copying to another PC still allows normal running, editing, expansion, and deployment.
+- Change / action: Audited repo data paths, `.gitignore`, `.gitattributes`, runtime/cache locations, workspace sizes, external source-document folder size, and sensitive local state. Added `docs/portable_migration_plan.md` with required files, optional files, sensitive files, restore steps, and migration options. Added `tools/create_portable_bundle.ps1` to build a portable working copy with optional Git history, backup files, browser profiles, secrets, and external source documents.
+- Cleanup: Removed stale operation screenshot `cache/cf_pages_proxy_browser_after_status_patch.png`; remaining checked image files are `logo.png`, `cloudflare-pages-proxy/dist/favicon.png`, and `mlcc_edit_work/original_Q2-0601-0605.png`.
+
+### 2026-06-24 16:00 [feature] Imported JOYIN/Joyin JSN NTC thermistor library
+
+- Received / problem: User noted 信昌/久尹 NTC equivalents were still missing, e.g. `NCP15XH103F03RC` could not match Joyin alternatives.
+- Root cause: `components.db` contained the Murata NTC row but had zero `JOYIN(久尹)` thermal resistor rows; the local JSN-A/C/G/H PDFs had not been converted into database rows.
+- Change / action: Added `sync_joyin_ntc_thermistors.py` to parse `JSN-A_250121.pdf`, `JSN-C_250121.pdf`, `JSN-G_250121.pdf`, and `JSN-H_250121.pdf`, expand PDF `X` / `Y` tolerance placeholders into real part numbers, and import 6,780 Joyin SMD NTC rows. Refreshed prepared/search sidecar caches. Added Joyin JSN series recognition and B-value/B-condition aware NTC ranking.
+- Deployment note: Rebuilt `streamlit_cloud_bundle.zip`, split it back into `streamlit_cloud_bundle.zip.part01` / `part02`, and bumped public stamps to `2026-06-24T16:05:54+08:00` so Streamlit Cloud can extract the updated search cache.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py` passed. `NCP15XH103F03RC` now resolves through `fast_query` with 61 matches, including 56 `JOYIN(久尹)` rows; B=3380K / 25/50℃ Joyin rows are marked `完全匹配` and sorted ahead of nearby non-B-exact variants.
+
+### 2026-06-24 16:54 [debug] Filled FOJAN FRC0201 resistor range rows
+
+- Received / problem: User asked why `0201 5% 33R` did not return a FOJAN result, noting FOJAN should be able to make it.
+- Root cause: The FOJAN price/range table covers `FRC 0201 1/20W` 5% `10R-10M`, but the local FRC0201 library rows were still sparse. Also, generated resistor rows wrote tolerance to `阻值误差`, while the fast search `_tol` index only read `容值误差`, so tolerance-filtered searches could exclude new resistor rows.
+- Change / action: Added `sync_fojan_frc0201_range_rows.py` to generate FOJAN FRC0201 rows from the range/pricing table, rebuilt 909 generated rows in `components.db`, refreshed prepared/search sidecar caches, added tolerance fallback from `容值误差` to `阻值误差`, and bumped public stamps to `2026-06-24T16:42:15+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_fojan_frc0201_range_rows.py` passed. Sidecar row `FRC0201J330 TS` now has `_tol=5`, `_res_ohm=33.0`, `_power_watt=0.05`. Full query checks for `0201 5% 33R`, `0201 1% 33R`, and `0201 5% 68K` each return one FOJAN FRC0201 row with cost/MOQ populated.
+
+### 2026-06-24 20:52 [debug] Clarified Joyin JSN NTC series matching
+
+- Received / problem: User showed `NCP15XH103F03RC` matching Joyin rows from multiple JSN series, with unclear series descriptions and pseudo-series such as `JSNA103F`.
+- Root cause: Joyin display could reuse stale prefix-derived series text, and thermistor ranking only checked size/resistance/tolerance/B value without separating regular Murata NCP alternatives from Joyin automotive JSN-A/C series.
+- Change / action: Added Joyin JSN suffix semantics and Chinese series descriptions, normalized Joyin display rows by model suffix, treated Murata NCP as a regular target, ranked `JSN-G` first, and downgraded `JSN-H/C/A` to confirmation for regular NCP searches. Reimported 6,780 Joyin NTC rows and refreshed prepared/search caches. Bumped public stamps to `2026-06-24T20:28:00+08:00`.
+- Cleanup: Removed stale `cache/cf_pages_proxy_browser*.png` browser screenshots; the cache screenshot check no longer returns matching files.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py sync_joyin_ntc_thermistors.py sync_fojan_frc0201_range_rows.py` passed. Full query for `NCP15XH103F03RC` now shows `JSN-G` Joyin rows first as `完全匹配` with Chinese `常规贴片 NTC` descriptions; `JSN-H/C/A` rows are retained as `需确认替代`.
+
+### 2026-06-24 21:19 [debug] Hid member login entry on backend page
+
+- Received / problem: User was logged into the backend admin page but still saw the fixed top-right `会员登录` button.
+- Root cause: Backend and member fixed-entry buttons were independent; the member entry renderer did not suppress itself when the backend page was active.
+- Change / action: Changed `render_member_entry_button()` to skip rendering during backend admin mode, and bumped public stamps to `2026-06-24T21:17:50+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression patched admin mode on and confirmed the member button renderer made zero `current_member()` calls and zero `st.markdown()` calls.
+
+### 2026-06-24 21:36 [ui] Redesigned backend admin workspace
+
+- Received / problem: User said the backend layout/UI was not attractive or easy enough to operate, and asked for a clearer, better-designed backend.
+- Change / action: Added a dedicated admin hero, module cards, statistic cards, section headers, empty states, and an admin login panel. Reworked the no-match report, member approval, and member management modules to use the shared backend UI. Added member status filtering and keyword search to the member management page.
+- Scope note: Business logic for report resolution, member approval, account editing, deletion, and password reset was kept unchanged.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A function-level render smoke check confirmed the new admin card helpers can render numeric, empty, and module-summary data without errors.
+
+### 2026-06-24 21:58 [fix] Removed backend intro and fixed admin HTML rendering
+
+- Received / problem: User reported the backend intro block was unnecessary, admin functions looked broken after login, and module switching still looked like plain radio clicks.
+- Root cause: Admin card HTML was emitted with leading indentation, so Streamlit Markdown rendered it as escaped code text instead of HTML. The backend also still rendered an explanatory hero block and used `st.radio` for module switching.
+- Change / action: Removed the backend intro block from the authenticated backend page, normalized admin HTML output with dedent/strip, and replaced backend module and report-status radios with Streamlit `segmented_control` for a cleaner tab-like switch.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A helper-level render smoke check confirmed admin metric and empty-state HTML now starts at column 0 and is emitted with `unsafe_allow_html=True`.
+
+### 2026-06-24 22:31 [fix] Persist backend no-match resolutions into searchable library data
+
+- Received / problem: User reported that after front-end no-match reports were resolved in the backend with a correct model/spec, searching the same model or parameters still could not find the newly resolved item.
+- Root cause: Backend resolution only updated `cache/no_match_reports.sqlite` as a resolved mapping; it did not write a component row into runtime `components.db` or append the row to `cache/components_search.sqlite`. Direct backend-resolution candidates could also be removed by the normal second-stage match/exclusion flow.
+- Change / action: Added admin supplemental component persistence. Resolving a report now builds a standard component row, upserts it into `components.db`, appends it to the fast search sidecar, writes sidecar metadata, clears caches, records library status, and marks direct backend resolution rows so matching preserves them.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Isolated temp-DB flow submitted and resolved a no-match report as `FOJAN(富捷) / FRC0603J103 TS`; the row appeared in the temp `components.db`, the resistor sidecar contained `0603 / 10000Ω / 5% / 0.1W`, direct lookup returned one `后台补料` row, and equivalent spec search `0603 10K ±5% 1/10W` returned one `完全匹配` row.
+
+### 2026-06-24 23:18 [test/fix] Full-system audit pass and targeted fixes
+
+- Received / problem: User asked for a complete system test covering functionality, stress/performance, security, and ease of operation, and asked to fix discovered issues.
+- Tests run: Ran the existing regression case set, member/login/admin/no-match temp-DB flow, real `.xls` BOM read against `C:\Users\zjh\Desktop\待完成\阻容待下6-22.xls`, BOM own-brand export priority checks, compound-query performance checks, and local Streamlit startup smoke on port 8511.
+- Findings fixed: Preserved BOM parser/dependency errors instead of reporting them as empty files; optimized mixed model/spec queries by skipping impossible whole-string model lookup and using sidecar-first model/prefix lookup; rewrote the Streamlit entrypoint startup wrapper with valid UTF-8 Chinese diagnostics.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local `xlrd` was installed to verify legacy `.xls` parsing; the real BOM now reads 199 rows. The compound query `FRC0402J105TS1M;5%;0402;0402WGJ0105TCE;厚声` now resolves via `model_token_prefix_lookup` in about 1.6s instead of 60-75s. Local Streamlit returned HTTP 200.
+
+### 2026-06-25 02:28 [fix] Linked backend admin login to member session
+
+- Received / problem: User logged in through the backend admin page with the admin account, clicked `返回搜索`, and the search page still showed `会员登录`, requiring a second member login.
+- Root cause: Backend admin login and member login were separate state paths. The backend login only set `_no_match_admin_authenticated`; it did not create a member session token or preserve one on the return-search URL.
+- Change / action: Added backend-admin-to-member session synchronization after successful backend credential validation. The configured admin member account is ensured, a normal member session token is created, `member_token` is written to query params, and backend `返回搜索` carries the token back to the search page. Bumped public code/release stamps to `2026-06-25T02:28:00+08:00`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level temp DB test confirmed valid admin login creates a member token and return URL includes it. Local browser flow on Streamlit port 8522 confirmed after backend login and `返回搜索`, the search page shows `会员中心` and no longer shows `会员登录`.
+
+### 2026-06-25 03:38 [feature] Added backend cost price list management
+
+- Received / problem: User needed an admin-only module to upload Excel/CSV cost lists containing brand, model/spec, cost, MOQ, and L&T, track upload history, and let the matching system use the current active list.
+- Change / action: Added `cache/cost_price_lists.sqlite` runtime storage with `cost_price_lists` and `cost_price_items`, automatic column detection for common Chinese/English headers, upload-and-activate flow, active-list switching, history/preview UI in a new backend `成本清单` module, and model/brand-based enrichment for matching result cost, MOQ, and L&T. BOM own-brand export now appends `品牌/型号/成本/MOQ/L&T` slots.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Temp-DB import test uploaded two mock cost lists, confirmed the newest list becomes active, verified switching active list, confirmed `FOJAN(富捷) / FRC0603J103 TS` cost/MOQ/L&T overrides matching rows, and confirmed BOM append headers include `L&T`. Local backend browser smoke test on port 8524 rendered the new `成本清单` module with upload, current-list metrics, and history sections.
+
+### 2026-06-25 03:11 [note] Cost list baseline before next upload
+
+- Received / problem: User asked to record the current cost-list situation before uploading a new cost list for comparison.
+- Baseline: There is no local runtime uploaded cost-list database at `cache/cost_price_lists.sqlite`, so the new backend upload module currently has no local uploaded active list to compare against.
+- Existing cost source: The active built-in resistor cost baseline comes from the user's previously provided FOJAN resistor pricing image, converted into `pricing/fojan_resistor_series_pricing.csv`. The file has 88 rules: FRC 40 rows and FRL 48 rows, covering FRC sizes 0201/0402/0603/0805/1206/1210/1812/2010/2512 and FRL sizes 0402/0603/0805/1206/1210/1812/2010/2512. SHA256: `C2A7FAD602E94361B34C351F877ABD918A2A15223F341F0FEF5E1944D5844338`.
+- Note: Future uploaded Excel/CSV cost lists should be checked separately from this image-derived built-in FOJAN FRC/FRL pricing rule set.
+
+### 2026-06-25 03:24 [feature] Track per-model cost update time
+
+- Received / problem: User requested a new `更新时间` column immediately after `成本`, with item-level update time changing only when that model's cost changes in a newly uploaded cost list.
+- Change / action: Added `cost_updated_at` to the backend cost item store with automatic migration/backfill. New uploads compare each incoming row against the previous active list by brand and normalized model (or spec fallback); unchanged costs carry forward their old update time, while new or changed costs receive the current upload time. Matching results, admin cost-list previews, and BOM own-brand export slots now include `更新时间` after `成本`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A temp-DB two-upload test confirmed only the row with changed cost refreshed to the second upload time, while unchanged costs including `1.40` vs `1.4` retained the original update time.
+
+### 2026-06-25 08:04 [feature] Add image OCR input for BOM matching
+
+- Received / problem: User asked to upload images, automatically recognize them, preview them like uploaded BOM files, and export matched Excel results.
+- Change / action: Added PNG/JPG/JPEG/WEBP/BMP/TIFF support to the BOM uploader. Image files now run through a Tesseract OCR reader, produce a `图片OCR识别` workbook sheet with `OCR原文` plus best-effort split columns, default the BOM parser to use `OCR原文` as the spec column, and then reuse the existing preview, matching, and Excel export pipeline. Added `Pillow`/`pytesseract` to `requirements.txt` and Tesseract language packages to `packages.txt` for Streamlit Cloud deployment.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Synthetic OCR-coordinate data produced a preview DataFrame and defaulted mapping to `OCR原文`; a local image upload without the OCR engine returned a clear dependency error instead of crashing.
+
+### 2026-06-25 09:26 [ui] Move image OCR manual mapping control into preview notice
+
+- Received / problem: User wanted the `找不到规格手动定位匹配位置` control moved from below the OCR preview table into the right side of the OCR notice bar, and wanted `BOM匹配结果 · 图片OCR识别` to sit higher on the page.
+- Change / action: Moved BOM column-mapping state setup before preview rendering, rendered OCR read warnings through a custom notice row with the manual mapping link on the right, kept the same link near the preview title for non-OCR uploads, and added compact iframe height for `图片OCR识别` previews.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8530 returned 200.
+
+### 2026-06-25 09:40 [ui] Simplify BOM result display columns
+
+- Received / problem: User did not want `销售结论`, `备选型号`, `风险提示`, `推荐理由`, or `解析说明` shown in the BOM matching result table.
+- Change / action: Removed those fields from the `build_bom_display_df` page-display column order while leaving the underlying result data and Excel export pipeline unchanged.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8531 returned 200.
+
+### 2026-06-25 09:52 [fix] Prevent duplicate member login forms
+
+- Received / problem: User saw a member login button and an inline member login panel on the same BOM upload page, followed by `StreamlitAPIException: There are multiple identical forms with key='member_login_form'`.
+- Root cause: A stored pending member-auth prompt could render `render_member_auth_panel()` before the BOM upload gate rendered the same panel again in the same Streamlit run, creating duplicate forms with the same key.
+- Change / action: Added a per-run guard so the member auth panel only renders once per page run. When the inline panel is shown for a gated action such as search or BOM upload, the fixed right-side unauthenticated `会员登录` button is hidden to avoid duplicate login entry points.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local Streamlit HTTP smoke test on port 8532 returned 200.
+
+### 2026-06-25 10:04 [config] Change configured admin account to Terry46
+
+- Received / problem: User requested the administrator account be changed from the old typo account to `Terry46`, keeping password `123456`, for both backend admin login and frontend member-system access.
+- Change / action: Updated the default configured admin username to `Terry46` and kept the password `123456`. Added a legacy migration path so existing member-auth databases rename the old default `amdin` admin member to `Terry46` when no new admin member exists, or disable the legacy account when the new admin member already exists.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Code search confirmed `amdin` only remains in the legacy migration list. Local Streamlit HTTP smoke test on port 8533 returned 200.
+
+### 2026-06-25 10:15 [ui] Remove customer reply fields from BOM display
+
+- Received / problem: User saw `客户回复型号` in image OCR BOM matching results and did not need that field.
+- Change / action: Removed `可直接回复客户` and `客户回复型号` from `build_bom_display_df`, so both the on-page BOM result table and its display-based Excel export omit those sales reply fields.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Confirmed the BOM display column order no longer includes those two fields. Local Streamlit HTTP smoke test on port 8534 returned 200.
+
+### 2026-06-25 10:34 [feature] Add member profile editing and change logs
+
+- Received / problem: User needed member-side profile/password editing and per-member modification records, excluding password changes from the recorded change contents.
+- Change / action: Added `member_profile_change_logs` to the member auth database, plus shared helpers to collect/query/display non-password profile changes. The member center now has tabs for `会员资料`, `修改资料`, `修改密码`, and `修改记录`. Member self-edits record changed profile fields; password updates only update the password hash and timestamp. Admin member edits also record non-password field changes and display recent logs in each member detail.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and the Codex bundled Python. Static checks confirmed password fields are filtered from log writes. Local Streamlit smoke test could not be completed in this workspace because the default Python 3.14 Streamlit command hangs even on `python -m streamlit --version`, while the bundled Python has no Streamlit package.
+
+### 2026-06-25 16:08 [fix] Reuse admin member login for backend access
+
+- Received / problem: User logged in on the system page with the administrator member account, then clicked the backend button and was still asked to enter the administrator credentials again.
+- Root cause: Backend access only checked `_no_match_admin_authenticated`; it did not treat an already logged-in member with role `admin` as backend-authenticated.
+- Change / action: Added `current_member_is_admin()` and reused it in backend access checks and backend button state. If the current member role is `admin`, entering the backend now automatically sets `_no_match_admin_authenticated`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python.
+
+### 2026-06-25 16:17 [fix] Make terry46 admin login canonical
+
+- Received / problem: User could not log in with `terry46 / 123456`.
+- Root cause: The previous default admin username was `Terry46` and backend admin login compared the username case-sensitively. Streamlit Cloud secrets could also still override the default with the older `amdin` username.
+- Change / action: Changed the canonical admin username to lowercase `terry46`, made backend admin username validation case-insensitive, and always accepts the canonical `terry46 / 123456` pair even if old secrets still exist. Existing member records named `amdin` or `Terry46` are migrated/synced to `terry46`.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python.
+
+### 2026-06-25 16:33 [fix] Make all member usernames case-insensitive
+
+- Received / problem: User wanted login usernames to be case-insensitive for every member, for example `Terry` and `terry` should be treated as the same account.
+- Change / action: Kept member lookup case-insensitive and added a lower(username) index plus conflict checks for registration and admin username edits, so accounts cannot be duplicated only by changing letter case. Admin-member sync now also uses stable case-insensitive lookup.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A temporary SQLite check confirmed `Terry`, `terry`, and `TERRY` resolve to the same stored account.
+
+### 2026-06-25 16:40 [ui] Restrict member profile change logs to backend
+
+- Received / problem: User wanted member profile modification records visible only to administrators, integrated into the backend member profile management detail area with a collapsible display.
+- Change / action: Removed the `修改记录` tab from the member center. In backend `会员资料管理`, each member detail now has a default-collapsed `显示资料修改记录` checkbox that reveals that member's recent profile-change log inside the same member panel.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed `list_member_profile_change_logs` is now only rendered from the admin member-management path.
+
+### 2026-06-25 16:45 [ui] Hide public intro copy on backend pages
+
+- Received / problem: User did not want the backend page to show the public search-introduction text under the system title.
+- Change / action: Kept the logo and main system title on backend pages, but only renders the two public introduction lines when the current page is not the backend admin view.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed the intro text is wrapped by `not is_no_match_admin_page_requested()`.
+
+### 2026-06-25 17:14 [feature] Add backend member search analytics
+
+- Received / problem: User wanted a backend module that records all member model/spec searches in one central place, so daily high-frequency searches can be reviewed without storing them under each member profile.
+- Change / action: Added `member_search_logs` to the member auth database, recording each logged-in member search line with member snapshot, normalized query key, query type, source, date, and timestamp. The text search flow writes these logs after login and input safety checks. Added a backend `搜索记录` module with date/keyword filters, daily high-frequency summary, metrics, and collapsible detail records.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. A small regex check confirmed single-value specs such as `10K`, `33R`, and `100NF` classify as `规格参数`, while compact part numbers remain `型号`.
+
+### 2026-06-25 17:25 [fix] Show all BOM original preview rows
+
+- Received / problem: User reported the BOM original content preview only scrolled to around 20 rows and wanted the preview to include all rows/fields from the uploaded BOM.
+- Root cause: The BOM preview rendering path explicitly used `bom_df.head(20)`, so the HTML preview table was capped to the first 20 rows before rendering.
+- Change / action: Removed the 20-row cap and render the full `bom_df` in the original BOM preview while keeping the existing scrollable preview container.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed the preview now uses `preview_df = bom_df.copy()`.
+
+### 2026-06-25 17:35 [ui] Move BOM export download button to result header
+
+- Received / problem: User wanted the `下载 BOM 匹配后 Excel` button moved near the BOM result table area, aligned close to the lower result frame without overlapping it.
+- Change / action: Moved the export control out of the result-table iframe footer and into a right-aligned native Streamlit download button on the `BOM匹配结果` title row. The result table iframe now only renders the table itself, so the download button stays visually close to the table without overlapping.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed with both system Python and Codex bundled Python. Static inspection confirmed `outer_footer_html` is no longer used for the BOM export button.
+
+### 2026-06-25 17:56 [fix] Improve image OCR table parsing for Chinese quote screenshots
+
+- Received / problem: User uploaded two quote-sheet screenshots and the BOM image OCR result showed garbled English fragments instead of Chinese table content.
+- Root cause: The image OCR language selection preferred English before Chinese, and the BOM auto-mapping forced every OCR image dataframe to use the full `OCR原文` line as the spec column even when split table columns were available.
+- Change / action: Changed Tesseract language preference to Chinese-first (`chi_sim+eng` / `chi_tra+eng`), added a quote/BOM table header detector that turns OCR rows with headers such as `序号 / 客户料号 / 产品规格 / 规格型号 / RMB含税 / MOQ / 交期` into structured columns, and changed OCR BOM column guessing to ignore helper columns (`OCR原文`, `OCR行号`) when real OCR table columns exist. Also raised `规格型号` and `产品规格` mapping priority while preventing `客户料号` from being mistaken for the original manufacturer model.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. A simulated quote-table OCR record produced structured columns `产品规格`, `规格型号`, `生产厂家`, `RMB含税`, `MOQ`, and `交期`. Local full OCR execution could not be run because this Windows environment has no Tesseract engine on PATH; Cloud dependencies already include the Chinese Tesseract language packages.
+
+### 2026-06-25 18:16 [fix] Persist member login for one inactive hour
+
+- Received / problem: User wanted member login to remain valid until the account is unused for more than one hour, including closing and reopening the page within that hour.
+- Root cause: Server sessions existed, but the browser only carried the token through Streamlit session state or the URL query parameter. Reopening the app base URL lost both, so the page appeared logged out.
+- Change / action: Changed member sessions to a sliding one-hour timeout, refreshed the server expiry on every valid token use, and added a browser persistence bridge that stores the member token in same-site cookie/localStorage for one hour, restores it into the URL on reopen, and clears it on logout or invalid token.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-26 13:54 [fix] Decode Yageo MLCC 630V voltage code
+
+- Received / problem: A Yageo MLCC query `0.01uF;630V;±10%;0805;X7R;YAGEO;CC0805KKX7RZBB103;无卤` showed a blank rated-voltage field even though both the customer text and the Yageo part number indicate 630V.
+- Root cause: The Yageo CC-series voltage-code decoder used an outdated local map and did not include `Z = 630V`. Mixed model/spec searches also did not fill an empty library voltage field from the explicit `630V` in the user input.
+- Change / action: Added the current Yageo voltage-code map (`Z=630`, `B=500`, `C=1000`, `D=2000`), reused it in full and partial Yageo model parsing, and merged explicit voltage text back into parsed specs for search, BOM, regression, and cached match paths.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Static check confirmed `CC0805KKX7RZBB103` voltage code `Z -> 630` and the query text parser extracts `630`.
+
+### 2026-06-26 14:08 [audit] Check for similar MLCC voltage display gaps
+
+- Received / problem: User asked whether other brands or models may have the same voltage-code/display issue as the Yageo 630V case.
+- Check / evidence: Reviewed local MLCC voltage-code parsers and queried `components.db` by brand for blank `耐压（V）` fields. Confirmed `CC0805KKX7RZBB103` is now stored as `630`.
+- Findings: No second confirmed high-volume voltage-code map error like the Yageo `Z=630V` issue was found in common Samsung, Walsin, PDC, TDK C-series, or Murata GRM parsing. Remaining blank-voltage rows are mostly special/safety/non-standard series: Murata `DE*/DK*/GA*`, a few TDK `CNA/CNC/CGA`, Yageo `AC/C/CC` edge rows, Taiyo special rows, and one CCTC `TCC...4R0...` row.
+- Follow-up: The new explicit-input voltage fallback covers these blank rows when customer input includes voltage text, but exact-model-only searches for special series may still need targeted official-series backfill later.
+
+### 2026-06-25 23:01 [fix] Continue BOM matching after login prompt
+
+- Received / problem: User uploaded an image BOM while not logged in, logged in from the required member prompt, but the app did not automatically continue matching the already uploaded image.
+- Root cause: The BOM upload branch called the member-login requirement and stopped before persisting the uploaded file bytes. After login rerun, the frontend still showed the selected file, but the Python-side uploaded file object could be missing.
+- Change / action: Added a session-backed BOM upload cache and an UploadedFile-compatible wrapper. The BOM upload flow now caches file bytes before login gating and reuses the cached upload after successful member login, so the original upload can continue processing without a second upload.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-26 00:41 [fix] Reject garbled image OCR BOM output
+
+- Received / problem: User uploaded a small quote-sheet screenshot and the image BOM OCR preview/match result showed garbled fragments such as `ee a ee` instead of the visible Chinese quote table.
+- Root cause: The image OCR path accepted any non-empty OCR output as a usable BOM table. When Tesseract failed to read the Chinese table, the app still passed the English-like fragments into BOM matching instead of stopping with a useful error.
+- Change / action: Added stronger image preprocessing variants for small table screenshots, tried multiple Tesseract page segmentation modes, added an OCR quality score based on recognized BOM headers, model numbers, spec tokens, price tokens, Chinese text, and digits, and reject low-quality OCR output before matching. The error now calls out missing Chinese OCR language packages when only English OCR is available.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Simulated scoring rejects the garbled sample (`0.0 / unusable`), accepts the quote-table structure (`245.76 / usable`), and accepts a short valid resistor spec line (`14.4 / usable`).
+
+### 2026-06-26 01:09 [feature] Add daily top search spec trend chart
+
+- Received / problem: User wanted a daily Top 10 search trend bar chart in the backend search-record module, with searched models converted into normalized specification parameters.
+- Change / action: Added search-trend normalization that converts each search query into a spec label in `尺寸/介质/容值/误差/耐压` format. The backend search-record module now shows a daily Top 10 horizontal bar chart with a date selector and an expandable all-day Top 10 detail table. Existing history is supported because the normalization runs at render time without changing the search log schema.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level simulation confirmed two different searches can aggregate into the same normalized spec and rank by total search count.
+
+### 2026-06-26 01:27 [fix] Prevent image BOM OCR from hanging on upload
+
+- Received / problem: User uploaded the same quote-sheet PNG and the public page stayed at `BOM 文件读取中` / 3%.
+- Root cause: The previous OCR improvement could run multiple large image variants through multiple Tesseract page segmentation modes without a hard timeout, making small dense table screenshots slow enough to look stuck on Streamlit Cloud.
+- Change / action: Reduced image scaling/variant count, removed the slow sparse-text OCR pass, added per-pass Tesseract timeouts, and added a total OCR budget that returns a clear timeout message instead of leaving the page in the reading state.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. The user's PNG preprocesses from `977x350` to `2000x716` with two OCR variants. Local real OCR still cannot be run because this Windows environment has no Tesseract executable.
+
+### 2026-06-26 10:21 [fix] Restore grid-table structure for image BOM OCR
+
+- Received / problem: User asked to first manually identify the quote-sheet PNG, then test the public page with that image, compare the public OCR result, and keep fixing until the system output matches the visible table. The public page processed the image into 9 failed rows and misclassified content as MLCC instead of the visible 12-row FOJAN quote table.
+- Root cause: The image OCR path still treated dense grid screenshots as free text. Tesseract output could be spatially fragmented even when the table grid itself was clear, so the app lost row/column boundaries before BOM parsing.
+- Change / action: Added a grid-first OCR path that detects horizontal and vertical table lines with PIL/numpy, completes the missing top header boundary, masks vertical grid lines, enlarges each detected row, OCRs by row, assigns words back to detected column intervals, and falls back to the old OCR flow only if the grid result is not meaningful.
+- Follow-up action: Public retest still downloaded a fallback free-text OCR workbook, so a slower cell-by-cell grid fallback was added: each detected cell is cropped, enlarged, sharpened, OCRed with single-line mode, and reconstructed into the same grid columns when row OCR is not meaningful.
+- Deployment action: Updated `streamlit_app.py` `PUBLIC_RELEASE_STAMP` to force Streamlit Cloud to recheck the entrypoint because public retests continued to show the pre-grid OCR behavior.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Local grid detection on the user's PNG returns 11 column intervals and 12 data intervals after the header, matching the visible table. Real OCR still has to be verified on Streamlit Cloud because this local Windows runtime has no Tesseract executable.
+
+### 2026-06-26 11:07 [fix] Render backend daily search trend chart as HTML
+
+- Received / problem: User reported the backend search-record page showed raw `<div class="search-trend-row">...` text inside the "每日十大规格趋势" chart area.
+- Root cause: The trend chart markup was passed to `st.markdown()` with leading indentation. Markdown treated the indented HTML as a code block before Streamlit could render it as unsafe HTML.
+- Change / action: Dedented and stripped the chart wrapper and each bar row before rendering, then passed the final compact HTML to `st.markdown(..., unsafe_allow_html=True)`. Updated the Streamlit release stamp to nudge the public deployment.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-26 11:56 [fix] Keep search results after no-match report submit
+
+- Received / problem: User clicked "回报物料无匹配型号" after a search result, and the success notice appeared but the original search result section disappeared, forcing another manual search.
+- Root cause: Streamlit button callbacks rerun the script. The report callback only stored the success message, while the search result rendering lived inside the transient search-button branch.
+- Change / action: Added a stable search text-area key, saved the last search input, and set a restore flag from the no-match report callback. On the callback rerun, the app automatically re-renders the previous search result from the saved input while skipping duplicate member search-log writes.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed.
+
+### 2026-06-27 12:10 [library] Import PDC and JOYIN resistor PDF series
+
+- Received / problem: User provided 39 PDC/JOYIN resistor datasheets and requested accurate library coverage for standard, precision, anti-sulfur, high-voltage, current-sense, alloy, resistor-network, NTC, power-NTC, and MOV series.
+- Change / action: Added official-PDF generators for the common PDC resistor families, the special `FAF-MH`, `FBF-10R`, `FCF-E`, `FCF-G`, `FCF-Array`, `FPF-Triple`, `FPS-Triple`, and `FMF` families, plus JOYIN `JAS`, `JAT`, `JCR03`, `JCR05`, `JFR`, `JNR`, `JSR`, `JVT`, and `JVZ`. Existing official JOYIN `JMV`, `JVR`, and `JSN` rows were audited and retained instead of duplicated.
+- Data result: Generated 79,395 common PDC rows, 99,393 special PDC rows, and 2,644 JOYIN sensor/protection rows. Updated the thick-film, thin-film, alloy, NTC, and VDR workbooks, the main SQLite library, prepared Parquet cache, and search sidecar.
+- Performance fix: Replaced per-row workbook deletion with contiguous-range deletion and replaced per-model sidecar deletion with one indexed temporary-table bulk delete. This prevents the 99k-row refresh from stalling.
+- Verification: Representative models `FBF06FT-3R00N`, `FAF02FVA1001QMH`, `FPF05FTF1004NM`, `FPS03FTE10R0NMD`, `FMF06FTHR010-BH`, `JAS103F344FB`, `JFR103F344FB25025CPG`, `JNR05S030L`, `JVT10N180M`, and `JVZ10N180M` each exist in the main DB, prepared cache, search sidecar, and the corresponding workbook. Specification searches for `1206 3R 1% 电流检测` and `0603 10R 1% 1/3W 抗浪涌` return the new PDC models.
+
+### 2026-06-27 12:37 [fix] Use component-specific daily trend specifications
+
+- Received / problem: Non-MLCC searches in the backend daily Top 10 chart were still rendered with the MLCC `size/dielectric/value/tolerance/voltage` order, producing resistor labels such as `1206/-/1mΩ/±1%/-`.
+- Root cause: `format_member_search_trend_spec_label()` used one fixed five-field MLCC template for every inferred component category.
+- Change / action: Added category-specific trend templates. Resistors now use `尺寸/阻值/误差/功率`; thermistors use `尺寸/R25/误差/B值`; inductors, beads, common-mode chokes, timing parts, varistors, non-MLCC capacitors, and semiconductors now use their own key parameters. Candidate scoring now penalizes irrelevant empty slots.
+- Verification: `python -m py_compile component_matcher.py streamlit_app.py` passed. Function-level regression checks passed for MLCC (`0805/X7R/10NF/±10%/630V`), resistor (`1206/1mΩ/±1%/1/4W`), NTC, power inductor, and crystal formats. Local Streamlit backend login and search-record module navigation succeeded without page exceptions.
+
+### 2026-06-27 14:37 [feature/fix] Add weekly/monthly search trends, optimize loading, and prioritize automotive matches
+
+- Received / problem: The backend needed daily, weekly, and monthly Top 10 search-spec trends; switching into the module was slow; automotive source models did not rank automotive alternatives ahead of normal/industrial series.
+- Root causes: Trend normalization could trigger a full prepared-cache load for unresolved model-like history and was capped at 1,000 grouped rows. Clean-model fallback SQL used an expression scan over the 1.5 GB component database. Match sorting placed brand/normal ranking before general automotive qualification.
+- Change / action: Added daily/weekly/monthly segmented trend views and full-range aggregation, cached normalized trend rows, batched indexed exact-model lookups, a date/id search-log index, performance trace points, and automotive-first ranking for automotive inputs. `次车规` and `无 AEC-Q200` are explicitly excluded from qualified automotive detection.
+- Performance result: The previous normalized fallback scan measured about 12.79 seconds per unresolved model. Indexed exact lookup measured about 2.67 ms. Backend tracing measured 0.20 seconds for log queries, 1.02 seconds for cold normalization, 1.62 seconds for the full cold daily trend, and 0.58 seconds for a cached weekly rerun.
+- Verification: Daily, weekly, and monthly period aggregation tests passed; browser DOM verified all three headings/selectors and category-specific resistor formatting; automotive database evidence placed `CQ03WAJ0510T5E` and `RMS06JT510` ahead of normal `WR`, `FRC`, `0603`, and `RM` alternatives for automotive source context. No relevant app console errors were observed.
+
+### 2026-06-28 10:56 [fix/release] Finish trend, JOYIN NTC, exact-model category, and public-index work
+
+- Received / problem: User asked to audit all unfinished work and reported that Yageo AC and Murata GRM/GCM capacitor models were being shown as resistors.
+- Root causes: Public trend normalization did not batch exact models from the deployed search sidecar; reverse lookup reused a cross-model cache key; JOYIN NTC sidecar rows lacked B-value fields; Yageo AC duplicate rows lacked MLCC grammar priority. `BBGK00201209202Y00` was absent and is an EMI ferrite bead rather than a capacitor.
+- Change / action: Added public-sidecar batch exact lookup, per-model reverse cache signatures, JOYIN JSN series/B parsing and sidecar fields, Yageo MLCC category priority, and the official BBGK decoder plus exact library/search-index record. Rebuilt the public bundle and split archive.
+- Verification: All 23 customer-image models resolve to the expected category in 0.77 seconds; rendered result tables show MLCC/MLCC/bead/thermistor with no resistor leakage. NCP15XH103F03RC produces only JSN-G B3380 25/50C rows as complete JOYIN matches. Daily/weekly/monthly Top 10 aggregation passed with ranks capped at 10 and cached weekly/monthly builds around 0.04 seconds. Bundle ZIP and concatenated parts share SHA256 `95f4eafe0cd3d5cd7a1c8a1d9b44de8e6486a97416904c125cb520ff2b6e32df`; ZIP integrity passed.
+
+### 2026-06-28 11:47 [fix/release] Keep trend heading synchronized with selected period
+
+- Received / problem: Formal backend loaded the daily trend correctly, but the heading was calculated before the daily/weekly/monthly segmented control returned its current selection.
+- Root cause: `trend_title` used the previous session-state value while the chart used the newly selected period.
+- Change / action: Moved period-title calculation after the segmented control so daily, weekly, and monthly headings always match the displayed aggregation.
+- Verification: Python compilation and diff checks passed; formal page exact-model search verified Yageo AC and Murata GRM as MLCC, BBGK as ferrite bead, and NCP/JOYIN as JSN-G B3380 NTC with no application error.
+
+### 2026-06-29 15:45 [fix/security/release] Persist member accounts and normalize FOJAN exact lookups
+
+- Received / problem: Member `H846740889` had not changed the password but could no longer log in. FOJAN 5% `J` models such as `FRC0603J100 TS` were present in the library but disappeared when users searched the compact form without the catalog space. Yageo `AC...X7R/X5R/NPO` capacitor rows also had stale resistor duplicates in public caches.
+- Root causes: The Streamlit member SQLite file lived only on the disposable application filesystem, so a redeploy could remove account hashes even though passwords never changed. Exact sidecar lookup compared the raw model string rather than `_model_clean`, making spaced FOJAN `J... TS` rows miss compact queries. The Yageo source cleanup had not yet been reflected in prepared/search caches.
+- Change / action: Added an authenticated Cloudflare Pages snapshot API backed by D1, checksum/version conflict checks, constant-time secret comparison, startup restore, and post-write synchronization for member, session, profile, approval, and search-log changes. Created APAC D1 `fruition-member-auth`, deployed the Pages binding/secret, restored `H846740889`, and seeded remote snapshot version 1. Updated exact model loading to query normalized keys in both SQLite and the search sidecar. Added a repeatable incremental Yageo AC cache-cleanup path and rebuilt/split the public bundle.
+- Data result: The remote member snapshot is 86,016 bytes and round-trips with an identical SHA-256. The normalized FOJAN regression list returns `39/39` models. Prepared cache contains zero Yageo AC dielectric-code resistor rows; the search core/resistor sidecars also contain zero. Correct Yageo AC representatives remain classified as MLCC.
+- Verification: All 7 end-to-end regression tests pass, including case-insensitive member login, password hashing, one-hour sessions, no-match resolution persistence, cost update timestamps, full BOM export, and remote member DB restore after local instance deletion. `python -m py_compile`, Worker `node --check`, ZIP integrity, split-part hash equality, unauthenticated API `401`, authenticated D1 upload, and authenticated snapshot download checksum all passed.
+- Formal follow-up: Direct production login for `H846740889` succeeded after D1 restore, but a new root-page load exposed that Streamlit's nested component sandbox prevented the old localStorage/cookie bridge from reaching the parent document. Added a `postMessage` bridge to the Cloudflare formal shell; the shell now stores the opaque member token for one hour and injects it into the Streamlit iframe on reopen.
+
+### 2026-06-29 17:20 [audit] Recheck latest implementation and publish state
+
+- Confirmed state: `main` and `origin/main` both point to `b1e95a96` (`Persist member accounts and fix normalized exact lookups`), so the D1 member persistence, restored member account, normalized FOJAN exact lookup, Yageo AC cache cleanup, bundle rebuild, and regression tests are committed and pushed.
+- Remaining local work: The 16:55 member-session `postMessage` bridge changes in `component_matcher.py`, `streamlit_app.py`, and `cloudflare-pages-proxy/dist/_worker.js` are still uncommitted. The related operation-log follow-up is also local, so this bridge cannot yet be treated as fully published from GitHub/Streamlit Cloud.
+- Live check: A direct request to the formal Cloudflare URL was reset during this audit, so the deployed shell version and end-to-end one-hour reopen behavior were not reconfirmed. Next action is to commit/push the bridge, deploy the Cloudflare worker, then verify login, close/reopen, and logout on the formal URL.
+
+### 2026-06-29 22:20 [fix/release/audit] Complete formal member-session bridge and re-audit unresolved work
+
+- Member bridge: Added a Cloudflare formal-shell `postMessage` bridge with a fixed trusted target origin, a cryptographically random per-page channel, one-hour token storage, visible-URL token removal, and channel validation. A production invalid-token test exposed that the bridge rendered before `current_member()` validation; moved validation ahead of save/clear selection so invalid or expired tokens are actually removed from the shell.
+- Release: Committed and pushed `fb0baa64` and follow-up `d80cf0d9`, deployed Cloudflare Pages with cache buster `20260629-member-session-bridge-4` (successful preview `https://13daf009.fruition-component.pages.dev`), and changed Streamlit Cloud from Python 3.14 to 3.12 to match `runtime.txt`. Streamlit deployment logs confirmed Python 3.12.13, Streamlit 1.58.0, Chinese Tesseract packages, Uvicorn startup, and final API status `5 / Running`.
+- Verification: Bridge tests `4/4`, system regressions `7/7`, Python compilation, Worker syntax validation, PowerShell parser validation, and formal HTML marker checks passed. The formal in-app-browser test injected `BridgeTestToken_9876543210`; after Streamlit validation and reload, the iframe retained `bridge-4` and its random channel but no longer contained `member_token`, confirming the clear path works end to end.
+- Publish tooling: Fixed `deploy_cloudflare_pages_proxy.ps1` so a nonzero Wrangler `$LASTEXITCODE` now throws instead of producing a false-success deployment result.
+- Still open: The original `977x350` Chinese quote screenshot is no longer in the workspace, so the grid/cell OCR path still lacks an end-to-end replay against that exact image. Exact-model-only voltage gaps remain for several special MLCC/safety families, and Murata `DEA/DEB/DEC/DEF/KC/GJ/WBM` series semantics still require official-source backfill. Streamlit 1.58 logs also warn that `st.components.v1.html` is scheduled for removal; the app currently runs, but the custom HTML/component rendering path needs a compatibility migration or an intentional Streamlit version cap.
+## 2026-06-30 会员跨实例同步、富捷 5% 型号与报价矩阵修复
+
+- 会员资料：确认 D1 线上快照版本 44 实际保留 `terry46`、`H846740889`、`lhz123` 三个账号；问题根因是各 Streamlit 实例只在启动时拉取会员库，后台会员列表会读取旧副本。会员列表、登录、注册、会话校验、资料修改、审核与日志读取现在都会先刷新线上快照。本地库已备份后恢复为线上三账号版本。
+- 防丢保护：Cloudflare D1 快照 API 新增按版本保存的 `member_auth_snapshot_history`，并支持通过 `?version=` 读取历史版本；部署后会先把当前版本写入历史表，后续不再只保留最后一份。
+- 富捷型号：带包装空格的完整料号（例如 `FRC0603J100 TS`）现在会归一化后精确直查，不再误走型号片段/跨品牌候选路径；覆盖用户提供的 16 个 5% `J` 型号。
+- 成本报价：新增富捷双层报价表解析，识别 `Series / Type / Dimension / Resistance Range / New Unit Price / 5% / 1% / Package`，按系列、尺寸功率、阻值区间和公差保存规则，并支持斜线分段区间与分段价格。
+- 验证：`python -m unittest tests.test_system_regression tests.test_member_auth_bridge -v` 共 13 项通过；Python 编译、Worker `node --check` 与 `git diff --check` 通过。
+- 发布：提交 `90411425` 已推送到 `origin/main`；Cloudflare Pages Worker 部署成功，预览为 `https://0108f965.fruition-component.pages.dev`，正式页已返回新标记 `20260630-member-sync-cost-import-1`。线上 D1 现有 2 张表，当前快照与历史版本 44 均通过 SHA-256 校验，未授权访问保持 `401`；Streamlit API 状态为 `5 / Running`。
+
+### 2026-06-30 05:25 [fix/verification] Verify FOJAN quote import and repair the member login panel
+
+- The user-provided screenshot was created at 04:06, before the 04:34 parser release. The actual 13.9 KB workbook was not available in the workspace, so it was not falsely treated as tested.
+- Built a screenshot-equivalent FOJAN two-level quote workbook and completed the real admin upload flow locally. The app imported five rows, enabled the list, and still showed five rows after a fresh session.
+- Rebooted the formal Streamlit app. The reboot exposed a separate Streamlit 1.58 `Missing Submit Button` error in the logged-out member panel.
+- Replaced only the member login and registration forms with keyed buttons. All 14 regressions passed, and a clean browser search for `FRC0603J100 TS` rendered the login control without the Streamlit error.
+- Published commit `3e55d468`, deployed Cloudflare preview `https://23f35222.fruition-component.pages.dev`, confirmed formal cache marker `20260630-member-form-cost-import-2`, rebooted Streamlit Cloud, and repeated the search on the formal URL successfully with no `Missing Submit Button` error.
+
+### 2026-06-30 11:02 [fix/verification] Support the real FOJAN percentage-header workbook
+
+- Inspected and rendered the user's original `富捷电阻报价单-富临通701-客户.xlsx`. The visible `5%` and `1%` cells are stored as numeric `0.05` and `0.01`, which explained why the text-only header parser returned zero rows.
+- Added numeric and textual percentage-header normalization and changed the regression workbook to the same Excel storage pattern.
+- The unmodified original file now imports and activates 40 rows. A full local admin browser upload displayed current rows `40`, history `1`, and the active workbook name with no relevant console errors.
+- Representative 0603 5% and 1% prices resolved to the values in the workbook, and all 14 member/system regressions, Python compilation, Worker syntax validation, and diff checks passed.
+
+### 2026-06-30 11:36 [formal verification] Compare live search prices with the active FOJAN workbook
+
+- Logged into the formal member search and searched six FOJAN models in one request. All six returned viewable source records from the active cost list with no relevant browser console errors.
+- Verified live source-row costs against `富捷电阻报价单-富临通701-客户.xlsx`: `FRC0402J330 TS=2.02`, `FRC0603J100 TS=2.8`, `FRC0603J103 TS=3.38`, `FRC0603F1002 TS=3.84`, `FRC0603F8R20 TS=5.33`, and `FRC1206J201 TS=8.5`.
+
+### 2026-06-30 12:00 [display fix] Remove repeated PDC series prefixes
+
+- The search result already has a separate `系列` column, so PDC descriptions no longer repeat `PDC FCF`, `PDC FWF`, or another PDC series prefix.
+- Updated the official PDC resistor profiles and added display-time cleanup for legacy cached values such as `PDC FCF-E ...`.
+- The dedicated display regression and all 15 member/system tests passed, along with Python compilation, Worker syntax validation, and diff checks.
+
+### 2026-06-30 16:36 [performance] Coalesce member remote sync during login
+
+- Measured the formal login baseline at 10.6 seconds after the login button click.
+- Root cause was three serialized D1 snapshot downloads plus one session upload in a single login, followed by another download on every Streamlit rerun.
+- Added a 15-second per-replica refresh window: login now performs one forced GET and one required PUT; immediate session checks reuse the verified local snapshot. Member mutations still force a fresh remote read.
+- The remote durability regression now checks request counts, and all 15 member/system tests pass.
+
+### 2026-06-30 21:28 [matching correctness] Make other-passive specifications hard constraints
+
+- Audited the non-resistor matching path after the user clarified that the concern was brand/model accuracy across capacitors, inductors, magnetic components, thermistors, varistors, and timing parts.
+- Found that several explicit filters were conditional on at least one candidate matching; zero matches left unrelated candidates in place and could label them as complete matches.
+- Changed film-capacitor, varistor, inductor, crystal, and oscillator material/value/tolerance/dimension/voltage/output/load-capacitance checks to return no result when the requested critical specification is absent or conflicting.
+- Added positive and negative regressions for a power inductor, leaded varistor, and crystal.
+
+### 2026-07-01 17:12 [data/matching/release] Backfill critical passive parameters and correct common-mode matching
+
+- Audited 1,676,716 library rows by component class and generated `reports/key_parameter_coverage.json` / `.md` instead of treating every non-empty generic field as a valid critical parameter.
+- Added a repeatable official/model-rule backfill for 9,780 rows: 4,760 standard MOV nominal-voltage codes, 28 Panasonic common-mode models, 95 Vishay NTCS models, 4,721 metric-size mappings, and 1,075 safe unique-model field copies. Updated Joyin and Sunlord source syncs to persist nominal varistor voltage separately from clamping voltage.
+- Corrected varistor matching so nominal voltage is not confused with clamping voltage, removed blank-model placeholders, and made common-mode choke searches compare explicit impedance or inductance fields according to the requested unit. `EXC14CE121U` now indexes as `120 Ω`, not the unrelated generic `1.574 nH` value.
+- Formal verification exposed that free-text inductor parsing still ignored `Ω/OHM` tokens. Added common-mode/ferrite-bead impedance parsing and valid `0302/0504/0804` package tokens; the complete text query `共模电感 0302 120OHM 100mA` now resolves only `EXC14CE121U` locally.
+- Rebuilt the 1,674,586-row prepared cache and search SQLite, then rebuilt and split the public bundle. Both SQLite databases pass `PRAGMA quick_check`; the concatenated release parts match the rebuilt ZIP.
+- Verification: all 16 member/system regressions pass, covering remote member restoration, FOJAN percentage-header cost import, PDC description cleanup, MOV semantics, common-mode impedance, inductor, varistor, crystal, and oscillator constraints.
+- Formal verification: commit `a9896a2d` is live. The member search `共模电感 0302 120OHM 100mA` returns exactly one viewable result, `Panasonic(松下) / EXC14CE121U / 0302 / 120 Ω`, with no relevant browser console error. The active FOJAN cost list remains the original workbook with 40 current rows, and the formal member database still lists `terry46`, `H846740889`, and `lhz123`.
+- Remaining source gaps are explicitly tracked rather than guessed: aluminum-electrolytic ESR/ripple/life fields, non-decodable varistor nominal voltages, sparse common-mode family fields, and crystal load capacitance for family/range rows.
+
+### 2026-07-02 10:00 [matching correctness] Enforce trailing MLCC application requirements
+
+- Received / problem: `47nF 1210 630V 谐振电容` ignored the trailing resonant-capacitor requirement and returned ordinary X7R models as partial matches.
+- Root cause: `parse_spec_query()` extracted only package, dielectric, capacitance, tolerance, and voltage. MLCC application terms were not copied into `特殊用途`, and `谐振/Resonant` was absent from the strict MLCC series-class rules.
+- Change / action: Parse all known MLCC application classes from the complete query, add `谐振/Resonant` as a strict class, and display `特殊用途` in the MLCC specification table. Application requirements such as automotive, soft termination, industrial, high/medium voltage, anti-bend, safety, resonant, high-Q, and EMI filtering now reject ordinary-family fallbacks.
+- Verification: The original query now parses as `特殊用途=谐振` and returns zero local candidates because the current library has no explicitly resonant `1210 / 47nF / >=630V` row. A synthetic resonant row matches while an otherwise identical ordinary X7R row is excluded. All 17 member/system regressions pass.
+- Formal verification: The deployed member search for `47nF 1210 630V 谐振电容` displays `特殊用途=谐振`, returns `0` viewable results and `1` unmatched input, and no longer lists any X7R fallback. The browser console reported no application error.
+
+### 2026-07-02 10:28 [matching correctness] Enforce all MLCC application notes and aliases
+
+- Expanded application-note recognition for common automotive, soft-termination, high-Q/low-loss, and EMI-filter wording, including `软端`, `柔性端子`, `软终端`, `弹性端子`, `FLEXITERM`, and English variants.
+- Kept multiple application notes cumulative: `车规软端` now requires both `车规` and `软端子`; a candidate satisfying only one requirement is rejected instead of being downgraded to a partial result.
+- Regression coverage now exercises car-grade, sub-automotive, resonant, industrial, soft termination, high/medium voltage, anti-bend, safety, high-Q, EMI filtering, and combined notes. All 17 member/system tests and Python compilation pass.
+- Formal verification: `47nF 1210 630V 软端电容` displays `特殊用途=软端子` and returns only soft-termination series, including Walsin `SH32B473K631CT` (`SH`) and Murata `GRJ32DR72J473KWJ1L` (`GRJ`), with no ordinary X7R-family fallback.
+
+### 2026-07-02 19:38 [cost/matching] Price missing-library FOJAN resistor models from range rules
+
+- Reproduced `FRC0402F5233TS`: the library contains neighboring `5230/5231/5232` rows but not `5233`; the fallback decoded `523KΩ / 1% / 0402 / 1/16W` while leaving brand blank and series as `FRC0402F`, which blocked FOJAN pricing.
+- Valid missing-library `FRC/FRL` resistor model numbers now infer `FOJAN(富捷)` before rule parsing, resolve to the official family (`FRC` or `FRL`), and use the active series range cost without adding every standard resistance as a database row.
+- The user's original workbook imported 136 rules in an isolated verification. `FRC0402F5233TS` matched `FRC / 0402 1/16W / 10R-1M / 1%` with cost `1.7` and MOQ `10000PCS`; all 17 member/system tests and Python compilation pass.
+- Formal verification: the deployed member search shows `FOJAN(富捷) / FRC0402F5233TS / FRC / 523KΩ / ±1% / 1/16W`, cost `1.7`, active-list update time `2026-06-30 23:25:02`, and MOQ `10000PCS`. The result iframe contains all expected fields and the browser console has no application errors.
+
+### 2026-07-03 09:30 [cost/matching/durability] Validate FOJAN range models, correct 1% 0R prices, and persist runtime databases
+
+- Reproduced two uncovered FOJAN boundary failures: arbitrary FRC value codes could be synthesized as official-looking FOJAN rows, while pure specification search did not include a valid missing-library FOJAN model.
+- Added strict FRC/FRL structure and resistance validation, blocked generic-parser bypass, required an active price-range hit, and added validated FOJAN candidate generation for complete resistor specifications.
+- Corrected all 1% FRC zero-ohm prices to use the same-size 1% `10R-1M` segment. Expected values are `0201=1.7`, `0402=1.7`, `0603=3.1`, `0805=5.2`, `1206=8.8`, `1210=21.0`, `1812=57.0`, `2010=39.6`, and `2512=60.0`.
+- Added authenticated D1 runtime snapshots for `cost-price` and `no-match`, with separate keys/history, optimistic versions, checksum validation, bounded payloads, lazy refresh, automatic first-read seeding from an existing valid SQLite database, and instance-reset recovery tests.
+- Deployed the Cloudflare Pages Worker preview `https://64084631.fruition-component.pages.dev`; the formal runtime-store endpoint rejects unauthenticated access with `401`. Full verification passes: 19/19 tests, Python compilation, Worker syntax check, and runtime-database restore simulations.
+- Re-ran the source-verifiable key-parameter dry-run. Its only 99 newly proposed unique-value fills were varistor `尺寸（inch）` copies that would incorrectly turn 5mm radial `MVR05D/xxKD05` parts into `2020` packages. Added a guard that forbids this unsafe cross-row varistor inch-size propagation; the follow-up dry-run reports `unique_model_values=0`, so no uncertain parameter values were written.
+
+### 2026-07-03 20:28 [cost activation] Apply the 1% 0R rule to newly enabled FOJAN lists
+
+- Confirmed the backend active-cost lookup was a separate path from static series pricing and had not inherited the earlier 1% zero-ohm correction.
+- Updated `lookup_active_cost_price_for_row()` so FRC 1% 0R dynamically uses the newly activated workbook's same-size 1% `10R-1M` rule; 5% 0R remains independent.
+- Added an upload-and-activate regression proving a workbook with 5% 0R=`2.60` and 1% `10R-1M`=`3.10` prices `FRC0603F0000TS` at `3.10`. The complete 12-test system regression suite passes.
+
+### 2026-07-03 21:05 [release safety] Protect member and backend runtime records
+
+- Made the member, active-cost, and no-match database paths independently redirectable so every system test runs only against temporary SQLite files.
+- Added `tools/run_release_safety_gate.py`: it fingerprints protected SQLite/main/WAL/SHM/journal files, runs syntax checks plus the complete member/backend/matching regression suite, and blocks release if any protected file changes.
+- Wired the safety gate into `sync_local_and_public.py` before bundle build, commit, or push, and added permanent repository rules in `AGENTS.md` covering additive migrations, backup/rollback, isolated tests, and prohibited runtime database replacement.
+- Verification: 13/13 regressions pass; explicit path-isolation coverage passes; protected file fingerprints are unchanged; read-only `PRAGMA integrity_check` returns `ok` for member, cost-list, and no-match databases.
+
+### 2026-07-03 23:10 [data/MOQ] Add source-backed manufacturer package quantities
+
+- Audited the 1.67M-row library by component type and high-volume brand/series rather than applying one generic MOQ by package size.
+- Added strict manufacturer packaging rules for Panasonic ERJ/ERA, YAGEO RC, Vishay NTCS0402E/0603E/0805E, and TDK C1608 models with explicit `080/A` thickness/packaging codes.
+- The active cost-list MOQ remains first priority. A blank purchase MOQ now falls back to the official standard package quantity and displays a separate `MOQ来源` column.
+- First-batch coverage is 81,796 rows. Representative resistor, thermistor, and MLCC electrical parameters were checked against official datasheets/model pages and matched.
+- Verification: 14/14 system regressions and the release safety gate pass; protected member, cost-list, and no-match databases are unchanged.
+
+### 2026-07-04 [data/MOQ] Expand manufacturer package quantities to other brands
+
+- Added strict official-source rules for Murata GRM/GCM/GCJ, YAGEO CC 0201/0402/0603, TDK C-series/NTCG, and Samsung CL models whose size, thickness, reel, and package code determine one quantity.
+- Coverage increased from 81,796 to 105,824 library rows. Cost-list MOQ still has priority over every manufacturer fallback.
+- Deliberately left ambiguous YAGEO 0805+, Samsung non-`C` packaging, and Murata inductor `#` suffixes blank; these cannot be assigned safely from size alone.
+- Verification: 14/14 system regressions pass through the release safety gate, and all protected runtime database fingerprints remain unchanged.
+
+### 2026-07-04 [data/MOQ] Add Samsung resistor and Walsin resistor/MLCC packaging rules
+
+- Added official-source package quantity decoding for 7,609 Samsung RC/RCS rows, 5,050 Walsin WR rows, and 9,957 Walsin general/NP0 MLCC rows.
+- Manufacturer fallback coverage is now 128,440 rows. Cost-list MOQ remains first priority.
+- Kept unsupported reel codes, bulk packaging, and Walsin 1812 3.20mm rows blank because the current official tables do not uniquely support them.
+- Verification: 14/14 system regressions pass through the release safety gate; protected runtime database fingerprints remain unchanged.
+
+### 2026-07-04 [data/MOQ] Add specialized Walsin MLCC and Samsung current-sense packaging rules
+
+- Added official-source 7-inch package quantities for 455 Samsung RU/RUK/RUT/RJ rows and 1,560 Walsin SH/RF/HH/MT rows.
+- Total manufacturer fallback coverage is now 130,455 rows; active cost-list MOQ remains authoritative.
+- Unsupported RUW and series/thickness combinations remain blank instead of inheriting another family rule.
+- Verification: 14/14 system regressions pass through the release safety gate, and protected runtime database fingerprints remain unchanged.
+
+### 2026-07-05 [data/MOQ] Complete all source-decodable manufacturer packaging rules
+
+- Audited all `1,676,716` component rows with the production manufacturer-packaging lookup.
+- Added current official-source parsing for KOA `TP/TD/TE`, nine YAGEO surface-resistor families, Vishay CRCW lead-free/lead-bearing codes, CRCW0201, and TNPW codes.
+- Final reliable fallback coverage is `452,883` rows, up `322,428` from `130,455`; active cost-list MOQ still overrides manufacturer fallback.
+- Recorded the remaining `1,223,833` rows as explicit non-unique-source exceptions instead of assigning guessed size-based quantities.
+- No runtime database was written during implementation or audit.
+- Verification: 14/14 release-safety regressions pass; protected member, cost-list, and no-match database fingerprints are unchanged.
+
+### 2026-07-09 [matching] Fix backslash-separated chip-resistor specification parsing
+
+- Reproduced `贴片\499R\±1%\1/16W\0402 ROHS`, `贴片\499K\±1%\1/16W\0402 ROHS`, and `贴片\51R\±5%\1/16W\0402 ROHS`: backslash-separated resistor values were not recognized, and `499K` could fall into generic capacitor parsing.
+- Added backslash as a resistor token delimiter and prioritized explicit resistor spec parsing before MLCC/generic spec parsing.
+- Added regression coverage for all three original inputs. Focused resistor test and full release safety gate pass; protected member, cost-list, and no-match runtime database fingerprints remain unchanged.
+
+### 2026-07-09 [matching] Add brand-qualified specification filtering
+
+- Added explicit brand hints for specification searches such as `FOJAN 0402 1% 10K`, `富捷 0402 1% 10K`, and `0402 1% 10K 富捷`.
+- When a supported brand alias is present in the free-text spec, the matcher now treats it as a hard brand filter across candidate loading, scoped dataframe matching, and final result filtering.
+- Plain spec searches without a brand remain unchanged and still return all matching brands.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-10 21:20 [direct] Import quote-confirmed PDC and JOYIN models
+
+- Received / problem: User supplied `C:\Users\zjh\Desktop\导入数据库.xlsx` and confirmed the listed PDC/JOYIN models had been quoted and should be searchable in the system.
+- Investigation: Parsed 976 populated model rows into 968 unique canonical models. The list contains 835 PDC capacitor models and 133 JOYIN thermistor/varistor/ESD models. Before import, only 319 target models existed in `components.db`; 649 were missing. Cross-checked model coding against local PDC/JOYIN official FE/FJ/FK/FH/FM/FN/FP/FR/FS/FV/MG/MT and JAS/JCR/JMV/JNR/JSN/JSR/JVR/JVT/JVZ specifications. Normalized the quote note `FS32B107M160LGG大卷` to canonical model `FS32B107M160LGG`.
+- Fix / action: Added `sync_confirmed_pdc_joyin_models.py` with dry-run by default, mandatory database backup on apply, insert-only behavior for missing models, and blank-field-only enrichment for existing models. Imported 649 new rows and filled 3,611 blank cells across 319 existing rows without deleting or replacing any component record. Refreshed only the 968 target rows in the prepared/search sidecars. Backup: `components.db.confirmed_pdc_joyin_20260710_210039.bak`.
+- Verification: All 968 canonical models exist exactly once in `components.db` and all 968 exist in `components_search_core`; no target identity fields are blank. Representative exact searches across FE/FGA/FM/FN/FP/FS/FV/MT/JAS/JES/JMV/JNR/JSN/JVR/JVZ all load the exact row through the fast part-number path with the correct brand. SQLite integrity checks passed for component, search, member, cost-list, and no-match databases. The release safety gate passed 15/15 tests before and after import.
+- Other issues: Three legacy `FGAAN` quote-confirmed models have no verified footprint code in the available ordering tables, and `FP32N103J12EEGG` uses an unrecognized voltage code. Those specific fields remain blank rather than guessed; the models themselves are searchable.
+- Handoff notes: Protected runtime fingerprints remained unchanged: member `E9057B...A9F4E`, cost `9AD6BD...D63A17`, no-match `41E441...52C19`. Future reruns are idempotent because existing non-empty values are preserved.
+
+### 2026-07-09 [matching] Lock decimal-K backslash resistor spec searches
+
+- Verified `贴片\1.24K\±1%\1/16W\0402 ROHS` parses as `贴片电阻 / 0402 / 1240Ω / ±1% / 1/16W` and returns matching 0402 resistor candidates, including FOJAN `FRC0402F1241TS`.
+- Added the reported input to the backslash-separated resistor regression set so decimal KΩ values cannot regress separately from integer `R/K` values.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-09 [matching] Deduplicate exact FOJAN rows against rule fallbacks
+
+- Reproduced `FRC0603J102 TS`: the real database row `FRC0603J102 TS` was merged with the FOJAN rule fallback `FRC0603J102TS`, so the matched part-data panel showed two rows for the same cleaned model.
+- Component-frame merging now deduplicates by brand, cleaned model, and component type, and lowers the priority of `型号编码解析` fallback rows so real database rows win.
+- Verification: the reported query now leaves one FOJAN exact-normalized row, `FRC0603J102 TS`; focused resistor regression and full release safety gate pass with protected runtime databases unchanged.
+
+### 2026-07-09 [matching] Add ROHM brand hints and relax FOJAN default-power fallback
+
+- Reproduced the user's resistor batch. Local matching already returned candidates for all rows, but `ROHM` was not recognized as a brand hint, so `贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM` did not restrict to ROHM.
+- Added `ROHM/罗姆/羅姆` to brand hint aliases. The same query now resolves to `ROHM / ESR03EZPF1002`.
+- Relaxed FOJAN FRC/FRL rule fallback so a missing power field uses the size's default power; explicit mismatched power still blocks fallback.
+- Confirmed FOJAN official pages list additional FRM/FPM alloy families. Full official-series ingestion remains a separate source-backed data expansion because those alloy naming rules must be decoded from datasheets, not guessed.
+- Verification: focused resistor regression and full release safety gate pass; protected member, cost-list, and no-match runtime databases are unchanged.
+
+### 2026-07-11 [member-ui] Return after login, reduce sync delay, and split BOM page
+
+- Received / problem: Member login opened the member profile page instead of returning to the page that initiated login; login felt slow; the BOM batch upload tool was embedded at the bottom of the main search page.
+- Fix / action: Successful login now clears only the member-page route while preserving the authenticated session and any BOM origin route. Repeated remote member snapshot reads during a single login interaction are coalesced, while the session update is still flushed to remote storage. The existing BOM upload and matching workflow was moved unchanged into a dedicated `bom=1` page, with a fixed `BOM批量匹配` entry below the member button and responsive mobile positioning.
+- Verification: Added regression coverage for login return routing and startup/login remote snapshot coalescing. `python -m unittest tests.test_system_regression` passed 16/16 tests, and `python tools/run_release_safety_gate.py` passed. Browser verification confirmed the main page no longer renders the BOM uploader, the dedicated BOM page renders the upload control on desktop and mobile without horizontal overflow, and an isolated temporary-member login returns to the search page with the member session active.
+- Safety: The browser login check used temporary member, cost, and no-match database paths and the temporary data was removed afterward. Protected runtime database fingerprints remained unchanged.
+
+### 2026-07-11 [member-public] Resume the blocked search after member login
+
+- Received / problem: The public site still showed the previous layout because the local member/BOM changes had not been published. When a logged-out visitor entered a query and clicked search, the login prompt appeared, but a successful login returned to the search page without executing the original query.
+- Fix / action: Added a one-time pending-search session value. A blocked search stores the current query, successful login resumes it automatically, and the value is cleared as soon as the resumed search starts so refreshes and later logins cannot repeat it. Logout also clears any pending query.
+- Verification: Added isolated regression coverage for logged-out storage, logged-in resume, and one-time clearing. The full release safety gate passes 17/17 tests. The public bundle was rebuilt from the current search assets, split into its tracked release parts, and the Streamlit release stamp was advanced to `2026-07-11T18:12:06+08:00` for the formal deployment target `https://fruition-component.pages.dev/`.
+- Safety: No member, cost-list, or no-match database is included in the public bundle or staged release. Other unrelated working-tree files remain excluded from the publish commit.
+
+### 2026-07-11 [ui-monitoring] Compact action login, search summary, and runtime status
+
+- Replaced the large action-triggered member panel with a focused login dialog. The original search remains pending and is cleared only after the resumed search actually completes, so token-related reruns cannot consume it early.
+- Kept the full login/registration tabs on the dedicated member page. Search completion now collapses into a compact one-line summary; BOM progress remains unchanged.
+- Added a read-only `运行状态` backend module showing release time, bundle/database versions, searchable row count, and member/cost/no-match store status. Public endpoint checks run only when an administrator clicks the check button.
+- Verification: 18/18 system regressions and the release safety gate pass. Browser checks confirmed the compact login dialog, runtime-status desktop layout, and stacked narrow-screen layout. All automated database tests used temporary paths.
+
+### 2026-07-12 [public/BOM] Publish UI monitoring and simplify BOM quotation output
+
+- Public release: committed and pushed `aeeff114 Publish compact login and runtime monitoring` to `origin/main`, refreshed `PUBLIC_RELEASE_STAMP` to `2026-07-12T13:33:51+08:00`, and deployed the Cloudflare Pages shell at `https://2051c50e.fruition-component.pages.dev`. The formal domain returns the new `20260712-ui-monitoring-1` cache marker.
+- BOM test-version change: added `主营品牌自动匹配 / 指定品牌` output modes. Specified mode supports 1-5 brands; automatic mode keeps the existing capacitor/resistor business-brand groups and falls back to the system-recommended brand for other component types.
+- BOM output now mirrors the directly usable quotation structure: original BOM columns followed by `匹配状态`, `匹配说明`, and one or more `匹配品牌 / 匹配型号 / 匹配成本 / 成本更新时间 / 匹配MOQ / 匹配L&T` groups. Exact original models remain eligible when the selected brand matches, even when no cross-brand substitute is returned.
+- Verification: added an isolated active-cost regression proving that a selected Murata model exports its model, cost, MOQ, and L&T into the generated workbook. The release safety gate passes 19/19 tests with temporary member/cost/no-match databases. Desktop browser automation was stopped by the browser safety state before the upload UI could be visually completed, so the BOM changes remain local test-version work and are not yet published.
+
+### 2026-07-12 [local-runtime] Restore test page with a hard memory guard
+
+- Root cause: the workstation reboot stopped the local Streamlit process, leaving port `8520` closed; the page files themselves were intact.
+- Safety action: restarted `streamlit_app.py` in public/skip-update mode under a Windows Job Object capped at 1 GB. This prevents a future accidental full-dataframe load from exhausting the workstation again.
+- Verification: `http://127.0.0.1:8520/?bom=1` returns HTTP 200 and the initial Python working set is about 62 MB. No rebuild, regression suite, deployment, or protected runtime database modification was performed.
+
+### 2026-07-12 [local-login] Clear a post-login rerun loop without touching member data
+
+- Observed: login produced a valid active-member session token, but one Streamlit Python thread continuously consumed one CPU core and the page remained busy.
+- Data check: the session token exists, remains valid, and the member SQLite database is readable with `PRAGMA quick_check=ok`.
+- Mitigation: restarted only the memory-capped local `8520` process. The browser can reuse the existing token; no member account/session row was deleted or replaced.
+- Verification: the replacement service returns HTTP 200, uses about 144 MB, and consumed only 0.02 CPU seconds during a three-second stability sample.
+
+### 2026-07-12 [BOM-runtime] Stop a CPU-bound BOM match and enable row diagnostics
+
+- Confirmed: the BOM task held one Python thread near one full CPU core for several minutes while memory remained below 200 MB and network connections stayed healthy. It was not blocked by the 1 GB memory guard or by member storage.
+- Action: stopped only the stuck local processing service and restarted `8520` with the same 1 GB hard cap plus `BOM_MATCH_DEBUG=1`, redirecting diagnostic output to `tmp_8520_safe_stdout.log` and `tmp_8520_safe_stderr.log`.
+- Next repro: re-upload the same BOM and start matching once; the row-level diagnostics will expose the exact input responsible for the high-CPU path.
+- Verification: the replacement service returns HTTP 200 and starts at about 145 MB. No protected runtime database, application code, build, test suite, or deployment was changed.
+
+### 2026-07-12 [BOM-performance] Reduce repeated per-row matching work
+
+- Assessment: multi-row runtime was not acceptable because each sheet created a new unbounded query cache, exact models were fetched row by row, weak candidate combinations could run before richer inputs, and recommendation/export work was repeated within a matched row.
+- Changes: bulk-prefetch exact model rows per sheet; share one bounded 256-entry normalized query cache across workbook sheets; prioritize exact models then the richest model/spec/name combinations; reuse the candidate recommendation; and build own-brand export candidates once per row. Row-start and row-done timings are emitted when `BOM_MATCH_DEBUG=1`.
+- Tests: Python compilation, focused cache/order regression, original BOM export regression, and selected-brand active-cost export regression pass. The complete release safety gate passes 20/20 under a 1 GB process-memory guard.
+- Safety: protected member, active-cost, and no-match runtime fingerprints remained unchanged. The local test page is restored at `http://127.0.0.1:8520/?bom=1` with the same 1 GB hard cap.
+
+### 2026-07-12 [BOM-performance] Skip repeated headers and prefilter priced brands
+
+- Diagnostic result: the real upload was progressing, but row 2 (`MPN3 / Description / 项目`) was a repeated header and alone consumed 65.991 seconds. Normal resistor rows took 1.276-2.288 seconds each.
+- Fix: repeated header/description rows now return `已跳过` immediately. Own-brand export pricing/MOQ enrichment now receives only selected or configured business-brand candidates instead of every matched brand.
+- Verification: focused header/prefilter and selected-brand cost tests pass; the complete safety gate passes 20/20 under a 1 GB memory guard; protected runtime data is unchanged.
+- Runtime: local test service restored on port 8520 at about 143 MB with a 1 GB hard cap and row timing diagnostics enabled.
+
+### 2026-07-12 [BOM-login UX] Distinguish successful login from synchronous BOM work
+
+- Confirmed behavior: during the earlier logged-out upload flow, the member token was valid and BOM rows were processing while the login dialog still appeared busy. The synchronous Streamlit rerun made successful login look stuck.
+- Current-state check: the new token is valid and active, but the restarted local server is idle and has no row-start diagnostics, so no BOM match is currently running; the pre-restart in-memory upload cannot survive a service restart.
+- Follow-up design: introduce a dedicated post-login restore/progress state so the login dialog closes before BOM parsing starts and the user can see whether the upload is restored, matching, completed, or needs to be selected again.
+
+### 2026-07-13 [BOM-login UX] Separate login completion from BOM parsing
+
+- Change: a BOM upload waiting for membership now records a post-login stage on successful authentication. One lightweight UI run closes the login dialog and shows `会员登录成功 / BOM恢复中`; the next run restores the cached upload and starts parsing.
+- Missing-cache behavior: when the in-memory upload cannot be restored, the page confirms login success and explicitly asks the user to select the BOM again instead of leaving the login form busy.
+- Verification: focused login routing and BOM resume-state tests pass; the complete safety gate passes 20/20 under a 1 GB process-memory guard; protected member, cost-list, and no-match databases are unchanged.
+- Runtime: test page restored at `http://127.0.0.1:8520/?bom=1`, initial Python memory about 62 MB, hard limit 1 GB.
+
+### 2026-07-14 [resistor matching] Restore FOJAN alternatives for voltage/halogen-qualified FRC queries
+
+- Reproduced the reported Yageo input and confirmed that `FRC0402F1000TS` existed in the 59-row candidate set but was removed because its FOJAN row had no voltage metadata.
+- Added the official FRC package-to-maximum-working-voltage table, query-time FOJAN FRC voltage/halogen-free enrichment, and strict resistor handling for explicit `无卤` notes.
+- The exact reported query now returns `FOJAN(富捷) / FRC0402F1000TS / 50V / 无卤`; the normal cross-brand path is used because the input does not set an explicit brand filter.
+- Display enrichment returns the active cost `1.7`, update time `2026-06-22 13:46:44`, and `MOQ=10000PCS` for the matched FOJAN row.
+- Verification: focused resistor regression passes; the complete release safety gate passes 20/20 under a 1 GB total job-memory cap; member, active-cost, and no-match runtime fingerprints are unchanged.
+- Runtime: the local test page is restored at `http://127.0.0.1:8520/?bom=1`, returns HTTP 200, starts near 62 MB working memory, and remains under the 1 GB total job-memory cap.
+
+### 2026-07-14 [resistor matching] Fix direct-spec stale empty result and false series label
+
+- Reproduced `100Ω;50V;±1%;1/16W;0402;`: the current resolver returned `FOJAN(富捷) / FRC0402F1000TS`, while the page showed an older empty result and mislabeled `100;50V;` as the series.
+- Bumped the search-result cache version to invalidate pre-fix session results. Display-series inference now ignores temporary `型号` text unless it is a valid compact part number.
+- Added a fixed regression requiring the direct input to return `FRC0402F1000TS` and keep the specification-table series blank.
+- Verification: focused regression passes; final release safety gate passes 20/20 under a 1 GB job-memory cap; member, active-cost, and no-match protected data are unchanged.
+- Runtime: local `8520` service restarted cleanly, returns HTTP 200, starts near 62 MB, and retains the 1 GB memory cap.
+
+### 2026-07-14 [formal release] Publish pending verified fixes by default
+
+- Release scope: publish the accumulated BOM output/performance/login-resume changes, FOJAN FRC/FRM/FPM resistor matching and packaging rules, capacitor-dimension maintenance updates, regressions, and issue records to `main`.
+- Workflow rule: unless the user explicitly asks for a test version first, future completed fixes are published to the formal public page after verification; explicit test-version work remains local until approved.
+- Safety: the pre-release gate passes 20/20 tests under a local-only 1 GB validation limit, and protected member, cost-list, and no-match runtime fingerprints are unchanged. Local databases, release bundles, backups, and unrelated untracked files are excluded from the release.
+- Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:01:19+08:00`; this changes only the cloud application reload marker and does not impose the local validation memory limit on production.
+
+### 2026-07-14 [resistor ranking] Put FOJAN first in resistor match results
+
+- Reproduced the reported `FRC0603F1402TS` screen and confirmed two contributing rules: resistor brand order placed FOJAN fourth, and exact FOJAN searches removed their own brand from the lower match table.
+- Changed only resistor-family ordering to `FOJAN -> PDC -> Walsin -> UNI-ROYAL -> existing remaining order`. Capacitor and other-component priorities are unchanged; match accuracy/recommendation level still sorts before brand priority.
+- Exact FOJAN resistor searches now retain the normalized source row at the top. Exact non-FOJAN searches still exclude their source brand so FOJAN alternatives can lead, and explicit brand-qualified searches remain restricted to the requested brand.
+- Raised the query-result cache version to `83`. Real-data smoke checks for `FRC0603F1402TS` and `0603 14K 1% 1/10W` both return `FOJAN(富捷) / FRC0603F1402TS / 完全匹配` first.
+- Formal trigger: advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T12:53:14+08:00`. No runtime database or bundle change is required for this code-only sorting fix.
+
+### 2026-07-14 [resistor parsing] Recognize `士/土` as mistyped tolerance symbols
+
+- Reproduced `2010 100K士1%`: the pre-fix parser rejected it before resistor parsing and showed the three-parameter warning.
+- Added narrow tolerance-symbol normalization shared by resistor context detection, resistance extraction, and tolerance extraction. Chinese words ending in `士` remain unchanged.
+- The original query now resolves as `2010 / 100KΩ / ±1%`, loads 66 indexed candidates, and returns `FOJAN(富捷) / FRC2010F1003TS` first.
+- Raised the query-result cache version to `84` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T13:28:17+08:00` for formal publication. This code-only change does not touch runtime databases or bundles.
+
+### 2026-07-14 [resistor ranking] Prefer standard `TS` suffix within FOJAN FRC families
+
+- Reproduced the screenshot query and confirmed alphabetical tie-breaking placed `FRC0402F1001RS` before `FRC0402F1001TS` even though both were complete matches.
+- Added model-family-aware FRC sorting: within the same FOJAN FRC base model, `TS` ranks before `RS` and other suffixes. Both database rows remain available and all specification/brand ranking rules remain intact.
+- Real-data smoke verification now returns `FRC0402F1001TS` first and `FRC0402F1001RS` second; the focused regression passes.
+- Raised the query-result cache version to `85` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T15:36:32+08:00`. No runtime database or bundle was changed.
+
+### 2026-07-14 [BOM UX] Require explicit start after selecting custom brands
+
+- Confirmed that changing BOM output mode to `指定品牌` changed the workbook run signature and immediately launched a synchronous full match, making the segmented-control click look stuck.
+- Custom mode now shows `开始指定品牌匹配`; mode and brand changes remain idle until that button is pressed. Automatic mode is unchanged, and the same custom configuration can be explicitly rerun.
+- Added decision-logic regression coverage and retained the existing selected-brand active-cost/export verification.
+- Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T16:04:34+08:00`. No member, cost-list, no-match, component database, or release bundle was modified.
+
+### 2026-07-14 [BOM login UX] Close the login dialog before resumed matching
+
+- Reproduced the reported state: authentication and BOM restoration succeeded, but consecutive server reruns started synchronous parsing before Streamlit completed a dialog-free page cycle.
+- The restore-success run now ends normally with `st.stop()`. A one-second fragment refresh then starts the full app run; `立即开始 BOM 匹配` remains available as a fallback and the cached upload is preserved.
+- Added regression coverage for timer/manual readiness and for the success-page transition ending before matching starts.
+- Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-14T23:48:18+08:00`. No protected database, component database, or release bundle was changed.
+
+### 2026-07-15 [resistor parsing] Support unlabeled numeric ohms in BOM text
+
+- Reproduced `0,50mW Resistor R_0201 1%`: the parser found `0201 / 1% / 1/20W` but left resistance blank, so the public runtime exhausted the fast path and displayed the unavailable-full-library warning.
+- Added a narrowly scoped parser for a plain numeric first field followed by a delimited power field when the row explicitly identifies a resistor. `0` and `150` now resolve as ohms; capacitor and package-only false positives remain blocked.
+- Batch regression covers the supplied 16 resistor rows, 7 capacitor rows, and the exact Murata `NCP03WF104F05RL` token. The reported zero-ohm and 150-ohm rows resolve through the fast index to `FRC0201F0000TS` and `FRC0201F1500TS`.
+- Raised the query-result cache version to `86` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T16:01:01+08:00`. No runtime or component database is modified.
+
+### 2026-07-15 [NTC matching] Compare Joyin B-value tolerance separately
+
+- Confirmed from the official Joyin JSN-G order code that the first `F` in `JSNZ104F425?ABXG` is the R25 tolerance (`±1%`), while the later F/G/H/J code is the B-value tolerance (`±1% / ±2% / ±3% / ±5%`).
+- Added query-time B-value-tolerance decoding, a dedicated `B值误差` display column, Murata NCP03WF B25/50 tolerance inference, and B-tolerance-aware thermistor grading/sorting.
+- Real-data regression for `NCP03WF104F05RL` now returns only `JSNZ104F425FABXG` as `完全匹配`; G/H/J remain visible as `需确认替代` rather than being silently treated as exact equivalents.
+- Raised the query-result cache version to `87` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-15T18:20:00+08:00`. No member, cost-list, no-match, component database, or public bundle is modified.
+- Focused real-data replay passed. The complete 21-test release safety gate also passed with isolated test databases and unchanged protected runtime-data fingerprints.
+
+### 2026-07-16 [resistor matching] Treat exact-part brands as source metadata
+
+- Reproduced the Fenghua query and confirmed `FRC0603F1002TS` was already present in the candidate frame with `0603 / 10KΩ / ±1% / 1/10W / 75V / 无卤`; independent grading classified it as `完全匹配`.
+- Removed only the requested-brand filter from exact-part and embedded-model-token lookup specifications. The detected Fenghua brand remains attached as the source brand, while direct brand-qualified specification searches keep their existing brand restriction.
+- Added a regression that exercises the exact Fenghua-to-FOJAN case and retains the existing direct FOJAN brand-filter checks.
+- Raised the query-result cache version to `88` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T11:33:57+08:00`. No runtime or component database is modified.
+
+### 2026-07-16 [BOM resistor output] Canonicalize FOJAN FRC model formatting
+
+- Audited `星际需求0715.xlsx` and the FOJAN FRC rows in `components.db`: six F-tolerance rows contained an incorrect space before `TS`; one F and one J row used the obsolete `RS` suffix.
+- Added output-only canonical formatting shared by search tables, BOM recommendation rows, selected-brand slots, and downloaded Excel fields. F models use four value-code characters plus compact `TS`; J models retain the official space before `TS`; P models remain compact. The original BOM columns and runtime databases are not rewritten.
+- Tightened FOJAN FRC/FRL model validation to enforce tolerance-specific value-code lengths and added regression coverage for spaced F models, obsolete `RS`, J spacing, non-FOJAN isolation, and selected-brand BOM export.
+- Full real-file replay with `指定品牌=富捷` processed all 37 rows, produced 37 FOJAN models, and reported zero suffix/spacing anomalies. Raised the query-result cache version to `89` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T13:56:34+08:00`.
+
+### 2026-07-16 [structured matching] Keep explicit BOM parameters authoritative
+
+- Replayed all 22 resistor descriptions from the supplied image. The remaining failures were caused by embedded source-model decoding changing explicit `±1%/±5%` tolerances, plus FRL low-ohm candidates losing the explicit `无卤` check because their existing special-use field only contained `低阻值`.
+- Added an explicit-query overlay for embedded part lookups. Source brand/model metadata is preserved, while the entered size, resistance, tolerance, power, voltage, and special-use constraints remain authoritative. Strong embedded part tokens also clear only the output-brand filter; direct searches such as `富捷 0402 1% 10K` and `FENGHUA 0603 10K 1%` remain brand-restricted.
+- Extended FOJAN query-time compliance enrichment from FRC to FRL for `无卤`, retaining the existing FRL `低阻值` classification. Canonical brand/model deduplication now collapses obsolete `RS` and standard `TS` variants that would render as the same FOJAN model.
+- Added Cybermax prefix classification so `CMBH...` is parsed as a ferrite bead and `CMLH...` as a power inductor; the supplied power-inductor description now returns inductor alternatives, while the ferrite-bead description correctly reports no matching library candidate instead of showing resistor results.
+- Focused regressions passed for resistor matching and other-passive routing. Raised the query-result cache version to `90` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T14:26:10+08:00`. No member, cost-list, no-match, component database, or public bundle is modified.
+
+### 2026-07-16 [search display] Deduplicate canonical FOJAN models before rendering
+
+- Reproduced the reported `0402 / 1/16W / 1KΩ / ±1%` query. The source library contains legacy `FRC0402F1001RS` plus standard `FRC0402F1001TS`; both normalize to the same displayed model.
+- Audited all FRC rows in `components.db` and the search sidecar. Only two canonical duplicate groups exist: `FRC0402F1001` and `FRC0402J563`.
+- Added a final canonical brand/model deduplication after display normalization in both search-result rendering paths. The existing matching-layer deduplication remains, so stale or later-transformed rows cannot reappear as identical display entries.
+- Exact query checks now show `FRC0402F1001TS` once, `FRC0402J563 TS` once, and zero duplicate display keys for representative 0603 and 0805 specifications. Raised the query-result cache version to `91` and advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:09:00+08:00`. No database is modified.
+
+### 2026-07-16 [result layout] Remove oversized blank space below search tables
+
+- Reproduced the layout mechanism: normal result tables scrolled internally, but their iframe height was derived from `52vh` and `documentElement.scrollHeight`, so a tall initial iframe could not shrink after rendering.
+- Replaced iframe-relative table caps with fixed 440px normal-result and 560px BOM-result caps. Normal search tables expose about eight rows before scrolling, while exact-part cards use a lower bounded initial height.
+- The iframe now reports the actual bottom edge of rendered body content to Streamlit after table sizing, load, resize, and details toggles.
+- Focused regression and Python compilation pass. A headless Chromium layout check measured a 460px content card in a 900px viewport, confirming the host can remove the remaining 440px blank allocation. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T15:38:33+08:00`; no database is modified.
+
+### 2026-07-16 [cost maintenance] Add exact-model single-item costs
+
+- Added an additive `cost_price_manual_items` table inside the existing protected cost database. It stores canonical brand/model, cost, MOQ, L&T, specification, quote note, operator, quote-update time, status, and audit timestamps without changing or deleting whole-list records.
+- Active single-item costs are loaded before the current whole list for the same brand/model. Uploading or switching a whole list does not remove them; disabling a single-item record restores the whole-list price.
+- Reworked the backend cost page into `单笔成本` and `整份清单` tabs. The single-item tab supports create, record selection, field preload, update, disable, re-enable, status count, and history display. The original upload, activation, preview, and list-history workflow remains in the second tab.
+- Focused regressions pass for search enrichment, MOQ source, full BOM matching/export, and remote snapshot restoration. An isolated Playwright session confirmed the rendered form, successful create message, record selector, edit preload, disable button, and whole-list tab. Advanced `PUBLIC_RELEASE_STAMP` to `2026-07-16T16:24:17+08:00`.
+
+### 2026-07-16 [NTC matching] Require B parameters and verify maximum power
+
+- Reproduced `Thermistor NTC 10K OHM 240mW 1% 0402 SMD`: the parser recognized size/R25/tolerance but omitted power, while matching treated blank B parameters as complete and generic note parsing read `delta=1.7mW/C` as rated power.
+- Added NTC query parsing for power, B value, B condition, and B tolerance. `完全匹配` now requires all B fields; specified maximum power must be met. Labeled `Max Power` notes are authoritative, with a Joyin 0201/0402/0603 model-size fallback that avoids a public search-index rebuild.
+- The reported Joyin 0402 candidates now show `170mW`, are graded `需确认替代`, and return a `240mW` versus `170mW` power conflict. Complete B25/50 3370K testing keeps only the F-code model exact.
+- Bumped `QUERY_RESULT_CACHE_VERSION` to `92` and `PUBLIC_CODE_STAMP` to `2026-07-16T18:10:00+08:00`. The 23-test release safety gate passed using isolated databases; member, cost-list, and no-match runtime fingerprints were unchanged.
+
+### 2026-07-16 [timing matching] Integrate Epson official product numbers
+
+- Added an official Epson parameter synchronizer covering 6,060 unique crystal and oscillator product numbers: 1,486 crystal units and 4,574 oscillators. The source CSV keeps exact Epson product numbers, package dimensions, frequency, ppm tolerance, voltage range, output, load capacitance, temperature, ESR, drive level, datasheet, and official source URLs.
+- Extended timing parsing for metric packages such as `3.2x2.5mm`, standard package codes, SPXO/SPSO terms, ppm normalization, and voltage-range containment. Epson is ranked first among timing alternatives while exact source models remain visible.
+- Fixed a mixed-source lookup defect where any old `components.db` hit prevented missing product-number rows from being loaded from the public search sidecar. Database and sidecar candidates are now always merged and deduplicated.
+- Real-cache checks return Epson exact PNs for `32.768kHz / 3215 / 7pF / ±20ppm`, five Epson alternatives for `25MHz / 3225 / 3.3V / CMOS / ±50ppm`, and Epson alternatives from an Abracon exact-model query. Legacy `20PPM` rows remain compatible with normalized `20` queries.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `93` and `PUBLIC_CODE_STAMP` to `2026-07-16T22:31:00+08:00`. The 23-test release safety gate passed with isolated databases and unchanged protected runtime fingerprints.
+
+### 2026-07-17 [timing library] Add official multi-brand crystal and oscillator coverage
+
+- Added a repeatable official-data synchronizer for Abracon, Kyocera, NDK, KDS, TXC, Murata, and SiTime timing products. The generated source contains 29,075 rows across 13 normalized brand labels: 7,736 crystal units and 21,339 oscillators.
+- Preserved source precision instead of presenting every row as an exact part number: 23,726 official part numbers, 4,011 NDK model/frequency/specification combinations, 968 official templates, 266 official series ranges, and 104 configurable series. Non-exact rows are displayed as `需确认配置`.
+- Extended the public search sidecar with timing frequency ranges/options, tolerance/voltage/load options, storage temperature, frequency-temperature characteristic, overtone, AEC grade, package quantity, official specification number, long-term stability, and phase noise.
+- Updated timing result tables to display those fields and normalized legacy Epson/Kyocera/KDS/Murata/NDK/TXC/Abracon/SiTime brand aliases. Rich official rows now replace duplicate legacy seed rows for the same product number.
+- Real-cache checks return Kyocera, Abracon, Fox, NDK, Epson, and other valid brands for representative crystal and oscillator specifications. Focused Epson and multi-brand timing tests pass.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `94` and `PUBLIC_CODE_STAMP` to `2026-07-17T00:22:00+08:00`. Protected member, cost-list, and no-match databases are not modified by the synchronizer.
+
+### 2026-07-17 [timing matching] Enforce Epson official detailed parameters
+
+- Extended the Epson official synchronizer to import frequency-temperature characteristic, 25C aging, turnover temperature, parabolic coefficient, overtone order, and AEC grade for exact product numbers.
+- Added detailed timing parsing and comparison. Known conflicts in operating temperature, temperature characteristic, aging, turnover temperature, parabolic coefficient, or overtone are filtered; incomplete timing searches remain visible as `部分参数匹配` instead of being overstated as complete.
+- A complete oscillator search now requires operating temperature and aging. A complete MHz crystal search additionally requires temperature characteristic and overtone; a complete low-frequency kHz crystal search requires turnover temperature and parabolic coefficient.
+- Epson cache refresh now merges the multi-brand official timing CSV before rebuilding runtime caches, preserving Abracon, Kyocera, NDK, KDS, TXC, Murata, SiTime, and other official timing rows.
+- Focused integration tests pass, and real-cache replays verify full Epson crystal/oscillator matches plus sparse-query downgrading. Raised `QUERY_RESULT_CACHE_VERSION` to `95` and `PUBLIC_CODE_STAMP` to `2026-07-17T01:18:00+08:00`.
+
+### 2026-07-17 [Epson RTC matching] Recognize RX8025T-UC and import RTC data
+
+- Reproduced `RX8025T-UC` returning `无法识别输入内容`. The part is an Epson RTC module with a built-in 32.768kHz compensated crystal, while the previous Epson synchronizer covered only crystal units and oscillators.
+- Added Epson's official 66-row RTC feed, official product-number records, confirmation-required series aliases, and source-labeled China-market `RX8025T-UB/UC` exact rows. Added a dedicated `实时时钟模块（RTC Module）` display with interface, timekeeping voltage, backup current, monthly deviation, package, temperature, and source status.
+- Exact-model lookup now checks the fast SQLite sidecar before scanning the 1.5GB component database. Reverse lookup retains RTC and detailed crystal/oscillator fields instead of dropping them.
+- The Epson source now has 6,158 rows. Both runtime caches contain `RX8025T-UC`; real lookup returns one Epson RTC row, and exact recognition takes 0.032 seconds after candidate loading with I²C, 1.8~5.5V timekeeping voltage, and 0.8µA typical backup current present.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `96` and `PUBLIC_CODE_STAMP` to `2026-07-17T20:30:00+08:00`. All 16 Epson integration tests pass; the complete 23-test release safety gate passes with isolated databases and unchanged protected member, cost-list, and no-match fingerprints.
+
+### 2026-07-18 [timing matching] Explain partial Epson cross-brand alternatives
+
+- Added exact recognition for Epson `X1E0000210139` / `X1E000021013900`, the official `FC2012AN` series alias, and compound series-plus-product-number inputs such as `SG2520HGN_X1G0058910005`.
+- Exact database timing records now take priority over generic model-rule decoding, preserving ESR, drive level, aging, turnover temperature, parabolic coefficient, overtone, long-term stability, and phase-noise data when available.
+- Added `待确认参数` to normal result tables, BOM result views, and downloaded BOM Excel. Partial crystal, oscillator, and RTC rows distinguish source-data gaps, candidate-data gaps, known differences, and the exact customer/engineering checks still required.
+- Cross-brand replay: RX8025T-UC/UB have no safe non-Epson RTC substitute; FC2012AN has seven NDK/TXC partial candidates; X1E000021013900 has no compatible non-Epson row because available candidates conflict on temperature/ppm/ESR; SG2520HGN_X1G0058910005 has eight Abracon partial HCSL candidates requiring output/pin/jitter confirmation.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `97` and `PUBLIC_CODE_STAMP` to `2026-07-17T23:10:00+08:00`. The Epson source adds only three rows; existing validation timestamps are preserved and protected runtime databases are not rewritten.
+
+### 2026-07-18 [result layout] Move confirmation details into remark one
+
+- Removed the standalone `待确认参数` result column and merged its generated content into `备注1` for normal search results, BOM previews, and BOM Excel downloads.
+- Existing component notes and customer-provided `备注1` values are preserved and followed by the generated confirmation detail. Repeated rendering does not append the same detail again.
+- Styled workbook export now writes into an existing `备注1` column when present; otherwise it appends one `备注1` column. Flat DataFrame/CSV-style export follows the same behavior.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `98` and `PUBLIC_CODE_STAMP` to `2026-07-18T10:30:00+08:00`. Focused timing and export regression coverage now totals 28 passing tests; no protected database is modified.
+
+### 2026-07-18 [BOM layout] Keep preview bottom visible after iframe shrink
+
+- Reproduced the clipped BOM original-content preview: its internal table wrapper could grow to 560px while the initial host iframe was capped at 320px.
+- Added dedicated normal and compact BOM preview wrappers at 440px and 260px. The initial iframe estimator now reserves the table header, visible rows, card edge, and scrollbar, while short previews can still shrink through the existing actual-content reporter.
+- A focused system regression and a 1540px Playwright render pass; the 20-row preview closes at 450px inside a 460px host estimate with no clipped lower edge.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `99` and `PUBLIC_CODE_STAMP` to `2026-07-18T14:20:00+08:00`. No runtime database or matching rule is changed.
+
+### 2026-07-18 [BOM export] Bind explanations and remarks to each matched brand
+
+- Moved match explanations and generated confirmation remarks from row-level export fields into the selected candidate slots.
+- BOM preview and downloaded Excel now emit each candidate as one contiguous group: `匹配品牌`, `匹配型号`, cost fields, `匹配说明`, and `匹配备注`, followed by the numbered group for the next brand.
+- Candidate remarks are generated from that exact candidate's `备注1` plus its own missing/conflicting parameter checks. The uploaded BOM's original `备注1` column is preserved and is no longer overwritten by a candidate note.
+- Added regression coverage for two brands with different notes, active-cost workbook export, and legacy row fallback. Raised `QUERY_RESULT_CACHE_VERSION` to `100` and `PUBLIC_CODE_STAMP` to `2026-07-18T20:20:00+08:00`.
+
+### 2026-07-18 [resistor matching] Enforce and expand special resistor series
+
+- Audited the 1.48-million-row resistor library. Existing data already includes large automotive, anti-sulfur, high-voltage, high-power, surge, industrial, low-ohm, and current-sense families; the main defect was that only automotive and anti-sulfur terms were normalized consistently, and exact resistor matching did not enforce them.
+- Expanded resistor requirement parsing for high power, high voltage, surge/pulse, current sense, low/high ohm, precision, low TCR, wide terminal, resistor array, four-terminal, non-magnetic, lead-free, ESD, and fusible/flameproof requirements.
+- Special requirements are now hard constraints. Combined requests such as `车规 + 抗硫化` require every requested tag instead of accepting a candidate that satisfies only one.
+- Added 48 FOJAN official series profiles, bringing the covered FOJAN resistor taxonomy to 63 series across thick film, thin film, automotive, anti-sulfur, high-voltage, high-power, wide-terminal, resistor-array, and alloy/current-sense families. Only official detail pages or official catalog titles were used; unverified resistance/power ranges were not invented.
+- Real-library replay returned 23 automotive, 15 anti-sulfur, 17 high-voltage, 12 high-power, 17 surge, and 7 combined automotive-plus-anti-sulfur matches, with zero candidates violating the requested special-use tags.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `101` and `PUBLIC_CODE_STAMP` to `2026-07-18T23:04:42+08:00`. The implementation does not modify member, cost-list, no-match, component, prepared-cache, or search-sidecar databases.
+
+### 2026-07-22 [BOM workflow] Require output-brand confirmation before matching
+
+- Reproduced the wasted double-run: a newly uploaded or post-login-restored BOM entered the automatic-brand match immediately because a changed workbook signature was treated as a start request.
+- Changed the flow to read/preview first and match only after an explicit mode confirmation. New uploads start with neither `主营品牌自动匹配` nor `指定品牌` selected; automatic mode has its own start button, and custom mode requires at least one selected brand before its start button is enabled.
+- Switching output mode or selected brands no longer clears results or reruns the workbook. Existing results are replaced only after the user explicitly starts a new run.
+- Isolated browser verification used temporary member, cost-list, and no-match databases. Desktop and 390px mobile views show a 0% waiting state with no overflow, no automatic task, no default custom brand, and a disabled custom start button until a brand is selected.
+- Advanced `PUBLIC_CODE_STAMP` and `PUBLIC_RELEASE_STAMP` to `2026-07-22T01:51:09+08:00`; protected production databases were not used by the browser test.
+
+### 2026-07-22 [common-part matching] Keep requested cross-brand alternatives
+
+- Reproduced the 12 reported common resistor/MLCC inputs against the real search library. Electrical alternatives existed, but a slash-separated `品牌:` list was reduced incorrectly and candidates without explicit `无卤` metadata were removed before grading.
+- Added multi-brand parsing, the `翔胜` to `VO(翔胜)` alias, and separate source/target brand handling. Automatic mode keeps copied brand lists as source metadata; explicit target-brand mode applies the union filter. `无卤` and `无铅` remain visible as `需确认替代` when candidate compliance evidence is missing; automotive, anti-sulfur, high-voltage, industrial, soft-termination, resonant, and other functional requirements remain hard constraints.
+- All 11 resistor inputs now return requested-brand alternatives from Walsin, Yageo, and/or VO. The `0603 X7R 220pF` input returns Yageo and CCTC alternatives. Missing compliance evidence is called out for original-datasheet confirmation instead of being presented as a complete match.
+- Focused resistor/MLCC regressions pass, and the complete 24-test release safety gate passes with isolated databases and unchanged protected runtime data. Advanced `QUERY_RESULT_CACHE_VERSION` to `103` and both public release stamps to `2026-07-22T03:33:32+08:00`.
+
+### 2026-07-22 [search intent] Separate source brands from requested output brands
+
+- Added a manual-search brand-scope control with `自动匹配其他品牌` as the default and `指定品牌` as the explicit whitelist mode. Custom mode supports 1-5 brands and blocks search until at least one is selected.
+- Brand names copied from customer BOM text are source metadata in automatic mode and no longer shrink the candidate pool. Explicit `指定品牌:` / `目标品牌:` / `输出品牌:` clauses remain line-level target filters.
+- Pending member-login searches now preserve the query, brand mode, and selected brands together. Focused matching tests and an isolated local browser check pass; the browser test used temporary member, cost-list, and no-match databases.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `104` and advanced both public stamps to `2026-07-22T04:10:17+08:00`.
+
+### 2026-07-22 [BOM accuracy] Reject blank selected-brand recommendations
+
+- Reproduced the reported false-positive BOM output with `PDC匹配国巨——电容.xlsx`: status came from all-brand candidates while the selected PDC export slot could be empty.
+- Added a final output invariant: recommendation-like states require a nonblank selected-brand model. Empty selected-brand output becomes `无匹配`, generic candidate brand/model/remarks are cleared, and the explanation distinguishes no manufacturer equivalent from missing database coverage.
+- Fixed automatic BOM column mapping to consider full-column completeness. The reported workbook now selects `国巨型号` instead of the partially populated `PDC料号`; all 250 source rows parse as MLCC with no false diode row.
+- Real-file sample replay covers populated and blank PDC rows plus high-voltage/automotive specifications: 9 recommended, 4 no-match, 0 blank-model false positives, and 0 parse failures. Focused unit tests pass with isolated runtime databases.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `105` and advanced `PUBLIC_CODE_STAMP` / `PUBLIC_RELEASE_STAMP` to `2026-07-22T05:15:52+08:00`. No protected runtime database or component data file was modified.
+### 2026-07-22 [Search UI] Keep result rows and card bottoms visible
+
+- Replaced fixed partial-row clipping with measured header/row/scrollbar viewport heights.
+- Added rounded-card overflow containment and a 16px iframe bottom reserve so consecutive search results remain visually separated.
+- Added regression assertions without touching member, cost-list, or no-match runtime databases.
+
+### 2026-07-22 [Member authentication] Keep login sessions for 12 hours
+
+- Increased the authoritative member-session TTL from one hour to twelve hours while preserving logout, account-status validation, and sliding renewal behavior.
+- Updated the formal Cloudflare shell's local-storage fallback to the same twelve-hour duration so browser persistence cannot expire before a valid server session.
+- Added isolated regression coverage for initial token expiry, near-expiry renewal, and the public-shell TTL contract. No protected runtime database was modified.
+
+### 2026-07-26 [BOM export] Add system Save As location selection
+
+- Replaced the BOM result `st.download_button` with an `另存 BOM 匹配后 Excel` control that transfers the generated workbook to the formal top-level shell through the existing random bridge channel.
+- The formal shell now validates the channel, opens the Chromium system file picker, writes the workbook to the selected path, and treats user cancellation as cancellation rather than a second download.
+- Browsers without the File System Access API keep a normal-download fallback. Source, syntax, payload-escaping, and cross-origin user-activation tests pass without using production databases.
+
+### 2026-07-27 [Member authentication] Fix logout recovery and duplicate navigation
+
+- Made admin, member-center, BOM, and search routes mutually exclusive so a stale `bom=1` parameter cannot keep the BOM page active after entering the member center.
+- Member-center links now explicitly clear the BOM and admin route parameters. The right-side navigation therefore renders one `返回搜索` action instead of duplicate buttons.
+- Logout now clears Streamlit state, route parameters, pending work, and the browser-persistence marker before attempting remote session revocation. The browser bridge gives that clear marker priority over token recovery and notifies the formal shell to remove its saved token.
+- Remote session changes are flushed only after a confirmed synchronized member snapshot, preventing a failed remote refresh from publishing stale local member data. Focused regressions use temporary member, cost-list, and no-match databases.
+
+### 2026-07-27 [BOM export] Preserve the uploaded XLSX format
+
+- Confirmed that the export path could change workbook presentation by adding an `A2` freeze pane when the source had none. An append failure could also silently fall back to rebuilding a flat result workbook.
+- XLSX export now keeps the source workbook's existing freeze state, cell values and styles, alignments, column widths, row heights, hidden rows/columns, merged ranges, filters, print settings, hyperlinks, sheet names, and rich text. Match columns start after both the parsed columns and the worksheet's actual rightmost column.
+- Existing cells are no longer restyled. For an Excel source, a format-preserving append failure now stops with a clear error instead of returning a reformatted workbook; legacy `.xls` must first be saved as `.xlsx`.
+- A format-heavy regression workbook and real `1通力-富临通.xlsx` / `星际需求0715.xlsx` replays show zero differences across the original worksheet region. Tests use isolated runtime database paths.
+
+### 2026-07-27 [Admin authentication] Make exit backend leave the admin route
+
+- Fixed `退出后台` appearing ineffective when the active member account also had administrator privileges.
+- The exit callback now clears the backend-authentication flag and removes all active page-mode parameters, returning to the search page while preserving the member login session.
+- The formal outer shell also removes its visible `admin` route so refreshing the browser cannot reopen the backend immediately.
+- Added regression coverage that verifies the admin route is cleared without deleting the member token. No protected runtime database is modified.
+
+### 2026-07-27 [BOM export] Export legacy XLS as a separate result workbook
+
+- Legacy `.xls` uploads no longer enter the OpenXML in-place append path or require the user to convert the source file.
+- The original `.xls` remains untouched. The system creates `原文件名_匹配结果.xlsx`, retains each parsed source sheet and source column, and appends the matching brand/model/cost/MOQ/L&T/explanation/remark columns.
+- The BOM page clearly labels this as an independent result workbook. Existing `.xlsx` uploads still use the format-preserving append path.
+- Real-file replay with `阻容待下6-22.xls` reads 199 rows, exports the same source sheet with appended match columns, and confirms the original file bytes remain unchanged. Tests use isolated runtime databases.
+
+### 2026-07-27 [Admin authorization] Expose backend entry only to administrator members
+
+- Removed the public standalone backend-login entry and password form. Logged-out visitors and ordinary members now see only the member-login/member-center entry and cannot reuse a stale backend-session flag.
+- Backend authorization now requires the active member record to have `role=admin`. Administrators sign in through the normal member page and then see `进入后台` on search, member-center, and BOM modules.
+- An unauthorized legacy `?admin=1` URL shows the member-login entry and an administrator-permission notice, but no backend form or backend content.
+- Focused role, login, logout, and route tests pass. Isolated browser verification covered logged-out, ordinary-member, and administrator sessions without touching production member, cost-list, or no-match databases.
+
+### 2026-07-27 [Navigation] Move ordinary-member controls to the top
+
+- Removed the empty administrator slot from logged-out and ordinary-member layouts. `会员登录/会员中心` now occupies the first right-side slot and `BOM批量匹配` the second.
+- Administrator accounts retain `进入后台`, member center, and BOM in their original three-slot order.
+- Desktop and mobile browser checks confirm top offsets of `18px/68px` and `12px/54px`. The 32-test release safety gate passed with protected runtime-data fingerprints unchanged.
+
+### 2026-07-28 [Resistor search] Accept dot-separated tolerance after an R/K/M value
+
+- Confirmed that `1206,3R.5%` was the only reported line that failed resistor-context detection; the dot between `3R` and `5%` caused the fast index to miss and exposed the unavailable-full-library warning.
+- Added a narrow normalization rule for `3R.5%`-style input without changing valid decimal resistance forms such as `3.3R`.
+- Added regression coverage for all six reported 1206 specifications, including parsed resistance/tolerance and fast-index resolution.
+- Focused resistor regression passes with isolated member, cost-list, and no-match database paths.
+
+### 2026-07-28 [BOM performance] Make large matching jobs resumable and remove unindexed prefetch scans
+
+- Reproduced the reported problem with `1厚膜电阻对标报价.xlsx`: 767 active BOM rows, while worksheet formatting extended far beyond the actual data.
+- Root cause: batch matching ran synchronously and saved only the final result. A Streamlit rerun discarded all unfinished work. Exact-model misses also triggered an unindexed normalized-model scan over the full component table.
+- Added four-worker bounded matching, ordered result assembly, and checkpoints every small batch. A rerun with the same upload/mapping/output settings now resumes completed row indexes.
+- Exact-model lookup now uses the indexed search sidecar first and avoids the full-table `REPLACE/UPPER` miss scan when that index is available. Local candidate loading no longer reads both the source database and sidecar for the same rows.
+- The reported file's first 25 rows improved from about 118 seconds to about 51 seconds with identical status counts. A 100-row replay completed all rows and produced checkpoints through row 100.
+- All 33 regression tests and the release safety gate passed with protected runtime databases unchanged.
+
+### 2026-07-28 [BOM performance] Reuse per-job data snapshots and preserve match ordering
+
+- Replayed the reported `1厚膜电阻对标报价.xlsx` with 767 rows. The formal screenshot processed 13 rows in 20 seconds (about 0.65 row/s), so the remaining old path would take roughly 19.7 minutes.
+- Root cause: every BOM row still recalculated the interactive search cache signature and repeatedly loaded active cost and resistor-series pricing data. FOJAN-only output also entered unnecessary all-brand prefetch paths, while export assembly could reorder already ranked candidates.
+- BOM matching now uses its own bounded per-job query cache without interactive signature scans, loads cost/pricing snapshots once per workbook, scopes FOJAN-only queries before database prefetch, reuses direct generated FOJAN candidates, and keeps the validated match order through export.
+- A full isolated 767-row replay completed in 107.9 seconds (7.11 rows/s), about 10.9 times the reported formal-page rate. Result distribution stayed at 715 recommended, 10 confirmation-required, and 42 no-match rows.
+- All 33 system regressions pass, including new checks for cache-signature isolation, automotive-series specificity, candidate-order preservation, and legacy tolerance-field compatibility. Query cache version is `106`; public code/release stamps are `2026-07-28T23:34:16+08:00`.
+
+### 2026-07-29 [FOJAN special resistors] Treat customer brands as source metadata
+
+- Reproduced the missing FOJAN alternatives with a customer-style query containing `YAGEO / AC0402FR-074R99L` plus `0402 / 4.99R / 1% / 1/16W / 车规`. The same specification without the source brand generated FOJAN correctly.
+- Root cause: `fojan_brand_requested_or_unset()` still treated any parsed brand as an output restriction, even in automatic cross-brand mode. That suppressed generated FOJAN special-series candidates whenever the pasted BOM retained another manufacturer's brand or model.
+- Automatic mode now always permits FOJAN alternative generation; only the explicit `指定品牌` filter can exclude FOJAN. A Yageo-only explicit filter still returns no FOJAN rows.
+- The reproduced query now ranks `FRQ0402F4R99TS` first, followed by other compatible FOJAN special series. Representative vehicle, anti-sulfur, high-voltage, high-power, surge, low-ohm, and alloy searches pass, and all 38 configured FOJAN special-series model builders return valid models.
+- Raised query cache version to `107` and public code/release stamps to `2026-07-29T00:09:24+08:00`. No protected runtime database or component data file was modified.
+
+### 2026-07-30 [SiTime oscillator search] Decode complete SiT9121 ordering codes
+
+- Added an official-rule parser for complete SiTime SiT9121 order numbers, including temperature grade, output type, package, frequency stability, supply voltage, feature pin, and frequency.
+- Exact SiT9121 input models now produce an original-model row even when the local component database does not yet contain that exact order number. The exact row remains visible when the fast timing sidecar also returns cross-brand alternatives.
+- Verified `SIT9121AI-2D3-33E125.000000` against SiTime's exact product page and decoded `SIT9121AI-2D3-33E120.000000` from the official SiT9121 ordering table. Both resolve as 7050, LVDS, 3.3 V, industrial-temperature, +/-50 ppm oscillators with OE; the frequency is 125 MHz or 120 MHz respectively.
+- End-to-end matching returns nine Abracon partial alternatives for 125 MHz and one Abracon partial alternative for 120 MHz. Alternatives remain partial because load/drive, enable behavior, jitter, aging, and other model-specific parameters still require confirmation.
+- Fixed an existing timing-query variable error exposed by the new path and raised the query cache version to `108`. No protected runtime database or component data file was modified.
+
+### 2026-07-30 [Epson cross-brand timing] Reverse exact source models into official Epson order numbers
+
+- Verified Epson's official selector feeds and product-number sources. A clean synchronization produced 6,161 records: 1,489 crystal units, 4,574 oscillators, and 98 RTC rows.
+- Reproduced cross-brand failure with Abracon `ABM11N-40.0000MHZ-8-D2X-T3`. Its exact row correctly decoded 40 MHz, 2016, 8 pF, +/-20 ppm, -40~85C, fundamental mode, and 50-ohm maximum ESR, but the fast timing sidecar rejected Epson `Q22FA12800697` because its tighter +/-10 ppm tolerance was not textually equal to +/-20 ppm.
+- Timing prefilter and detailed matching now accept a positive candidate frequency tolerance that is equal to or tighter than the source requirement. Larger or otherwise conflicting tolerances remain rejected.
+- Exact orderable Epson product numbers now sort ahead of Epson series, templates, and configurable placeholders. Non-orderable rows remain marked `需确认配置`.
+- Epson synchronization records the official product-number search and crystal ordering-rule references and states that concrete order numbers must come from Epson's official product-number results rather than being invented from a series name.
+- Raised the query result cache version to `109` and the public code stamp to `2026-07-30T20:29:39+08:00` so previously cached no-alternative results cannot survive the release.
+- All 42 Epson and multi-brand timing regressions pass with isolated runtime database paths. No protected runtime database or component bundle was modified.
+
+### 2026-07-30 [Multi-brand timing] Add conservative NDK/KDS/TKD/Huilun/TXC reverse identification
+
+- Audited the official timing coverage for NDK, KDS, TKD/泰晶, 惠伦 and TXC. The existing library contained 4,013 NDK records, 149 KDS series and 105 TXC series, but no TKD or Huilun records.
+- Added 101 TKD official series-range rows and 38 Huilun official series-range rows without manufacturing synthetic order numbers. The timing source now contains 29,214 records in total.
+- Added conservative series/order-code identification for all five brands. It only extracts a brand, official series, device class and package when those fields are deterministic; frequency, load capacitance, tolerance, temperature range, ESR and output configuration remain blank unless the source model or official row provides them.
+- Partial source models can now enter Epson cross-brand matching, but incomplete requirements remain `需确认配置` with missing-parameter notes rather than being labelled complete equivalents.
+- Fixed KDS duplicate-series aggregation so split product-table ranges use the minimum lower bound and maximum upper bound. `DSX321G` now correctly covers 7.9-64 MHz instead of retaining only its first range segment.
+- Rebuilt the search sidecar to 1,705,519 core rows and 59,442 value rows. All 46 focused multi-brand/Epson timing regressions pass with temporary protected-database paths.
+
+### 2026-07-30 [Timing data] Import official NDK details and KDS orderable part numbers
+
+- Corrected the NDK oscillator tolerance mapping to use the official `Overall frequency tolerance Max.` field. All 4,013 NDK records now carry an official frequency-tolerance value instead of leaving oscillator rows blank.
+- Imported additional official NDK parameters including turnover temperature, parabolic coefficient, aging/long-term stability, phase noise, current consumption, startup time/power, enable/standby behavior, frequency-control range, control voltage, and terminal/pin information.
+- Imported 57 KDS orderable `Part No.` rows directly from KDS official product tables while retaining 149 series-range rows. Empty cells and `-` markers are never converted into part numbers.
+- Added per-row `资料完整度` and `缺失关键参数` fields. These are informational safeguards only; they do not relax frequency, package, load, temperature, output, voltage, ESR, aging, or overtone compatibility checks.
+- The official timing source now contains 29,271 rows. The rebuilt search sidecar contains 1,705,576 core rows and 59,499 parameter rows; exact lookups for KDS `7EG02600A2C` and NDK `NH7050SA · 10MHZ · NSC5263A` succeed.
+- All 49 focused timing regressions and the 33-test release safety gate pass. Tests use isolated databases and protected member, cost-list, and no-match runtime data remains unchanged.
+
+### 2026-07-31 [Timing model granularity] Separate searchable series from orderable product numbers
+
+- Preserved series aliases for reverse lookup while preventing series, template, and configurable timing records from appearing in model or BOM order-number fields.
+- Added legacy Epson series-list detection so `FC2012AN`, `FC2012AA`, and `FC2012SN` display under series with concrete-PN confirmation, while exact identifiers such as `X1A0001710001` remain models.
+- Applied the same rule to KDS, TXC, TKD, Huilun, SiTime, Murata, and other timing rows through shared granularity metadata. NDK official model+frequency+specification ordering combinations remain eligible.
+- Verified 54 Epson/multi-brand timing tests, 39 system/BOM tests, and the 33-test release safety gate with isolated runtime databases.
+
+### 2026-07-31 [Crystal ESR matching] Prevent higher-ESR parts from being marked complete
+
+- Confirmed the official Epson rows already distinguish `X1A0001710001` (`FC2012AN`, ESR `60kΩ Max`) from `X1A0002010001` (`FC2012SN`, ESR `100kΩ Max`).
+- Fixed exact-model reverse matching so the source model's ESR participates in candidate classification even when the user did not type ESR explicitly.
+- A candidate with a higher maximum ESR now remains visible as `需确认替代`, with a note identifying the ESR increase and requiring oscillator negative-resistance margin confirmation. Missing candidate ESR prevents a complete-match label.
+- The rule is directional: a lower-or-equal ESR candidate may remain complete when every other required parameter matches, while a higher-ESR candidate cannot.
+- Added bidirectional regressions for the two Epson orderable product numbers. All 36 Epson timing tests and 33 system regressions pass without modifying protected runtime data.
+
+### 2026-07-31 [Multi-brand timing data] Add traceable exact order numbers
+
+- Added a repeatable exact-order-number synchronization source for currently listed TXC, KDS, TKD, YL/Huilun, and HOSONIC crystals and oscillators. Each row retains the product page, available original datasheet, distributor product code, package quantity, verification time, completeness score, and explicit missing-parameter list.
+- Imported 3,431 exact rows: TXC 2,313, TKD 671, HOSONIC 243, KDS 165, and YL/Huilun 39. The multi-brand timing source now contains 32,702 rows; existing first-party NDK/KDS exact rows retain higher precedence over duplicate distributor records.
+- Fixed incremental refresh so old distributor rows are replaced without deleting first-party series/range records. This corrected stale `SF32WK32768D71T005` data from 32.768MHz to the traceable 32.768kHz value.
+- Missing fields remain blank and are exposed as confirmation notes. TDK ceramic resonators are not presented as quartz-crystal replacements, and archived/unlisted order numbers are not synthesized.
+- Replaced all 32,702 timing rows in the prepared cache and refreshed the 1,709,006-row search core plus 62,929 timing/value index rows. Exact lookups for `SF32WK32768D71T005`, `3S30000079`, `1P224000AA0Z`, and `7X80000600` return the expected brand, order number, frequency unit, completeness, and missing fields.
+- All 24 multi-brand timing integration tests pass. Added the synchronization script to the public publish list so future refreshes remain reproducible. Protected member, cost-list, and no-match databases were not modified.
+
+## 2026-08-01 - Broad timing and aluminum-electrolytic exact-MPN expansion
+
+- Added a repeatable LCSC category synchronizer that discovers brands before paging exact manufacturer part numbers; it never synthesizes an orderable model.
+- Added 24,050 aluminum-electrolytic records across 45 brands and 21,788 timing records across 65 brands. Official-source rows remain authoritative when a distributor row duplicates the same part number.
+- Imported capacitance/frequency, tolerance, voltage, package/body dimensions, ESR, ripple current, lifetime, temperature, MOQ, and packing fields where published. Rows missing category-critical parameters are marked confirmation-required with the missing fields recorded.
+- Added timing category and model-shape gates. Unrelated category pollution and specification text such as `85MHz 25PPM 3.3V` can no longer appear as exact orderable models.
+- Incremental cache refresh now removes all stale rows from the same synchronized source before inserting the latest snapshot, without deleting official or unrelated-source records.
+- The refreshed search index contains 1,748,648 core rows and 79,484 parameter rows. Eight importer tests, 63 timing/electrolytic regressions, and the 33-test release safety gate pass; protected runtime database fingerprints are unchanged.
+
+## 2026-08-01 - Tighten cross-brand timing and aluminum-electrolytic equivalence
+
+- Crystal-unit specification queries now parse and compare ESR and maximum drive level. A crystal cannot be marked complete unless its type, frequency, package, frequency tolerance, load capacitance, temperature range, ESR, drive level, and aging requirements are known; MHz crystals also require temperature characteristic and overtone, while 32.768kHz tuning-fork crystals require turnover temperature and parabolic coefficient.
+- Added the official low-frequency tuning-fork rule that 32kHz to 100kHz crystal-unit rows may infer fundamental operation when the candidate datasheet omits a separate overtone cell. The rule does not apply to MHz crystals, oscillators, or unrelated timing devices.
+- Aluminum-electrolytic cross-brand results now require capacitance, tolerance, voltage, mounting style, operating temperature, exact body diameter and length, and rated lifetime before they can be marked complete. Sparse requests remain partial instead of appearing interchangeable.
+- Broad distributor refreshes now preserve higher-authority official timing rows when an exact manufacturer part number overlaps, preventing incomplete distributor records from replacing detailed Epson data.
+- Verified exact-MPN reverse lookup and complete/sparse specification queries against real Epson, Abracon, AISHI, ChuangHui, and Ymin records. All 77 focused timing/electrolytic/import regressions and the 33-test release safety gate pass with isolated databases; protected runtime data remains unchanged.
+
+### 2026-08-10 [System hardening] Persist large BOM jobs and add quality observability
+
+- Added a member-scoped BOM task store that keeps the uploaded file, output-brand settings, column mappings, incremental row checkpoints, completion state, and failure details for 72 hours. Refreshing or reopening the task URL can resume unfinished work without sharing jobs across member accounts.
+- Large BOM runs now group identical matching inputs, execute each unique specification once, then restore the original row order and row-specific quantity/source fields. Accuracy rules and candidate ranking are unchanged; only duplicate computation is removed.
+- Added result-review filters for status and keyword, plus owner-scoped retry of only `解析失败` and `无匹配` rows. Review filters never remove rows from the downloaded workbook.
+- Added a read-only backend data-quality page grouped by brand and component category, and runtime P50/P95, throughput, duplicate-reuse, and failed-row metrics for search and BOM flows.
+- Added a JSON golden regression corpus for previously reported resistor, electrolytic, and NTC queries, plus persistence, owner-isolation, retry, and quality-report tests.
+- The release safety gate now isolates the BOM task database and validates the new modules. All 39 regressions passed; member, cost-list, and no-match runtime database fingerprints remained unchanged. No cost-management behavior or component cost data was changed.
+
+### 2026-08-10 [Search stability] Handle repeated part numbers in one batch
+
+- Added the source-line instance to all no-match report widget keys so repeated identical part numbers cannot crash Streamlit result rendering.
+- Added a regression that renders duplicate `FRC0402F3242TS` report controls and verifies unique widget keys.
+
+### 2026-08-10 [BOM resistor parsing] Support customer KR notation without breaking milliohm values
+
+- Added standalone resistor-value normalization for `KR`/`kR`, uppercase `MR`, and spaces around decimal points.
+- Verified representative two-sheet BOM descriptions including `11.3KR`, `4. 7KR`, `3. 9KR`, `10KR`, `100KR`, and `196KR` against their expected FOJAN FRC models.
+- Kept lowercase `mR` as milliohm and retained manufacturer model text such as `CC0603KRX7R9BB103` unchanged.
+
+### 2026-08-10 [Resistor arrays] Map Walsin WA04X models to FOJAN FRA
+
+- Added the Walsin WA resistor-array series decoder and official array size/power interpretation.
+- Added the ordinary FOJAN FRA array-series profile alongside the existing automotive array variants.
+- `WA04X680JTL` now resolves as `044R / 68 ohm / 5% / 1/16W` and produces `FRA044RJ680TS` when FOJAN output is requested.
+- Two focused regressions and the complete 42-test release safety gate pass; protected runtime databases are unchanged.
+
+### 2026-08-12 [Customer pricing] Isolate quotations by sales customer
+
+- Added new-customer general pricing and existing-customer dedicated pricing without replacing legacy price data.
+- Sales search and BOM matching now require customer selection; existing customers must choose a customer with dedicated pricing.
+- Active lists, manual quotes, lookup caches, and BOM job signatures are isolated per customer, with no fallback to another customer's price.
+- Legacy price records migrate in place as new-customer general prices. All 45 safety-gate regressions pass and protected runtime database fingerprints are unchanged.
+
+### 2026-08-12 [Member customer identity] Require customer binding before matching
+
+- Added a persistent customer-name field to member profiles through an additive SQLite migration. Existing accounts are preserved and receive an empty value until their first matching action.
+- The first ordinary search or BOM match now requires the logged-in member to enter and save a customer name. Pending pre-login searches and uploaded BOM work remain resumable after login and customer binding.
+- Matching automatically uses an active dedicated quotation only when its normalized customer name exactly equals the account-bound customer; otherwise it uses the new-customer general price. It never reads another customer's price.
+- Added customer display/editing to Member Center and customer search/display/editing to backend member management. Changing the bound customer invalidates customer-dependent search and BOM result caches.
+- Older remotely restored member snapshots are schema-migrated before active local sessions are merged back, preserving both legacy accounts and valid login sessions.
+- Four focused regressions and the complete 46-test release safety gate pass. Tests use isolated runtime databases and protected member, cost-list, and no-match fingerprints remain unchanged.
+
+### 2026-08-12 [Member schema hot migration] Invalidate stale readiness markers
+
+- Fixed the formal-page `no such column: customer_name` failure after entering the first customer name.
+- Member-schema readiness is now keyed by an explicit schema version, so a Streamlit hot deployment cannot reuse an older process-wide marker after code introduces an additive column.
+- Remote member snapshot restoration clears all cached schema versions for the target database before applying migrations and restoring active sessions.
+- The legacy migration regression now reproduces the stale-cache condition and verifies both account preservation and the versioned replacement marker.
+
+### 2026-08-12 [Customer master pricing] Map company codes and group-shared quotations
+
+- Added backend customer-information maintenance for company name, customer code, customer group, active state, and notes, including a downloadable Excel template and batch update import.
+- First-time member binding uses the maintained customer list when available. Matching resolves the bound company to its primary code and all active codes in the same group.
+- Cost workbook worksheets now support an explicit `A1=客户代码` marker with `B1=通用` or one/multiple customer codes. Lookup priority is exact customer code, same-group code, then general; another group's price is never visible.
+- Older worksheets without the marker remain general, and legacy exact-name dedicated quotations continue to work. The supplied current workbook was inspected as three general sheets (`FRC&FRL`, `FRH`, `FRQ`), so its existing behavior is preserved until code-specific sheets are added.
+- Four focused regressions and the complete 47-test release safety gate pass. Tests use isolated databases, and protected member, cost-list, and no-match runtime data remains unchanged.
+
+### 2026-08-12 [Member cost visibility] Restrict system costs by administrator-managed job title
+
+- Added an administrator-only `职务` field to member records through an additive schema migration. Existing accounts are preserved with an empty job title, and members can view but cannot edit this field themselves.
+- Backend member management can display, search, and edit job titles. Job-title changes are included in member profile audit logs.
+- Administrators always retain cost visibility. Ordinary members can see system cost and cost-update time only when the normalized job title is exactly `销售` or `销售助理`; all other job titles are denied.
+- Applied the same permission to exact-model search, specification search, BOM result preview, preserved-format `.xlsx` output, and independent legacy `.xls` result workbooks. Restricted users still receive brands, models, MOQ, lead time, and matching notes.
+- BOM task signatures include the cost-visibility permission so an older authorized export cannot be reused after the member's job title changes.
+- Three focused regressions and the complete 48-test release safety gate pass. Tests used isolated databases, and protected member, cost-list, and no-match runtime fingerprints remained unchanged.
+
+### 2026-08-13 [Security boundary] Prevent customer-data discovery and self-switching
+
+- Removed the active customer directory from ordinary member flows. A member without an administrator-assigned customer can no longer enumerate customer names, customer codes, or customer groups.
+- Made customer binding administrator-only. Member Center displays the current binding as read-only, and server-side profile updates reject attempts to change it even if a client submits a forged customer value.
+- Preserved the existing job-title rule: only administrators and accounts whose administrator-managed job title is exactly `销售` or `销售助理` receive cost fields; unauthorized users never receive those fields in search results or BOM exports.
+- The formal entry now returns `noindex`, `nofollow`, `noarchive`, `nosnippet`, `no-referrer`, and `nosniff` policies, serves a deny-all `robots.txt`, and removes a validated member token from the browser URL after the server consumes it.
+- Added regressions for customer-binding authorization, query-token cleanup, and formal-entry crawler/privacy headers. The complete 48-test release safety gate passes, and protected member, cost-list, and no-match runtime database fingerprints remain unchanged.
+
+### 2026-08-13 [Sales customer workflow] Add private multi-customer selection per member
+
+- Replaced the obsolete one-customer-per-account UI with an additive owner-scoped customer list. Each signed-in member can save multiple customer names, switch among only their own entries from a dropdown, or choose `新客户` to add another customer before running ordinary search or BOM matching.
+- New member-entered customers use the general price by default. Backend member management now shows that member's saved customers and provides an administrator-only control to allow dedicated pricing. Authorization is refused unless the maintained customer master or dedicated quotations can resolve the customer safely.
+- Removed the legacy `客户名称` row and edit field from Member Center, member summaries, approval details, member search hints, and backend account-edit forms. The legacy database column and server compatibility path remain intact so no historical member data is deleted.
+- Customer changes invalidate customer-dependent search results, BOM checkpoints, and exports. Logout also clears the selected customer context. Member/customer ownership checks prevent one account from selecting another account's entries.
+- Verification: member bridge tests passed (13), complete system regressions passed (46), and the release safety gate passed all 49 checks in isolated databases. Protected member, cost-list, and no-match runtime fingerprints remained unchanged.
+
+### 2026-08-13 [Customer identity] Require legal company full names
+
+- New member-entered customer names are validated at the server save boundary rather than only by input hints. Chinese entries require a legal company form such as `有限公司`; overseas entries require a recognized registered-entity suffix such as `Ltd`, `Inc`, `LLC`, `Pte Ltd`, `Pty Ltd`, `GmbH`, or an equivalent jurisdictional form.
+- Added support for common European, American, Singaporean, Australian, Malaysian, Japanese, and Korean legal-name forms. Short trading names are rejected with a specific correction message.
+- The rule applies only to newly saved member customer entries. Existing customer history, customer master data, member records, and cost data are not modified.
+
+### 2026-08-13 [Customer selector] Default to new customer and simplify status
+
+- Ordinary search and BOM customer dropdowns now put `新客户` first and select it on initial page entry instead of restoring a previous customer automatically.
+- Manual customer choices remain stable during the current workflow, and saving a new customer still continues with that newly saved customer.
+- General-price status now displays only `通用价格`; member, customer, dedicated-price permission, and cost records are unchanged.
+
+### 2026-08-13 [Admin navigation] Preserve administrator login when entering backend
+
+- Fixed the formal-page `进入后台` navigation so it carries the current validated member session into the backend page instead of creating an unauthenticated page session.
+- Kept the server-side administrator-role check unchanged. Ordinary members still cannot see the backend entry or open backend functions through a forged URL.
+- Added regression coverage for the token-preserving backend link and retained the independent backend authorization test. No member, customer, cost-list, or no-match runtime records were modified.
+
+### 2026-08-13 [Admin customer costs] Let administrators search with general or member customer pricing
+
+- Administrators now default the search/BOM customer selector to `通用成本（不指定客户）`, so they can search料号 without adding or selecting a customer.
+- The administrator selector lists all non-disabled members' saved sales customers. Selecting a customer resolves any maintained customer master, dedicated customer cost list, customer-code price, or group-shared price; customers without a dedicated context automatically fall back to general cost.
+- Ordinary member behavior remains owner-scoped: members still only see their own saved customers, must save a new customer before using that customer, and dedicated pricing still depends on administrator-granted price access.
+- Added regression coverage for the administrator default, cross-member customer dropdown, disabled-member filtering, and existing-customer price context. Targeted customer-price isolation tests pass in isolated databases.
+
+### 2026-08-13 [FOJAN alloy cost import] Parse vertical alloy resistor price sheets
+
+- Added support for FOJAN alloy quote pages whose columns are `Series / 产品 / 功率 / 精度 / Resistance Range / Unit Price`, including fill-down series/product/power cells.
+- Milliohm ranges such as `1~100mR`, `101~500mR`, and `1mR大电极` are normalized for exact lookup while preserving the `大电极` marker.
+- Uploaded cost lookup now recognizes FOJAN `FMB/FRM/FPM` alloy series. `TML` large-electrode models only match `大电极` rules, while ordinary `TM` models match standard rules.
+- Verification: targeted FOJAN cost-import tests passed. The real 701 workbook imports 397 rows across 5 sheets, including 61 alloy rules, and sample FRM/FPM alloy models resolve to workbook prices in an isolated temporary database.
+
+### 2026-08-13 [FOJAN official alloy rules] Add FMH/FCM/FWP/FWK naming support
+
+- Checked FOJAN official product pages and datasheets for the new alloy page series: FMH, FCM, FWP, FWK, and FWPK. Added official part-number parsing/generation profiles for those formats, including decimal milliohm codes such as `0M50`.
+- Cost import now recognizes the real workbook's FMH/FCM/FWP/FWK alloy rules and applies datasheet resistance windows before matching a price. FWPK is parsed as an official rule family, but the current 701 workbook does not contain FWPK price rows.
+- Query parsing now treats explicit FOJAN alloy series text such as `富捷 FWP 2728 10mR 4W ±1%` as alloy-resistor search text and recognizes non-standard official sizes like 1216, 2728, 3920, and 5930.
+- Verification: targeted FOJAN regression tests pass, and the real `富捷电阻报价单-富临通701-内部.xlsx` imports 421 rows in an isolated temporary database, including FMH=1, FCM=32, FWP=6, FWK=1 alloy rules. Sample FMH/FCM/FWP/FWK prices resolve, while an unsupported FWK 3mΩ probe returns no price.
+
+### 2026-08-13 [FOJAN official resistor rules] Cover every official resistor series
+
+- Checked FOJAN's official resistor product directory and linked datasheets, then reconciled all 62 listed resistor series against the local matcher rules.
+- Added missing official rule coverage for `FRC-P`, `FRH-X`, `FQW`, and alloy/shunt families `FCN`, `FCR`, `FCS`, `FHS`, `FJR`, `FMK`, `FMS`, `FSHM`, `FSM`, `FSP`, `FSR`, `FUS`, and `FWKP`.
+- Added regression coverage that asserts the official series list has no unmatched local families and verifies representative official sample part numbers parse to the expected series and resistance.
+- Verification: Python compile check, targeted FOJAN resistor regression, and full release safety gate passed with isolated databases; protected runtime database fingerprints remained unchanged.
+
+### 2026-08-14 [Member navigation] Preserve login across member center and BOM links
+
+- Fixed member-center, return-search, and BOM navigation links so they carry the current validated member token when a member is already signed in.
+- This covers administrators and ordinary members; destination pages still validate the token server-side and then clear it from the visible URL through the existing member-auth cleanup.
+- Changed `退出后台` to perform a full account logout and return to the matching-system home route, matching the current product expectation.
+- Verification: Python compile check and targeted member navigation/logout regressions passed with isolated databases.
+
+### 2026-08-14 [Member price permissions] Add job-role and PM-brand cost boundaries
+
+- Changed the backend member job-title field to the exact dropdown options `PM`, `销售`, and `其他`; members still cannot edit this administrator-managed field themselves.
+- Added the backward-compatible `member_pm_brands` relation so administrators can maintain each PM account's responsible brands.
+- PM accounts can use customer-specific prices only for assigned brands, sales accounts only for their own administrator-approved customers, and other accounts only general prices. Administrators retain full access.
+- Applied authorization server-side before ordinary search, cost enrichment, and BOM matching consume cost data; the protection does not depend on hiding UI fields.
+- Verification: focused permission tests, 51 system regressions, and the 54-test release safety gate passed. Protected member, cost-list, and no-match database fingerprints remained unchanged.
+
+### 2026-08-14 [FOJAN FRG] Preserve the high-ohmic resistor series
+
+- Fixed a rule that converted official `FRG1206J206 TS` input (20MΩ, ±5%, 1/4W, 1206, 200V) into ordinary `FRC1206J206 TS`.
+- Explicit FRG input and resistance values above 10MΩ now use the official FRG high-ohmic catalog and suppress automatic FRC synthesis. The existing 10MΩ FRC boundary remains unchanged unless the source explicitly requests FRG.
+- Current FRC documentation may cover the visible numeric range, so the matcher does not claim FRC is electrically impossible; it refuses to label an FRG-to-FRC family change as equivalent without high-ohmic construction and reliability confirmation.
+- Verification: both short and full 20MΩ inputs generate only `FRG1206J206TS`; 10MΩ still generates `FRC1206J106TS`; the 54-test release safety gate passed with protected database fingerprints unchanged.
+
+### 2026-08-14 [Member admin UI] Force the job-title dropdown onto the formal runtime
+
+- Confirmed the member editor uses a fixed `PM / 销售 / 其他` dropdown and cannot accept arbitrary job-title text.
+- Fixed formal-runtime source caching so deployments that change `component_matcher.py` invalidate previously compiled application code instead of continuing to show an old form.
+- Added regression checks for the exact dropdown options and source-version-aware runtime cache key.

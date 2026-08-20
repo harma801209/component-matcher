@@ -1,0 +1,10 @@
+# public redeploy nudge 2026-08-14T16:50:00+08:00
+streamlit>=1.31,<2
+pandas>=2.2,<3
+lxml>=6.0,<7
+numpy>=1.26,<3
+openpyxl>=3.1,<4
+xlrd>=2.0,<3
+pypdf>=4.2,<5
+Pillow>=10.4,<12
+pytesseract>=0.3.13,<0.4

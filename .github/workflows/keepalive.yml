@@ -1,0 +1,57 @@
+name: Keep Streamlit Alive
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Wake Streamlit app in browser
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+
+          DIRECT_URL = "https://fruition-componentmatche.streamlit.app/"
+          PUBLIC_FRAME_URL = "https://fruition-component.pages.dev/~/+/?embed=true&embed_options=hide_loading_screen"
+          PUBLIC_URL = "https://fruition-component.pages.dev/?keepalive=1"
+
+          def wake_url(page, url):
+              page.goto(url, wait_until="domcontentloaded", timeout=120000)
+              page.wait_for_timeout(5000)
+
+              body_text = page.locator("body").inner_text(timeout=10000).lower()
+              if "yes, get this app back up!" in body_text:
+                  page.get_by_role("button", name="Yes, get this app back up!").click(timeout=10000)
+                  page.wait_for_timeout(20000)
+                  page.reload(wait_until="domcontentloaded", timeout=120000)
+                  page.wait_for_timeout(5000)
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              page = browser.new_page(viewport={"width": 1440, "height": 960})
+
+              # Wake the direct Streamlit app first, then the public proxy frame,
+              # and finally the public shell so the real app and visible site both stay warm.
+              for url in (DIRECT_URL, PUBLIC_FRAME_URL, PUBLIC_URL):
+                  wake_url(page, url)
+
+              browser.close()
+          PY

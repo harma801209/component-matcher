@@ -1,0 +1,607 @@
+{
+  "before": {
+    "generated_at": "2026-07-01T07:53:12",
+    "groups": [
+      {
+        "group": "MLCC",
+        "total": 120205,
+        "fields": [
+          {
+            "field": "尺寸",
+            "filled": 120204,
+            "total": 120205,
+            "coverage": 0.999992
+          },
+          {
+            "field": "介质",
+            "filled": 119052,
+            "total": 120205,
+            "coverage": 0.990408
+          },
+          {
+            "field": "容值",
+            "filled": 120115,
+            "total": 120205,
+            "coverage": 0.999251
+          },
+          {
+            "field": "误差",
+            "filled": 120174,
+            "total": 120205,
+            "coverage": 0.999742
+          },
+          {
+            "field": "耐压",
+            "filled": 119759,
+            "total": 120205,
+            "coverage": 0.99629
+          }
+        ]
+      },
+      {
+        "group": "铝电解电容",
+        "total": 15416,
+        "fields": [
+          {
+            "field": "容值",
+            "filled": 15178,
+            "total": 15416,
+            "coverage": 0.984561
+          },
+          {
+            "field": "耐压",
+            "filled": 15332,
+            "total": 15416,
+            "coverage": 0.994551
+          },
+          {
+            "field": "尺寸",
+            "filled": 14645,
+            "total": 15416,
+            "coverage": 0.949987
+          },
+          {
+            "field": "ESR",
+            "filled": 6905,
+            "total": 15416,
+            "coverage": 0.447911
+          },
+          {
+            "field": "纹波电流",
+            "filled": 10725,
+            "total": 15416,
+            "coverage": 0.695706
+          },
+          {
+            "field": "寿命",
+            "filled": 7796,
+            "total": 15416,
+            "coverage": 0.505708
+          }
+        ]
+      },
+      {
+        "group": "热敏电阻",
+        "total": 11535,
+        "fields": [
+          {
+            "field": "R25",
+            "filled": 9361,
+            "total": 11535,
+            "coverage": 0.81153
+          },
+          {
+            "field": "R25误差",
+            "filled": 9361,
+            "total": 11535,
+            "coverage": 0.81153
+          },
+          {
+            "field": "B值",
+            "filled": 9220,
+            "total": 11535,
+            "coverage": 0.799306
+          },
+          {
+            "field": "尺寸",
+            "filled": 10477,
+            "total": 11535,
+            "coverage": 0.908279
+          }
+        ]
+      },
+      {
+        "group": "压敏电阻",
+        "total": 21087,
+        "fields": [
+          {
+            "field": "压敏电压",
+            "filled": 0,
+            "total": 21087,
+            "coverage": 0.0
+          },
+          {
+            "field": "尺寸",
+            "filled": 21087,
+            "total": 21087,
+            "coverage": 1.0
+          }
+        ]
+      },
+      {
+        "group": "功率/射频电感",
+        "total": 22363,
+        "fields": [
+          {
+            "field": "电感值",
+            "filled": 22152,
+            "total": 22363,
+            "coverage": 0.990565
+          },
+          {
+            "field": "误差",
+            "filled": 19744,
+            "total": 22363,
+            "coverage": 0.882887
+          },
+          {
+            "field": "额定电流",
+            "filled": 21780,
+            "total": 22363,
+            "coverage": 0.97393
+          },
+          {
+            "field": "DCR",
+            "filled": 21485,
+            "total": 22363,
+            "coverage": 0.960739
+          },
+          {
+            "field": "尺寸",
+            "filled": 21801,
+            "total": 22363,
+            "coverage": 0.974869
+          }
+        ]
+      },
+      {
+        "group": "磁珠",
+        "total": 1135,
+        "fields": [
+          {
+            "field": "阻抗",
+            "filled": 978,
+            "total": 1135,
+            "coverage": 0.861674
+          },
+          {
+            "field": "额定电流",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          },
+          {
+            "field": "DCR",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          },
+          {
+            "field": "尺寸",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          }
+        ]
+      },
+      {
+        "group": "共模电感",
+        "total": 472,
+        "fields": [
+          {
+            "field": "阻抗或电感值",
+            "filled": 292,
+            "total": 472,
+            "coverage": 0.618644
+          },
+          {
+            "field": "额定电流",
+            "filled": 247,
+            "total": 472,
+            "coverage": 0.523305
+          },
+          {
+            "field": "DCR",
+            "filled": 237,
+            "total": 472,
+            "coverage": 0.502119
+          },
+          {
+            "field": "回路数",
+            "filled": 170,
+            "total": 472,
+            "coverage": 0.360169
+          },
+          {
+            "field": "尺寸",
+            "filled": 293,
+            "total": 472,
+            "coverage": 0.620763
+          }
+        ]
+      },
+      {
+        "group": "晶振",
+        "total": 33,
+        "fields": [
+          {
+            "field": "频率",
+            "filled": 33,
+            "total": 33,
+            "coverage": 1.0
+          },
+          {
+            "field": "频差",
+            "filled": 32,
+            "total": 33,
+            "coverage": 0.969697
+          },
+          {
+            "field": "尺寸",
+            "filled": 33,
+            "total": 33,
+            "coverage": 1.0
+          },
+          {
+            "field": "负载电容",
+            "filled": 4,
+            "total": 33,
+            "coverage": 0.121212
+          }
+        ]
+      },
+      {
+        "group": "振荡器",
+        "total": 155,
+        "fields": [
+          {
+            "field": "频率",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "频差",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "尺寸",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "电源电压",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "输出类型",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "generated_at": "2026-07-01T17:06:11",
+    "groups": [
+      {
+        "group": "MLCC",
+        "total": 120205,
+        "fields": [
+          {
+            "field": "尺寸",
+            "filled": 120204,
+            "total": 120205,
+            "coverage": 0.999992
+          },
+          {
+            "field": "介质",
+            "filled": 119052,
+            "total": 120205,
+            "coverage": 0.990408
+          },
+          {
+            "field": "容值",
+            "filled": 120115,
+            "total": 120205,
+            "coverage": 0.999251
+          },
+          {
+            "field": "误差",
+            "filled": 120174,
+            "total": 120205,
+            "coverage": 0.999742
+          },
+          {
+            "field": "耐压",
+            "filled": 119759,
+            "total": 120205,
+            "coverage": 0.99629
+          }
+        ]
+      },
+      {
+        "group": "铝电解电容",
+        "total": 15416,
+        "fields": [
+          {
+            "field": "容值",
+            "filled": 15178,
+            "total": 15416,
+            "coverage": 0.984561
+          },
+          {
+            "field": "耐压",
+            "filled": 15332,
+            "total": 15416,
+            "coverage": 0.994551
+          },
+          {
+            "field": "尺寸",
+            "filled": 14645,
+            "total": 15416,
+            "coverage": 0.949987
+          },
+          {
+            "field": "ESR",
+            "filled": 6905,
+            "total": 15416,
+            "coverage": 0.447911
+          },
+          {
+            "field": "纹波电流",
+            "filled": 10725,
+            "total": 15416,
+            "coverage": 0.695706
+          },
+          {
+            "field": "寿命",
+            "filled": 7796,
+            "total": 15416,
+            "coverage": 0.505708
+          }
+        ]
+      },
+      {
+        "group": "热敏电阻",
+        "total": 11535,
+        "fields": [
+          {
+            "field": "R25",
+            "filled": 9460,
+            "total": 11535,
+            "coverage": 0.820113
+          },
+          {
+            "field": "R25误差",
+            "filled": 9460,
+            "total": 11535,
+            "coverage": 0.820113
+          },
+          {
+            "field": "B值",
+            "filled": 9319,
+            "total": 11535,
+            "coverage": 0.807889
+          },
+          {
+            "field": "尺寸",
+            "filled": 10477,
+            "total": 11535,
+            "coverage": 0.908279
+          }
+        ]
+      },
+      {
+        "group": "压敏电阻",
+        "total": 21087,
+        "fields": [
+          {
+            "field": "压敏电压",
+            "filled": 4931,
+            "total": 21087,
+            "coverage": 0.233841
+          },
+          {
+            "field": "尺寸",
+            "filled": 21087,
+            "total": 21087,
+            "coverage": 1.0
+          }
+        ]
+      },
+      {
+        "group": "功率/射频电感",
+        "total": 22363,
+        "fields": [
+          {
+            "field": "电感值",
+            "filled": 22158,
+            "total": 22363,
+            "coverage": 0.990833
+          },
+          {
+            "field": "误差",
+            "filled": 19744,
+            "total": 22363,
+            "coverage": 0.882887
+          },
+          {
+            "field": "额定电流",
+            "filled": 21893,
+            "total": 22363,
+            "coverage": 0.978983
+          },
+          {
+            "field": "DCR",
+            "filled": 21485,
+            "total": 22363,
+            "coverage": 0.960739
+          },
+          {
+            "field": "尺寸",
+            "filled": 21801,
+            "total": 22363,
+            "coverage": 0.974869
+          }
+        ]
+      },
+      {
+        "group": "磁珠",
+        "total": 1135,
+        "fields": [
+          {
+            "field": "阻抗",
+            "filled": 978,
+            "total": 1135,
+            "coverage": 0.861674
+          },
+          {
+            "field": "额定电流",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          },
+          {
+            "field": "DCR",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          },
+          {
+            "field": "尺寸",
+            "filled": 1101,
+            "total": 1135,
+            "coverage": 0.970044
+          }
+        ]
+      },
+      {
+        "group": "共模电感",
+        "total": 472,
+        "fields": [
+          {
+            "field": "阻抗或电感值",
+            "filled": 295,
+            "total": 472,
+            "coverage": 0.625
+          },
+          {
+            "field": "额定电流",
+            "filled": 276,
+            "total": 472,
+            "coverage": 0.584746
+          },
+          {
+            "field": "DCR",
+            "filled": 265,
+            "total": 472,
+            "coverage": 0.561441
+          },
+          {
+            "field": "回路数",
+            "filled": 198,
+            "total": 472,
+            "coverage": 0.419492
+          },
+          {
+            "field": "尺寸",
+            "filled": 321,
+            "total": 472,
+            "coverage": 0.680085
+          }
+        ]
+      },
+      {
+        "group": "晶振",
+        "total": 33,
+        "fields": [
+          {
+            "field": "频率",
+            "filled": 33,
+            "total": 33,
+            "coverage": 1.0
+          },
+          {
+            "field": "频差",
+            "filled": 32,
+            "total": 33,
+            "coverage": 0.969697
+          },
+          {
+            "field": "尺寸",
+            "filled": 33,
+            "total": 33,
+            "coverage": 1.0
+          },
+          {
+            "field": "负载电容",
+            "filled": 4,
+            "total": 33,
+            "coverage": 0.121212
+          }
+        ]
+      },
+      {
+        "group": "振荡器",
+        "total": 155,
+        "fields": [
+          {
+            "field": "频率",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "频差",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "尺寸",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "电源电压",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          },
+          {
+            "field": "输出类型",
+            "filled": 155,
+            "total": 155,
+            "coverage": 1.0
+          }
+        ]
+      }
+    ]
+  },
+  "backfill_stats": {
+    "unique_model_values": 1075,
+    "varistor_model_codes": 4760,
+    "panasonic_common_mode": 28,
+    "vishay_ntcs": 95,
+    "metric_sizes": 4721
+  }
+}
