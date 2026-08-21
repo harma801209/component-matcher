@@ -1660,6 +1660,52 @@ class SystemRegressionTests(unittest.TestCase):
             app["find_leading_unlabeled_resistance_in_resistor_text"]("0201 Resistor 50mW 1%")
         )
 
+        complete_resistor_shorthand_specs = [
+            ("5.6M +1% 0805 1/8W", 5_600_000.0, "0805", "1", "1/8W", "FRC0805F5604TS"),
+            ("47R 1% :2512 2W", 47.0, "2512", "1", "2W", ""),
+            ("62 1% 0603 1/10W", 62.0, "0603", "1", "1/10W", "FRC0603F62R0TS"),
+            ("2M 1% 1/8W 0805", 2_000_000.0, "0805", "1", "1/8W", "FRC0805F2004TS"),
+            ("3.9K 5% 0805 1/8W", 3_900.0, "0805", "5", "1/8W", "FRC0805J392 TS"),
+        ]
+        for query, expected_ohm, expected_size, expected_tol, expected_power, expected_model in complete_resistor_shorthand_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["器件类型"], "贴片电阻", query)
+            self.assertEqual(parsed["尺寸（inch）"], expected_size, query)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), expected_tol, query)
+            self.assertEqual(parsed["_power"], expected_power, query)
+            self.assertEqual(parsed["_param_count"], 4, query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            self.assertEqual(app["build_fojan_resistor_model_from_spec"](parsed), expected_model, query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertAlmostEqual(float(detected["_resistance_ohm"]), expected_ohm, msg=query)
+            resolved = app["resolve_search_query_dataframe_and_spec"](query)
+            self.assertNotEqual(resolved["resolution_path"], "full_dataframe", query)
+            self.assertFalse(resolved["query_df"].empty, query)
+            matched = app["run_query_match"](
+                resolved["query_df"], resolved["mode"], resolved["spec"]
+            )
+            self.assertFalse(matched.empty, query)
+            if expected_model:
+                self.assertIn(
+                    app["clean_model"](expected_model),
+                    set(matched["型号"].astype(str).map(app["clean_model"])),
+                    query,
+                )
+            if query == "47R 1% :2512 2W":
+                self.assertTrue(
+                    matched["功率"].astype(str).map(app["format_power_display"]).eq("2W").all(),
+                    query,
+                )
+
+        self.assertIsNone(
+            app["find_leading_plain_resistance_in_complete_resistor_spec"]("0603 1% 1/10W")
+        )
+        self.assertIsNone(
+            app["find_leading_plain_resistance_in_complete_resistor_spec"]("62pF 1% 0603 1/10W")
+        )
+
         image_resistor_specs = [
             ("1M,62.5mW Resistor R_0402 1%", 1_000_000.0, "0402", "1/16W"),
             ("4.02k,62.5mW Resistor R_0402 1%", 4_020.0, "0402", "1/16W"),

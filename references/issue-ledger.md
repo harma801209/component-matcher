@@ -1304,3 +1304,10 @@
 - Root cause: the previous release pushed the repository but did not trigger the Streamlit browser deployment path. The public proxy remained healthy while the private Streamlit process continued serving its previous checkout, so HTTP health alone was not proof that the new application source had loaded.
 - Fix: change only the release marker comment in `requirements.txt` and push commit `15439bd1`. Streamlit Community Cloud treats a dependency-file change as a full rebuild trigger; dependency versions and production data are unchanged.
 - Verification: the focused dropdown source test passes, the full release safety gate reports 54 passing tests, all protected database fingerprints remain unchanged, and the formal health endpoint stayed `ok` throughout a five-minute post-push observation window.
+
+## 2026-08-21 - Unitless resistor value shorthand fell through to unavailable full-library search
+
+- Symptom: a complete resistor specification such as `62 1% 0603 1/10W` was classified as insufficient input and then skipped with `当前环境未加载整库回退数据`, while equivalent values carrying `R`, `K`, or `M` parsed normally.
+- Root cause: resistor detection required an explicit resistor word, `Ω/OHM`, or an `R/K/M` value token. It did not recognize a leading unitless numeric value even when package, tolerance, and power made the resistor context unambiguous.
+- Fix: accept a leading unitless number as ohms only when the same input contains a recognized resistor package, tolerance, and power. Reject capacitance and non-resistor contexts, and reject a leading token that is itself the detected package size.
+- Regression: the exact customer inputs `5.6M +1% 0805 1/8W`, `47R 1% :2512 2W`, `62 1% 0603 1/10W`, `2M 1% 1/8W 0805`, and `3.9K 5% 0805 1/8W` all parse with four key parameters, use the fast query path, and return candidates. The 2512 case remains constrained to 2W candidates.

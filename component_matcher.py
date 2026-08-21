@@ -19529,6 +19529,9 @@ def find_leading_unlabeled_resistance_in_resistor_text(text):
     raw = clean_text(text)
     if raw == "":
         return None
+    complete_shorthand_value = find_leading_plain_resistance_in_complete_resistor_spec(raw)
+    if complete_shorthand_value is not None:
+        return complete_shorthand_value
     upper = raw.upper()
     if not any(token in upper for token in ("RESISTOR", "电阻", "電阻")):
         return None
@@ -19541,6 +19544,41 @@ def find_leading_unlabeled_resistance_in_resistor_text(text):
         return None
     try:
         value = float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def find_leading_plain_resistance_in_complete_resistor_spec(text):
+    """Parse a leading unitless ohm value only in a complete resistor shorthand."""
+    raw = normalize_resistor_value_tolerance_separator(
+        normalize_common_tolerance_symbol_typos(text)
+    )
+    if raw == "" or has_explicit_capacitance_value_token(raw):
+        return None
+    hint = detect_component_type_hint(raw)
+    excluded_types = (
+        VARISTOR_COMPONENT_TYPES
+        | UNSUPPORTED_SEMICONDUCTOR_TYPES
+        | {"热敏电阻", "铝电解电容", "薄膜电容", "钽电容", "功率电感", "共模电感", "磁珠", "晶振", "振荡器", "MLCC"}
+    )
+    if hint in excluded_types:
+        return None
+    size = find_embedded_size(raw)
+    if size == "" or find_tolerance_in_text(raw) == "" or find_power_in_text(raw) == "":
+        return None
+    match = re.match(
+        r"^\s*(\d+(?:\.\d+)?)\s*(?=(?:\+/-|[+±-])?\s*\d+(?:\.\d+)?\s*%)",
+        raw,
+        flags=re.I,
+    )
+    if not match:
+        return None
+    token = clean_text(match.group(1))
+    if token == size:
+        return None
+    try:
+        value = float(token)
     except (TypeError, ValueError):
         return None
     return value if value >= 0 else None
@@ -21288,6 +21326,8 @@ def looks_like_resistor_context(text):
         return True
     zero_ohm_token = re.search(r"(?<![A-Z0-9])(?:0+(?:\.0+)?R|R0+|0+(?:\.0+)?\s*(?:Ω|OHM))(?![A-Z0-9])", upper, flags=re.I)
     if zero_ohm_token and find_embedded_size(upper) != "":
+        return True
+    if find_leading_plain_resistance_in_complete_resistor_spec(normalized_text) is not None:
         return True
     return False
 
