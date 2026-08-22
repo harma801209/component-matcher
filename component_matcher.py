@@ -190,7 +190,7 @@ MEMBER_AUTH_REMOTE_REFRESH_TTL_SECONDS = 60.0
 _MEMBER_AUTH_REMOTE_REFRESH_CACHE = member_auth_runtime_state.REFRESH_CACHE
 MEMBER_AUTH_SCHEMA_LOCK = member_auth_runtime_state.SCHEMA_LOCK
 _MEMBER_AUTH_SCHEMA_READY_PATHS = member_auth_runtime_state.SCHEMA_READY_PATHS
-MEMBER_AUTH_SCHEMA_VERSION = 5
+MEMBER_AUTH_SCHEMA_VERSION = 6
 MEMBER_PASSWORD_CACHE_LOCK = member_auth_runtime_state.PASSWORD_CACHE_LOCK
 MEMBER_PASSWORD_CACHE_SECRET = member_auth_runtime_state.PASSWORD_CACHE_SECRET
 _MEMBER_PASSWORD_CACHE = member_auth_runtime_state.PASSWORD_CACHE
@@ -1832,8 +1832,49 @@ def ensure_member_auth_schema():
                 source TEXT NOT NULL DEFAULT '',
                 search_date TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                search_run_id TEXT NOT NULL DEFAULT '',
+                customer_name_snapshot TEXT NOT NULL DEFAULT '',
+                customer_type_snapshot TEXT NOT NULL DEFAULT '',
+                brand_mode TEXT NOT NULL DEFAULT '',
+                selected_brands_json TEXT NOT NULL DEFAULT '[]',
+                parsed_spec_json TEXT NOT NULL DEFAULT '',
+                resolution_path TEXT NOT NULL DEFAULT '',
+                outcome_status TEXT NOT NULL DEFAULT '',
+                outcome_message TEXT NOT NULL DEFAULT '',
+                candidate_count INTEGER NOT NULL DEFAULT 0,
+                source_result_count INTEGER NOT NULL DEFAULT 0,
+                returned_result_count INTEGER NOT NULL DEFAULT 0,
+                app_version TEXT NOT NULL DEFAULT '',
+                completed_at TEXT NOT NULL DEFAULT '',
                 FOREIGN KEY(member_id) REFERENCES members(id)
             );
+
+            CREATE TABLE IF NOT EXISTS member_search_log_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                search_log_id INTEGER NOT NULL,
+                result_group TEXT NOT NULL DEFAULT 'matched',
+                result_rank INTEGER NOT NULL DEFAULT 0,
+                recommendation_level TEXT NOT NULL DEFAULT '',
+                brand TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                component_type TEXT NOT NULL DEFAULT '',
+                series TEXT NOT NULL DEFAULT '',
+                match_explanation TEXT NOT NULL DEFAULT '',
+                remark1 TEXT NOT NULL DEFAULT '',
+                cost_snapshot TEXT NOT NULL DEFAULT '',
+                moq_snapshot TEXT NOT NULL DEFAULT '',
+                lead_time_snapshot TEXT NOT NULL DEFAULT '',
+                result_json TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(search_log_id) REFERENCES member_search_logs(id) ON DELETE CASCADE,
+                UNIQUE(search_log_id, result_group, result_rank)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_log_results_log_id
+            ON member_search_log_results(search_log_id, result_group, result_rank);
+
+            CREATE INDEX IF NOT EXISTS idx_member_search_log_results_model
+            ON member_search_log_results(model);
 
             CREATE INDEX IF NOT EXISTS idx_member_search_logs_date_key
             ON member_search_logs(search_date, query_key);
@@ -1860,6 +1901,31 @@ def ensure_member_auth_schema():
                 conn.execute(
                     "ALTER TABLE members ADD COLUMN job_title TEXT NOT NULL DEFAULT ''"
                 )
+            search_log_columns = {
+                clean_text(row[1])
+                for row in conn.execute("PRAGMA table_info(member_search_logs)").fetchall()
+            }
+            search_log_column_definitions = {
+                "search_run_id": "TEXT NOT NULL DEFAULT ''",
+                "customer_name_snapshot": "TEXT NOT NULL DEFAULT ''",
+                "customer_type_snapshot": "TEXT NOT NULL DEFAULT ''",
+                "brand_mode": "TEXT NOT NULL DEFAULT ''",
+                "selected_brands_json": "TEXT NOT NULL DEFAULT '[]'",
+                "parsed_spec_json": "TEXT NOT NULL DEFAULT ''",
+                "resolution_path": "TEXT NOT NULL DEFAULT ''",
+                "outcome_status": "TEXT NOT NULL DEFAULT ''",
+                "outcome_message": "TEXT NOT NULL DEFAULT ''",
+                "candidate_count": "INTEGER NOT NULL DEFAULT 0",
+                "source_result_count": "INTEGER NOT NULL DEFAULT 0",
+                "returned_result_count": "INTEGER NOT NULL DEFAULT 0",
+                "app_version": "TEXT NOT NULL DEFAULT ''",
+                "completed_at": "TEXT NOT NULL DEFAULT ''",
+            }
+            for column_name, column_definition in search_log_column_definitions.items():
+                if column_name not in search_log_columns:
+                    conn.execute(
+                        f"ALTER TABLE member_search_logs ADD COLUMN {column_name} {column_definition}"
+                    )
             now_text = current_timestamp_text()
             legacy_customers = conn.execute(
                 "SELECT id, customer_name FROM members WHERE TRIM(IFNULL(customer_name, ''))<>''"
@@ -2676,19 +2742,108 @@ def classify_member_search_query(query_text):
     return "规格参数"
 
 
-def record_member_search_logs(member, query_lines, source="搜索匹配"):
+def member_search_audit_app_version():
+    deploy_version = clean_text(
+        os.getenv("STREAMLIT_DEPLOY_COMMIT", "")
+        or os.getenv("GITHUB_SHA", "")
+        or os.getenv("CF_PAGES_COMMIT_SHA", "")
+    )
+    if deploy_version:
+        deploy_version = deploy_version[:12]
+    return (
+        f"query-v{QUERY_RESULT_CACHE_VERSION};"
+        f"rules-v{MANUAL_CORRECTION_RULES_VERSION};"
+        f"deploy-{deploy_version or 'unknown'}"
+    )
+
+
+def member_search_audit_json_value(value):
+    if isinstance(value, dict):
+        return {
+            clean_text(key): member_search_audit_json_value(item)
+            for key, item in value.items()
+            if clean_text(key) != ""
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [member_search_audit_json_value(item) for item in value]
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.isoformat()
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return clean_text(value)
+
+
+def member_search_audit_json_dumps(value):
+    try:
+        return json.dumps(
+            member_search_audit_json_value(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+    except Exception:
+        return ""
+
+
+def member_search_audit_dataframe_rows(frame, result_group):
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return []
+    rows = []
+    for rank, record in enumerate(frame.to_dict(orient="records"), start=1):
+        safe_record = member_search_audit_json_value(record)
+        if not isinstance(safe_record, dict):
+            safe_record = {}
+        rows.append(
+            {
+                "result_group": clean_text(result_group) or "matched",
+                "result_rank": rank,
+                "recommendation_level": clean_text(safe_record.get("推荐等级", "")),
+                "brand": clean_text(safe_record.get("品牌", "")),
+                "model": clean_text(safe_record.get("型号", "")),
+                "component_type": clean_text(safe_record.get("器件类别", "")),
+                "series": clean_text(safe_record.get("系列", "")),
+                "match_explanation": clean_text(safe_record.get("匹配说明", "")),
+                "remark1": clean_text(safe_record.get("备注1", "")),
+                "cost_snapshot": clean_text(safe_record.get("成本", "")),
+                "moq_snapshot": clean_text(safe_record.get("MOQ", "")),
+                "lead_time_snapshot": clean_text(safe_record.get("L&T", "")),
+                "result_json": member_search_audit_json_dumps(safe_record),
+            }
+        )
+    return rows
+
+
+def start_member_search_audits(
+    member,
+    query_lines,
+    source="搜索匹配",
+    customer_name="",
+    customer_type="",
+    brand_mode="",
+    selected_brands=None,
+):
     if not isinstance(member, dict):
-        return 0
+        return []
     try:
         member_id = int(member.get("id") or 0)
     except Exception:
         member_id = 0
     if member_id <= 0:
-        return 0
+        return []
     now = current_timestamp_text()
     search_date = now[:10]
     username = clean_text(member.get("username", ""))
     display_name = clean_text(member.get("display_name", ""))
+    search_run_id = f"{now.replace(' ', 'T')}-{member_id}-{secrets.token_hex(6)}"
+    selected_brands_json = member_search_audit_json_dumps(
+        [clean_text(item) for item in (selected_brands or []) if clean_text(item)]
+    )
+    app_version = member_search_audit_app_version()
     rows = []
     for line in query_lines or []:
         query_text = normalize_member_search_query_text(line)
@@ -2706,29 +2861,132 @@ def record_member_search_logs(member, query_lines, source="搜索匹配"):
                 clean_text(source),
                 search_date,
                 now,
+                search_run_id,
+                clean_text(customer_name),
+                clean_text(customer_type),
+                clean_text(brand_mode),
+                selected_brands_json,
+                "处理中",
+                app_version,
             )
         )
     if not rows:
-        return 0
+        return []
     try:
         refresh_member_auth_remote_snapshot()
         ensure_member_auth_schema()
+        log_ids = []
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
-            conn.executemany(
-                """
-                INSERT INTO member_search_logs (
-                    member_id, username_snapshot, display_name_snapshot,
-                    query_text, query_key, query_type, source, search_date, created_at
+            for row in rows:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO member_search_logs (
+                        member_id, username_snapshot, display_name_snapshot,
+                        query_text, query_key, query_type, source, search_date, created_at,
+                        search_run_id, customer_name_snapshot, customer_type_snapshot,
+                        brand_mode, selected_brands_json, outcome_status, app_version
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    row,
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                log_ids.append(int(cursor.lastrowid or 0))
+            conn.commit()
+        queue_member_auth_remote_snapshot_flush()
+        return log_ids
+    except Exception:
+        return []
+
+
+def record_member_search_logs(member, query_lines, source="搜索匹配"):
+    return len(start_member_search_audits(member, query_lines, source=source))
+
+
+def complete_member_search_audit(
+    search_log_id,
+    mode="",
+    spec=None,
+    resolution_path="",
+    outcome_status="",
+    outcome_message="",
+    candidate_count=0,
+    source_frame=None,
+    result_frame=None,
+):
+    try:
+        search_log_id = int(search_log_id or 0)
+    except Exception:
+        search_log_id = 0
+    if search_log_id <= 0:
+        return False
+    source_rows = member_search_audit_dataframe_rows(source_frame, "source")
+    result_rows = member_search_audit_dataframe_rows(result_frame, "matched")
+    all_rows = source_rows + result_rows
+    now = current_timestamp_text()
+    try:
+        candidate_count = max(0, int(candidate_count or 0))
+    except Exception:
+        candidate_count = 0
+    try:
+        ensure_member_auth_schema()
+        with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+            conn.execute(
+                "DELETE FROM member_search_log_results WHERE search_log_id=?",
+                (search_log_id,),
+            )
+            for result in all_rows:
+                conn.execute(
+                    """
+                    INSERT INTO member_search_log_results (
+                        search_log_id, result_group, result_rank,
+                        recommendation_level, brand, model, component_type, series,
+                        match_explanation, remark1, cost_snapshot, moq_snapshot,
+                        lead_time_snapshot, result_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        search_log_id,
+                        result["result_group"],
+                        result["result_rank"],
+                        result["recommendation_level"],
+                        result["brand"],
+                        result["model"],
+                        result["component_type"],
+                        result["series"],
+                        result["match_explanation"],
+                        result["remark1"],
+                        result["cost_snapshot"],
+                        result["moq_snapshot"],
+                        result["lead_time_snapshot"],
+                        result["result_json"],
+                        now,
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE member_search_logs
+                SET query_type=?, parsed_spec_json=?, resolution_path=?,
+                    outcome_status=?, outcome_message=?, candidate_count=?,
+                    source_result_count=?, returned_result_count=?, completed_at=?
+                WHERE id=?
                 """,
-                rows,
+                (
+                    clean_text(mode) or "规格参数",
+                    member_search_audit_json_dumps(spec if isinstance(spec, dict) else {}),
+                    clean_text(resolution_path),
+                    clean_text(outcome_status),
+                    clean_text(outcome_message),
+                    candidate_count,
+                    len(source_rows),
+                    len(result_rows),
+                    now,
+                    search_log_id,
+                ),
             )
             conn.commit()
-        flush_member_auth_remote_snapshot()
-        return len(rows)
+        return True
     except Exception:
-        return 0
+        return False
 
 
 def build_member_search_log_where(start_date="", end_date="", keyword=""):
@@ -2746,9 +3004,13 @@ def build_member_search_log_where(start_date="", end_date="", keyword=""):
     if keyword:
         like_value = f"%{keyword}%"
         where.append(
-            "(query_text LIKE ? OR username_snapshot LIKE ? OR display_name_snapshot LIKE ? OR query_type LIKE ?)"
+            "(query_text LIKE ? OR username_snapshot LIKE ? OR display_name_snapshot LIKE ? "
+            "OR query_type LIKE ? OR customer_name_snapshot LIKE ? OR EXISTS ("
+            "SELECT 1 FROM member_search_log_results AS audit_result "
+            "WHERE audit_result.search_log_id=member_search_logs.id "
+            "AND (audit_result.model LIKE ? OR audit_result.brand LIKE ?)))"
         )
-        params.extend([like_value, like_value, like_value, like_value])
+        params.extend([like_value, like_value, like_value, like_value, like_value, like_value, like_value])
     where_clause = "WHERE " + " AND ".join(where) if where else ""
     return where_clause, params
 
@@ -2812,6 +3074,28 @@ def list_member_search_log_details(start_date="", end_date="", keyword="", limit
     return [member_row_to_dict(row) for row in rows]
 
 
+def list_member_search_log_results(search_log_id):
+    try:
+        search_log_id = int(search_log_id or 0)
+    except Exception:
+        search_log_id = 0
+    if search_log_id <= 0:
+        return []
+    ensure_member_auth_schema()
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM member_search_log_results
+            WHERE search_log_id=?
+            ORDER BY CASE result_group WHEN 'source' THEN 0 ELSE 1 END, result_rank, id
+            """,
+            (search_log_id,),
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
 def member_search_summary_dataframe(rows):
     data = []
     for row in rows or []:
@@ -2834,12 +3118,42 @@ def member_search_detail_dataframe(rows):
         member_name = clean_text(row.get("display_name_snapshot", "")) or clean_text(row.get("username_snapshot", ""))
         data.append(
             {
+                "记录编号": int(row.get("id") or 0),
                 "时间": clean_text(row.get("created_at", "")),
                 "会员": member_name,
                 "账号": clean_text(row.get("username_snapshot", "")),
+                "客户": clean_text(row.get("customer_name_snapshot", "")),
                 "搜索内容": clean_text(row.get("query_text", "")),
                 "类型": clean_text(row.get("query_type", "")),
+                "结果状态": clean_text(row.get("outcome_status", "")) or "历史记录",
+                "路径": clean_text(row.get("resolution_path", "")),
+                "候选数": int(row.get("candidate_count") or 0),
+                "原厂资料数": int(row.get("source_result_count") or 0),
+                "返回型号数": int(row.get("returned_result_count") or 0),
                 "来源": clean_text(row.get("source", "")),
+                "完成时间": clean_text(row.get("completed_at", "")),
+            }
+        )
+    return pd.DataFrame(data)
+
+
+def member_search_audit_results_dataframe(rows):
+    data = []
+    for row in rows or []:
+        data.append(
+            {
+                "结果分组": "原厂资料" if clean_text(row.get("result_group", "")) == "source" else "匹配结果",
+                "顺序": int(row.get("result_rank") or 0),
+                "推荐等级": clean_text(row.get("recommendation_level", "")),
+                "品牌": clean_text(row.get("brand", "")),
+                "型号": clean_text(row.get("model", "")),
+                "器件类别": clean_text(row.get("component_type", "")),
+                "系列": clean_text(row.get("series", "")),
+                "匹配说明": clean_text(row.get("match_explanation", "")),
+                "备注1": clean_text(row.get("remark1", "")),
+                "成本快照": clean_text(row.get("cost_snapshot", "")),
+                "MOQ快照": clean_text(row.get("moq_snapshot", "")),
+                "L&T快照": clean_text(row.get("lead_time_snapshot", "")),
             }
         )
     return pd.DataFrame(data)
@@ -4640,6 +4954,81 @@ def render_member_search_logs_admin_page():
             )
         else:
             st.info("当前筛选范围没有明细记录。")
+
+    with st.expander("追查单次搜索结果", expanded=False):
+        if not detail_rows:
+            st.info("当前筛选范围没有可追查的搜索记录。")
+        else:
+            detail_by_id = {
+                int(row.get("id") or 0): row
+                for row in detail_rows
+                if int(row.get("id") or 0) > 0
+            }
+            audit_options = list(detail_by_id.keys())
+            selected_audit_id = st.selectbox(
+                "选择搜索记录",
+                options=audit_options,
+                format_func=lambda value: (
+                    f"#{value} · {clean_text(detail_by_id[value].get('created_at', ''))} · "
+                    f"{clean_text(detail_by_id[value].get('username_snapshot', ''))} · "
+                    f"{clean_text(detail_by_id[value].get('query_text', ''))[:80]}"
+                ),
+                key="admin_member_search_audit_id",
+            )
+            audit_row = detail_by_id.get(int(selected_audit_id or 0), {})
+            audit_summary = pd.DataFrame(
+                [
+                    {
+                        "账号": clean_text(audit_row.get("username_snapshot", "")),
+                        "会员": clean_text(audit_row.get("display_name_snapshot", "")),
+                        "客户": clean_text(audit_row.get("customer_name_snapshot", "")),
+                        "搜索内容": clean_text(audit_row.get("query_text", "")),
+                        "结果状态": clean_text(audit_row.get("outcome_status", "")) or "历史记录",
+                        "结果说明": clean_text(audit_row.get("outcome_message", "")),
+                        "处理路径": clean_text(audit_row.get("resolution_path", "")),
+                        "候选数": int(audit_row.get("candidate_count") or 0),
+                        "返回型号数": int(audit_row.get("returned_result_count") or 0),
+                        "系统版本": clean_text(audit_row.get("app_version", "")),
+                    }
+                ]
+            )
+            st.dataframe(audit_summary, use_container_width=True, hide_index=True)
+            parsed_spec_text = clean_text(audit_row.get("parsed_spec_json", ""))
+            parsed_spec = {}
+            if parsed_spec_text:
+                try:
+                    parsed_spec = json.loads(parsed_spec_text)
+                except Exception:
+                    parsed_spec = {"原始记录": parsed_spec_text}
+            if isinstance(parsed_spec, dict) and parsed_spec:
+                st.markdown("##### 当时解析出的规格参数")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "参数": clean_text(key),
+                                "值": member_search_audit_json_dumps(value)
+                                if isinstance(value, (dict, list, tuple))
+                                else clean_text(value),
+                            }
+                            for key, value in parsed_spec.items()
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            audit_results = list_member_search_log_results(selected_audit_id)
+            if audit_results:
+                st.markdown("##### 当时实际展示给会员的型号")
+                st.dataframe(
+                    member_search_audit_results_dataframe(audit_results),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            elif clean_text(audit_row.get("app_version", "")):
+                st.info("该次搜索没有向会员展示任何型号；请结合结果状态和结果说明判断原因。")
+            else:
+                st.info("这是升级审计功能前的历史记录，当时只保存了搜索输入，没有保存结果快照。")
 
 
 def render_member_approval_admin_page():
@@ -44323,8 +44712,17 @@ if search_requested:
             st.error("查询内容包含不可见控制字符，请清理后再搜索。")
             st.stop()
         st.session_state["_last_search_query_input"] = query_input
+        search_audit_ids = []
         if not restore_search_after_report:
-            record_member_search_logs(current_member(), lines, source="搜索匹配")
+            search_audit_ids = start_member_search_audits(
+                current_member(),
+                lines,
+                source="搜索匹配",
+                customer_name=search_customer_name,
+                customer_type=search_customer_type,
+                brand_mode=search_brand_mode,
+                selected_brands=selected_search_brands,
+            )
         full_search_df_cache = {"loaded": False, "df": pd.DataFrame()}
         database_empty_warned = False
         search_started_at = time.time()
@@ -44376,6 +44774,16 @@ if search_requested:
                 note="首次使用当前环境，正在加载搜索所需的数据包",
             )
             if not ensure_component_data_ready("搜索"):
+                for search_audit_id in search_audit_ids:
+                    complete_member_search_audit(
+                        search_audit_id,
+                        mode="无法识别",
+                        resolution_path="component_data_unavailable",
+                        outcome_status="数据准备失败",
+                        outcome_message="当前环境缺少可用数据库，搜索未执行。",
+                    )
+                if search_audit_ids:
+                    queue_member_auth_remote_snapshot_flush()
                 render_search_progress(
                     0,
                     stage_step=SEARCH_PROGRESS_STAGE_COUNT,
@@ -44399,6 +44807,11 @@ if search_requested:
             exact_part_prefetch_map = load_component_rows_by_exact_models_from_database(exact_prefetch_lines)
 
         for line_index, line in enumerate(lines, start=1):
+            search_audit_id = (
+                search_audit_ids[line_index - 1]
+                if line_index - 1 < len(search_audit_ids)
+                else 0
+            )
             resolved_state = {
                 "stage_step": 1,
                 "stage_text": "正在解析输入",
@@ -44491,6 +44904,24 @@ if search_requested:
             spec = merge_query_text_hints_into_spec(spec, line)
             if isinstance(resolved, dict):
                 resolved["spec"] = spec
+
+            def complete_line_search_audit(
+                outcome_status,
+                outcome_message,
+                source_frame=None,
+                result_frame=None,
+            ):
+                return complete_member_search_audit(
+                    search_audit_id,
+                    mode=mode,
+                    spec=spec,
+                    resolution_path=resolution_path,
+                    outcome_status=outcome_status,
+                    outcome_message=outcome_message,
+                    candidate_count=candidate_rows,
+                    source_frame=source_frame,
+                    result_frame=result_frame,
+                )
             source_label = clean_text(resolved_state.get("source_label", ""))
             source_tone = clean_text(resolved_state.get("source_tone", ""))
             base_chips = []
@@ -44511,6 +44942,10 @@ if search_requested:
                 if not database_empty_warned:
                     st.warning("当前环境未加载整库回退数据；本条输入已跳过，后续输入会继续处理。")
                     database_empty_warned = True
+                complete_line_search_audit(
+                    "数据未就绪",
+                    "未命中快速索引，且当前环境未加载整库回退数据。",
+                )
                 search_stats["warning"] += 1
                 continue
 
@@ -44525,6 +44960,7 @@ if search_requested:
                     extra_chips=base_chips + [{"label": "路径", "value": "安全拦截", "tone": "warn"}],
                 )
                 st.warning(reason)
+                complete_line_search_audit("暂不支持", reason)
                 search_stats["warning"] += 1
                 continue
 
@@ -44549,6 +44985,10 @@ if search_requested:
                     key_prefix="unrecognized_report",
                     instance_key=line_index,
                 )
+                complete_line_search_audit(
+                    "无法识别",
+                    "输入无法识别，数据库无法定位匹配型号。",
+                )
                 search_stats["warning"] += 1
                 continue
 
@@ -44572,6 +45012,10 @@ if search_requested:
                     matched_rows=0,
                     key_prefix="insufficient_report",
                     instance_key=line_index,
+                )
+                complete_line_search_audit(
+                    "规格不足",
+                    "规格参数不足，未执行型号匹配。",
                 )
                 search_stats["warning"] += 1
                 continue
@@ -44658,6 +45102,12 @@ if search_requested:
                         scrolling=False,
                     )
                     st.markdown('<div style="height:0px;"></div>', unsafe_allow_html=True)
+                    complete_line_search_audit(
+                        "有匹配结果",
+                        f"已展示原厂资料 {len(part_info_df)} 条、其他品牌匹配结果 {len(show_df)} 条。",
+                        source_frame=part_info_df,
+                        result_frame=show_df,
+                    )
                     search_stats["success"] += 1
                 else:
                     render_search_progress(
@@ -44691,6 +45141,11 @@ if search_requested:
                             instance_key=line_index,
                         )
                         st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+                        complete_line_search_audit(
+                            "仅原厂资料",
+                            "已展示原厂料号资料，暂未找到其他品牌替代结果。",
+                            source_frame=part_info_df,
+                        )
                         search_stats["success"] += 1
                     else:
                         st.warning("未找到其他品牌匹配结果")
@@ -44704,6 +45159,10 @@ if search_requested:
                             matched_rows=0,
                             key_prefix="part_no_match_report",
                             instance_key=line_index,
+                        )
+                        complete_line_search_audit(
+                            "无匹配",
+                            "未找到原厂料号资料或其他品牌匹配结果。",
                         )
                         search_stats["no_match"] += 1
                 continue
@@ -44785,6 +45244,11 @@ if search_requested:
                         height=420,
                         column_config=build_component_column_config(show_df.columns, spec)
                     )
+                complete_line_search_audit(
+                    "有匹配结果",
+                    f"已展示匹配结果 {len(show_df)} 条。",
+                    result_frame=show_df,
+                )
                 search_stats["success"] += 1
             else:
                 render_search_progress(
@@ -44814,6 +45278,10 @@ if search_requested:
                     matched_rows=0,
                     key_prefix="matched_empty_report",
                     instance_key=line_index,
+                )
+                complete_line_search_audit(
+                    "无匹配",
+                    report_reason,
                 )
                 search_stats["no_match"] += 1
 
@@ -44852,6 +45320,8 @@ if search_requested:
             failed_rows=search_stats["no_match"] + remaining_queries,
             metadata={"brand_mode": search_brand_mode},
         )
+        if search_audit_ids:
+            queue_member_auth_remote_snapshot_flush()
         clear_pending_member_search()
 
 

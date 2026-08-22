@@ -3954,3 +3954,12 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Confirmed the member editor uses a fixed `PM / 销售 / 其他` dropdown and cannot accept arbitrary job-title text.
 - Fixed formal-runtime source caching so deployments that change `component_matcher.py` invalidate previously compiled application code instead of continuing to show an old form.
 - Added regression checks for the exact dropdown options and source-version-aware runtime cache key.
+
+### 2026-08-22 [Search audit] Preserve the exact ordinary-search result shown to each member
+
+- Expanded ordinary material search records from input-only counters into a member-linked audit trail: account, display name, customer, customer type, brand mode, selected brands, original input, parsed specification, resolution path, candidate count, result status, application/rule version, and completion time.
+- Added per-search immutable result snapshots for the original/source part rows and every matched row actually shown to the member, including rank, recommendation level, brand, model, component type, series, match explanation, remark, cost, MOQ, lead time, and the complete displayed row as JSON.
+- Added an administrator drill-down to locate a search by member, customer, input, returned brand, or returned model and reconstruct the exact result set that was displayed. Historical input-only rows remain readable and are clearly distinguished from new full-audit rows.
+- The schema migration is additive and preserves existing member/search data. Records are not automatically removed, so the requested two-year investigation window is retained.
+- Search-audit snapshots are uploaded through the existing coalesced background backup queue, avoiding a synchronous full member-database upload on every search while preserving the final audit result remotely.
+- Regression coverage verifies a model can be used to trace back to the member/customer/specification and that both matched and no-match outcomes are preserved.

@@ -1311,3 +1311,10 @@
 - Root cause: resistor detection required an explicit resistor word, `Ω/OHM`, or an `R/K/M` value token. It did not recognize a leading unitless numeric value even when package, tolerance, and power made the resistor context unambiguous.
 - Fix: accept a leading unitless number as ohms only when the same input contains a recognized resistor package, tolerance, and power. Reject capacitance and non-resistor contexts, and reject a leading token that is itself the detected package size.
 - Regression: the exact customer inputs `5.6M +1% 0805 1/8W`, `47R 1% :2512 2W`, `62 1% 0603 1/10W`, `2M 1% 1/8W 0805`, and `3.9K 5% 0805 1/8W` all parse with four key parameters, use the fast query path, and return candidates. The 2512 case remains constrained to 2W candidates.
+
+## 2026-08-22 - Ordinary searches could not prove which model was shown to a member
+
+- Symptom: an input-only search counter could show that a member searched a specification, but could not prove which parser output, customer context, brand filter, candidate set, or final models were displayed at that time. A later wrong-model dispute therefore could not be separated reliably into a system result or a manually edited quotation.
+- Root cause: `member_search_logs` was written before matching and stored only the member snapshot and raw query. The ordinary-search result DataFrames were never persisted.
+- Fix: add backward-compatible audit columns plus child result snapshots, start one audit row per submitted line, complete it at every normal search exit, and expose administrator drill-down by input or returned model. Remote snapshot synchronization is queued once after the batch instead of once per result row.
+- Regression: a representative specification search is traced from returned model back to its member, customer, parsed specification, original part row, displayed match, explanation, cost, MOQ, and lead time; an unrecognized input is also retained with zero returned models.

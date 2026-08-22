@@ -455,6 +455,115 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertFalse(trend.empty)
             self.assertLessEqual(int(trend["排名"].max()), 10)
 
+        audit_ids = app["start_member_search_audits"](
+            member,
+            ["0402 10K 1% 1/16W"],
+            source="regression-audit",
+            customer_name="客户A",
+            customer_type="旧客户",
+            brand_mode="指定品牌",
+            selected_brands=["FOJAN(富捷)"],
+        )
+        self.assertEqual(len(audit_ids), 1)
+        source_frame = pd.DataFrame(
+            [
+                {
+                    "品牌": "原厂品牌",
+                    "型号": "SOURCE-0402-10K",
+                    "器件类别": "厚膜电阻（Thick Film Resistor）",
+                    "系列": "SRC",
+                    "成本": "1.23",
+                    "MOQ": "5000",
+                    "L&T": "4 weeks",
+                }
+            ]
+        )
+        result_frame = pd.DataFrame(
+            [
+                {
+                    "推荐等级": "完全匹配",
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FRC0402F1002TS",
+                    "器件类别": "厚膜电阻（Thick Film Resistor）",
+                    "系列": "FRC",
+                    "匹配说明": "关键规格完全一致",
+                    "备注1": "按当时页面实际返回内容保存",
+                    "成本": "1.70",
+                    "MOQ": "10000PCS",
+                    "L&T": "3 weeks",
+                }
+            ]
+        )
+        completed = app["complete_member_search_audit"](
+            audit_ids[0],
+            mode="规格参数",
+            spec={"尺寸": "0402", "阻值": 10, "阻值单位": "KΩ", "误差": "±1%", "功率": "1/16W"},
+            resolution_path="specification_match",
+            outcome_status="有匹配结果",
+            outcome_message="返回 1 个型号",
+            candidate_count=8,
+            source_frame=source_frame,
+            result_frame=result_frame,
+        )
+        self.assertTrue(completed)
+
+        audit_details = app["list_member_search_log_details"](
+            keyword="FRC0402F1002TS", limit=20
+        )
+        audit_detail = next(row for row in audit_details if int(row["id"]) == audit_ids[0])
+        self.assertEqual(audit_detail["username_snapshot"].lower(), "caseuser")
+        self.assertEqual(audit_detail["customer_name_snapshot"], "客户A")
+        self.assertEqual(audit_detail["customer_type_snapshot"], "旧客户")
+        self.assertEqual(audit_detail["brand_mode"], "指定品牌")
+        self.assertEqual(json.loads(audit_detail["selected_brands_json"]), ["FOJAN(富捷)"])
+        self.assertEqual(json.loads(audit_detail["parsed_spec_json"])["尺寸"], "0402")
+        self.assertEqual(audit_detail["outcome_status"], "有匹配结果")
+        self.assertEqual(int(audit_detail["candidate_count"]), 8)
+        self.assertEqual(int(audit_detail["source_result_count"]), 1)
+        self.assertEqual(int(audit_detail["returned_result_count"]), 1)
+        self.assertTrue(audit_detail["app_version"])
+        self.assertTrue(audit_detail["completed_at"])
+
+        audit_results = app["list_member_search_log_results"](audit_ids[0])
+        self.assertEqual(len(audit_results), 2)
+        self.assertEqual(audit_results[0]["result_group"], "source")
+        self.assertEqual(audit_results[0]["model"], "SOURCE-0402-10K")
+        self.assertEqual(audit_results[1]["result_group"], "matched")
+        self.assertEqual(audit_results[1]["model"], "FRC0402F1002TS")
+        self.assertEqual(audit_results[1]["recommendation_level"], "完全匹配")
+        self.assertEqual(audit_results[1]["match_explanation"], "关键规格完全一致")
+        self.assertEqual(audit_results[1]["cost_snapshot"], "1.70")
+        self.assertEqual(audit_results[1]["moq_snapshot"], "10000PCS")
+        self.assertEqual(audit_results[1]["lead_time_snapshot"], "3 weeks")
+
+        no_match_ids = app["start_member_search_audits"](
+            member,
+            ["UNKNOWN-SPEC-123"],
+            source="regression-audit",
+            customer_name="客户A",
+        )
+        self.assertEqual(len(no_match_ids), 1)
+        self.assertTrue(
+            app["complete_member_search_audit"](
+                no_match_ids[0],
+                mode="规格参数",
+                spec={"原始输入": "UNKNOWN-SPEC-123"},
+                resolution_path="unrecognized_input",
+                outcome_status="无法识别",
+                outcome_message="无法识别输入内容",
+            )
+        )
+        no_match_detail = next(
+            row
+            for row in app["list_member_search_log_details"](
+                keyword="UNKNOWN-SPEC-123", limit=20
+            )
+            if int(row["id"]) == no_match_ids[0]
+        )
+        self.assertEqual(no_match_detail["outcome_status"], "无法识别")
+        self.assertEqual(int(no_match_detail["returned_result_count"]), 0)
+        self.assertEqual(app["list_member_search_log_results"](no_match_ids[0]), [])
+
     def test_02a_member_password_upgrade_and_configured_admin_fast_path(self):
         app = self.app
         app["ensure_configured_admin_member_account"]()
