@@ -3963,3 +3963,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - The schema migration is additive and preserves existing member/search data. Records are not automatically removed, so the requested two-year investigation window is retained.
 - Search-audit snapshots are uploaded through the existing coalesced background backup queue, avoiding a synchronous full member-database upload on every search while preserving the final audit result remotely.
 - Regression coverage verifies a model can be used to trace back to the member/customer/specification and that both matched and no-match outcomes are preserved.
+
+### 2026-08-22 [YAGEO AC prefix] Restore exact resistor-model search without weakening special-series matching
+
+- Fixed the shared YAGEO `AC` prefix dispatch so `AC1206FR-7W2R2L` is no longer consumed by the MLCC branch when its characters are actually a chip-resistor ordering code.
+- The source model now resolves as `国巨YAGEO / AC / 1206 / 2.2Ω / ±1% / 1/4W`, and matching continues with automotive-series candidates instead of showing the whole-library fallback warning.
+- Kept the special-purpose boundary strict: the FOJAN alternative is `FRQ1206F2R20TS`; ordinary `FRC1206F2R20TS` is excluded. A genuine YAGEO `AC` MLCC control model still parses as MLCC.
+- Added regression coverage for the exact source row, brand/series fields, resistor alternatives, FRC exclusion, and the non-regression MLCC path.
+- Verification: Python compile check, focused regression, and the complete 54-test release safety gate passed with protected runtime database fingerprints unchanged.

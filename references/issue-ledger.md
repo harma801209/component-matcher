@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-08-22 - YAGEO AC resistor model was swallowed by the MLCC prefix route
+
+- Symptom: searching the exact YAGEO model `AC1206FR-7W2R2L` returned no source row or alternatives and displayed the unrelated whole-library fallback warning.
+- Root cause: both YAGEO automotive MLCC and automotive chip-resistor families use the `AC` prefix. The generic dispatcher recognized the prefix as an MLCC family and returned immediately even when the MLCC parser rejected the remaining resistor-format characters, so the YAGEO resistor parser never ran.
+- Fix: return from the YAGEO MLCC route only after a successful MLCC parse. Otherwise continue through the resistor rules; the resistor parser now also supplies the canonical YAGEO brand before resolving the official `AC` series profile.
+- Safety boundary: `AC1206FR-7W2R2L` resolves as YAGEO `AC`, 1206, 2.2Ω, ±1%, automotive thick-film resistor. Alternatives preserve that automotive requirement and include `FRQ1206F2R20TS`; ordinary `FRC1206F2R20TS` is not presented as an equivalent. A real YAGEO `AC` MLCC remains on the MLCC route.
+- Verification: the focused resistor/MLCC regression and the complete 54-test release safety gate pass; protected runtime database fingerprints remain unchanged.
+
 ## 2026-08-12 - Hot deployment skipped the new member customer column
 
 - Symptom: saving the required first-use customer name failed on the formal page with `no such column: customer_name`.

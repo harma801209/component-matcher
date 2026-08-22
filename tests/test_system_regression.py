@@ -1730,6 +1730,44 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
+        yageo_ac_resistor = app["parse_model_rule"]("AC1206FR-7W2R2L")
+        self.assertIsNotNone(yageo_ac_resistor)
+        self.assertEqual(yageo_ac_resistor["品牌"], "国巨YAGEO")
+        self.assertEqual(yageo_ac_resistor["器件类型"], "厚膜电阻")
+        self.assertEqual(yageo_ac_resistor["系列"], "AC")
+        self.assertEqual(yageo_ac_resistor["尺寸（inch）"], "1206")
+        self.assertEqual(app["clean_tol_for_match"](yageo_ac_resistor["容值误差"]), "1")
+        self.assertAlmostEqual(float(yageo_ac_resistor["_resistance_ohm"]), 2.2)
+
+        yageo_ac_mlcc = app["parse_model_rule"]("AC0603KRX7R9BB104", brand="国巨YAGEO")
+        self.assertIsNotNone(yageo_ac_mlcc)
+        self.assertEqual(yageo_ac_mlcc["器件类型"], "MLCC")
+        self.assertEqual(yageo_ac_mlcc["系列"], "AC")
+        self.assertEqual(yageo_ac_mlcc["尺寸（inch）"], "0603")
+
+        yageo_mode, yageo_spec = app["detect_query_mode_and_spec"](
+            pd.DataFrame(), "AC1206FR-7W2R2L"
+        )
+        self.assertEqual(yageo_mode, "料号")
+        self.assertEqual(yageo_spec["品牌"], "国巨YAGEO")
+        self.assertEqual(yageo_spec["器件类型"], "厚膜电阻")
+        self.assertAlmostEqual(float(yageo_spec["_resistance_ohm"]), 2.2)
+        yageo_resolved = app["resolve_search_query_dataframe_and_spec"]("AC1206FR-7W2R2L")
+        self.assertNotEqual(yageo_resolved["resolution_path"], "unknown_compact_part")
+        self.assertFalse(yageo_resolved["query_df"].empty)
+        source_yageo_rows = yageo_resolved["query_df"][
+            yageo_resolved["query_df"]["型号"].astype(str).map(app["clean_model"]).eq("AC1206FR-7W2R2L")
+        ]
+        self.assertFalse(source_yageo_rows.empty)
+        self.assertEqual(app["clean_brand"](source_yageo_rows.iloc[0]["品牌"]), "国巨YAGEO")
+        yageo_matches = app["run_query_match"](
+            yageo_resolved["query_df"], yageo_resolved["mode"], yageo_resolved["spec"]
+        )
+        self.assertFalse(yageo_matches.empty)
+        yageo_match_models = set(yageo_matches["型号"].astype(str).map(app["clean_model"]))
+        self.assertIn("FRQ1206F2R20TS", yageo_match_models)
+        self.assertNotIn("FRC1206F2R20TS", yageo_match_models)
+
         milliohm = app["parse_resistor_spec_query"]("1206 0.01R 1% 1/4W")
         megaohm = app["parse_resistor_spec_query"]("0402 1M 5% 1/16W")
         self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.01)

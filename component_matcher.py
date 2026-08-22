@@ -258,7 +258,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 115
+QUERY_RESULT_CACHE_VERSION = 116
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -283,7 +283,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-14T16:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-08-22T11:48:29+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13196,12 +13196,13 @@ def resistor_model_rule_candidate(model, brand="", component_type=""):
 
 def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
+    resolved_brand = clean_brand(brand) or "国巨YAGEO"
     mlcc_candidate = parse_yageo_common(compact)
     if mlcc_candidate is not None:
         return None
     if not re.match(r"^(AA|AC|AF|AR|AT|RC|RT)\d{4}[A-Z]", compact):
         return None
-    series_profile = infer_resistor_series_profile(compact, brand=brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
+    series_profile = infer_resistor_series_profile(compact, brand=resolved_brand, component_type=normalize_component_type(component_type) or "厚膜电阻")
     resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or normalize_component_type(component_type) or "厚膜电阻"
     resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
     size = clean_size(compact[2:6])
@@ -13213,7 +13214,7 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     if size == "" and resistance_ohm is None and tol == "":
         return None
     return {
-        "品牌": clean_brand(brand),
+        "品牌": resolved_brand,
         "型号": compact,
         "器件类型": resolved_component_type,
         "系列": series_profile["系列"],
@@ -29986,7 +29987,9 @@ def parse_model_rule(model, brand="", component_type=""):
     if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK")):
         return parse_taiyo_common(m)
     if yageo_mlcc_series_code_from_model(m):
-        return parse_yageo_common(m)
+        parsed = parse_yageo_common(m)
+        if parsed is not None:
+            return parsed
     if m.startswith(("CGA", "CSA", "CTA", "CBA")) and len(m) >= 7 and m[3:7].isdigit():
         parsed = parse_generic_size_first_mlcc(m, brand=brand_text)
         if parsed is not None:
