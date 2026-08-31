@@ -7005,12 +7005,16 @@ def apply_cost_price_item_update_times(items, previous_change_map, now_text):
 
 def cost_price_list_summary_dataframe(rows):
     if not rows:
-        return pd.DataFrame(columns=["ID", "价格归属", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
+        return pd.DataFrame(columns=["ID", "分页价格规则", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
     return pd.DataFrame(
         [
             {
                 "ID": row.get("id", ""),
-                "价格归属": cost_customer_context_label(row.get("customer_type", "new"), row.get("customer_name", "")),
+                "分页价格规则": (
+                    f"旧版整表专属：{normalize_cost_customer_name(row.get('customer_name', '')) or '未命名客户'}"
+                    if normalize_cost_customer_type(row.get("customer_type", "new")) == COST_CUSTOMER_TYPE_EXISTING
+                    else "按各分页 B1 自动归属"
+                ),
                 "当前使用": "是" if int(row.get("active", 0) or 0) == 1 else "",
                 "文件名": row.get("file_name", ""),
                 "上传时间": row.get("uploaded_at", ""),
@@ -7892,9 +7896,13 @@ def import_cost_price_list_from_upload(
     suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
     imported_sheets = {clean_text(item.get("sheet_name", "")) for item in items if clean_text(item.get("sheet_name", ""))}
     sheet_summary = f"，覆盖 {len(imported_sheets)} 个分页" if imported_sheets else ""
+    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+        scope_summary = f"旧版整表专属客户“{customer_name}”"
+    else:
+        scope_summary = "按各分页 B1 自动归属价格"
     return True, (
-        f"已上传并启用{cost_customer_context_label(customer_type, customer_name)}成本清单："
-        f"{file_name}，导入 {len(items)} 行{sheet_summary}{suffix}。"
+        f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{sheet_summary}；"
+        f"{scope_summary}{suffix}。"
     ), list_id
 
 
@@ -8433,37 +8441,28 @@ def render_manual_cost_price_admin_section(updated_by):
 def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     with st.container(border=True):
         st.subheader("上传新成本清单")
-        st.caption("支持 Excel/CSV。每个分页 B1 可填写“通用”或一个/多个客户代码；客户代码分页会优先于通用分页，且只供对应客户集团使用。")
-        ownership = st.radio(
-            "价格归属",
-            ["新客户通用价", "旧有客户专属价"],
-            horizontal=True,
-            key="cost_price_upload_ownership",
+        st.caption(
+            "支持 Excel/CSV。系统会按每个分页 B1 自动判断价格归属："
+            "B1 留空或填写“通用”就是通用价；填写一个/多个客户代码时，"
+            "该分页只供对应客户或同集团客户使用，并优先于通用分页。"
         )
-        upload_customer_type = COST_CUSTOMER_TYPE_EXISTING if ownership == "旧有客户专属价" else COST_CUSTOMER_TYPE_NEW
-        upload_customer_name = ""
-        if upload_customer_type == COST_CUSTOMER_TYPE_EXISTING:
-            upload_customer_name = render_admin_cost_customer_selector("cost_price_upload")
         uploaded_file = st.file_uploader(
             "选择成本清单",
             type=["xlsx", "xls", "csv"],
             key="cost_price_admin_upload",
         )
         if st.button("上传并启用", key="cost_price_admin_upload_submit", use_container_width=True):
-            if upload_customer_type == COST_CUSTOMER_TYPE_EXISTING and normalize_cost_customer_key(upload_customer_name) == "":
-                st.warning("请先从旧有客户清单选择客户；清单中没有时，请选择“新增客户”并填写客户名称。")
+            ok, message, _ = import_cost_price_list_from_upload(
+                uploaded_file,
+                uploaded_by=uploaded_by,
+                customer_type=COST_CUSTOMER_TYPE_NEW,
+                customer_name="",
+            )
+            if ok:
+                st.session_state["cost_price_admin_flash"] = message
+                st.rerun()
             else:
-                ok, message, _ = import_cost_price_list_from_upload(
-                    uploaded_file,
-                    uploaded_by=uploaded_by,
-                    customer_type=upload_customer_type,
-                    customer_name=upload_customer_name,
-                )
-                if ok:
-                    st.session_state["cost_price_admin_flash"] = message
-                    st.rerun()
-                else:
-                    st.warning(message)
+                st.warning(message)
 
     st.subheader("成本清单历史")
     if lists:
@@ -8471,7 +8470,11 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
         for row in lists:
             with st.expander(
                 f"#{row.get('id')} · {row.get('file_name')} · {row.get('uploaded_at')}"
-                + f" · {cost_customer_context_label(row.get('customer_type', 'new'), row.get('customer_name', ''))}"
+                + (
+                    f" · 旧版整表专属：{normalize_cost_customer_name(row.get('customer_name', '')) or '未命名客户'}"
+                    if normalize_cost_customer_type(row.get("customer_type", "new")) == COST_CUSTOMER_TYPE_EXISTING
+                    else " · 按各分页 B1 自动归属"
+                )
                 + (" · 当前使用" if int(row.get("active", 0) or 0) == 1 else ""),
                 expanded=int(row.get("active", 0) or 0) == 1,
             ):

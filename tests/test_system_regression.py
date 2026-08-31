@@ -3786,6 +3786,12 @@ class SystemRegressionTests(unittest.TestCase):
             upload = UploadedBytes("group-price.xlsx", output.getvalue())
             ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
             self.assertTrue(ok, message)
+            self.assertIn("按各分页 B1 自动归属价格", message)
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                list_scope = conn.execute(
+                    "SELECT customer_type, customer_name, customer_key FROM cost_price_lists WHERE active=1"
+                ).fetchone()
+            self.assertEqual(list_scope, ("new", "", ""))
 
             row = {
                 "品牌": "FOJAN(富捷)", "型号": "FRC0603F1002TS", "系列": "FRC",
@@ -3812,7 +3818,20 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
 
-    def test_05f_admin_cost_customer_choices_are_searchable_and_exclude_disabled_customers(self):
+    def test_05f_whole_cost_list_upload_uses_sheet_b1_without_manual_scope_choice(self):
+        with open(os.path.join(self.base_dir, "component_matcher.py"), "r", encoding="utf-8") as handle:
+            source = handle.read()
+        start = source.index("def render_uploaded_cost_price_admin_section")
+        end = source.index("\ndef render_sales_customer_admin_page", start)
+        upload_section = source[start:end]
+        self.assertNotIn('st.radio(', upload_section)
+        self.assertNotIn('render_admin_cost_customer_selector(', upload_section)
+        self.assertNotIn('cost_price_upload_ownership', upload_section)
+        self.assertIn('B1 留空或填写“通用”就是通用价', upload_section)
+        self.assertIn('customer_type=COST_CUSTOMER_TYPE_NEW', upload_section)
+        self.assertIn('customer_name=""', upload_section)
+
+    def test_05g_admin_cost_customer_choices_are_searchable_and_exclude_disabled_customers(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
         try:
