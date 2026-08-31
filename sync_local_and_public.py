@@ -1,0 +1,632 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_PUBLIC_URL = "https://fruition-component.pages.dev/"
+DEFAULT_BUNDLE_OUTPUT = ROOT / "streamlit_cloud_bundle.zip"
+PUBLISH_FILES = [
+    "component_matcher.py",
+    "bom_job_store.py",
+    "component_quality.py",
+    "member_auth_runtime.py",
+    "fojan_resistor_catalog.py",
+    "manufacturer_packaging_rules.py",
+    "resistor_series_rules.py",
+    "streamlit_app.py",
+    "requirements.txt",
+    "runtime.txt",
+    "README.md",
+    "AGENTS.md",
+    "PUBLIC_ACCESS.md",
+    ".gitattributes",
+    ".gitignore",
+    "operation_log.md",
+    "logo.png",
+    "streamlit_cloud_bundle.manifest.json",
+    "streamlit_cloud_bundle.zip.part*",
+    "build_streamlit_cloud_bundle.py",
+    "sync_murata_inductor_family.py",
+    "sync_chilisin_inductor_tree.py",
+    "sync_laird_inductors.py",
+    "sync_yageo_inductor_new_products.py",
+    "sync_tdk_wurth_power_inductors.py",
+    "sync_tdk_mhq0402psa_inductors.py",
+    "sync_wurth_power_inductors_extended.py",
+    "sync_taiyo_yuden_inductors.py",
+    "sync_vishay_power_inductors.py",
+    "sync_panasonic_inductors.py",
+    "sync_abracon_inductors.py",
+    "sync_coilcraft_inductors.py",
+    "sync_official_timing_brands.py",
+    "sync_local_and_public.py",
+    "sync_local_and_public.ps1",
+    "sync_local_and_public.cmd",
+    "powershell_utf8.ps1",
+    "sync_samsung_power_inductors.py",
+    "sync_semiconductor_seed.py",
+    "sync_passive_gap_seed.py",
+    "incremental_semiconductor_cache_update.py",
+    "audit_library_expansion.py",
+    "reports/library_expansion_audit.csv",
+    "reports/library_expansion_audit.md",
+    "reports/manufacturer_packaging_coverage.md",
+    "tools/build_passive_series_gap_report.py",
+    "tools/run_release_safety_gate.py",
+    "publish_public.ps1",
+    "publish_public.cmd",
+    # Raw workbook sources required for rebuilding the cloud database.
+    "Capacitor",
+    "Crystal*",
+    "Inductor",
+    "Resistor",
+    ".streamlit/config.toml",
+    "docs",
+    # Cloudflare Pages proxy artifacts.
+    "cloudflare-pages-proxy/dist/_worker.js",
+    "cloudflare-pages-proxy/dist/favicon.png",
+    "cloudflare-pages-proxy/wrangler.jsonc",
+]
+
+PUBLIC_RUNTIME_GUARD_FILES = {
+    ".streamlit/config.toml",
+    "build_streamlit_cloud_bundle.py",
+    "cloudflare-pages-proxy/dist/_worker.js",
+    "cloudflare-pages-proxy/wrangler.jsonc",
+    "deploy_cloudflare_pages_proxy.cmd",
+    "deploy_cloudflare_pages_proxy.ps1",
+    "publish_public.cmd",
+    "publish_public.ps1",
+    "requirements.txt",
+    "runtime.txt",
+    "streamlit_app.py",
+    "sync_local_and_public.cmd",
+    "sync_local_and_public.ps1",
+    "sync_local_and_public.py",
+    "component_matcher.py",
+    "bom_job_store.py",
+    "component_quality.py",
+    "fojan_resistor_catalog.py",
+    "manufacturer_packaging_rules.py",
+    "resistor_series_rules.py",
+}
+
+
+class CommandError(RuntimeError):
+    pass
+
+
+def run_command(
+    args: list[str],
+    *,
+    check: bool = True,
+    capture_output: bool = True,
+    text: bool = True,
+    env: dict | None = None,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess:
+    encoding = "utf-8" if text else None
+    errors = "replace" if text else None
+    completed = subprocess.run(
+        args,
+        cwd=ROOT,
+        check=False,
+        capture_output=capture_output,
+        text=text,
+        encoding=encoding,
+        errors=errors,
+        env=env,
+        input=input_text,
+    )
+    if check and completed.returncode != 0:
+        raise CommandError(
+            f"command failed ({completed.returncode}): {' '.join(args)}\n"
+            f"stdout:\n{completed.stdout}\n\nstderr:\n{completed.stderr}"
+        )
+    return completed
+
+
+def write_step(message: str) -> None:
+    print(f"[sync] {message}")
+
+
+def normalize_ssh_public_key(public_key_text: str) -> str:
+    parts = public_key_text.strip().split()
+    if len(parts) >= 2:
+        return f"{parts[0]} {parts[1]}"
+    return public_key_text.strip()
+
+
+def normalize_git_path(path: str) -> str:
+    return Path(path).as_posix()
+
+
+def detect_public_runtime_changes(staged_files: list[str]) -> list[str]:
+    guarded = []
+    for path in staged_files:
+        normalized = normalize_git_path(path)
+        if normalized in PUBLIC_RUNTIME_GUARD_FILES:
+            guarded.append(normalized)
+    return guarded
+
+
+def resolve_python_command() -> list[str]:
+    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        return [str(venv_python)]
+    for cmd in (["python"], ["py", "-3"]):
+        try:
+            run_command(cmd + ["--version"])
+            return cmd
+        except Exception:
+            continue
+    raise RuntimeError("Python not found. Install Python or create .venv first.")
+
+
+def parse_repo_full_name(remote_url: str) -> str:
+    remote_url = remote_url.strip()
+    for pattern in [
+        r"github\.com[:/](?P<repo>[^/]+/[^/.]+?)(?:\.git)?$",
+        r"ssh://git@ssh\.github\.com:443/(?P<repo>[^/]+/[^/.]+?)(?:\.git)?$",
+    ]:
+        match = re.search(pattern, remote_url)
+        if match:
+            return match.group("repo")
+    raise RuntimeError(f"Unable to parse GitHub repository from remote URL: {remote_url}")
+
+
+def get_default_branch() -> str:
+    try:
+        upstream = run_command(
+            [
+                "git",
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ]
+        ).stdout.strip()
+        if "/" in upstream:
+            return upstream.split("/", 1)[1]
+        if upstream:
+            return upstream
+    except Exception:
+        pass
+    try:
+        branch = run_command(["git", "branch", "--show-current"]).stdout.strip()
+        return branch or "main"
+    except Exception:
+        return "main"
+
+
+def get_github_token() -> str:
+    result = run_command(
+        ["git", "credential", "fill"],
+        input_text="protocol=https\nhost=github.com\n\n",
+    ).stdout
+    for line in result.splitlines():
+        if line.startswith("password="):
+            token = line.split("=", 1)[1].strip()
+            if token:
+                return token
+    raise RuntimeError("No GitHub credential found in Git Credential Manager.")
+
+
+def github_request(token: str, method: str, url: str, payload: dict | None = None) -> dict | list | None:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "component-matcher-sync",
+    }
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, method=method, headers=headers, data=data)
+    last_error = None
+    for attempt in range(1, 6):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                if method.upper() == "DELETE":
+                    return None
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 422:
+                body = exc.read().decode("utf-8", "replace")
+                raise RuntimeError(f"GitHub API validation failed: {body}") from exc
+            last_error = exc
+        except Exception as exc:
+            last_error = exc
+        time.sleep(min(10, attempt * 2))
+    raise RuntimeError(f"GitHub API request failed: {last_error}")
+
+
+def ensure_repo_deploy_key(token: str, repo_full_name: str) -> Path:
+    ssh_dir = Path.home() / ".ssh"
+    ssh_dir.mkdir(parents=True, exist_ok=True)
+    private_key = ssh_dir / "component_matcher_sync_ed25519"
+    public_key = private_key.with_suffix(".pub")
+
+    if not private_key.exists() or not public_key.exists():
+        write_step("Generating a dedicated GitHub SSH key for sync")
+        run_command(
+            [
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-f",
+                str(private_key),
+                "-N",
+                "",
+                "-C",
+                f"component-matcher-sync@{os.environ.get('COMPUTERNAME', 'windows')}",
+            ],
+            capture_output=False,
+        )
+
+    public_key_text = public_key.read_text(encoding="utf-8").strip()
+    normalized_public_key = normalize_ssh_public_key(public_key_text)
+    keys = github_request(
+        token,
+        "GET",
+        f"https://api.github.com/repos/{repo_full_name}/keys",
+    )
+    assert isinstance(keys, list)
+
+    matching_key = None
+    for item in keys:
+        if isinstance(item, dict) and normalize_ssh_public_key(item.get("key", "")) == normalized_public_key:
+            matching_key = item
+            break
+
+    if matching_key and not matching_key.get("read_only", True):
+        write_step("Repository deploy key already registered with write access")
+        return private_key
+
+    if matching_key and matching_key.get("read_only", True):
+        key_id = matching_key.get("id")
+        if key_id:
+            write_step("Replacing read-only repository deploy key with a writable key")
+            github_request(
+                token,
+                "DELETE",
+                f"https://api.github.com/repos/{repo_full_name}/keys/{key_id}",
+            )
+            matching_key = None
+
+    if not matching_key:
+        write_step("Registering a writable repository deploy key with GitHub")
+        github_request(
+            token,
+            "POST",
+            f"https://api.github.com/repos/{repo_full_name}/keys",
+            {
+                "title": f"component-matcher-sync-{os.environ.get('COMPUTERNAME', 'windows')}",
+                "key": public_key_text,
+                "read_only": False,
+            },
+        )
+
+    return private_key
+
+
+def make_ssh_env(private_key: Path) -> dict:
+    env = os.environ.copy()
+    env["GIT_SSH_COMMAND"] = (
+        f'ssh -i "{private_key}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new'
+    )
+    return env
+
+
+def build_cloud_bundle(python_cmd: list[str], skip_bundle_rebuild: bool) -> bool:
+    if skip_bundle_rebuild:
+        write_step("Skipping cloud bundle rebuild by request")
+        return False
+    write_step("Building streamlit_cloud_bundle.zip from the current search-side assets and caches")
+    completed = run_command(
+        python_cmd + ["build_streamlit_cloud_bundle.py", "--output", str(DEFAULT_BUNDLE_OUTPUT)],
+        capture_output=True,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    split_cloud_bundle_archive(DEFAULT_BUNDLE_OUTPUT)
+    return "[bundle] rebuilt:" in (completed.stdout or "")
+
+
+def replace_text_file_atomically(target_path: Path, text: str) -> None:
+    temp_path = target_path.with_suffix(target_path.suffix + ".part")
+    if temp_path.exists():
+        try:
+            temp_path.unlink()
+        except Exception:
+            pass
+    temp_path.write_text(text, encoding="utf-8")
+    last_error = None
+    for attempt in range(6):
+        try:
+            os.replace(temp_path, target_path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt >= 5:
+                break
+            time.sleep(0.4 * (attempt + 1))
+    raise last_error
+
+
+def refresh_public_release_stamp() -> bool:
+    streamlit_app_path = ROOT / "streamlit_app.py"
+    if not streamlit_app_path.exists():
+        return False
+
+    current_text = streamlit_app_path.read_text(encoding="utf-8")
+    current_stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    pattern = re.compile(r'^(PUBLIC_RELEASE_STAMP\s*=\s*")[^"]*(")$', re.MULTILINE)
+    refreshed_text, replacements = pattern.subn(rf'\g<1>{current_stamp}\g<2>', current_text, count=1)
+    if replacements == 0:
+        raise RuntimeError("PUBLIC_RELEASE_STAMP line not found in streamlit_app.py")
+    if refreshed_text == current_text:
+        return False
+
+    replace_text_file_atomically(streamlit_app_path, refreshed_text)
+    write_step(f"Refreshed public release stamp in streamlit_app.py -> {current_stamp}")
+    return True
+
+
+def split_cloud_bundle_archive(bundle_path: Path, part_size_mb: int = 95) -> None:
+    if not bundle_path.exists():
+        raise FileNotFoundError(f"Cloud bundle not found: {bundle_path}")
+    part_size = int(part_size_mb) * 1024 * 1024
+    if part_size <= 0:
+        raise ValueError("part_size_mb must be positive")
+
+    for part_file in ROOT.glob("streamlit_cloud_bundle.zip.part*"):
+        try:
+            if part_file.is_file():
+                part_file.unlink()
+        except Exception:
+            continue
+
+    total_size = bundle_path.stat().st_size
+    part_count = (total_size + part_size - 1) // part_size
+    write_step(f"Splitting cloud bundle into {part_count} parts (~{part_size_mb}MB each)")
+    with bundle_path.open("rb") as source_handle:
+        for index in range(1, part_count + 1):
+            chunk = source_handle.read(part_size)
+            part_path = ROOT / f"streamlit_cloud_bundle.zip.part{index:02d}"
+            with part_path.open("wb") as target_handle:
+                target_handle.write(chunk)
+            write_step(f"Created {part_path.name} ({part_path.stat().st_size} bytes)")
+
+
+def should_skip_publish_file(path: Path) -> bool:
+    file_name = path.name
+    lower_name = file_name.lower()
+    if file_name.startswith("~$"):
+        return True
+    if ".backup_" in lower_name:
+        return True
+    if "backup" in lower_name:
+        return True
+    if "可查看版" in file_name or "view_only" in lower_name or "view-only" in lower_name:
+        return True
+    return False
+
+
+def stage_publish_files() -> list[str]:
+    existing_files = []
+    for rel in PUBLISH_FILES:
+        if any(ch in rel for ch in "*?[]"):
+            if rel == "streamlit_cloud_bundle.zip.part*":
+                run_command(["git", "add", "-A", "--", rel], capture_output=False)
+                continue
+            for path in ROOT.glob(rel):
+                if path.is_dir():
+                    existing_files.extend(
+                        str(child)
+                        for child in path.rglob("*")
+                        if child.is_file() and not should_skip_publish_file(child)
+                    )
+                elif path.is_file() and not should_skip_publish_file(path):
+                    existing_files.append(str(path))
+            continue
+        path = ROOT / rel
+        if path.is_dir():
+            existing_files.extend(
+                str(child)
+                for child in path.rglob("*")
+                if child.is_file() and not should_skip_publish_file(child)
+            )
+        elif path.is_file() and not should_skip_publish_file(path):
+            existing_files.append(str(path))
+    if not existing_files:
+        raise RuntimeError("No publishable files were found.")
+    run_command(["git", "add", "--"] + existing_files, capture_output=False)
+    staged = run_command(["git", "diff", "--cached", "--name-only"]).stdout.splitlines()
+    return [item.strip() for item in staged if item.strip()]
+
+
+def commit_if_needed(message: str, allow_public_runtime_change: bool) -> str:
+    staged = stage_publish_files()
+    if not staged:
+        write_step("No staged publish changes were found")
+        return ""
+    guarded_changes = detect_public_runtime_changes(staged)
+    if guarded_changes and not allow_public_runtime_change:
+        if guarded_changes == ["streamlit_app.py"] and is_stamp_only_public_release_change():
+            write_step("Public release stamp change detected; treating it as a safe release nudge")
+        else:
+            raise CommandError(
+                "This publish touches protected public runtime files:\n"
+                + "\n".join(f"  - {item}" for item in guarded_changes)
+                + "\nTo avoid accidentally breaking the public site, re-run with "
+                "--allow-public-runtime-change only when this is an intentional public release change."
+            )
+    if guarded_changes and allow_public_runtime_change:
+        write_step("Protected public runtime files changed; explicit override accepted")
+    write_step(f"Creating commit: {message}")
+    run_command(["git", "commit", "-m", message], capture_output=False)
+    return run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
+
+
+def is_stamp_only_public_release_change() -> bool:
+    diff = run_command(
+        ["git", "diff", "--cached", "--unified=0", "--", "streamlit_app.py"],
+        check=False,
+    ).stdout
+    if not diff.strip():
+        return False
+
+    stamp_line_pattern = re.compile(r'^PUBLIC_RELEASE_STAMP\s*=\s*"[^\n"]*"$')
+    changed_lines = []
+    for line in diff.splitlines():
+        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "@@")):
+            continue
+        if line.startswith(("+", "-")):
+            changed_lines.append(line)
+            continue
+        if line.strip() == "":
+            continue
+        return False
+
+    if len(changed_lines) != 2:
+        return False
+    return all(stamp_line_pattern.match(line[1:].strip()) for line in changed_lines)
+
+
+def fetch_remote_head(repo_full_name: str, branch: str, ssh_env: dict) -> str:
+    remote_url = f"ssh://git@ssh.github.com:443/{repo_full_name}.git"
+    write_step("Fetching the latest remote branch through SSH 443")
+    run_command(["git", "fetch", remote_url, branch], env=ssh_env, capture_output=False)
+    return run_command(["git", "rev-parse", "FETCH_HEAD"]).stdout.strip()
+
+
+def create_publish_commit(commit_sha: str, remote_sha: str) -> str:
+    if not commit_sha:
+        return remote_sha
+
+    ancestor_check = run_command(
+        ["git", "merge-base", "--is-ancestor", remote_sha, commit_sha],
+        check=False,
+    )
+    if ancestor_check.returncode == 0:
+        write_step("Local publish commit already builds on the remote branch")
+        return commit_sha
+
+    tree_sha = run_command(["git", "show", "-s", "--format=%T", commit_sha]).stdout.strip()
+    message = run_command(["git", "show", "-s", "--format=%B", commit_sha]).stdout
+    author_name = run_command(["git", "show", "-s", "--format=%an", commit_sha]).stdout.strip()
+    author_email = run_command(["git", "show", "-s", "--format=%ae", commit_sha]).stdout.strip()
+    author_date = run_command(["git", "show", "-s", "--format=%aI", commit_sha]).stdout.strip()
+    env = os.environ.copy()
+    env["GIT_AUTHOR_NAME"] = author_name
+    env["GIT_AUTHOR_EMAIL"] = author_email
+    env["GIT_AUTHOR_DATE"] = author_date
+    write_step("Synthesizing a publish commit on top of the latest remote branch")
+    return run_command(
+        ["git", "commit-tree", tree_sha, "-p", remote_sha],
+        env=env,
+        input_text=message,
+    ).stdout.strip()
+
+
+def push_branch(repo_full_name: str, branch: str, ssh_env: dict, publish_sha: str) -> None:
+    remote_url = f"ssh://git@ssh.github.com:443/{repo_full_name}.git"
+    write_step("Pushing the branch through SSH 443")
+    run_command(["git", "push", remote_url, f"{publish_sha}:{branch}"], env=ssh_env, capture_output=False)
+    run_command(["git", "update-ref", f"refs/remotes/origin/{branch}", publish_sha])
+
+
+def validate_python_files(python_cmd: list[str]) -> None:
+    files = [
+        str(ROOT / rel)
+        for rel in [
+            "component_matcher.py",
+            "bom_job_store.py",
+            "component_quality.py",
+            "member_auth_runtime.py",
+            "manufacturer_packaging_rules.py",
+            "streamlit_app.py",
+            "build_streamlit_cloud_bundle.py",
+            "sync_local_and_public.py",
+        ]
+        if (ROOT / rel).exists()
+    ]
+    if files:
+        write_step("Running syntax validation for the sync and app entry files")
+        run_command(python_cmd + ["-m", "py_compile"] + files, capture_output=False)
+
+
+def run_release_safety_gate(python_cmd: list[str]) -> None:
+    gate_script = ROOT / "tools" / "run_release_safety_gate.py"
+    if not gate_script.exists():
+        raise CommandError(f"Required release safety gate is missing: {gate_script}")
+    write_step("Running member, backend, and runtime-data safety gate")
+    run_command(python_cmd + [str(gate_script)], capture_output=False)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="One-click sync for local and public Component Matcher deployments.")
+    parser.add_argument("--commit-message", default="", help="Optional custom git commit message.")
+    parser.add_argument("--skip-bundle-rebuild", action="store_true", help="Skip rebuilding streamlit_cloud_bundle.zip.")
+    parser.add_argument("--skip-push", action="store_true", help="Prepare commit locally but do not push.")
+    parser.add_argument(
+        "--allow-public-runtime-change",
+        action="store_true",
+        help="Allow publishing protected public runtime files such as app entry points and proxy logic.",
+    )
+    parser.add_argument("--public-url", default=DEFAULT_PUBLIC_URL, help="Public site URL to display after publish.")
+    args = parser.parse_args()
+
+    os.chdir(ROOT)
+    python_cmd = resolve_python_command()
+    branch = get_default_branch()
+    repo_remote = run_command(["git", "remote", "get-url", "origin"]).stdout.strip()
+    repo_full_name = parse_repo_full_name(repo_remote)
+    commit_message = args.commit_message.strip() or f"Sync local and public release {time.strftime('%Y-%m-%d %H:%M')}"
+
+    run_release_safety_gate(python_cmd)
+    build_cloud_bundle(python_cmd, args.skip_bundle_rebuild)
+    # A code-only release must also invalidate Streamlit's cached runtime.
+    # Tying the stamp to bundle changes left formal deployments on stale code
+    # whenever the search data bundle itself was unchanged.
+    refresh_public_release_stamp()
+    validate_python_files(python_cmd)
+
+    token = get_github_token()
+    private_key = ensure_repo_deploy_key(token, repo_full_name)
+    ssh_env = make_ssh_env(private_key)
+
+    commit_sha = commit_if_needed(commit_message, args.allow_public_runtime_change)
+    remote_sha = fetch_remote_head(repo_full_name, branch, ssh_env)
+    publish_sha = create_publish_commit(commit_sha, remote_sha)
+
+    if args.skip_push:
+        write_step("Skipping push by request")
+    else:
+        push_branch(repo_full_name, branch, ssh_env, publish_sha)
+        write_step(f"Public site: {args.public_url}")
+
+    if commit_sha:
+        print(f"[sync] local commit: {commit_sha}")
+    if commit_sha and publish_sha and publish_sha != commit_sha:
+        print(f"[sync] published commit: {publish_sha}")
+    print("[sync] done")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
