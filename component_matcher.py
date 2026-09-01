@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 132
+QUERY_RESULT_CACHE_VERSION = 133
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-02T00:00:31+08:00"
+PUBLIC_CODE_STAMP = "2026-09-02T00:31:59+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13031,12 +13031,13 @@ VERIFIED_MLCC_DIMENSION_RULES = [
 ]
 
 
-def decode_walsin_numeric_mlcc_voltage_code(code):
+def decode_numeric_mlcc_voltage_code(code):
     text = clean_text(code).upper().replace(" ", "")
     if text == "":
         return ""
-    if text == "6R3":
-        return "6.3"
+    decimal_match = re.fullmatch(r"(?P<whole>\d{1,2})R(?P<fraction>\d)", text)
+    if decimal_match is not None:
+        return clean_voltage(f"{int(decimal_match.group('whole'))}.{decimal_match.group('fraction')}")
     if len(text) == 3 and text.isdigit():
         try:
             base = int(text[:2])
@@ -13045,6 +13046,10 @@ def decode_walsin_numeric_mlcc_voltage_code(code):
         except Exception:
             return ""
     return clean_voltage(text)
+
+
+def decode_walsin_numeric_mlcc_voltage_code(code):
+    return decode_numeric_mlcc_voltage_code(code)
 
 
 def decode_walsin_mlcc_dimension_fields_from_model(model):
@@ -20328,7 +20333,8 @@ def parse_tdk_c_series(model):
     }
     voltage_map = {
         "0E": "2.5", "0G": "4", "0J": "6.3", "1A": "10", "1C": "16",
-        "1E": "25", "1H": "50", "2A": "100", "2D": "200", "2E": "250", "2J": "630"
+        "1E": "25", "1H": "50", "2A": "100", "2D": "200", "2E": "250", "2J": "630",
+        "3A": "1000", "3B": "1250", "3D": "2000", "3F": "3000",
     }
     tol_map = {
         "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"
@@ -20403,9 +20409,9 @@ def parse_tdk_cga_series(model):
         "X6S": "X6S", "X8R": "X8R", "X8L": "X8L",
     }
     voltage_map = {
-        "0E": "2.5", "0G": "4", "0J": "6.3", "1A": "10", "1B": "16",
-        "1C": "25", "1D": "50", "1E": "100", "1H": "50", "2A": "100",
-        "2D": "200", "2E": "250", "2J": "630"
+        "0E": "2.5", "0G": "4", "0J": "6.3", "1A": "10", "1C": "16",
+        "1E": "25", "1H": "50", "2A": "100", "2D": "200", "2E": "250",
+        "2J": "630", "3A": "1000", "3B": "1250", "3D": "2000", "3F": "3000",
     }
     tol_map = {
         "C": "0.25PF", "D": "0.5PF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"
@@ -20546,6 +20552,54 @@ def parse_walsin_common(model, brand=""):
         }
     except:
         return None
+
+
+def parse_fojan_fcc_mlcc(model):
+    model = clean_model(model)
+    match = re.fullmatch(
+        r"FCC(?P<size>01005|\d{4})(?P<mat>[BCNXT])"
+        r"(?P<cap>(?:\d{3,4}|R\d+|\dR\d+))(?P<tol>[ABCDEFGJKMZ])"
+        r"(?P<volt>(?:\d{1,2}R\d|\d{3}))(?P<rest>[A-Z0-9]*)",
+        model,
+    )
+    if match is None:
+        return None
+
+    material_map = {
+        "B": "X7R", "C": "COG(NPO)", "N": "COG(NPO)",
+        "T": "X7T", "X": "X5R",
+    }
+    tol_map = {
+        "A": "0.05PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
+        "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20",
+    }
+    size = clean_size(match.group("size"))
+    material = clean_material(material_map.get(match.group("mat"), ""))
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    tolerance = clean_tol_for_match(tol_map.get(match.group("tol"), ""))
+    voltage = clean_voltage(decode_numeric_mlcc_voltage_code(match.group("volt")))
+    if size == "" or material == "" or cap_pf is None or tolerance == "" or voltage == "":
+        return None
+    series_profile = fojan_mlcc_series_profile("FCC")
+    cap_value, cap_unit = pf_to_value_unit(cap_pf)
+    return {
+        "品牌": "富捷FOJAN",
+        "型号": model,
+        "器件类型": "MLCC",
+        "系列": clean_text(series_profile.get("系列", "")) or "FCC",
+        "系列说明": clean_text(series_profile.get("系列说明", "")),
+        "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+        "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
+        "尺寸（inch）": size,
+        "材质（介质）": material,
+        "容值_pf": cap_pf,
+        "容值": cap_value,
+        "容值单位": cap_unit,
+        "容值误差": tolerance,
+        "耐压（V）": voltage,
+        "_model_rule_authority": "fojan_fcc_mlcc",
+        "_param_count": 5,
+    }
 
 
 def parse_fenghua_am_series(model):
@@ -30492,7 +30546,7 @@ def parse_taiyo_leaded_ceramic_model(model):
 def parse_generic_size_first_mlcc(model, brand=""):
     model = clean_model(model)
     match = re.fullmatch(
-        r"(?P<prefix>[A-Z]{1,3})(?P<size>\d{4})(?P<mat>C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L|Y5V)(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<volt>(?:6R3|0J|0G|0E|1A|1B|1C|1D|1E|1H|2A|2D|2E|2J|250|500|630|\d{3}))(?P<rest>.*)",
+        r"(?P<prefix>[A-Z]{1,3})(?P<size>\d{4})(?P<mat>C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L|Y5V)(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<volt>(?:\d{1,2}R\d|0J|0G|0E|1A|1B|1C|1D|1E|1H|2A|2D|2E|2J|250|500|630|\d{3}))(?P<rest>.*)",
         model,
     )
     if not match:
@@ -30529,7 +30583,8 @@ def parse_generic_size_first_mlcc(model, brand=""):
     series_code = clean_text(series_profile.get("系列", "")) or prefix_code
     cap_pf = murata_cap_code_to_pf(match.group("cap"))
     tol = clean_tol_for_match(tol_map.get(match.group("tol"), ""))
-    voltage = clean_voltage(voltage_map.get(match.group("volt"), ""))
+    voltage_code = match.group("volt")
+    voltage = clean_voltage(voltage_map.get(voltage_code, decode_numeric_mlcc_voltage_code(voltage_code)))
     param_count = sum([
         1 if clean_size(size_map.get(match.group("size"), clean_size(match.group("size")))) else 0,
         1 if clean_material(material_map.get(match.group("mat"), match.group("mat"))) else 0,
@@ -30752,8 +30807,14 @@ def parse_pulse_bbgk_ferrite_bead(model):
 
 def parse_cctc_common(model):
     model = clean_model(model)
-    # 常见三环：TCC0402X5R105K6R3AT
-    if not model.startswith("TCC") or len(model) < 14:
+    match = re.fullmatch(
+        r"TCC(?P<size>0100|01005|\d{4})"
+        r"(?P<mat>C0G|COG|NP0|NPO|X5R|X6S|X7R|X7S|X7T|X8R|Y5V)"
+        r"(?P<cap>(?:\d{3,4}|R\d+|\dR\d+))(?P<tol>[BCDFGJKMZ])"
+        r"(?P<volt>(?:\d{1,2}R\d|\d{3}))(?P<rest>[A-Z0-9]*)",
+        model,
+    )
+    if match is None:
         return None
 
     size_map = {
@@ -30761,33 +30822,38 @@ def parse_cctc_common(model):
         "0805": "0805", "1206": "1206", "1210": "1210", "1808": "1808",
         "1812": "1812", "2220": "2220"
     }
-    material_map = {"X5R": "X5R", "X7R": "X7R", "C0G": "COG(NPO)", "NP0": "COG(NPO)", "X7T": "X7T"}
+    material_map = {
+        "C0G": "COG(NPO)", "COG": "COG(NPO)", "NP0": "COG(NPO)", "NPO": "COG(NPO)",
+        "X5R": "X5R", "X6S": "X6S", "X7R": "X7R", "X7S": "X7S", "X7T": "X7T",
+        "X8R": "X8R", "Y5V": "Y5V",
+    }
     tol_map = {"F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
 
     try:
-        size_code = model[3:7]
-        mat_code = model[7:10]
-        cap_code = model[10:13]
-        tol_code = model[13]
-        rest = model[14:]
-
-        volt = ""
-        if rest.startswith("6R3"):
-            volt = "6.3"
-        elif len(rest) >= 3 and rest[:3].isdigit():
-            vmap = {"100": "10", "160": "16", "250": "25", "500": "50", "630": "630"}
-            volt = vmap.get(rest[:3], rest[:3])
+        size_code = match.group("size")
+        mat_code = match.group("mat")
+        cap_code = match.group("cap")
+        tol_code = match.group("tol")
+        voltage = clean_voltage(decode_numeric_mlcc_voltage_code(match.group("volt")))
+        series_profile = generic_mlcc_series_profile("TCC")
 
         return {
             "品牌": "三环CCTC",
             "型号": model,
+            "器件类型": "MLCC",
+            "系列": "TCC",
+            "系列说明": clean_text(series_profile.get("系列说明", "")),
+            "特殊用途": clean_text(series_profile.get("特殊用途", "")),
+            "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
             "尺寸（inch）": size_map.get(size_code, ""),
             "材质（介质）": clean_material(material_map.get(mat_code, "")),
-            "容值_pf": eia_code_to_pf(cap_code),
+            "容值_pf": murata_cap_code_to_pf(cap_code),
             "容值误差": clean_tol_for_match(tol_map.get(tol_code, "")),
-            "耐压（V）": clean_voltage(volt)
+            "耐压（V）": voltage,
+            "_model_rule_authority": "cctc_tcc_mlcc",
+            "_param_count": 5,
         }
-    except:
+    except Exception:
         return None
 
 
@@ -31207,6 +31273,14 @@ def parse_model_rule(model, brand="", component_type=""):
             return parsed
     if re.fullmatch(r"\d{4}[0-9AZYD][A-Z]\d{3,4}[BCDFGJKMZ].*", m):
         parsed = parse_kyocera_avx_common(m)
+        if parsed is not None:
+            return parsed
+    if m.startswith("TCC"):
+        parsed = parse_cctc_common(m)
+        if parsed is not None:
+            return parsed
+    if m.startswith("FCC"):
+        parsed = parse_fojan_fcc_mlcc(m)
         if parsed is not None:
             return parsed
     if mlcc_generic_size_first_parser_allowed(brand_text):

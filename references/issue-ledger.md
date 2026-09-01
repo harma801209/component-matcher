@@ -1467,3 +1467,11 @@
 - Root cause: five PDC FN rows contained only the electrical core through the voltage code. They were imported as ordinary MLCC rows even though PDC's selectable order number also requires the three-character termination/packing suffix.
 - Fix: remove the five suffix-free FN rows from both the prepared component cache and search sidecar, and reject suffix-free PDC MLCC core codes during source deduplication and every prepared/search-cache load path. The rule is limited to PDC MLCC ordering grammar and does not affect PDC resistor models or other brands.
 - Regression: the suffix-free `FN18X104K500` row is rejected while `FN18X104K500GBG`, `FN18X104K500PBG`, PDC resistor `FBF05FTPR100`, and Yageo MLCC controls remain. The complete 68-test safety gate passes with protected runtime databases unchanged.
+
+## 2026-09-02 - MLCC model searches lost brand and rated-voltage constraints
+
+- Symptom: exact model `TCC0603X7R225K160CTM` appeared with an unknown brand and a blank rated voltage, then returned cross-brand alternatives carrying different voltage ratings. Similar numeric voltage codes in several MLCC brands were absent from the prepared search cache.
+- Root cause: the broad prefix/size MLCC parser intercepted the TCC model before the CCTC-specific grammar, and that generic path did not decode three-digit mantissa/exponent voltage codes such as `160 = 16V` or `102 = 1000V`. TDK C/CGA high-voltage codes `3A`, `3B`, `3D`, and `3F` were also incomplete, while the CGA low-voltage table contained shifted values.
+- Fix: prioritize the full CCTC TCC grammar, identify TCC as 三环CCTC, decode numeric and decimal voltage codes consistently, add the verified FOJAN FCC numeric-voltage grammar, correct TDK C/CGA voltage tables through 3000V, and refresh the public prepared cache plus search sidecar for every high-confidence existing row.
+- Safety: a model-derived rated voltage is now part of the resolved source specification before cross-brand matching. Candidates with a different voltage are not labelled as equivalent or returned as same-voltage results.
+- Regression: the reported TCC model resolves to 0603 / X7R / 2.2uF / ±10% / 16V and its returned candidates all carry 16V. Controls cover CCTC 4V, Walsin/FOJAN/HRE numeric 1000V codes, and TDK C/CGA 1000V, 2000V, and 3000V codes.

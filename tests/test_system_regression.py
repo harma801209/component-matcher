@@ -6338,6 +6338,54 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotIn("FN18X104K500", set(prepared["型号"]))
         self.assertIn("FN18X104K500GBG", set(prepared["型号"]))
 
+    def test_22_mlcc_model_voltage_codes_drive_safe_cross_brand_matching(self):
+        app = self.app
+        model = "TCC0603X7R225K160CTM"
+
+        parsed = app["parse_model_rule"](model)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["品牌"], "三环CCTC")
+        self.assertEqual(parsed["器件类型"], "MLCC")
+        self.assertEqual(parsed["系列"], "TCC")
+        self.assertEqual(parsed["尺寸（inch）"], "0603")
+        self.assertEqual(parsed["材质（介质）"], "X7R")
+        self.assertEqual(parsed["容值_pf"], 2_200_000)
+        self.assertEqual(parsed["容值误差"], "10")
+        self.assertEqual(parsed["耐压（V）"], "16")
+        self.assertEqual(parsed["_model_rule_authority"], "cctc_tcc_mlcc")
+
+        resolved = app["resolve_search_query_dataframe_and_spec"](model)
+        self.assertEqual(resolved["mode"], "料号")
+        self.assertEqual(resolved["spec"]["品牌"], "三环CCTC")
+        self.assertEqual(resolved["spec"]["耐压（V）"], "16")
+        matches = app["match_by_spec"](resolved["query_df"], resolved["spec"])
+        self.assertFalse(matches.empty)
+        matched_voltages = matches["耐压（V）"].map(app["clean_voltage"])
+        self.assertTrue(matched_voltages.eq("16").all())
+        self.assertNotIn("10", set(matched_voltages))
+
+        cctc_low_voltage = app["parse_model_rule"]("TCC0402X7S105M4R0ATM")
+        self.assertEqual(cctc_low_voltage["品牌"], "三环CCTC")
+        self.assertEqual(cctc_low_voltage["材质（介质）"], "X7S")
+        self.assertEqual(cctc_low_voltage["耐压（V）"], "4")
+
+        voltage_code_cases = (
+            ("华新科Walsin", "0805B102K102CT", "1000"),
+            ("富捷FOJAN", "FCC0805B102K102FT", "1000"),
+            ("芯声微HRE", "CGA0805C0G101J102MT", "1000"),
+            ("东电化TDK", "C3216X7S3A102K085AA", "1000"),
+            ("东电化TDK", "C3216X7S3D101K085AA", "2000"),
+            ("东电化TDK", "C4520C0G3F100F085KA", "3000"),
+            ("东电化TDK", "CGA5F1X7S3A102K085AE", "1000"),
+            ("东电化TDK", "CGA6M1X7S3D102K200AA", "2000"),
+            ("东电化TDK", "CGA7F1C0G3F100F085KA", "3000"),
+        )
+        for brand, part_number, expected_voltage in voltage_code_cases:
+            with self.subTest(part_number=part_number):
+                decoded = app["parse_model_rule"](part_number, brand=brand, component_type="MLCC")
+                self.assertIsNotNone(decoded)
+                self.assertEqual(decoded["耐压（V）"], expected_voltage)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
