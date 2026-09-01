@@ -4111,3 +4111,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added conservative bare-fraction power recovery, generalized the source-backed FMB/FRM/FPM core-alloy generator for complete generic low-ohm specifications, and updated the current FRM 0805 M-terminal range to 50mΩ.
 - The reported 1/4W searches now return `FMB0805FR040TM` and `FRM0805FR040TM` as 1/2W `高代低`; an explicit 1/2W query returns both as `完全匹配`. Higher power remains opt-in only for generated official FOJAN rows; ordinary database resistor rows still require exact power.
 - Raised `QUERY_RESULT_CACHE_VERSION` to `131` and `PUBLIC_CODE_STAMP` to `2026-09-01T15:08:46+08:00` so old zero-result sessions are invalidated.
+
+### 2026-09-02 [PDC MLCC cleanup] Require complete order-number suffixes
+
+- Audited the formal prepared cache and search sidecar and found exactly five incomplete PDC FN MLCC core codes: `FN18X102K500`, `FN18X104K250`, `FN18X104K500`, `FN18X472K500`, and `FN18X563K250`.
+- Deleted those five rows from the 1,753,793-row prepared cache and from both affected search-sidecar tables. The resulting prepared cache contains 1,753,788 rows and a repeat audit reports zero suffix-free PDC MLCC rows.
+- Added a rebuild/load guard so future source imports and cache rebuilds discard PDC MLCC codes that stop after the voltage field. Complete models such as `FN18X104K500GBG` and `FN18X104K500PBG` remain; PDC resistors and other brands are unchanged.
+- Rebuilt and verified the public data bundle and split release parts. Raised `QUERY_RESULT_CACHE_VERSION` to `132` and both public release stamps to `2026-09-02T00:00:31+08:00`.
+- The complete 68-test release safety gate passed with isolated test databases and protected runtime data unchanged.

@@ -6308,6 +6308,36 @@ class SystemRegressionTests(unittest.TestCase):
             [],
         )
 
+    def test_21_pdc_mlcc_rows_require_complete_order_code_suffix(self):
+        app = self.app
+        rows = pd.DataFrame(
+            [
+                {"品牌": "信昌PDC", "型号": "FN18X104K500", "器件类型": "MLCC"},
+                {"品牌": "信昌PDC", "型号": "FN18X104K500GBG", "器件类型": "MLCC"},
+                {"品牌": "信昌PDC", "型号": "FN18X104K500PBG", "器件类型": "MLCC"},
+                {"品牌": "信昌PDC", "型号": "FBF05FTPR100", "器件类型": "厚膜电阻"},
+                {"品牌": "国巨YAGEO", "型号": "CC0603KRX7R9BB104", "器件类型": "MLCC"},
+            ]
+        )
+        filtered = app["remove_incomplete_pdc_mlcc_models"](rows)
+        models = set(filtered["型号"])
+
+        self.assertNotIn("FN18X104K500", models)
+        self.assertIn("FN18X104K500GBG", models)
+        self.assertIn("FN18X104K500PBG", models)
+        self.assertIn("FBF05FTPR100", models)
+        self.assertIn("CC0603KRX7R9BB104", models)
+
+        already_prepared = rows.copy()
+        for column in app["PREPARED_SEARCH_REQUIRED_COLUMNS"]:
+            if column not in already_prepared.columns:
+                already_prepared[column] = ""
+        already_prepared["_component_type"] = ["MLCC", "MLCC", "MLCC", "厚膜电阻", "MLCC"]
+        already_prepared["_model_clean"] = already_prepared["型号"].map(app["clean_model"])
+        prepared = app["prepare_search_dataframe"](already_prepared)
+        self.assertNotIn("FN18X104K500", set(prepared["型号"]))
+        self.assertIn("FN18X104K500GBG", set(prepared["型号"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

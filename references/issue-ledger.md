@@ -1460,3 +1460,10 @@
 - Fix: recover bare fractional power only when size, resistance, and tolerance are all present; allow generic complete low-ohm specifications to enter the verified FMB/FRM/FPM core-alloy rules; and permit only explicitly generated same-size/value/tolerance higher-power FOJAN rows to cross the ordinary/alloy type and power filters.
 - Safety: 1/4W requests return `FMB0805FR040TM` and `FRM0805FR040TM` as 1/2W `高代低`, never `完全匹配`. A 1/2W request returns the same two models as `完全匹配`; unsupported FRM 0805 values above 50mΩ remain blocked.
 - Regression: both reported spellings, explicit `0.5W`, FRM 50mΩ/50.1mΩ boundaries, the official 62-series coverage set, and the earlier vendor/SMD 22mΩ flow are locked by tests.
+
+## 2026-09-02 - Incomplete PDC MLCC core codes appeared as selectable models
+
+- Symptom: a 0603 / X7R / 100nF / ±10% / 50V search displayed `FN18X104K500` alongside complete PDC order numbers such as `FN18X104K500GBG` and `FN18X104K500PBG`.
+- Root cause: five PDC FN rows contained only the electrical core through the voltage code. They were imported as ordinary MLCC rows even though PDC's selectable order number also requires the three-character termination/packing suffix.
+- Fix: remove the five suffix-free FN rows from both the prepared component cache and search sidecar, and reject suffix-free PDC MLCC core codes during source deduplication and every prepared/search-cache load path. The rule is limited to PDC MLCC ordering grammar and does not affect PDC resistor models or other brands.
+- Regression: the suffix-free `FN18X104K500` row is rejected while `FN18X104K500GBG`, `FN18X104K500PBG`, PDC resistor `FBF05FTPR100`, and Yageo MLCC controls remain. The complete 68-test safety gate passes with protected runtime databases unchanged.

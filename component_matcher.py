@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 131
+QUERY_RESULT_CACHE_VERSION = 132
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-01T15:08:46+08:00"
+PUBLIC_CODE_STAMP = "2026-09-02T00:00:31+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -32043,6 +32043,46 @@ def update_database(force=False):
             pass
         startup_trace("update_database:done")
 
+PDC_MLCC_INCOMPLETE_ORDER_CODE_PATTERN = re.compile(
+    r"^(?:FN|FS|FM|FP|FV|FK|FH|MT)\d{2}[A-Z][A-Z0-9]{3}[A-Z][A-Z0-9]{3}$",
+    flags=re.I,
+)
+
+
+def incomplete_pdc_mlcc_model_mask(frame):
+    if frame is None or frame.empty or "品牌" not in frame.columns or "型号" not in frame.columns:
+        return pd.Series(
+            [False] * (0 if frame is None else len(frame)),
+            index=None if frame is None else frame.index,
+            dtype="bool",
+        )
+    component_type_col = "_component_type" if "_component_type" in frame.columns else "器件类型"
+    if component_type_col not in frame.columns:
+        return pd.Series([False] * len(frame), index=frame.index, dtype="bool")
+    brand_mask = frame["品牌"].astype("string").fillna("").str.contains(
+        r"信昌|PDC|PSA", case=False, regex=True
+    )
+    type_mask = frame[component_type_col].astype("string").fillna("").apply(
+        normalize_component_type
+    ).eq("MLCC")
+    if "_model_clean" in frame.columns:
+        model_series = frame["_model_clean"].astype("string").fillna("").str.upper()
+    else:
+        model_series = frame["型号"].astype("string").fillna("").apply(clean_model)
+    return brand_mask & type_mask & model_series.str.fullmatch(
+        PDC_MLCC_INCOMPLETE_ORDER_CODE_PATTERN, na=False
+    )
+
+
+def remove_incomplete_pdc_mlcc_models(frame):
+    if frame is None or frame.empty:
+        return frame
+    incomplete_mask = incomplete_pdc_mlcc_model_mask(frame)
+    if not incomplete_mask.any():
+        return frame
+    return frame.loc[~incomplete_mask].copy()
+
+
 if clean_text(os.getenv("COMPONENT_MATCHER_ENABLE_AUTO_UPDATE", "")) in {"1", "true", "yes", "on"}:
     update_database()
 
@@ -32059,7 +32099,10 @@ def auto_refresh_db(interval_sec=300):
 def deduplicate_component_rows(df):
     if df is None or df.empty:
         return df
-    work = df.copy()
+    work = remove_incomplete_pdc_mlcc_models(df)
+    if work.empty:
+        return work
+    work = work.copy()
     link_col = "备注2" if "备注2" in work.columns else None
     work["_has_official_link"] = work[link_col].apply(lambda x: 1 if clean_text(x) != "" else 0) if link_col else 0
     dedup_key = [
@@ -34095,6 +34138,9 @@ def build_search_text_series(frame, columns):
 def prepare_search_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
+    df = remove_incomplete_pdc_mlcc_models(df)
+    if df.empty:
+        return df
     if all(col in df.columns for col in PREPARED_SEARCH_REQUIRED_COLUMNS):
         return df
     work = df.copy()
