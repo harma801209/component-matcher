@@ -4096,3 +4096,10 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Exact FBF lookups now match alternatives on the electrical core while retaining credible automotive and anti-sulfur restrictions. The reported model resolves to `0805 / 100mΩ / ±1% / 1/2W`; the source model is excluded from the alternative table and other-brand candidates are returned with confirmation warnings where their halogen-free documentation is absent.
 - Corrected the source-card working voltage to the datasheet formula `sqrt(power × resistance)`, so `FBF05FTPR100` displays approximately `0.224V` instead of inheriting the generic 0805 value of `150V`.
 - Regression coverage includes the reported model, exact-source reconstruction, reverse lookup, Panasonic alternatives, and PDC's official `FBF06FT-3R00N` example. The final complete release safety gate passed all 64 tests with protected runtime databases unchanged.
+
+### 2026-09-01 [BOM search] Preserve vendor models in `<vendor>/SMD` descriptions
+
+- Reproduced all nine descriptions copied from the customer BOM. UNIOHM was not mapped to UNI-ROYAL, `TA-I/SMD` was not reliably recognized as a brand prefix, and the standard alternative-search path removed YAGEO/Walsin source-brand models even when the user explicitly included those vendors.
+- Added a dedicated leading `<vendor>/SMD` parser. This BOM convention now keeps and prioritizes the source vendor's detailed models while retaining other-brand alternatives; ordinary searches continue using the existing cross-brand behavior.
+- Added UNIOHM as a UNI-ROYAL alias and decoded TA-I RLS ordering-code power from the manufacturer's official grammar. `RLS10FTSR030` now resolves as RLS / 0805 / 30mΩ / ±1% / 1/2W with the official TA-I source attached.
+- Regression coverage uses the nine customer lines verbatim and verifies exact embedded order numbers plus source-brand YAGEO, UNI-ROYAL, Walsin, and TA-I results.

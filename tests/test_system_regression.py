@@ -6132,6 +6132,90 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(standard_high_ohm["_power"], "1/4W")
         self.assertEqual(standard_high_ohm["最高工作电压"], "0.866")
 
+    def test_20_bom_vendor_smd_descriptions_keep_source_brand_models(self):
+        app = self.app
+        queries = [
+            "UNIOHM/SMD 0201WMJ0105TEE 0201 1MΩ. ±5% 1/20W LF",
+            "UNIOHM/SMD 0805W4F220MT5E 0805 22mΩ ±1% 1/4W LF",
+            "YAGEO/SMD 1206 800mΩ ±1% 1/4W LF",
+            "UNIOHM/SMD 0201 22Ω ±5% 1/20W LF",
+            "UNIOHM/SMD 0201WMJ0104TEE 0201 100kΩ ±5% 1/20W LF",
+            "UNIOHM/SMD 0402 150Ω ±5% 1/16W LF",
+            "WALSIN/SMD 0402 47Ω ±1% 1/16W LF",
+            "UNIOHM/SMD 0402WGF1691TCE 0402 1.69kΩ ±1% 1/16W LF",
+            "TA-I/SMD RLS10FTSR030 0805 30mΩ ±1% 1/2W LF",
+        ]
+        expected_brands = [
+            "厚声UNI-ROYAL",
+            "厚声UNI-ROYAL",
+            "国巨YAGEO",
+            "厚声UNI-ROYAL",
+            "厚声UNI-ROYAL",
+            "厚声UNI-ROYAL",
+            "华新科Walsin",
+            "厚声UNI-ROYAL",
+            "大毅TA-I",
+        ]
+        for query, expected_brand in zip(queries, expected_brands):
+            self.assertEqual(app["extract_requested_brand_from_query"](query), expected_brand)
+            _, parsed_spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertTrue(parsed_spec.get(app["BRAND_QUERY_INCLUDE_SOURCE_FLAG"], False))
+
+        exact_models = (
+            "0201WMJ0105TEE",
+            "0805W4F220MT5E",
+            "0201WMJ0104TEE",
+            "0402WGF1691TCE",
+        )
+        for query, model in zip((queries[0], queries[1], queries[4], queries[7]), exact_models):
+            source_rows, _, matched_token = app["load_component_rows_by_query_model_tokens"](query)
+            self.assertFalse(source_rows.empty)
+            self.assertEqual(app["clean_model"](matched_token), app["clean_model"](model))
+            self.assertIn(app["clean_model"](model), set(source_rows["型号"].map(app["clean_model"])))
+
+        source_expectations = {
+            queries[2]: {"RL1206FR-070R8L"},
+            queries[3]: {"0201WMJ0220TCE", "0201WMJ0220TEE"},
+            queries[5]: {"0402WGJ0151T5E", "0402WGJ0151TCE"},
+            queries[6]: {"WR04X47R0FTL"},
+        }
+        for query, expected_models in source_expectations.items():
+            resolved = app["resolve_search_query_dataframe_and_spec"](query)
+            self.assertTrue(resolved["spec"].get(app["BRAND_QUERY_INCLUDE_SOURCE_FLAG"], False))
+            matches = app["run_query_match"](
+                resolved["query_df"],
+                resolved["mode"],
+                resolved["spec"],
+            )
+            self.assertFalse(matches.empty)
+            matched_models = set(matches["型号"].map(app["clean_model"]))
+            self.assertTrue(
+                matched_models.intersection({app["clean_model"](value) for value in expected_models}),
+                msg=f"未返回输入品牌型号: {query}",
+            )
+            self.assertTrue(
+                app["brand_alias_matches"](
+                    matches.iloc[0]["品牌"],
+                    app["brand_query_aliases_for_label"](resolved["spec"]["品牌"]),
+                ),
+                msg=f"输入品牌型号未优先显示: {query}",
+            )
+
+        rls = app["parse_tai_resistor_model"]("RLS10FTSR030")
+        self.assertIsNotNone(rls)
+        self.assertEqual(rls["品牌"], "大毅科技")
+        self.assertEqual(rls["系列"], "RLS")
+        self.assertEqual(rls["器件类型"], "合金电阻")
+        self.assertEqual(rls["尺寸（inch）"], "0805")
+        self.assertEqual(rls["_resistance_ohm"], 0.03)
+        self.assertEqual(rls["容值误差"], "1")
+        self.assertEqual(rls["_power"], "1/2W")
+        self.assertEqual(rls["资料来源"], app["TAI_RLS_OFFICIAL_SOURCE"])
+        rls_rows, _, rls_token = app["load_component_rows_by_query_model_tokens"](queries[8])
+        self.assertFalse(rls_rows.empty)
+        self.assertEqual(app["clean_model"](rls_token), "RLS10FTSR030")
+        self.assertEqual(rls_rows.iloc[0]["功率"], "1/2W")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

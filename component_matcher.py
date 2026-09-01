@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 128
+QUERY_RESULT_CACHE_VERSION = 129
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -10940,7 +10940,7 @@ def clean_brand(x):
 BRAND_QUERY_ALIAS_GROUPS = (
     ("FOJAN(富捷)", ("富捷", "FOJAN")),
     ("香港电阻HKR", ("香港电阻", "香港電阻", "HKR", "HONG KONG RESISTORS")),
-    ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL")),
+    ("厚声UNI-ROYAL", ("厚声", "厚聲", "UNI-ROYAL", "UNIROYAL", "UNI ROYAL", "UNIOHM")),
     ("VO(翔胜)", ("翔胜", "翔勝", "VO")),
     ("华新科Walsin", ("华新科", "華新科", "华科", "華科", "WALSIN")),
     ("信昌PDC", ("信昌", "信昌电陶", "信昌電陶", "PDC", "PSA", "PROSPERITY")),
@@ -10977,6 +10977,7 @@ BRAND_QUERY_FILTER_FLAG = "_brand_filter"
 BRAND_QUERY_FILTER_ALIASES_KEY = "_brand_filter_aliases"
 BRAND_QUERY_EXPLICIT_LIST_FLAG = "_brand_filter_explicit_list"
 BRAND_QUERY_EXCLUDE_SOURCE_FLAG = "_brand_filter_exclude_source"
+BRAND_QUERY_INCLUDE_SOURCE_FLAG = "_brand_filter_include_source"
 SEARCH_BRAND_MODE_AUTO = "自动匹配其他品牌"
 SEARCH_BRAND_MODE_CUSTOM = "指定品牌"
 SEARCH_BRAND_MAX_SELECTIONS = 5
@@ -10994,10 +10995,31 @@ def brand_query_aliases_for_label(label):
     return (label_text,)
 
 
+def extract_bom_vendor_smd_brand_token(query_text):
+    raw = clean_text(query_text)
+    if raw == "":
+        return ""
+    match = re.match(r"^\s*([^/／\r\n]{1,60}?)\s*[/／]\s*SMD(?=\s|$)", raw, flags=re.I)
+    return clean_text(match.group(1)) if match is not None else ""
+
+
 def extract_requested_brand_from_query(query_text):
     raw = clean_text(query_text)
     if raw == "":
         return ""
+    vendor_token = extract_bom_vendor_smd_brand_token(raw)
+    if vendor_token != "":
+        vendor_upper = vendor_token.upper()
+        vendor_compact = normalize_component_keyword_compact(vendor_token)
+        for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
+            for candidate in (canonical,) + tuple(aliases):
+                candidate_upper = clean_text(candidate).upper()
+                candidate_compact = normalize_component_keyword_compact(candidate)
+                if (
+                    vendor_upper == candidate_upper
+                    or (vendor_compact != "" and vendor_compact == candidate_compact)
+                ):
+                    return canonical
     upper = raw.upper()
     compact = normalize_component_keyword_compact(raw)
     for canonical, aliases in BRAND_QUERY_ALIAS_GROUPS:
@@ -11054,6 +11076,8 @@ def apply_query_brand_hint_to_spec(spec, query_text):
     merged = dict(spec)
     if source_brand != "" and clean_brand(merged.get("品牌", "")) == "":
         merged["品牌"] = source_brand
+    if source_brand != "" and extract_bom_vendor_smd_brand_token(query_text) != "":
+        merged[BRAND_QUERY_INCLUDE_SOURCE_FLAG] = True
     if explicit_brands:
         aliases = []
         for requested_brand in explicit_brands:
@@ -11084,6 +11108,7 @@ def apply_search_brand_scope_to_spec(spec, query_text, brand_mode="", selected_b
         merged.pop(BRAND_QUERY_FILTER_ALIASES_KEY, None)
         merged.pop(BRAND_QUERY_EXPLICIT_LIST_FLAG, None)
         merged.pop(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, None)
+        merged.pop(BRAND_QUERY_INCLUDE_SOURCE_FLAG, None)
         if selected:
             aliases = []
             for brand in selected:
@@ -11272,6 +11297,7 @@ def merge_explicit_query_spec_into_part_spec(part_spec, query_spec):
         BRAND_QUERY_FILTER_ALIASES_KEY,
         BRAND_QUERY_EXPLICIT_LIST_FLAG,
         BRAND_QUERY_EXCLUDE_SOURCE_FLAG,
+        BRAND_QUERY_INCLUDE_SOURCE_FLAG,
     ):
         if filter_field in query_spec:
             merged[filter_field] = query_spec[filter_field]
@@ -11688,6 +11714,17 @@ TAI_RLS_OFFICIAL_PROFILE = {
     "器件类型": "合金电阻",
     "特殊用途": "车规 | 电流检测",
 }
+TAI_RLS_POWER_CODE_MAP = {
+    "P": "1/16W",
+    "K": "1/5W",
+    "A": "1/4W",
+    "T": "1/3W",
+    "S": "1/2W",
+    "I": "3/4W",
+    "C": "1W",
+    "E": "2W",
+}
+TAI_RLS_OFFICIAL_SOURCE = "https://www.tai.com.tw/files/uploads/Prod_spec/RLS.pdf"
 RESISTOR_MODEL_PREFIX_PATTERN = re.compile(
     r"^(AA|AC|AF|AR|ASG|AS|AT|RCA|RC|RT|WR|WF|MR|WW|WK|WM|WA|FVF|SR|FRC|FRL|FCR|TRC|CR|TR|QR|CQ|NQ|LE|TC|MHR|PRF|NCP|NCU|HOLLR|HOLRS|HOLR|RASS|RMSV|RMH|RBA|RMS|RLS|RB|RM|RTX|RTT|RAT|RLT)"
 )
@@ -13977,10 +14014,17 @@ def parse_tai_resistor_model(model, brand="", component_type=""):
         )
     resolved_component_type = normalize_component_type(series_profile.get("器件类型", "")) or fallback_component_type
     resolved_special_use = clean_text(series_profile.get("特殊用途", ""))
-    power_text = RESISTOR_POWER_BY_SIZE.get(size, "")
+    power_code = clean_text(tail[:1]).upper() if prefix == "RLS" else ""
+    power_text = (
+        TAI_RLS_POWER_CODE_MAP.get(power_code, "")
+        if prefix == "RLS"
+        else RESISTOR_POWER_BY_SIZE.get(size, "")
+    )
+    if power_text == "":
+        power_text = RESISTOR_POWER_BY_SIZE.get(size, "")
 
     return {
-        "品牌": clean_brand(brand),
+        "品牌": brand_hint,
         "型号": compact,
         "器件类型": resolved_component_type,
         "系列": clean_text(series_profile.get("系列", "")) or prefix,
@@ -13988,12 +14032,18 @@ def parse_tai_resistor_model(model, brand="", component_type=""):
         "特殊用途": resolved_special_use,
         "尺寸（inch）": size,
         "容值误差": tol,
+        "功率": power_text,
+        "安装方式": "贴片",
+        "环保/无卤": "无卤" if prefix == "RLS" else "",
+        "资料来源": TAI_RLS_OFFICIAL_SOURCE if prefix == "RLS" else "",
+        "数据状态": "官方命名规则反推" if prefix == "RLS" else "命名规则反推",
         "_resistance_ohm": resistance_ohm,
         "_power": power_text,
         "_model_rule_authority": "tai_resistor_model",
         "_value_code": value_code,
         "_packaging_code": packaging_code,
-        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0]),
+        "_power_code": power_code,
+        "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0, 1 if power_text else 0]),
     }
 
 
@@ -29190,7 +29240,9 @@ def match_by_partial_spec(df, spec):
         and ("FOJAN" in source_brand.upper() or "富捷" in source_brand)
     )
     should_exclude_source_brand = bool(spec.get(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, False)) or (
-        not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)) and not source_is_fojan_resistor
+        not bool(spec.get(BRAND_QUERY_INCLUDE_SOURCE_FLAG, False))
+        and not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False))
+        and not source_is_fojan_resistor
     )
     if should_exclude_source_brand:
         out = exclude_same_brand(out, spec.get("品牌", ""))
@@ -33819,6 +33871,7 @@ def serialize_spec_for_cache(spec):
         BRAND_QUERY_FILTER_ALIASES_KEY,
         BRAND_QUERY_EXPLICIT_LIST_FLAG,
         BRAND_QUERY_EXCLUDE_SOURCE_FLAG,
+        BRAND_QUERY_INCLUDE_SOURCE_FLAG,
         "规格摘要",
     ]
     parts = []
@@ -38188,7 +38241,10 @@ def match_by_spec(df, spec):
         mask &= work["_volt_num"].notna() & (spec_volt_num is not None) & work["_volt_num"].ge(spec_volt_num)
 
     out = work[mask].copy()
-    if bool(spec.get(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, False)) or not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False)):
+    if bool(spec.get(BRAND_QUERY_EXCLUDE_SOURCE_FLAG, False)) or (
+        not bool(spec.get(BRAND_QUERY_INCLUDE_SOURCE_FLAG, False))
+        and not bool(spec.get(BRAND_QUERY_FILTER_FLAG, False))
+    ):
         out = exclude_same_brand(out, spec.get("品牌", ""))
     out = apply_match_levels_and_sort(out, spec)
     return out.drop(columns=[c for c in ["_size", "_mat", "_tol", "_volt", "_pf", "_tol_kind", "_tol_num", "_volt_num", "_component_type", "_res_ohm"] if c in out.columns])
@@ -40872,7 +40928,20 @@ def apply_match_levels_and_sort(df, spec):
         work["_exact_model_rank"] = work["型号"].astype(str).apply(lambda value: 0 if clean_model(value) == spec_model else 1)
     else:
         work["_exact_model_rank"] = 1
-    work["_brand_rank"] = work["品牌"].apply(lambda value: brand_priority_value(value, component_type=target_type))
+    include_source_brand = bool(spec.get(BRAND_QUERY_INCLUDE_SOURCE_FLAG, False))
+    source_brand = clean_brand(spec.get("品牌", ""))
+    source_brand_aliases = brand_query_aliases_for_label(source_brand)
+
+    def query_brand_rank(value):
+        if (
+            include_source_brand
+            and source_brand != ""
+            and brand_alias_matches(value, (source_brand,) + tuple(source_brand_aliases))
+        ):
+            return -1
+        return brand_priority_value(value, component_type=target_type)
+
+    work["_brand_rank"] = work["品牌"].apply(query_brand_rank)
     target_is_automotive = component_has_automotive_qualification(spec)
     if target_is_automotive:
         work["_automotive_rank"] = work.apply(
