@@ -1451,3 +1451,12 @@
 - Fix: for the automatic `<vendor>/SMD` BOM path only, generate the verified FOJAN `FRM0805FR022TM` candidate and permit its explicitly flagged same-size, same-value higher-power rating through the type and power filters. Ordinary specification searches and all unflagged database rows still require exact resistor power.
 - Safety: the 0.5W candidate is labelled `高代低`, never `完全匹配`; unsupported values outside the verified FRM 0805 range do not generate a model.
 - Regression: the reported query retains the UNI-ROYAL source model and now includes FOJAN `FRM0805FR022TM` as 1/2W `高代低`. Plain `0805 22mΩ ±1% 1/4W` and an out-of-range 100mΩ control do not activate the narrow BOM upgrade rule.
+
+## 2026-09-01 - Bare-power low-ohm specifications skipped FOJAN alloy rules
+
+- Symptom: `0805 1/4 40mR 1%` and `0805 1/4 0.04R 1%` were shown as ordinary 0805 / 1/8W chip-resistor searches and returned no FOJAN alloy model.
+- Root cause: the resistor parser accepted fractional power only when the trailing `W` was present. After losing the requested 1/4W, the generic low-ohm path never invoked the official FOJAN alloy ordering rules. The FRM 0805 upper boundary in code was also the older 25mΩ limit rather than the current official 50mΩ range.
+- Official audit: the current FOJAN product navigation contains 62 resistor series and every listed series is represented by the system's official-series catalog or alloy ordering profile. The 2025-09-24 FMB V1.0 specification confirms `FMB 08 05 F R040 T M` as 0805 / 0.5W / ±1% / 40mΩ, and the current FRM page confirms 0805 / 0.5W / 3-50mΩ.
+- Fix: recover bare fractional power only when size, resistance, and tolerance are all present; allow generic complete low-ohm specifications to enter the verified FMB/FRM/FPM core-alloy rules; and permit only explicitly generated same-size/value/tolerance higher-power FOJAN rows to cross the ordinary/alloy type and power filters.
+- Safety: 1/4W requests return `FMB0805FR040TM` and `FRM0805FR040TM` as 1/2W `高代低`, never `完全匹配`. A 1/2W request returns the same two models as `完全匹配`; unsupported FRM 0805 values above 50mΩ remain blocked.
+- Regression: both reported spellings, explicit `0.5W`, FRM 50mΩ/50.1mΩ boundaries, the official 62-series coverage set, and the earlier vendor/SMD 22mΩ flow are locked by tests.

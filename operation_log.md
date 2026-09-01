@@ -4103,3 +4103,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added a dedicated leading `<vendor>/SMD` parser. This BOM convention now keeps and prioritizes the source vendor's detailed models while retaining other-brand alternatives; ordinary searches continue using the existing cross-brand behavior.
 - Added UNIOHM as a UNI-ROYAL alias and decoded TA-I RLS ordering-code power from the manufacturer's official grammar. `RLS10FTSR030` now resolves as RLS / 0805 / 30mΩ / ±1% / 1/2W with the official TA-I source attached.
 - Regression coverage uses the nine customer lines verbatim and verifies exact embedded order numbers plus source-brand YAGEO, UNI-ROYAL, Walsin, and TA-I results.
+
+### 2026-09-01 [FOJAN alloy matching] Route generic low-ohm specifications through official rules
+
+- Reproduced both reported inputs: `0805 1/4 40mR 1%` and `0805 1/4 0.04R 1%`. The bare `1/4` token was discarded, causing a displayed 1/8W default and preventing FOJAN alloy generation.
+- Audited FOJAN's current product navigation against the in-code resistor catalogs: all 62 listed series are covered. Read the current official FMB V1.0 datasheet and FRM product page to verify the 0805 40mΩ ordering codes and power/range boundaries.
+- Added conservative bare-fraction power recovery, generalized the source-backed FMB/FRM/FPM core-alloy generator for complete generic low-ohm specifications, and updated the current FRM 0805 M-terminal range to 50mΩ.
+- The reported 1/4W searches now return `FMB0805FR040TM` and `FRM0805FR040TM` as 1/2W `高代低`; an explicit 1/2W query returns both as `完全匹配`. Higher power remains opt-in only for generated official FOJAN rows; ordinary database resistor rows still require exact power.
+- Raised `QUERY_RESULT_CACHE_VERSION` to `131` and `PUBLIC_CODE_STAMP` to `2026-09-01T15:08:46+08:00` so old zero-result sessions are invalidated.

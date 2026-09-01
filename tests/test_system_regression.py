@@ -1987,6 +1987,15 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.01)
         self.assertAlmostEqual(float(megaohm["_resistance_ohm"]), 1_000_000.0)
 
+        for query in ("0805 1/4 40mR 1%", "0805 1/4 0.04R 1%"):
+            bare_fraction = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(bare_fraction, query)
+            self.assertEqual(bare_fraction["尺寸（inch）"], "0805", query)
+            self.assertAlmostEqual(float(bare_fraction["_resistance_ohm"]), 0.04, msg=query)
+            self.assertEqual(app["clean_tol_for_match"](bare_fraction["容值误差"]), "1", query)
+            self.assertEqual(bare_fraction["_power"], "1/4W", query)
+            self.assertEqual(bare_fraction["_param_count"], 4, query)
+
         unlabeled_bom_specs = [
             ("0,50mW Resistor R_0201 1%", 0.0, "FRC0201F0000TS"),
             ("150,50mW Resistor R_0201 1%", 150.0, "FRC0201F1500TS"),
@@ -6222,7 +6231,7 @@ class SystemRegressionTests(unittest.TestCase):
             app["build_fojan_low_ohm_power_upgrade_models_from_spec"](
                 low_ohm_resolved["spec"]
             ),
-            ["FRM0805FR022TM"],
+            ["FMB0805FR022TM", "FRM0805FR022TM"],
         )
         low_ohm_matches = app["run_query_match"](
             low_ohm_resolved["query_df"],
@@ -6242,8 +6251,56 @@ class SystemRegressionTests(unittest.TestCase):
         plain_low_ohm = app["parse_resistor_spec_query"]("0805 22mΩ ±1% 1/4W")
         self.assertEqual(
             app["build_fojan_low_ohm_power_upgrade_models_from_spec"](plain_low_ohm),
-            [],
+            ["FMB0805FR022TM", "FRM0805FR022TM"],
         )
+        for query in ("0805 1/4 40mR 1%", "0805 1/4 0.04R 1%"):
+            reported_spec = app["parse_resistor_spec_query"](query)
+            self.assertEqual(
+                app["build_fojan_low_ohm_power_upgrade_models_from_spec"](reported_spec),
+                ["FMB0805FR040TM", "FRM0805FR040TM"],
+                query,
+            )
+            reported_candidates = app["finalize_search_candidate_frames"](
+                [app["build_fojan_rule_candidate_from_spec"](reported_spec)]
+            )
+            reported_matches = app["run_query_match"](
+                reported_candidates,
+                "贴片电阻",
+                reported_spec,
+            )
+            reported_models = set(reported_matches["型号"].astype(str).map(app["clean_model"]))
+            self.assertTrue(
+                {"FMB0805FR040TM", "FRM0805FR040TM"}.issubset(reported_models),
+                query,
+            )
+            fojan_rows = reported_matches[
+                reported_matches["型号"].astype(str).map(app["clean_model"]).isin(
+                    {"FMB0805FR040TM", "FRM0805FR040TM"}
+                )
+            ]
+            self.assertTrue(fojan_rows["功率"].map(app["format_power_display"]).eq("1/2W").all(), query)
+            self.assertTrue(fojan_rows["推荐等级"].eq("高代低").all(), query)
+
+        exact_alloy_spec = app["parse_resistor_spec_query"]("0805 40mR 1% 0.5W")
+        exact_alloy_models = app["build_fojan_alloy_models_from_spec"](exact_alloy_spec)
+        self.assertEqual(exact_alloy_models, ["FMB0805FR040TM", "FRM0805FR040TM"])
+        exact_alloy_candidates = app["finalize_search_candidate_frames"](
+            [app["build_fojan_rule_candidate_from_spec"](exact_alloy_spec)]
+        )
+        exact_alloy_matches = app["run_query_match"](
+            exact_alloy_candidates,
+            "贴片电阻",
+            exact_alloy_spec,
+        )
+        exact_alloy_rows = exact_alloy_matches[
+            exact_alloy_matches["型号"].astype(str).map(app["clean_model"]).isin(
+                {"FMB0805FR040TM", "FRM0805FR040TM"}
+            )
+        ]
+        self.assertEqual(len(exact_alloy_rows), 2)
+        self.assertTrue(exact_alloy_rows["推荐等级"].eq("完全匹配").all())
+        self.assertTrue(app["fojan_alloy_code_is_in_series_range"]("FRM", "0805", "0.5W", 50.0, "M"))
+        self.assertFalse(app["fojan_alloy_code_is_in_series_range"]("FRM", "0805", "0.5W", 50.1, "M"))
         out_of_range = dict(low_ohm_resolved["spec"])
         out_of_range["_resistance_ohm"] = 0.1
         self.assertEqual(

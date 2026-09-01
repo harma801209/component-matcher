@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 130
+QUERY_RESULT_CACHE_VERSION = 131
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-08-28T16:08:00+08:00"
+PUBLIC_CODE_STAMP = "2026-09-01T15:08:46+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -15194,7 +15194,7 @@ def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
         return False
     if series == "FRM":
         if size == "0805" and power == format_power_display("0.5W"):
-            return 1.0 <= mohm <= 2.0 if suffix == "ML" else 3.0 <= mohm <= 25.0 if suffix == "M" else False
+            return 1.0 <= mohm <= 2.0 if suffix == "ML" else 3.0 <= mohm <= 50.0 if suffix == "M" else False
         if size == "1206" and power == format_power_display("0.5W"):
             return suffix == "M" and 101.0 <= mohm <= 200.0
         if size == "1206" and power == "1W":
@@ -21827,6 +21827,26 @@ def find_power_in_text(text):
             return format_power_display(match.group(1))
     return ""
 
+
+def find_bare_resistor_fraction_power_in_text(text, size="", resistance_ohm=None, tolerance=""):
+    """Recover resistor power shorthand such as ``1/4`` when the core is complete.
+
+    A bare fraction is ambiguous in general text, so it is accepted only after
+    resistor parsing has already found package size, resistance, and tolerance.
+    Explicit values such as ``1/4W`` continue through ``find_power_in_text``.
+    """
+    if clean_size(size) == "" or resistance_ohm is None or clean_tol_for_match(tolerance) == "":
+        return ""
+    normalized = clean_text(text).replace("／", "/").replace("\\", "/")
+    match = re.search(
+        r"(?<![A-Z0-9.])1\s*/\s*(2|4|8|10|16|20|32)(?!\s*W)(?![A-Z0-9])",
+        normalized,
+        flags=re.I,
+    )
+    if match is None:
+        return ""
+    return format_power_display(f"1/{match.group(1)}W")
+
 def parse_voltage_from_text(text):
     upper = clean_text(text).upper()
     upper = upper.replace("±", "+/-").replace("卤", "+/-")
@@ -23064,6 +23084,13 @@ def parse_resistor_spec_query(line):
     if resistance_ohm is None:
         resistance_ohm = find_leading_unlabeled_resistance_in_resistor_text(resistance_source)
     power = find_power_in_text(normalized_raw)
+    if power == "":
+        power = find_bare_resistor_fraction_power_in_text(
+            normalized_raw,
+            size=size,
+            resistance_ohm=resistance_ohm,
+            tolerance=tol,
+        )
     if component_type_hint == "" and resistance_ohm is not None:
         compact_raw = clean_model(raw)
         low_ohm_notation = MILLIOHM_NOTATION_PATTERN.search(normalized_raw.replace("Ω", "Ω").replace("ω", "Ω")) is not None
@@ -36306,21 +36333,9 @@ def fojan_extended_alloy_series_requested_by_spec(series, spec):
     return any(keyword in text for keyword in keyword_map.get(series, ()))
 
 
-def build_fojan_alloy_models_from_spec(spec):
-    if not isinstance(spec, dict) or infer_spec_component_type(spec) != "合金电阻":
-        return []
-    if not fojan_brand_requested_or_unset(spec):
-        return []
-    size = clean_size(spec.get("尺寸（inch）", ""))
-    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
-    resistance_ohm = spec.get("_resistance_ohm", None)
-    power = format_power_display(spec.get("_power", ""))
-    tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
-    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
-    if size == "" or tol_code == "" or mohm is None:
-        return []
-    candidates = []
-    profile_options = {
+def fojan_core_alloy_profile_options(size):
+    """Return source-backed FMB/FRM/FPM ordering options for a chip size."""
+    return {
         "0603": [("FMB", "0.25W", "M")],
         "0805": [("FMB", "0.5W", "M"), ("FRM", "0.5W", "ML"), ("FRM", "0.5W", "M")],
         "1206": [
@@ -36337,7 +36352,29 @@ def build_fojan_alloy_models_from_spec(spec):
             ("FPM", "3W", "ML"),
             ("FPM", "3W", "M"),
         ],
-    }.get(size, [])
+    }.get(clean_size(size), [])
+
+
+def build_fojan_alloy_models_from_spec(spec):
+    if not isinstance(spec, dict):
+        return []
+    target_type = infer_spec_component_type(spec)
+    if target_type not in RESISTOR_COMPONENT_TYPES:
+        return []
+    if not fojan_brand_requested_or_unset(spec):
+        return []
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    power = format_power_display(spec.get("_power", ""))
+    if target_type != "合金电阻" and power == "":
+        return []
+    tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
+    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
+    if size == "" or tol_code == "" or mohm is None:
+        return []
+    candidates = []
+    profile_options = fojan_core_alloy_profile_options(size)
     for series, official_power, suffix in profile_options:
         if not fojan_alloy_power_matches(power, official_power):
             continue
@@ -36410,17 +36447,16 @@ def build_fojan_alloy_models_from_spec(spec):
 
 
 def build_fojan_low_ohm_power_upgrade_models_from_spec(spec):
-    """Build a verified FOJAN FRM upgrade for branded low-ohm BOM rows.
+    """Build verified FOJAN core-alloy higher-power substitutes.
 
     Ordinary resistor searches keep their exact-power requirement. This helper
-    only serves the automatic ``<vendor>/SMD`` BOM path when FOJAN publishes a
-    same-size, same-value part at a higher power rating.
+    emits only source-backed FMB/FRM/FPM candidates with the same size, value,
+    and tolerance when FOJAN publishes them at a strictly higher power rating.
     """
     if not isinstance(spec, dict):
         return []
-    if not bool(spec.get(BRAND_QUERY_INCLUDE_SOURCE_FLAG, False)):
-        return []
-    if infer_spec_component_type(spec) not in RESISTOR_COMPONENT_TYPES:
+    target_type = infer_spec_component_type(spec)
+    if target_type not in RESISTOR_COMPONENT_TYPES or target_type == "合金电阻":
         return []
     if not fojan_brand_requested_or_unset(spec):
         return []
@@ -36429,39 +36465,42 @@ def build_fojan_low_ohm_power_upgrade_models_from_spec(spec):
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))
     resistance_ohm = spec.get("_resistance_ohm", None)
     requested_power_watt = parse_power_to_watts(spec.get("_power", ""))
-    official_power = "0.5W"
-    official_power_watt = parse_power_to_watts(official_power)
     tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
     mohm = fojan_alloy_resistance_mohm(resistance_ohm)
 
     if (
-        size != "0805"
+        size == ""
         or tol_code == ""
         or mohm is None
         or requested_power_watt is None
-        or official_power_watt is None
-        or requested_power_watt >= official_power_watt - 1e-9
     ):
         return []
 
     value_code = fojan_alloy_value_code(resistance_ohm)
-    size_code = fojan_alloy_size_code_for_series("FRM", size)
-    power_code = fojan_alloy_power_code_for_series("FRM", official_power)
-    if value_code == "" or size_code == "" or power_code == "":
+    if value_code == "":
         return []
 
     candidates = []
-    for suffix in ("ML", "M"):
+    for series, official_power, suffix in fojan_core_alloy_profile_options(size):
+        official_power_watt = parse_power_to_watts(official_power)
+        if official_power_watt is None or official_power_watt <= requested_power_watt + 1e-9:
+            continue
+        if tolerance == "0.5" and series == "FMB":
+            continue
         if not fojan_alloy_code_is_in_series_range(
-            "FRM",
+            series,
             size,
             official_power,
             mohm,
             suffix,
         ):
             continue
+        size_code = fojan_alloy_size_code_for_series(series, size)
+        power_code = fojan_alloy_power_code_for_series(series, official_power)
+        if size_code == "" or power_code == "":
+            continue
         candidates.append(
-            f"FRM{size_code}{power_code}{tol_code}{value_code}T{suffix}"
+            f"{series}{size_code}{power_code}{tol_code}{value_code}T{suffix}"
         )
     return list(dict.fromkeys(candidates))
 
@@ -36565,9 +36604,13 @@ def build_fojan_rule_candidate_from_spec(spec):
             frame = build_rule_fallback_row_from_model(model, brand="FOJAN(富捷)")
             if isinstance(frame, pd.DataFrame) and not frame.empty:
                 frames.append(frame)
+    allow_generic_alloy_substitute = infer_spec_component_type(spec) != "合金电阻"
     for alloy_model in build_fojan_alloy_models_from_spec(spec):
         frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
         if isinstance(frame, pd.DataFrame) and not frame.empty:
+            if allow_generic_alloy_substitute:
+                frame = frame.copy()
+                frame["_allow_resistor_power_upgrade"] = True
             frames.append(frame)
     for alloy_model in build_fojan_low_ohm_power_upgrade_models_from_spec(spec):
         frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
