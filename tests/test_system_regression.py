@@ -6216,6 +6216,41 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(app["clean_model"](rls_token), "RLS10FTSR030")
         self.assertEqual(rls_rows.iloc[0]["功率"], "1/2W")
 
+        low_ohm_query = queries[1]
+        low_ohm_resolved = app["resolve_search_query_dataframe_and_spec"](low_ohm_query)
+        self.assertEqual(
+            app["build_fojan_low_ohm_power_upgrade_models_from_spec"](
+                low_ohm_resolved["spec"]
+            ),
+            ["FRM0805FR022TM"],
+        )
+        low_ohm_matches = app["run_query_match"](
+            low_ohm_resolved["query_df"],
+            low_ohm_resolved["mode"],
+            low_ohm_resolved["spec"],
+        )
+        fojan_upgrade = low_ohm_matches[
+            low_ohm_matches["型号"].astype(str).map(app["clean_model"]).eq("FRM0805FR022TM")
+        ]
+        self.assertEqual(len(fojan_upgrade), 1)
+        self.assertEqual(fojan_upgrade.iloc[0]["品牌"], "FOJAN(富捷)")
+        self.assertEqual(app["format_power_display"](fojan_upgrade.iloc[0]["功率"]), "1/2W")
+        self.assertEqual(app["format_power_display"](low_ohm_resolved["spec"]["_power"]), "1/4W")
+        self.assertTrue(bool(fojan_upgrade.iloc[0]["_allow_resistor_power_upgrade"]))
+        self.assertEqual(fojan_upgrade.iloc[0]["推荐等级"], "高代低")
+
+        plain_low_ohm = app["parse_resistor_spec_query"]("0805 22mΩ ±1% 1/4W")
+        self.assertEqual(
+            app["build_fojan_low_ohm_power_upgrade_models_from_spec"](plain_low_ohm),
+            [],
+        )
+        out_of_range = dict(low_ohm_resolved["spec"])
+        out_of_range["_resistance_ohm"] = 0.1
+        self.assertEqual(
+            app["build_fojan_low_ohm_power_upgrade_models_from_spec"](out_of_range),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

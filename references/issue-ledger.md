@@ -1443,3 +1443,11 @@
 - Root cause: the query-brand aliases did not include `UNIOHM`; punctuation-aware matching did not reliably identify `TA-I` before `/SMD`; and the normal cross-brand flow intentionally excluded the source brand. The TA-I parser recognized RLS size, tolerance, and resistance but ignored the official RLS power code between packaging and resistance.
 - Fix: recognize the leading `<vendor>/SMD` BOM convention as source metadata, map UNIOHM to UNI-ROYAL, retain and rank the source brand first for that convention while still returning cross-brand alternatives, and decode the official RLS power code (`S = 1/2W`) with official source metadata. Ordinary bare-model and ordinary specification searches retain their established source-brand exclusion behavior.
 - Regression: the nine reported BOM lines are covered verbatim. Exact UNI-ROYAL order numbers resolve to source rows; specification-only lines return YAGEO `RL1206FR-070R8L`, UNI-ROYAL 0201/0402 models, and Walsin `WR04X47R0FTL` ahead of cross-brand alternatives; `RLS10FTSR030` resolves as TA-I RLS / 0805 / 30mΩ / ±1% / 1/2W.
+
+## 2026-09-01 - Low-ohm BOM search omitted the available FOJAN power upgrade
+
+- Symptom: `UNIOHM/SMD 0805W4F220MT5E 0805 22mΩ ±1% 1/4W LF` returned the UNI-ROYAL source row and several other-brand 1/4W matches but no FOJAN model.
+- Root cause: FOJAN has no verified 0805 / 22mΩ / 1/4W exact-power row. Its official FRM 0805 profile supports 22mΩ at 0.5W, but the resistor matcher intentionally required identical power and the source thick-film type excluded an alloy candidate.
+- Fix: for the automatic `<vendor>/SMD` BOM path only, generate the verified FOJAN `FRM0805FR022TM` candidate and permit its explicitly flagged same-size, same-value higher-power rating through the type and power filters. Ordinary specification searches and all unflagged database rows still require exact resistor power.
+- Safety: the 0.5W candidate is labelled `高代低`, never `完全匹配`; unsupported values outside the verified FRM 0805 range do not generate a model.
+- Regression: the reported query retains the UNI-ROYAL source model and now includes FOJAN `FRM0805FR022TM` as 1/2W `高代低`. Plain `0805 22mΩ ±1% 1/4W` and an out-of-range 100mΩ control do not activate the narrow BOM upgrade rule.

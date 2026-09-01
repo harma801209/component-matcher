@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 129
+QUERY_RESULT_CACHE_VERSION = 130
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -29132,7 +29132,18 @@ def match_by_partial_spec(df, spec):
                 return pd.DataFrame()
             power_values = pd.to_numeric(base["_power_watt"], errors="coerce")
             same_power = power_values.notna() & ((power_values - spec_power_watt).abs() < 1e-9)
-            base = base[same_power]
+            if "_allow_resistor_power_upgrade" in base.columns:
+                allow_power_upgrade = base["_allow_resistor_power_upgrade"].map(
+                    lambda value: clean_text(value).lower() in {"1", "true", "yes"}
+                )
+            else:
+                allow_power_upgrade = pd.Series(False, index=base.index)
+            higher_power_upgrade = (
+                allow_power_upgrade
+                & power_values.notna()
+                & power_values.ge(spec_power_watt - 1e-9)
+            )
+            base = base[same_power | higher_power_upgrade]
             if base.empty:
                 return pd.DataFrame()
         if provided_special_use != "":
@@ -36398,6 +36409,63 @@ def build_fojan_alloy_models_from_spec(spec):
     return list(dict.fromkeys(candidates))
 
 
+def build_fojan_low_ohm_power_upgrade_models_from_spec(spec):
+    """Build a verified FOJAN FRM upgrade for branded low-ohm BOM rows.
+
+    Ordinary resistor searches keep their exact-power requirement. This helper
+    only serves the automatic ``<vendor>/SMD`` BOM path when FOJAN publishes a
+    same-size, same-value part at a higher power rating.
+    """
+    if not isinstance(spec, dict):
+        return []
+    if not bool(spec.get(BRAND_QUERY_INCLUDE_SOURCE_FLAG, False)):
+        return []
+    if infer_spec_component_type(spec) not in RESISTOR_COMPONENT_TYPES:
+        return []
+    if not fojan_brand_requested_or_unset(spec):
+        return []
+
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    requested_power_watt = parse_power_to_watts(spec.get("_power", ""))
+    official_power = "0.5W"
+    official_power_watt = parse_power_to_watts(official_power)
+    tol_code = {"0.5": "D", "1": "F", "2": "G", "5": "J"}.get(tolerance, "")
+    mohm = fojan_alloy_resistance_mohm(resistance_ohm)
+
+    if (
+        size != "0805"
+        or tol_code == ""
+        or mohm is None
+        or requested_power_watt is None
+        or official_power_watt is None
+        or requested_power_watt >= official_power_watt - 1e-9
+    ):
+        return []
+
+    value_code = fojan_alloy_value_code(resistance_ohm)
+    size_code = fojan_alloy_size_code_for_series("FRM", size)
+    power_code = fojan_alloy_power_code_for_series("FRM", official_power)
+    if value_code == "" or size_code == "" or power_code == "":
+        return []
+
+    candidates = []
+    for suffix in ("ML", "M"):
+        if not fojan_alloy_code_is_in_series_range(
+            "FRM",
+            size,
+            official_power,
+            mohm,
+            suffix,
+        ):
+            continue
+        candidates.append(
+            f"FRM{size_code}{power_code}{tol_code}{value_code}T{suffix}"
+        )
+    return list(dict.fromkeys(candidates))
+
+
 def infer_rule_fallback_brand_from_model(model, brand=""):
     resolved_brand = clean_brand(brand)
     if resolved_brand != "":
@@ -36500,6 +36568,12 @@ def build_fojan_rule_candidate_from_spec(spec):
     for alloy_model in build_fojan_alloy_models_from_spec(spec):
         frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
         if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    for alloy_model in build_fojan_low_ohm_power_upgrade_models_from_spec(spec):
+        frame = build_rule_fallback_row_from_model(alloy_model, brand="FOJAN(富捷)")
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frame = frame.copy()
+            frame["_allow_resistor_power_upgrade"] = True
             frames.append(frame)
     special_frame = build_fojan_special_resistor_candidates_from_spec(spec)
     if isinstance(special_frame, pd.DataFrame) and not special_frame.empty:
@@ -37239,6 +37313,10 @@ def scope_search_dataframe(df, spec):
         elif target_type in RESISTOR_COMPONENT_TYPES:
             compatible_types = RESISTOR_COMPONENT_TYPES if target_type == "贴片电阻" else {target_type, "贴片电阻"}
             same_type_mask = base["_component_type"].isin(compatible_types)
+            if "_allow_resistor_power_upgrade" in base.columns:
+                same_type_mask |= base["_allow_resistor_power_upgrade"].map(
+                    lambda value: clean_text(value).lower() in {"1", "true", "yes"}
+                )
         elif target_type in INDUCTOR_COMPONENT_TYPES:
             compatible_types = compatible_component_types_for_search(target_type) or [target_type]
             same_type_mask = base["_component_type"].isin(compatible_types)
@@ -39867,6 +39945,9 @@ def classify_match_level(row, spec):
 
     if target_type in (RESISTOR_COMPONENT_TYPES | {"热敏电阻"}):
         is_thermistor = target_type == "热敏电阻"
+        allow_resistor_power_upgrade = clean_text(
+            row.get("_allow_resistor_power_upgrade", "")
+        ).lower() in {"1", "true", "yes"}
         if is_thermistor:
             row_tol_raw = clean_tol_for_match(row.get("阻值误差", "")) or row_tol_raw
             spec_tol = clean_tol_for_match(spec.get("阻值误差", "")) or spec_tol
@@ -39887,13 +39968,20 @@ def classify_match_level(row, spec):
         )
         row_power_watt = parse_power_to_watts(row_power_text)
         spec_power_watt = parse_power_to_watts(spec.get("_power", ""))
+        power_exact = (
+            spec_power_watt is None
+            or (
+                row_power_watt is not None
+                and abs(row_power_watt - spec_power_watt) <= 1e-9
+            )
+        )
         power_matches = (
             spec_power_watt is None or
             (
                 row_power_watt is not None
                 and (
                     row_power_watt >= spec_power_watt - 1e-9
-                    if is_thermistor
+                    if (is_thermistor or allow_resistor_power_upgrade)
                     else abs(row_power_watt - spec_power_watt) <= 1e-9
                 )
             )
@@ -39947,7 +40035,7 @@ def classify_match_level(row, spec):
             exact = False
         if spec_tol and (row_tol_raw == "" or not tolerance_equal(row_tol_raw, spec_tol)):
             exact = False
-        if not power_matches:
+        if not power_exact:
             exact = False
         if not b_matches:
             exact = False
@@ -39968,7 +40056,7 @@ def classify_match_level(row, spec):
             tol_ok = tolerance_allows(row_tol_raw, spec_tol)
             strictly_better = tolerance_strictly_better(row_tol_raw, spec_tol)
             power_strictly_better = (
-                is_thermistor
+                (is_thermistor or allow_resistor_power_upgrade)
                 and spec_power_watt is not None
                 and row_power_watt is not None
                 and row_power_watt > spec_power_watt + 1e-9
