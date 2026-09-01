@@ -7111,17 +7111,18 @@ def list_cost_price_items(list_id=None, limit=300):
         return []
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
+        query = """
             SELECT brand, model, spec_text, cost, cost_updated_at, moq, lead_time,
                    sheet_name, row_index, raw_json
             FROM cost_price_items
             WHERE list_id=?
             ORDER BY id ASC
-            LIMIT ?
-            """,
-            (list_id, int(limit or 300)),
-        ).fetchall()
+        """
+        params = [list_id]
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(int(limit or 300))
+        rows = conn.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -8491,10 +8492,15 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
                             st.rerun()
                         else:
                             st.warning(message)
-                preview_items = list_cost_price_items(row.get("id"), limit=80)
+                preview_items = list_cost_price_items(row.get("id"), limit=None)
                 if preview_items:
-                    st.caption("预览前 80 行")
-                    st.dataframe(cost_price_items_preview_dataframe(preview_items), use_container_width=True, hide_index=True)
+                    st.caption(f"显示全部 {len(preview_items)} 行（可在表格内上下滚动）")
+                    st.dataframe(
+                        cost_price_items_preview_dataframe(preview_items),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=560,
+                    )
     else:
         render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
 

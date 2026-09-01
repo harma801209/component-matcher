@@ -1429,3 +1429,10 @@
 - Root cause: the upload form retained the legacy list-level customer selector after worksheet-level customer-code parsing and same-group price precedence had been introduced.
 - Fix: remove the whole-list ownership selector and always store new workbook uploads in the shared list container. Each worksheet is now authoritative: an empty B1 or `通用` is general pricing; one or more customer codes restrict that worksheet to the matching customer or group and take precedence over a general page. Historical list-level dedicated uploads remain readable and are labelled as legacy rather than silently reinterpreted.
 - Regression: the existing synthetic general/F0001 workbook still gives F0001 and its same-group company the dedicated price while an unrelated group receives the general price. A UI source check rejects the removed radio/customer selector and verifies the upload call cannot inject a whole-list customer scope.
+
+## 2026-09-01 - Cost-list history preview stopped after 80 rows
+
+- Symptom: a successfully imported 421-row cost workbook showed only `预览前 80 行` in the administrator's cost-list history, making the remaining imported rules impossible to inspect from the page.
+- Root cause: the history expander explicitly called `list_cost_price_items(..., limit=80)` even though the stored list row count and matching lookup contained the complete import.
+- Fix: add an explicit unlimited read mode to the list-item query and use it for the administrator preview. The table reports the actual displayed row count and keeps a fixed-height virtualized scrolling area so a long list does not stretch the entire page.
+- Regression: a 125-row isolated workbook still returns 80 rows when a caller requests that limit, but the unlimited preview path returns all 125; the UI source check rejects the former `预览前 80 行` behavior.

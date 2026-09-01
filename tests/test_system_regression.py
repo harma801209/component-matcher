@@ -3500,6 +3500,42 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(entry["moq"], "5000")
         self.assertEqual(entry["lead_time"], "4W")
 
+    def test_05a_cost_list_admin_preview_loads_every_imported_row(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "cost-full-preview-test.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            frame = pd.DataFrame(
+                [
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": f"PREVIEW-{index:04d}",
+                        "规格参数": f"preview row {index}",
+                        "成本": f"{index / 100:.2f}",
+                    }
+                    for index in range(1, 126)
+                ]
+            )
+            ok, message, list_id = app["import_cost_price_list_from_upload"](
+                UploadedBytes("preview-all.xlsx", dataframe_to_xlsx_bytes(frame)), "regression"
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(len(app["list_cost_price_items"](list_id, 80)), 80)
+            self.assertEqual(len(app["list_cost_price_items"](list_id, None)), 125)
+
+            with open(os.path.join(self.base_dir, "component_matcher.py"), "r", encoding="utf-8") as handle:
+                source = handle.read()
+            start = source.index("def render_uploaded_cost_price_admin_section")
+            end = source.index("\ndef render_sales_customer_admin_page", start)
+            preview_section = source[start:end]
+            self.assertIn('list_cost_price_items(row.get("id"), limit=None)', preview_section)
+            self.assertIn('显示全部 {len(preview_items)} 行', preview_section)
+            self.assertNotIn('预览前 80 行', preview_section)
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
     def test_05b_manual_cost_overrides_lists_and_can_be_disabled(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
