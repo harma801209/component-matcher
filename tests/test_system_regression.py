@@ -6386,6 +6386,98 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertIsNotNone(decoded)
                 self.assertEqual(decoded["耐压（V）"], expected_voltage)
 
+    def test_23_mlcc_vendor_models_preserve_official_core_parameters(self):
+        app = self.app
+
+        # BOM/OCR exports sometimes confuse the zeroes in TDK's ordering
+        # suffix with the letter O.  Only the known T0Y0N suffix is repaired.
+        tdk_input = "CGA5L1X7R2A475KTOYON"
+        tdk_canonical = "CGA5L1X7R2A475KT0Y0N"
+        self.assertEqual(app["canonicalize_known_model_ocr_confusions"](tdk_input), tdk_canonical)
+        tdk_parsed = app["parse_model_rule"](tdk_input)
+        self.assertEqual(tdk_parsed["型号"], tdk_canonical)
+        self.assertEqual(tdk_parsed["品牌"], "TDK")
+        self.assertEqual(tdk_parsed["尺寸（inch）"], "1206")
+        self.assertEqual(tdk_parsed["材质（介质）"], "X7R")
+        self.assertEqual(tdk_parsed["容值_pf"], 4_700_000)
+        self.assertEqual(tdk_parsed["容值误差"], "10")
+        self.assertEqual(tdk_parsed["耐压（V）"], "100")
+
+        tdk_exact = app["resolve_prefetched_exact_part_rows"](tdk_input)
+        self.assertFalse(tdk_exact.empty)
+        self.assertEqual(app["clean_model"](tdk_exact.iloc[0]["型号"]), tdk_canonical)
+        tdk_resolved = app["resolve_search_query_dataframe_and_spec"](tdk_input)
+        self.assertEqual(tdk_resolved["mode"], "料号")
+        self.assertEqual(tdk_resolved["spec"]["型号"], tdk_canonical)
+        self.assertEqual(tdk_resolved["spec"]["耐压（V）"], "100")
+        tdk_source = app["build_part_info_df"](
+            tdk_resolved["query_df"], tdk_resolved["spec"], tdk_input
+        )
+        self.assertFalse(tdk_source.empty)
+        self.assertEqual(app["clean_model"](tdk_source.iloc[0]["型号"]), tdk_canonical)
+
+        # EMK is Taiyo Yuden's legacy format: E=16V, 107=0603,
+        # optional A=thickness code, BJ=X5R, 225=2.2uF, K=10%.
+        taiyo = app["parse_model_rule"]("EMK107ABJ225KAHT")
+        self.assertIsNotNone(taiyo)
+        self.assertEqual(taiyo["品牌"], "太阳诱电Taiyo")
+        self.assertEqual(taiyo["系列"], "EMK")
+        self.assertEqual(taiyo["尺寸（inch）"], "0603")
+        self.assertEqual(taiyo["材质（介质）"], "X5R")
+        self.assertEqual(taiyo["容值_pf"], 2_200_000)
+        self.assertEqual(taiyo["容值误差"], "10")
+        self.assertEqual(taiyo["耐压（V）"], "16")
+        self.assertEqual(taiyo["长度（mm）"], "1.60+0.15/-0.05")
+        self.assertEqual(taiyo["宽度（mm）"], "0.80+0.15/-0.05")
+        self.assertEqual(taiyo["高度（mm）"], "0.80+0.15/-0.05")
+        old_taiyo_reference = app["parse_model_rule"]("TMK105BJ105KV-F")
+        self.assertEqual(old_taiyo_reference["尺寸（inch）"], "0402")
+        self.assertEqual(old_taiyo_reference["材质（介质）"], "X5R")
+        self.assertEqual(old_taiyo_reference["容值_pf"], 1_000_000)
+        self.assertEqual(old_taiyo_reference["容值误差"], "10")
+        self.assertEqual(old_taiyo_reference["耐压（V）"], "25")
+
+        successor_cases = {
+            "MBASE168AB5225KTNA01": ("16", "X5R"),
+            "MCASE168AB5225KTNA01": ("16", "X5R"),
+            "MCASE168AB5225KTNA1J": ("16", "X5R"),
+            "MMASE168AB5225KTNA01": ("16", "X5R"),
+        }
+        for successor_model, (expected_voltage, expected_material) in successor_cases.items():
+            with self.subTest(successor_model=successor_model):
+                successor = app["parse_model_rule"](successor_model)
+                self.assertIsNotNone(successor)
+                self.assertEqual(successor["尺寸（inch）"], "0603")
+                self.assertEqual(successor["材质（介质）"], expected_material)
+                self.assertEqual(successor["容值_pf"], 2_200_000)
+                self.assertEqual(successor["容值误差"], "10")
+                self.assertEqual(successor["耐压（V）"], expected_voltage)
+
+        successor_rows = app["load_official_model_successor_rows"]("EMK107ABJ225KAHT")
+        self.assertEqual(set(successor_rows["型号"].map(app["clean_model"])), set(successor_cases))
+        self.assertTrue(successor_rows["耐压（V）"].map(app["clean_voltage"]).eq("16").all())
+        taiyo_resolved = app["resolve_search_query_dataframe_and_spec"]("EMK107ABJ225KAHT")
+        taiyo_source = app["build_part_info_df"](
+            taiyo_resolved["query_df"], taiyo_resolved["spec"], "EMK107ABJ225KAHT"
+        )
+        self.assertTrue(set(successor_cases).issubset(set(taiyo_source["型号"].map(app["clean_model"]))))
+
+        taiyo_matches = app["match_by_spec"](taiyo_resolved["query_df"], taiyo_resolved["spec"])
+        self.assertFalse(taiyo_matches.empty)
+        self.assertTrue(taiyo_matches["尺寸（inch）"].map(app["clean_size"]).eq("0603").all())
+        self.assertTrue(taiyo_matches["材质（介质）"].map(app["clean_material"]).eq("X5R").all())
+        self.assertTrue(taiyo_matches["耐压（V）"].map(app["clean_voltage"]).eq("16").all())
+
+        # The third reported CCTC part remains a strict 16V reference case;
+        # candidate results must never leak 10V parts into this search.
+        cctc = app["parse_model_rule"]("TCC0603X7R225K160CTM")
+        self.assertEqual(cctc["品牌"], "三环CCTC")
+        self.assertEqual(cctc["尺寸（inch）"], "0603")
+        self.assertEqual(cctc["材质（介质）"], "X7R")
+        self.assertEqual(cctc["容值_pf"], 2_200_000)
+        self.assertEqual(cctc["容值误差"], "10")
+        self.assertEqual(cctc["耐压（V）"], "16")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

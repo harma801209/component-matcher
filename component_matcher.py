@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 133
+QUERY_RESULT_CACHE_VERSION = 134
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-02T00:31:59+08:00"
+PUBLIC_CODE_STAMP = "2026-09-02T13:47:45+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -11416,6 +11416,24 @@ MODEL_WRAPPER_CHARS = "\ufeff'\"`´‘’“”＇＂"
 def clean_model(x):
     text = clean_text(x).strip(MODEL_WRAPPER_CHARS)
     return text.upper().replace(" ", "")
+
+
+def canonicalize_known_model_ocr_confusions(model):
+    """Repair only vendor/order-code positions whose character is unambiguous.
+
+    A common BOM/OCR error changes the two zeroes in TDK's ``T0Y0N`` CGA
+    ordering suffix to the letter O.  A global O->0 replacement would corrupt
+    valid part numbers, so keep this normalization deliberately narrow.
+    """
+    compact = clean_model(model)
+    tdk_cga_match = re.fullmatch(
+        r"(?P<core>CGA[1-9D][A-Z][0-3]?(?:C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L)"
+        r"[0-3][A-Z](?:\d{3,4}|R\d+)[BCDFGJKMZ])T[O0]Y[O0]N",
+        compact,
+    )
+    if tdk_cga_match is not None:
+        return f"{tdk_cga_match.group('core')}T0Y0N"
+    return compact
 
 def extract_model_like_tokens(text):
     raw = clean_text(text).upper()
@@ -30387,8 +30405,9 @@ def count_bom_recommendation_statuses(result_df):
 
 def parse_taiyo_common(model):
     model = clean_model(model)
-    # 常见太阳诱电格式示例：TMK105BJ105KV-F / JMK105BJ105KV-F
-    prefixes = ["TMK", "JMK", "EMK", "LMK", "AMK"]
+    # 太阳诱电旧料号体系：首字母是额定电压、M 是 MLCC、第三位是端电极。
+    # 示例：EMK107ABJ225KAHT / TMK105BJ105KV-F。
+    prefixes = ["PMK", "AMK", "JMK", "LMK", "EMK", "TMK", "GMK", "UMK", "HMK", "QMK", "SMK", "XMK"]
     prefix = next((p for p in prefixes if model.startswith(p)), None)
     if prefix is None or len(model) < 11:
         return None
@@ -30399,44 +30418,62 @@ def parse_taiyo_common(model):
         "3225": "1210", "4520": "1808", "4532": "1812", "5750": "2220"
     }
     material_map = {
-        "C": "COG(NPO)", "B": "X5R", "E": "X6S", "F": "X7R", "R": "X7R"
+        "CG": "COG(NPO)", "CH": "C0H", "CJ": "C0J", "CK": "C0K",
+        "BJ": "X5R", "B5": "X5R", "B6": "X5R",
+        "B7": "X7R", "B8": "X7R", "E6": "X6S", "F": "Y5V",
     }
     tol_map = {"F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
     voltage_map = {
-        "0E": "2.5", "0G": "4", "0J": "6.3", "1A": "10", "1C": "16",
-        "1E": "25", "1H": "50", "2A": "100", "2D": "200", "2E": "250", "2J": "630",
-        "V": "35", "KV": "10"
+        "P": "2.5", "A": "4", "J": "6.3", "L": "10", "E": "16",
+        "T": "25", "G": "35", "U": "50", "H": "100", "Q": "250",
+        "S": "630", "X": "2000",
     }
     series_profile = taiyo_mlcc_series_profile(prefix)
 
     try:
-        size_code = model[3:7]
-        mat_code = model[7]
-        cap_code = model[8:11]
+        body = model[3:]
+        size_code = next((code for code in sorted(size_map, key=len, reverse=True) if body.startswith(code)), "")
+        if size_code == "":
+            return None
+        body = body[len(size_code):]
 
-        tol = ""
-        volt = ""
+        # Some legacy families insert one thickness code before the two-letter
+        # temperature characteristic (107A-BJ..., 107B-BJ...).
+        mat_code = next((code for code in sorted(material_map, key=len, reverse=True) if body.startswith(code)), "")
+        thickness_code = ""
+        if mat_code == "" and len(body) >= 3:
+            candidate_mat = next(
+                (code for code in sorted(material_map, key=len, reverse=True) if body[1:].startswith(code)),
+                "",
+            )
+            if candidate_mat != "":
+                thickness_code = body[0]
+                mat_code = candidate_mat
+                body = body[1:]
+        if mat_code == "":
+            return None
+        body = body[len(mat_code):]
 
-        # 常见：...J105KV-F / ...J105KV
-        rest = model[11:]
-        if len(rest) >= 1 and rest[0] in tol_map:
-            tol = tol_map.get(rest[0], "")
-            rest2 = rest[1:]
-        else:
-            rest2 = rest
+        value_match = re.match(r"(?P<cap>\d{3,4}|R\d+|\dR\d)(?P<tol>[FGJKMZ])(?P<rest>.*)", body)
+        if value_match is None:
+            return None
+        cap_code = value_match.group("cap")
+        tol = tol_map.get(value_match.group("tol"), "")
+        volt = voltage_map.get(prefix[0], "")
 
-        if rest2.startswith("6R3"):
-            volt = "6.3"
-        elif rest2.startswith("KV"):
-            volt = "10"
-        elif len(rest2) >= 2 and rest2[:2] in voltage_map:
-            volt = voltage_map.get(rest2[:2], "")
-        elif len(rest2) >= 1 and rest2[:1] in voltage_map:
-            volt = voltage_map.get(rest2[:1], "")
+        dimension_fields = {}
+        if size_code == "107" and thickness_code == "A":
+            dimension_fields = {
+                "长度（mm）": "1.60+0.15/-0.05",
+                "宽度（mm）": "0.80+0.15/-0.05",
+                "高度（mm）": "0.80+0.15/-0.05",
+                "尺寸来源": "太阳诱电官方产品页",
+            }
 
         return {
             "品牌": "太阳诱电Taiyo",
             "型号": model,
+            "器件类型": "MLCC",
             "系列": clean_text(series_profile.get("系列", "")),
             "系列说明": clean_text(series_profile.get("系列说明", "")),
             "特殊用途": clean_text(series_profile.get("特殊用途", "")),
@@ -30447,6 +30484,8 @@ def parse_taiyo_common(model):
             "容值误差": clean_tol_for_match(tol),
             "耐压（V）": clean_voltage(volt),
             "_model_rule_authority": "taiyo_old_series",
+            "_param_count": 5,
+            **dimension_fields,
         }
     except:
         return None
@@ -30460,15 +30499,19 @@ def parse_taiyo_new_common(model):
 
     size_map = TAIYO_MLCC_SIZE_CODE_MAP
     material_map = {
-        "LAB": "X7R",
-        "LBC": "X6S",
-        "SCG": "COG(NPO)",
-        "CC6": "X6S",
-        "MAB": "X5R",
-        "SL8": "X8L",
+        "LAB": "X7R", "AB5": "X5R", "SB5": "X5R", "AB7": "X7R", "SB7": "X7R",
+        "LBC": "X6S", "SCG": "COG(NPO)", "CC6": "X6S", "MAB": "X5R", "SL8": "X8L",
     }
     tol_map = {"A": "0.05PF", "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
-    voltage_map = {"F": "4", "P": "6.3", "T": "10", "W": "25", "N": "16", "H": "50"}
+    # In the current Taiyo Yuden order code the fifth character of the product
+    # prefix carries the rated-voltage code (for example MBASE... => E=16V,
+    # MSAST... => T=25V).  Characters after tolerance describe thickness and
+    # packaging and must not be interpreted as voltage.
+    voltage_map = {
+        "P": "2.5", "A": "4", "J": "6.3", "L": "10", "E": "16",
+        "T": "25", "G": "35", "U": "50", "H": "100", "Q": "250",
+        "S": "630", "X": "2000",
+    }
     series_code = taiyo_mlcc_series_code_from_model(model)
     series_profile = taiyo_mlcc_series_profile(series_code)
 
@@ -30480,7 +30523,7 @@ def parse_taiyo_new_common(model):
         return None
 
     body = match.group("body")
-    cap_match = re.fullmatch(r"(?:(?P<cond>\d)(?P<cap>\d{3})|(?P<cap2>R\d+|\d{3,4}))(?P<tol>[BCDFGJKMZ])(?P<volt>[A-Z])(?P<rest>.*)", body)
+    cap_match = re.fullmatch(r"(?:(?P<cond>\d)(?P<cap>\d{3})|(?P<cap2>R\d+|\d{3,4}))(?P<tol>[BCDFGJKMZ])(?P<rest>.*)", body)
     if not cap_match:
         return None
 
@@ -30508,7 +30551,7 @@ def parse_taiyo_new_common(model):
         "材质（介质）": clean_material(material_map.get(match.group("mat"), "")),
         "容值_pf": cap_pf,
         "容值误差": clean_tol_for_match(tol_map.get(cap_match.group("tol"), "")),
-        "耐压（V）": clean_voltage(voltage_map.get(cap_match.group("volt"), "")),
+        "耐压（V）": clean_voltage(voltage_map.get(match.group("prefix")[-1], "")),
         "_model_rule_authority": "taiyo_new_series",
     }
 
@@ -31200,7 +31243,7 @@ def merge_duplicate_columns(df):
 
 
 def parse_model_rule(model, brand="", component_type=""):
-    m = clean_model(model)
+    m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
     parsed_sitime = parse_sitime_sit9121_model(m)
@@ -31247,7 +31290,7 @@ def parse_model_rule(model, brand="", component_type=""):
             parsed = parse_prefixed_eia_size_first_mlcc(m)
             if parsed is not None:
                 return parsed
-    if m.startswith(("MAAS", "MSAS", "MLAS", "MCAST", "MCAS")):
+    if m.startswith(("MAAS", "MBAS", "MCAS", "MCAST", "MLAS", "MMAS", "MSAS", "MEASL", "MEAST", "MEASJ")):
         parsed = parse_taiyo_new_common(m)
         if parsed is not None:
             return parsed
@@ -37079,11 +37122,12 @@ def resolve_prefetched_exact_part_rows(query_text, exact_part_rows=None):
         return exact_part_rows
     if not looks_like_compact_part_query(query_text):
         return pd.DataFrame()
-    model_clean = clean_model(query_text)
-    rows = load_component_rows_by_clean_models_map([query_text], use_database=False).get(model_clean, pd.DataFrame())
+    canonical_query = canonicalize_known_model_ocr_confusions(query_text)
+    model_clean = clean_model(canonical_query)
+    rows = load_component_rows_by_clean_models_map([canonical_query], use_database=False).get(model_clean, pd.DataFrame())
     if isinstance(rows, pd.DataFrame) and not rows.empty:
         return rows
-    rows = load_component_rows_by_clean_model(query_text)
+    rows = load_component_rows_by_clean_model(canonical_query)
     if isinstance(rows, pd.DataFrame):
         return rows
     return pd.DataFrame()
@@ -38162,7 +38206,7 @@ def get_model_reverse_lookup(df, cache_signature=None):
 
 
 def lookup_model_reverse_row(df, model, cache_signature=None):
-    m = clean_model(model)
+    m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
     if df is not None and not df.empty:
@@ -38185,7 +38229,7 @@ def lookup_model_reverse_row(df, model, cache_signature=None):
 
 
 def reverse_spec(df, model, cache_signature=None):
-    m = clean_model(model)
+    m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
     if cache_signature is None:
@@ -39936,14 +39980,53 @@ def render_static_preview_table(show_df, wrapper_class="result-table-wrap", oute
         return build_result_table_iframe_html(fragment, outer_footer_html=outer_footer_html)
     return fragment
 
+
+OFFICIAL_MODEL_SUCCESSORS = {
+    "EMK107ABJ225KAHT": (
+        ("MBASE168AB5225KTNA01", "原厂改名后新料号（通信基础设施/工业用途）", "工业"),
+        ("MCASE168AB5225KTNA01", "原厂改名后新料号（车规/高可靠，AEC-Q200，官网推荐）", "车规/AEC-Q200"),
+        ("MCASE168AB5225KTNA1J", "原厂改名后新料号（车规/高可靠）", "车规"),
+        ("MMASE168AB5225KTNA01", "原厂改名后新料号（医疗用途）", "医疗"),
+    ),
+}
+
+
+def load_official_model_successor_rows(query_model):
+    model_key = canonicalize_known_model_ocr_confusions(query_model)
+    successors = OFFICIAL_MODEL_SUCCESSORS.get(model_key, ())
+    if not successors:
+        return pd.DataFrame()
+    model_keys = [item[0] for item in successors]
+    frame_map = load_component_rows_by_clean_models_map(model_keys, use_database=False)
+    rows = []
+    for successor_model, description, special_use in successors:
+        frame = frame_map.get(clean_model(successor_model), pd.DataFrame())
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            record = frame.iloc[0].to_dict()
+        else:
+            record = parse_model_rule(successor_model) or {"品牌": "太阳诱电Taiyo", "型号": successor_model}
+        record["型号"] = successor_model
+        record["系列说明"] = description
+        record["特殊用途"] = special_use
+        record["备注1"] = description
+        record["数据来源"] = "太阳诱电官网改名页"
+        record["官网链接"] = f"https://ds.yuden.co.jp/TYCOMPAS/ap/detail?pn={successor_model}&u=M"
+        record["_official_successor"] = True
+        rows.append(record)
+    return prepare_search_dataframe(pd.DataFrame(rows)) if rows else pd.DataFrame()
+
 def build_part_info_df(df, spec, query_model):
     if spec is None:
         return pd.DataFrame()
     hit = pd.DataFrame()
+    canonical_query_model = canonicalize_known_model_ocr_confusions(query_model)
     if df is not None and not df.empty and "型号" in df.columns:
-        hit = df[df["型号"].astype(str).apply(clean_model) == clean_model(query_model)].copy()
+        hit = df[df["型号"].astype(str).apply(clean_model) == canonical_query_model].copy()
     if hit.empty:
-        hit = load_component_rows_by_clean_model(query_model)
+        hit = load_component_rows_by_clean_model(canonical_query_model)
+    successor_rows = load_official_model_successor_rows(canonical_query_model)
+    if isinstance(successor_rows, pd.DataFrame) and not successor_rows.empty:
+        hit = concat_component_frames([hit, successor_rows])
     if not hit.empty:
         show_df = ensure_component_display_columns(hit)
         show_df["材质（介质）"] = show_df["材质（介质）"].apply(clean_material)

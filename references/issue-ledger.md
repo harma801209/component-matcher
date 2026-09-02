@@ -1475,3 +1475,11 @@
 - Fix: prioritize the full CCTC TCC grammar, identify TCC as 三环CCTC, decode numeric and decimal voltage codes consistently, add the verified FOJAN FCC numeric-voltage grammar, correct TDK C/CGA voltage tables through 3000V, and refresh the public prepared cache plus search sidecar for every high-confidence existing row.
 - Safety: a model-derived rated voltage is now part of the resolved source specification before cross-brand matching. Candidates with a different voltage are not labelled as equivalent or returned as same-voltage results.
 - Regression: the reported TCC model resolves to 0603 / X7R / 2.2uF / ±10% / 16V and its returned candidates all carry 16V. Controls cover CCTC 4V, Walsin/FOJAN/HRE numeric 1000V codes, and TDK C/CGA 1000V, 2000V, and 3000V codes.
+
+## 2026-09-02 - TDK OCR suffix and Taiyo legacy/current MLCC grammar produced inaccurate model results
+
+- Symptom: `CGA5L1X7R2A475KTOYON` did not reach the existing TDK source row because the BOM text used letter `O` in the two numeric-zero positions of suffix `T0Y0N`. Taiyo legacy model `EMK107ABJ225KAHT` depended on an incorrectly sliced parser, and its official renamed order numbers were hidden from the source section.
+- Root cause: model lookup treated every character literally; the old Taiyo parser assumed a four-character size field and tried to read voltage after tolerance, even though the old grammar stores rated voltage in the first character (`E=16V`) and uses `107/A/BJ` for size, thickness, and X5R. The current Taiyo parser likewise read a post-tolerance thickness/packing character as voltage instead of the fifth prefix character.
+- Fix: add a narrowly scoped TDK `T[O0]Y[O0]N -> T0Y0N` canonicalization, use it for exact lookup/reverse lookup/source display, decode the official Taiyo legacy and current ordering positions, and show all four complete Taiyo successor order numbers for the renamed EMK part with their distinct application labels.
+- Safety: no global `O -> 0` replacement is performed. CCTC `TCC0603X7R225K160CTM` remains 0603 / X7R / 2.2uF / ±10% / 16V, and candidate checks continue to reject different-voltage rows.
+- Regression: tests cover the reported three models, canonical TDK source retrieval, Taiyo 16V legacy parsing and 25V legacy control, four official Taiyo successor models, source-card display, and same-voltage cross-brand results.
