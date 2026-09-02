@@ -1483,3 +1483,11 @@
 - Fix: add a narrowly scoped TDK `T[O0]Y[O0]N -> T0Y0N` canonicalization, use it for exact lookup/reverse lookup/source display, decode the official Taiyo legacy and current ordering positions, and show all four complete Taiyo successor order numbers for the renamed EMK part with their distinct application labels.
 - Safety: no global `O -> 0` replacement is performed. CCTC `TCC0603X7R225K160CTM` remains 0603 / X7R / 2.2uF / ±10% / 16V, and candidate checks continue to reject different-voltage rows.
 - Regression: tests cover the reported three models, canonical TDK source retrieval, Taiyo 16V legacy parsing and 25V legacy control, four official Taiyo successor models, source-card display, and same-voltage cross-brand results.
+
+## 2026-09-02 - Automotive MLCC source models admitted general-purpose equivalents
+
+- Symptom: the CCTC `TCC0603X7R225K160CTM` and Taiyo legacy `EMK107ABJ225KAHT` searches returned electrically equal general-purpose MLCCs as complete matches. The Taiyo source card also displayed industrial, automotive, and medical renamed order numbers together, obscuring the intended automotive replacement.
+- Root cause: the CCTC parser decoded the electrical core but discarded the final official `M` automotive attribute. The exact Taiyo legacy model had no model-specific application classification, and the previous successor display exposed every official application split instead of the single preferred AEC-Q200 automotive successor.
+- Fix: decode CCTC M/EM automotive suffixes and their flexible-terminal variants into strict automotive series classes; classify only the reported Taiyo legacy model by its official preferred AEC-Q200 successor; and show only `MCASE168AB5225KTNA01` as its current recommended automotive order number. TDK CGA remains automotive by its official family definition.
+- Safety: automotive is a hard MLCC equivalence condition. General-purpose, industrial-only, and medical-only rows are removed rather than demoted, so an empty alternative list is preferable to an unsafe substitution. Other EMK legacy models are not globally reclassified.
+- Regression: all three reported source models resolve with the automotive constraint; every returned alternative is automotive-qualified; the Taiyo source card contains only the legacy model and the preferred MCASE successor.

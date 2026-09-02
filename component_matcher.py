@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 134
+QUERY_RESULT_CACHE_VERSION = 135
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-02T13:47:45+08:00"
+PUBLIC_CODE_STAMP = "2026-09-02T14:28:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -16696,6 +16696,15 @@ TAIYO_MLCC_SERIES_CLASS = {
     "HMR": "常规",
     "EMR": "常规",
 }
+TAIYO_LEGACY_MODEL_APPLICATION_PROFILE = {
+    # Keep this application override model-specific. Other EMK legacy parts
+    # must not be classified as automotive without official evidence.
+    "EMK107ABJ225KAHT": {
+        "系列说明": "高介电常数MLCC旧料号；当前车规/AEC-Q200推荐型号 MCASE168AB5225KTNA01",
+        "特殊用途": "车规",
+        "_mlcc_series_class": "车规",
+    },
+}
 SAMWHA_MLCC_SERIES_MEANING = {
     "CS": "常规 / General-purpose MLCC",
     "CQ": "车规 / Automotive MLCC",
@@ -17067,10 +17076,18 @@ def infer_taiyo_mlcc_size_from_model(model):
     return ""
 
 
-def taiyo_mlcc_series_profile(series_code):
+def taiyo_mlcc_series_profile(series_code, model=""):
     code = clean_text(series_code).upper()
     if code == "":
         return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+    application_override = TAIYO_LEGACY_MODEL_APPLICATION_PROFILE.get(clean_model(model), {})
+    if application_override:
+        return {
+            "系列": code,
+            "系列说明": clean_text(application_override.get("系列说明", "")),
+            "特殊用途": clean_text(application_override.get("特殊用途", "")),
+            "_mlcc_series_class": clean_text(application_override.get("_mlcc_series_class", "")),
+        }
     class_text = clean_text(TAIYO_MLCC_SERIES_CLASS.get(code, ""))
     special_use = " | ".join(part for part in ["车规" if "车规" in class_text else "", "软端子" if "软端子" in class_text else ""] if part)
     return {
@@ -17079,6 +17096,43 @@ def taiyo_mlcc_series_profile(series_code):
         "特殊用途": special_use,
         "_mlcc_series_class": class_text,
     }
+
+
+def cctc_mlcc_series_profile_from_model(model):
+    compact = clean_model(model)
+    if not compact.startswith("TCC"):
+        return {"系列": "", "系列说明": "", "特殊用途": "", "_mlcc_series_class": ""}
+
+    # CCTC publishes the final special-product code separately from the core
+    # electrical parameters. Check longer codes first so OM/ROM can never be
+    # mistaken for the automotive M code.
+    suffix_profiles = (
+        ("FEM", "TCC-FEM", "车载 EM 系列柔性电极(Ag) / Automotive flexible termination", "车规/软端子"),
+        ("CEM", "TCC-CEM", "车载 EM 系列柔性电极(Cu) / Automotive flexible termination", "车规/软端子"),
+        ("ROM", "TCC-ROM", "OM 系列树脂铜端子 / OM resin-copper termination", "软端子"),
+        ("FM", "TCC-FM", "车载 M 系列柔性电极(Ag) / Automotive flexible termination", "车规/软端子"),
+        ("CM", "TCC-CM", "车载 M 系列柔性电极(Cu) / Automotive flexible termination", "车规/软端子"),
+        ("EM", "TCC-EM", "车载 EM 系列 / Automotive EM Series MLCC", "车规"),
+        ("OM", "TCC-OM", "OM 系列 / OM Series MLCC", "常规"),
+        ("M", "TCC-M", "车载 M 系列 / Automotive M Series MLCC", "车规"),
+    )
+    for suffix, series, description, class_text in suffix_profiles:
+        if compact.endswith(suffix):
+            special_use = " | ".join(
+                token
+                for token in (
+                    "车规" if "车规" in class_text else "",
+                    "软端子" if "软端子" in class_text else "",
+                )
+                if token
+            )
+            return {
+                "系列": series,
+                "系列说明": description,
+                "特殊用途": special_use,
+                "_mlcc_series_class": class_text,
+            }
+    return generic_mlcc_series_profile("TCC")
 
 
 def samwha_mlcc_series_code_from_model(model):
@@ -17306,6 +17360,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     is_fojan_brand = "FOJAN" in brand_upper or "富捷" in brand_text
     is_kyocera_avx_brand = "KYOCERA" in brand_upper or "AVX" in brand_upper or "晶瓷" in brand_text
     is_sunway_brand = "SUNWAY" in brand_upper or "信维" in brand_text
+    is_cctc_brand = "CCTC" in brand_upper or "三环" in brand_text
     result = {
         "系列": clean_text(series),
         "系列说明": clean_text(series_desc),
@@ -17340,7 +17395,7 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
         elif walsin_series_code != "":
             profile = walsin_mlcc_series_profile(walsin_series_code)
         elif taiyo_series_code != "":
-            profile = taiyo_mlcc_series_profile(taiyo_series_code)
+            profile = taiyo_mlcc_series_profile(taiyo_series_code, model=model_key)
         elif samwha_series_code != "":
             profile = samwha_mlcc_series_profile(samwha_series_code)
         elif fojan_series_code != "":
@@ -17349,6 +17404,8 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
             profile = sunway_mlcc_series_profile(sunway_series_code)
         elif clean_text(kyocera_avx_profile.get("系列", "")) != "":
             profile = kyocera_avx_profile
+        elif is_cctc_brand and model_key.startswith("TCC"):
+            profile = cctc_mlcc_series_profile_from_model(model_key)
         elif "HRE" in brand_upper or "芯声微" in brand_text:
             profile = parse_generic_size_first_mlcc(model_key, brand=brand_text)
             if profile is None or clean_text(profile.get("系列", "")) == "":
@@ -30428,7 +30485,7 @@ def parse_taiyo_common(model):
         "T": "25", "G": "35", "U": "50", "H": "100", "Q": "250",
         "S": "630", "X": "2000",
     }
-    series_profile = taiyo_mlcc_series_profile(prefix)
+    series_profile = taiyo_mlcc_series_profile(prefix, model=model)
 
     try:
         body = model[3:]
@@ -30878,13 +30935,13 @@ def parse_cctc_common(model):
         cap_code = match.group("cap")
         tol_code = match.group("tol")
         voltage = clean_voltage(decode_numeric_mlcc_voltage_code(match.group("volt")))
-        series_profile = generic_mlcc_series_profile("TCC")
+        series_profile = cctc_mlcc_series_profile_from_model(model)
 
         return {
             "品牌": "三环CCTC",
             "型号": model,
             "器件类型": "MLCC",
-            "系列": "TCC",
+            "系列": clean_text(series_profile.get("系列", "")) or "TCC",
             "系列说明": clean_text(series_profile.get("系列说明", "")),
             "特殊用途": clean_text(series_profile.get("特殊用途", "")),
             "_mlcc_series_class": clean_text(series_profile.get("_mlcc_series_class", "")),
@@ -39983,10 +40040,7 @@ def render_static_preview_table(show_df, wrapper_class="result-table-wrap", oute
 
 OFFICIAL_MODEL_SUCCESSORS = {
     "EMK107ABJ225KAHT": (
-        ("MBASE168AB5225KTNA01", "原厂改名后新料号（通信基础设施/工业用途）", "工业"),
         ("MCASE168AB5225KTNA01", "原厂改名后新料号（车规/高可靠，AEC-Q200，官网推荐）", "车规/AEC-Q200"),
-        ("MCASE168AB5225KTNA1J", "原厂改名后新料号（车规/高可靠）", "车规"),
-        ("MMASE168AB5225KTNA01", "原厂改名后新料号（医疗用途）", "医疗"),
     ),
 }
 

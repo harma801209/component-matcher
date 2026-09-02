@@ -6346,23 +6346,28 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed["品牌"], "三环CCTC")
         self.assertEqual(parsed["器件类型"], "MLCC")
-        self.assertEqual(parsed["系列"], "TCC")
+        self.assertEqual(parsed["系列"], "TCC-M")
         self.assertEqual(parsed["尺寸（inch）"], "0603")
         self.assertEqual(parsed["材质（介质）"], "X7R")
         self.assertEqual(parsed["容值_pf"], 2_200_000)
         self.assertEqual(parsed["容值误差"], "10")
         self.assertEqual(parsed["耐压（V）"], "16")
+        self.assertEqual(parsed["特殊用途"], "车规")
+        self.assertEqual(parsed["_mlcc_series_class"], "车规")
         self.assertEqual(parsed["_model_rule_authority"], "cctc_tcc_mlcc")
 
         resolved = app["resolve_search_query_dataframe_and_spec"](model)
         self.assertEqual(resolved["mode"], "料号")
         self.assertEqual(resolved["spec"]["品牌"], "三环CCTC")
         self.assertEqual(resolved["spec"]["耐压（V）"], "16")
+        self.assertEqual(resolved["spec"]["特殊用途"], "车规")
         matches = app["match_by_spec"](resolved["query_df"], resolved["spec"])
-        self.assertFalse(matches.empty)
         matched_voltages = matches["耐压（V）"].map(app["clean_voltage"])
         self.assertTrue(matched_voltages.eq("16").all())
         self.assertNotIn("10", set(matched_voltages))
+        self.assertTrue(
+            all(app["component_has_automotive_qualification"](row) for row in matches.to_dict(orient="records"))
+        )
 
         cctc_low_voltage = app["parse_model_rule"]("TCC0402X7S105M4R0ATM")
         self.assertEqual(cctc_low_voltage["品牌"], "三环CCTC")
@@ -6402,6 +6407,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(tdk_parsed["容值_pf"], 4_700_000)
         self.assertEqual(tdk_parsed["容值误差"], "10")
         self.assertEqual(tdk_parsed["耐压（V）"], "100")
+        self.assertEqual(tdk_parsed["特殊用途"], "车规")
+        self.assertEqual(tdk_parsed["_mlcc_series_class"], "车规")
 
         tdk_exact = app["resolve_prefetched_exact_part_rows"](tdk_input)
         self.assertFalse(tdk_exact.empty)
@@ -6427,6 +6434,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(taiyo["容值_pf"], 2_200_000)
         self.assertEqual(taiyo["容值误差"], "10")
         self.assertEqual(taiyo["耐压（V）"], "16")
+        self.assertEqual(taiyo["特殊用途"], "车规")
+        self.assertEqual(taiyo["_mlcc_series_class"], "车规")
         self.assertEqual(taiyo["长度（mm）"], "1.60+0.15/-0.05")
         self.assertEqual(taiyo["宽度（mm）"], "0.80+0.15/-0.05")
         self.assertEqual(taiyo["高度（mm）"], "0.80+0.15/-0.05")
@@ -6438,10 +6447,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(old_taiyo_reference["耐压（V）"], "25")
 
         successor_cases = {
-            "MBASE168AB5225KTNA01": ("16", "X5R"),
             "MCASE168AB5225KTNA01": ("16", "X5R"),
-            "MCASE168AB5225KTNA1J": ("16", "X5R"),
-            "MMASE168AB5225KTNA01": ("16", "X5R"),
         }
         for successor_model, (expected_voltage, expected_material) in successor_cases.items():
             with self.subTest(successor_model=successor_model):
@@ -6460,13 +6466,17 @@ class SystemRegressionTests(unittest.TestCase):
         taiyo_source = app["build_part_info_df"](
             taiyo_resolved["query_df"], taiyo_resolved["spec"], "EMK107ABJ225KAHT"
         )
-        self.assertTrue(set(successor_cases).issubset(set(taiyo_source["型号"].map(app["clean_model"]))))
+        taiyo_source_models = set(taiyo_source["型号"].map(app["clean_model"]))
+        self.assertEqual(taiyo_source_models, {"EMK107ABJ225KAHT", "MCASE168AB5225KTNA01"})
 
         taiyo_matches = app["match_by_spec"](taiyo_resolved["query_df"], taiyo_resolved["spec"])
         self.assertFalse(taiyo_matches.empty)
         self.assertTrue(taiyo_matches["尺寸（inch）"].map(app["clean_size"]).eq("0603").all())
         self.assertTrue(taiyo_matches["材质（介质）"].map(app["clean_material"]).eq("X5R").all())
         self.assertTrue(taiyo_matches["耐压（V）"].map(app["clean_voltage"]).eq("16").all())
+        self.assertTrue(
+            all(app["component_has_automotive_qualification"](row) for row in taiyo_matches.to_dict(orient="records"))
+        )
 
         # The third reported CCTC part remains a strict 16V reference case;
         # candidate results must never leak 10V parts into this search.
@@ -6477,6 +6487,24 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(cctc["容值_pf"], 2_200_000)
         self.assertEqual(cctc["容值误差"], "10")
         self.assertEqual(cctc["耐压（V）"], "16")
+        self.assertEqual(cctc["系列"], "TCC-M")
+        self.assertEqual(cctc["特殊用途"], "车规")
+        self.assertEqual(cctc["_mlcc_series_class"], "车规")
+
+        # Automotive qualification is a hard equivalence condition. If the
+        # library has no qualified cross-brand row, returning no alternative
+        # is safer than presenting a general-purpose part as a full match.
+        for source_model in (tdk_input, "TCC0603X7R225K160CTM", "EMK107ABJ225KAHT"):
+            with self.subTest(automotive_source_model=source_model):
+                resolved = app["resolve_search_query_dataframe_and_spec"](source_model)
+                self.assertEqual(resolved["spec"]["特殊用途"], "车规")
+                alternatives = app["match_by_spec"](resolved["query_df"], resolved["spec"])
+                self.assertTrue(
+                    all(
+                        app["component_has_automotive_qualification"](row)
+                        for row in alternatives.to_dict(orient="records")
+                    )
+                )
 
 
 if __name__ == "__main__":
