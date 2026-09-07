@@ -280,6 +280,36 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             self.app["SEARCH_DB_PATH"] = old_path
 
+    def test_epson_common_fc2016aa_typo_resolves_to_official_fa2016aa(self):
+        path = os.path.join(self.temp_dir, "epson-fa2016aa.sqlite")
+        rows = [
+            {"品牌": "爱普生Epson", "型号": "X1E000381A004", "系列": "FA2016AA",
+             "_component_type": "晶振", "型号粒度": "官方逐料号", "_size": "2016",
+             "_value_num": 16, "_unit_upper": "MHZ", "_tol": "20",
+             "负载电容（pF）": "9"},
+            {"品牌": "爱普生Epson", "型号": "X1E000381A006", "系列": "FA2016AA",
+             "_component_type": "晶振", "型号粒度": "官方逐料号", "_size": "2016",
+             "_value_num": 24, "_unit_upper": "MHZ", "_tol": "20",
+             "负载电容（pF）": "12.5"},
+            {"品牌": "Other", "型号": "OTHER-FC2016AA", "系列": "FC2016AA",
+             "_component_type": "晶振", "型号粒度": "官方逐料号"},
+        ]
+        with sqlite3.connect(path) as conn:
+            pd.DataFrame(rows).to_sql(self.app["COMPONENTS_SEARCH_VALUE_TABLE"], conn, index=False, if_exists="replace")
+        old_path = self.app["SEARCH_DB_PATH"]
+        self.app["SEARCH_DB_PATH"] = path
+        try:
+            resolved = self.app["resolve_search_query_dataframe_and_spec"](
+                "FC2016AA", get_full_search_df=lambda: self.fail("must not load full database"),
+            )
+            self.assertEqual(resolved["mode"], "系列")
+            self.assertEqual(resolved["spec"]["系列"], "FA2016AA")
+            self.assertEqual(resolved["candidate_rows"], 2)
+            self.assertEqual(resolved["series_query_alias"], "输入 FC2016AA 未找到官方系列，已按 FA2016AA 查询")
+            self.assertEqual(set(resolved["query_df"]["型号"]), {"X1E000381A004", "X1E000381A006"})
+        finally:
+            self.app["SEARCH_DB_PATH"] = old_path
+
     def test_00a_duplicate_search_rows_use_unique_report_button_keys(self):
         captured_keys = []
         original_button = self.app["st"].button

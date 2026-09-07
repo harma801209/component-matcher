@@ -45225,6 +45225,20 @@ def load_search_dataframe_for_action(action_label):
 SEARCH_PROGRESS_STAGE_COUNT = 4
 
 
+EPSON_SERIES_QUERY_ALIASES = {
+    # Epson's official product configuration guide calls this family
+    # FA2016AA.  Accept the commonly mistyped FC2016AA input, but always
+    # resolve and display the canonical official family name.
+    "FC2016AA": "FA2016AA",
+}
+
+
+def canonical_epson_series_query(query):
+    token = clean_text(query).upper()
+    token = re.sub(r"^(?:EPSON|爱普生)\s*[/：:]?\s*", "", token)
+    return token, EPSON_SERIES_QUERY_ALIASES.get(token, token)
+
+
 def load_epson_series_catalog(query):
     """Read complete members of an exact Epson family from the public sidecar.
 
@@ -45232,8 +45246,7 @@ def load_epson_series_catalog(query):
     A complete part number or a family followed by specifications stays on the
     existing part/spec search path.
     """
-    token = clean_text(query).upper()
-    token = re.sub(r"^(?:EPSON|爱普生)\s*[/：:]?\s*", "", token)
+    _, token = canonical_epson_series_query(query)
     if not re.fullmatch(r"(?:FA|FC|TSX|SG|TG|VG|HG|EG|RX|RA|MC|MA)[A-Z0-9-]{1,18}", token):
         return pd.DataFrame()
     family_key = token.replace("-", "")
@@ -45310,10 +45323,14 @@ def resolve_search_query_dataframe_and_spec(
         )
 
     emit(1, "正在解析输入", "先按命名规则和规格关键词识别当前输入")
+    series_input_token, series_token = canonical_epson_series_query(line)
     series_rows = load_epson_series_catalog(line)
     if not series_rows.empty:
         series = clean_text(series_rows.iloc[0].get("系列", ""))
-        emit(2, "已找到系列完整型号", f"{series}：{len(series_rows)} 个已收录完整型号",
+        alias_note = ""
+        if series_input_token != series_token:
+            alias_note = f"输入 {series_input_token} 未找到官方系列，已按 {series_token} 查询"
+        emit(2, "已找到系列完整型号", f"{series}：{len(series_rows)} 个已收录完整型号" + (f"；{alias_note}" if alias_note else ""),
              "系列目录", "success", candidate_rows=len(series_rows))
         return {
             "query_df": series_rows, "mode": "系列",
@@ -45321,6 +45338,7 @@ def resolve_search_query_dataframe_and_spec(
                      "品牌": "爱普生Epson", "系列": series},
             "resolution_path": "epson_series_catalog", "used_full_df": False,
             "candidate_rows": len(series_rows),
+            "series_query_alias": alias_note,
         }
     resolved_no_match = resolve_no_match_report_as_query(line)
     if resolved_no_match is not None:
@@ -47061,6 +47079,9 @@ if search_requested:
             )
             if mode == "系列":
                 show_df = apply_search_cost_visibility(build_series_catalog_display(query_df))
+                series_query_alias = clean_text(resolved.get("series_query_alias", ""))
+                if series_query_alias:
+                    st.info(series_query_alias)
                 st.markdown(
                     f'<div class="section-title">{html.escape(clean_text(spec.get("系列", line)))} · 系列完整型号清单</div>',
                     unsafe_allow_html=True,

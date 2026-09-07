@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-09-07 - Epson FC2016AA input did not resolve to the official FA2016AA family
+
+- Symptom: searching `FC2016AA` returned no Epson family members, although the Epson 2.0 x 1.6 mm crystal family was expected.
+- Root cause: Epson's official product configuration guide names this family `FA2016AA`; `FC2016AA` is a common input typo and is not an official family name. The sidecar already contains 138 complete `FA2016AA` order numbers.
+- Fix: add the explicit query alias `FC2016AA -> FA2016AA`, keep the result scoped to Epson's canonical family, and show a visible correction notice rather than silently presenting a different family.
+- Verification: the alias regression passes; the 73-test release safety gate passes and protected runtime database fingerprints remain unchanged.
+
 ## 2026-08-22 - YAGEO AC resistor model was swallowed by the MLCC prefix route
 
 - Symptom: searching the exact YAGEO model `AC1206FR-7W2R2L` returned no source row or alternatives and displayed the unrelated whole-library fallback warning.
