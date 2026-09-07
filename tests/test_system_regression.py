@@ -280,7 +280,7 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             self.app["SEARCH_DB_PATH"] = old_path
 
-    def test_epson_common_fc2016aa_typo_resolves_to_official_fa2016aa(self):
+    def test_epson_series_lookup_requires_official_fa2016aa_name(self):
         path = os.path.join(self.temp_dir, "epson-fa2016aa.sqlite")
         rows = [
             {"品牌": "爱普生Epson", "型号": "X1E000381A004", "系列": "FA2016AA",
@@ -300,13 +300,13 @@ class SystemRegressionTests(unittest.TestCase):
         self.app["SEARCH_DB_PATH"] = path
         try:
             resolved = self.app["resolve_search_query_dataframe_and_spec"](
-                "FC2016AA", get_full_search_df=lambda: self.fail("must not load full database"),
+                "FA2016AA", get_full_search_df=lambda: self.fail("must not load full database"),
             )
             self.assertEqual(resolved["mode"], "系列")
             self.assertEqual(resolved["spec"]["系列"], "FA2016AA")
             self.assertEqual(resolved["candidate_rows"], 2)
-            self.assertEqual(resolved["series_query_alias"], "输入 FC2016AA 未找到官方系列，已按 FA2016AA 查询")
             self.assertEqual(set(resolved["query_df"]["型号"]), {"X1E000381A004", "X1E000381A006"})
+            self.assertTrue(self.app["load_epson_series_catalog"]("FC2016AA").empty)
         finally:
             self.app["SEARCH_DB_PATH"] = old_path
 
