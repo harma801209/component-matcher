@@ -220,6 +220,66 @@ class SystemRegressionTests(unittest.TestCase):
             database_path = os.path.normcase(os.path.abspath(self.app[key]))
             self.assertEqual(os.path.commonpath([temp_root, database_path]), temp_root, key)
 
+    def test_epson_series_catalog_lists_all_complete_members_without_matching(self):
+        path = os.path.join(self.temp_dir, "epson-series.sqlite")
+        rows = [
+            {"品牌": "爱普生Epson", "型号": f"Q22FA128{i:05d}", "系列": "FA-128",
+             "_component_type": "晶振", "型号粒度": "官方逐料号", "_size": "2016",
+             "_value_num": 24 + i, "_unit_upper": "MHZ", "_tol": "20",
+             "负载电容（pF）": str(6 + i % 3)}
+            for i in range(231)
+        ]
+        rows += [
+            {"品牌": "爱普生Epson", "型号": "FA-128", "系列": "FA-128",
+             "_component_type": "晶振", "型号粒度": "官方系列/具体PN需确认"},
+            {"品牌": "爱普生Epson", "型号": "FA-128-*", "系列": "FA-128",
+             "_component_type": "晶振", "型号粒度": "模板"},
+            {"品牌": "Other", "型号": "OTHER-24M", "系列": "FA-128", "_component_type": "晶振"},
+            {"品牌": "爱普生Epson", "型号": "X1A0001710001", "系列": "FC2012AN",
+             "_component_type": "晶振", "型号粒度": "官方逐料号", "_size": "2012",
+             "_value_num": 32.768, "_unit_upper": "KHZ", "负载电容（pF）": "12.5"},
+            {"品牌": "爱普生Epson", "型号": "FA-128-NEXT-PART", "系列": "FA-128-NEXT",
+             "_component_type": "晶振", "型号粒度": "官方逐料号"},
+        ]
+        with sqlite3.connect(path) as conn:
+            pd.DataFrame(rows).to_sql(self.app["COMPONENTS_SEARCH_VALUE_TABLE"], conn, index=False, if_exists="replace")
+        old_path = self.app["SEARCH_DB_PATH"]
+        self.app["SEARCH_DB_PATH"] = path
+        try:
+            for query in ["FA-128", "fa128", "EPSON FA-128"]:
+                resolved = self.app["resolve_search_query_dataframe_and_spec"](
+                    query, get_full_search_df=lambda: self.fail("must not load full database"),
+                )
+                self.assertEqual(resolved["mode"], "系列")
+                self.assertEqual(resolved["candidate_rows"], 231)
+                frame = resolved["query_df"]
+                self.assertEqual(frame["型号"].nunique(), 231)
+                self.assertEqual(set(frame["负载电容（pF）"]), {"6", "7", "8"})
+                show = self.app["build_series_catalog_display"](frame)
+                self.assertEqual(set(show["容值误差"]), {"±20ppm"})
+                self.assertEqual(set(show["容值单位"]), {"MHz"})
+                fragment = self.app["render_clickable_result_table"](show, show_official_status=False, wrap_iframe=False)
+                self.assertIn("Q22FA12800230", fragment)
+                self.assertNotIn("完全匹配", fragment)
+                self.assertTrue(self.app["cached_run_query_match"](frame, "系列", resolved["spec"]).empty)
+                self.assertTrue(self.app["run_query_match"](frame, "系列", resolved["spec"]).empty)
+            frame = self.app["load_epson_series_catalog"]("FC-2012AN")
+            self.assertEqual(frame["型号"].tolist(), ["X1A0001710001"])
+            for query in ["X1A0001710001", "Q22FA12800002", "FC2012AN 32.768kHz 12.5pF", "FA-12", "FRC0805F1002TS"]:
+                self.assertTrue(self.app["load_epson_series_catalog"](query).empty, query)
+        finally:
+            self.app["SEARCH_DB_PATH"] = old_path
+
+    def test_epson_series_catalog_missing_sidecar_does_not_load_full_database(self):
+        old_path = self.app["SEARCH_DB_PATH"]
+        self.app["SEARCH_DB_PATH"] = os.path.join(self.temp_dir, "epson-empty.sqlite")
+        try:
+            with sqlite3.connect(self.app["SEARCH_DB_PATH"]):
+                pass
+            self.assertTrue(self.app["load_epson_series_catalog"]("FA-128").empty)
+        finally:
+            self.app["SEARCH_DB_PATH"] = old_path
+
     def test_00a_duplicate_search_rows_use_unique_report_button_keys(self):
         captured_keys = []
         original_button = self.app["st"].button

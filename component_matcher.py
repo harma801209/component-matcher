@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 135
+QUERY_RESULT_CACHE_VERSION = 136
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-02T14:28:00+08:00"
+PUBLIC_CODE_STAMP = "2026-09-07T16:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -33964,7 +33964,7 @@ def load_regression_cases():
 
 
 def run_query_match(df, mode, spec):
-    if spec is None:
+    if spec is None or mode == "系列":
         return pd.DataFrame()
     if bool(spec.get("_unsupported_component", False)):
         return pd.DataFrame()
@@ -34148,7 +34148,8 @@ def make_query_cache_key(query_text, mode, spec=None):
 
 
 def cached_run_query_match(df, mode, spec, query_text=""):
-    if spec is None:
+    if spec is None or mode == "系列":
+        # A family contains different configurations, not interchangeable parts.
         return pd.DataFrame()
     spec = merge_query_text_hints_into_spec(spec, query_text)
     cache = get_session_query_cache()
@@ -45224,6 +45225,67 @@ def load_search_dataframe_for_action(action_label):
 SEARCH_PROGRESS_STAGE_COUNT = 4
 
 
+def load_epson_series_catalog(query):
+    """Read complete members of an exact Epson family from the public sidecar.
+
+    No full-database fallback, prefix expansion, row limit or fabricated PN.
+    A complete part number or a family followed by specifications stays on the
+    existing part/spec search path.
+    """
+    token = clean_text(query).upper()
+    token = re.sub(r"^(?:EPSON|爱普生)\s*[/：:]?\s*", "", token)
+    if not re.fullmatch(r"(?:FA|FC|TSX|SG|TG|VG|HG|EG|RX|RA|MC|MA)[A-Z0-9-]{1,18}", token):
+        return pd.DataFrame()
+    family_key = token.replace("-", "")
+    conn = open_search_db_connection(timeout_sec=10)
+    if conn is None:
+        return pd.DataFrame()
+    try:
+        if not search_table_has_columns(
+            conn, {"品牌", "型号", "系列", "_component_type"},
+            table_name=COMPONENTS_SEARCH_VALUE_TABLE,
+        ):
+            return pd.DataFrame()
+        rows = pd.read_sql_query(
+            f'SELECT * FROM {COMPONENTS_SEARCH_VALUE_TABLE} '
+            'WHERE "品牌" IN (?, ?, ?, ?) '
+            'AND UPPER(REPLACE(REPLACE("系列", \'-\', \'\'), \' \', \'\')) = ?',
+            conn, params=["爱普生Epson", "EPSON", "Epson", "爱普生", family_key],
+        )
+    finally:
+        conn.close()
+    records = []
+    for detail in rows.to_dict("records"):
+        model = timing_orderable_model(detail)
+        if not model or clean_model(model).replace("-", "") == family_key:
+            continue
+        records.append(build_lightweight_component_row_from_search_sidecar(
+            detail, detail, include_model_rule=False,
+        ))
+    if not records:
+        return pd.DataFrame()
+    return prepare_search_dataframe(pd.DataFrame(records)).drop_duplicates(
+        subset=["品牌", "型号"], keep="first",
+    ).sort_values(["型号"], kind="stable").reset_index(drop=True)
+
+
+def build_series_catalog_display(frame):
+    """Keep each member's parameters; never fill them from another member."""
+    display = select_component_display_columns(
+        ensure_component_display_columns(frame), frame.iloc[0].to_dict(),
+        prefix_columns=["品牌", "型号", "器件类别", "系列"],
+        suffix_columns=["型号粒度", "官网链接", "数据来源"],
+        allow_online_lookup=False,
+    )
+    formatted = format_display_df(display)
+    if "容值误差" in display.columns:
+        formatted["容值误差"] = display["容值误差"].apply(clean_frequency_tolerance_for_display)
+    if "容值单位" in formatted.columns:
+        formatted["容值单位"] = formatted["容值单位"].replace({"KHZ": "kHz", "MHZ": "MHz", "HZ": "Hz"})
+    # Keep the complete row set, but omit wholly empty optional columns.
+    return formatted.loc[:, [col for col in formatted.columns if formatted[col].fillna("").astype(str).str.strip().ne("").any()]]
+
+
 def resolve_search_query_dataframe_and_spec(
     line,
     get_full_search_df=None,
@@ -45248,6 +45310,18 @@ def resolve_search_query_dataframe_and_spec(
         )
 
     emit(1, "正在解析输入", "先按命名规则和规格关键词识别当前输入")
+    series_rows = load_epson_series_catalog(line)
+    if not series_rows.empty:
+        series = clean_text(series_rows.iloc[0].get("系列", ""))
+        emit(2, "已找到系列完整型号", f"{series}：{len(series_rows)} 个已收录完整型号",
+             "系列目录", "success", candidate_rows=len(series_rows))
+        return {
+            "query_df": series_rows, "mode": "系列",
+            "spec": {"器件类型": clean_text(series_rows.iloc[0].get("器件类型", "晶振")),
+                     "品牌": "爱普生Epson", "系列": series},
+            "resolution_path": "epson_series_catalog", "used_full_df": False,
+            "candidate_rows": len(series_rows),
+        }
     resolved_no_match = resolve_no_match_report_as_query(line)
     if resolved_no_match is not None:
         query_df = resolved_no_match["query_df"]
@@ -46985,6 +47059,31 @@ if search_requested:
                 note="正在比对候选料号并计算推荐等级",
                 extra_chips=base_chips,
             )
+            if mode == "系列":
+                show_df = apply_search_cost_visibility(build_series_catalog_display(query_df))
+                st.markdown(
+                    f'<div class="section-title">{html.escape(clean_text(spec.get("系列", line)))} · 系列完整型号清单</div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    f"共 {len(show_df)} 个已收录完整型号，全部列出。不同型号的频率、负载电容等参数可能不同；"
+                    "请选择具体型号后再搜索其他品牌替代。系列名称本身不作为订货型号。"
+                )
+                components.html(
+                    render_clickable_result_table(
+                        show_df, spec=spec, show_official_status=False,
+                        copy_audit=build_line_copy_audit("source"),
+                        copy_bridge_channel=search_copy_bridge_channel,
+                    ),
+                    height=estimate_match_card_iframe_height(0, len(show_df)) + 12,
+                    scrolling=False,
+                )
+                complete_line_search_audit(
+                    "系列型号清单", f"已展示 {len(show_df)} 个完整型号；未执行跨品牌等效匹配。",
+                    source_frame=show_df,
+                )
+                search_stats["success"] += 1
+                continue
             if mode == "料号":
                 part_info_df = build_part_info_df(query_df, spec, line)
                 part_info_df = apply_search_cost_visibility(part_info_df)

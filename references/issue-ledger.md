@@ -1484,6 +1484,14 @@
 - Safety: no global `O -> 0` replacement is performed. CCTC `TCC0603X7R225K160CTM` remains 0603 / X7R / 2.2uF / ±10% / 16V, and candidate checks continue to reject different-voltage rows.
 - Regression: tests cover the reported three models, canonical TDK source retrieval, Taiyo 16V legacy parsing and 25V legacy control, four official Taiyo successor models, source-card display, and same-voltage cross-brand results.
 
+## 2026-09-07 - Epson family searches did not list complete order numbers
+
+- Symptom: `FA-128` fell through to unavailable full-database fallback; `FC2012AN` was treated as a single configurable part instead of a family catalogue.
+- Root cause: exact-model search did not query the existing Epson series-to-order-number association in the public search sidecar.
+- Fix: add an exact Epson family catalogue route with case/hyphen aliases. Return every distinct orderable member without a row limit; omit family/template records. Render a separate complete-model list with member-specific frequency, ppm tolerance and load capacitance, and preserve existing copy audit integration.
+- Safety: a series is not an equivalence specification. Both matching entry points reject series mode; complete PN and family-plus-spec searches retain the existing path. No catalogue or protected runtime databases are modified.
+- Verification: official selectors list 231 FA-128 records and five FC2012AN records. Isolated regression fixtures cover more than 80 rows, last-row rendering, distinct configurations, aliases, brand/family boundaries, unavailable sidecar, complete-PN routing and non-equivalence.
+
 ## 2026-09-02 - Automotive MLCC source models admitted general-purpose equivalents
 
 - Symptom: the CCTC `TCC0603X7R225K160CTM` and Taiyo legacy `EMK107ABJ225KAHT` searches returned electrically equal general-purpose MLCCs as complete matches. The Taiyo source card also displayed industrial, automotive, and medical renamed order numbers together, obscuring the intended automotive replacement.
