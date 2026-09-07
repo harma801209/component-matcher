@@ -66,11 +66,9 @@ PUBLISH_FILES = [
     "tools/run_release_safety_gate.py",
     "publish_public.ps1",
     "publish_public.cmd",
-    # Raw workbook sources required for rebuilding the cloud database.
-    "Capacitor",
-    "Crystal*",
-    "Inductor",
-    "Resistor",
+    # Raw workbook/source catalogs remain local build inputs. They are ignored
+    # by design and must not be staged into a public release; the rebuilt
+    # search-side bundle below is the deployable data artifact.
     ".streamlit/config.toml",
     "docs",
     # Cloudflare Pages proxy artifacts.
