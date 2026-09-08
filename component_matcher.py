@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 136
+QUERY_RESULT_CACHE_VERSION = 137
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-07T16:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-09-08T16:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -11556,11 +11556,19 @@ def load_component_rows_by_known_model_prefix(token):
             return rows, prefix
     return pd.DataFrame(), ""
 
+C0G_MATERIAL_ALIASES = (
+    "COG(NPO)", "C0G(NP0)", "COG", "C0G", "NPO", "NP0",
+    "COG;NPO", "C0G;NP0", "COG/NPO", "C0G/NP0",
+)
+
+
 def clean_material(x):
     x = clean_text(x).upper()
     x = x.replace("（", "(").replace("）", ")").replace(" ", "")
     x = x.replace("C0G", "COG")
     x = x.replace("NP0", "NPO")
+    if x in C0G_MATERIAL_ALIASES:
+        return "COG(NPO)"
     return x
 
 def clean_size(x):
@@ -20242,6 +20250,42 @@ def parse_pdc_ms_core(model, allow_partial=False):
 
 
 
+def murata_standard_dc_voltage_codes():
+    # Official SMD-EN.pdf, Rated Voltage (standard DC products).
+    # https://search.murata.co.jp/Ceramy/image/img/A01X/SMD-EN.pdf
+    # Murata 3F is 3.15kV, not TDK's 3kV. Do not guess AC/derated codes.
+    return {
+        "0D": "2", "0E": "2.5", "0G": "4", "0J": "6.3",
+        "1A": "10", "1C": "16", "1E": "25", "1H": "50",
+        "1J": "63", "1K": "80", "2A": "100", "2D": "200",
+        "2E": "250", "2W": "450", "2H": "500", "2J": "630",
+        "3A": "1000", "3B": "1250", "3D": "2000", "3F": "3150",
+        "BB": "350", "YA": "35",
+    }
+
+
+def mlcc_index_voltage_condition(voltage, exact=False):
+    # Old published sidecars have NULL voltage on Murata high-voltage rows.
+    # Recover only documented DC codes, within the existing size/value filters,
+    # without rewriting a shared database or loading the entire component library.
+    target = float(voltage)
+    comparison = "ABS(_volt_num - ?) < 1e-9" if exact else "_volt_num >= ?"
+    base = f"(_volt_num IS NOT NULL AND {comparison})"
+    codes = [code for code, value in murata_standard_dc_voltage_codes().items()
+             if (abs(float(value) - target) < 1e-9 if exact else float(value) >= target)]
+    if not codes:
+        return base, [target]
+    prefixes = ("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ")
+    prefix_marks = ",".join("?" for _ in prefixes)
+    code_marks = ",".join("?" for _ in codes)
+    fallback = (
+        '_volt_num IS NULL AND ("品牌" LIKE \'%村田%\' OR UPPER("品牌") LIKE \'%MURATA%\') '
+        f'AND LENGTH("型号") >= 14 AND SUBSTR("型号", 1, 3) IN ({prefix_marks}) '
+        f'AND SUBSTR("型号", 9, 2) IN ({code_marks})'
+    )
+    return f"({base} OR ({fallback}))", [target, *prefixes, *codes]
+
+
 def parse_murata_core(model, allow_partial=False):
     model = clean_model(model)
     prefixes = ["GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ"]
@@ -20265,12 +20309,7 @@ def parse_murata_core(model, allow_partial=False):
         "E7": "X7U", "L8": "X8L", "M8": "X8M", "N8": "X8N",
         "U2": "U2J", "7U": "U2J", "Z7": "X7R"
     }
-    voltage_map = {
-        "0E": "2.5", "0G": "4", "0J": "6.3", "1A": "10",
-        "1C": "16", "1E": "25", "1H": "50", "2A": "100",
-        "2D": "200", "2E": "250", "2J": "630", "2K": "1000",
-        "YA": "35"
-    }
+    voltage_map = murata_standard_dc_voltage_codes()
     tol_map = {
         "B": "0.1pF", "C": "0.25pF", "D": "0.5pF", "W": "0.05pF",
         "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"
@@ -35207,7 +35246,14 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         record["_power"] = power_text
         record["_power_watt"] = float(power_watt)
 
-    if include_model_rule:
+    # The fast candidate path skips full decoding, but legacy Murata sidecars
+    # need their documented voltage restored before numeric matching/ranking.
+    needs_murata_voltage = (
+        component_type == "MLCC"
+        and clean_voltage(record.get("耐压（V）", "")) == ""
+        and ("MURATA" in brand.upper() or "村田" in brand)
+    )
+    if include_model_rule or needs_murata_voltage:
         parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
         if isinstance(parsed_rule, dict) and parsed_rule:
             record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
@@ -37274,23 +37320,27 @@ def fetch_search_candidate_pairs(spec):
         where_clauses.append("_pf IS NOT NULL AND ABS(_pf - ?) < 1e-6")
         params.append(float(pf))
         if material != "":
-            where_clauses.append("_mat = ?")
-            params.append(material)
+            # Older Murata sidecars used COG;NPO; the decoder uses COG(NPO).
+            material_aliases = C0G_MATERIAL_ALIASES if material == "COG(NPO)" else (material,)
+            where_clauses.append("_mat IN (" + ",".join("?" for _ in material_aliases) + ")")
+            params.extend(material_aliases)
         if tol != "":
             where_clauses.append("_tol = ?")
             params.append(tol)
         if volt != "":
             exact_voltage_clauses = list(where_clauses)
             exact_voltage_params = list(params)
-            exact_voltage_clauses.append("_volt_num IS NOT NULL AND ABS(_volt_num - ?) < 1e-9")
-            exact_voltage_params.append(float(volt))
+            voltage_clause, voltage_params = mlcc_index_voltage_condition(volt, exact=True)
+            exact_voltage_clauses.append(voltage_clause)
+            exact_voltage_params.extend(voltage_params)
             exact_query = (
                 f'SELECT DISTINCT "品牌", "型号" FROM {search_table_name} '
                 f'WHERE {" AND ".join(exact_voltage_clauses)}'
             )
             exact_query_params = exact_voltage_params
-            where_clauses.append("_volt_num IS NOT NULL AND _volt_num >= ?")
-            params.append(float(volt))
+            voltage_clause, voltage_params = mlcc_index_voltage_condition(volt)
+            where_clauses.append(voltage_clause)
+            params.extend(voltage_params)
     elif target_type in RESISTOR_COMPONENT_TYPES or target_type == "热敏电阻":
         size = clean_size(spec.get("尺寸（inch）", ""))
         resistance_ohm = spec.get("_resistance_ohm", None)

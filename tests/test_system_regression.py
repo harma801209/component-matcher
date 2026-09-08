@@ -6481,6 +6481,98 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertIsNotNone(decoded)
                 self.assertEqual(decoded["耐压（V）"], expected_voltage)
 
+    def test_murata_official_dc_voltage_code_table(self):
+        # Official SMD-EN.pdf, Rated Voltage table (not generic EIA/TDK codes).
+        # These are parser fixtures, not assertions that every suffix is orderable.
+        expected = {
+            "0D": "2", "0E": "2.5", "0G": "4", "0J": "6.3",
+            "1A": "10", "1C": "16", "1E": "25", "1H": "50",
+            "1J": "63", "1K": "80", "2A": "100", "2D": "200",
+            "2E": "250", "2W": "450", "2H": "500", "2J": "630",
+            "3A": "1000", "3B": "1250", "3D": "2000", "3F": "3150",
+            "BB": "350", "YA": "35",
+        }
+        for prefix in ("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ"):
+            for code, voltage in expected.items():
+                with self.subTest(prefix=prefix, code=code):
+                    parsed = self.app["parse_murata_core"](f"{prefix}32E5C{code}223JX0AL")
+                    self.assertEqual(parsed["耐压（V）"], voltage)
+        for code in ("ZZ", "2K", "E2"):
+            # Unknown and AC codes must not be guessed as a DC voltage.
+            parsed = self.app["parse_murata_core"](f"GCM32E5C{code}223JX0AL")
+            self.assertEqual(parsed["耐压（V）"], "")
+
+    def test_murata_high_voltage_survives_reverse_lookup_and_display(self):
+        app = self.app
+        model = "GCM32E5C3A223JX0AL"
+        parsed = app["parse_model_rule"](model)
+        self.assertEqual(parsed["耐压（V）"], "1000")
+        self.assertEqual(parsed["容值_pf"], 22_000)
+        self.assertEqual(parsed["特殊用途"], "车规")
+        self.assertEqual(app["parse_model_rule"]("GRM31A5C3A221JW01D")["耐压（V）"], "1000")
+
+        stale = {**parsed, "耐压（V）": "", "_volt": "", "_volt_num": None}
+        source = pd.DataFrame([stale])
+        reverse = app["reverse_spec"](source, model, cache_signature="murata-blank-voltage-repro")
+        self.assertEqual(reverse["耐压（V）"], "1000")
+        lightweight = app["build_lightweight_component_row_from_search_sidecar"](
+            {"品牌": "村田Murata", "型号": model, "_component_type": "MLCC"},
+            {"_size": "1210", "_mat": "COG(NPO)", "_pf": 22_000, "_tol": "5", "_volt_num": None},
+        )
+        self.assertEqual(app["clean_voltage"](lightweight["耐压（V）"]), "1000")
+        displayed = app["build_part_info_df"](source, reverse, model)
+        self.assertIn("1000V", displayed.to_string(index=False))
+
+        resolved = app["resolve_search_query_dataframe_and_spec"](model, exact_part_rows=source)
+        self.assertEqual(resolved["spec"]["耐压（V）"], "1000")
+        matches = app["match_by_spec"](resolved["query_df"], resolved["spec"])
+        self.assertFalse(matches.empty, "The reported 1000V automotive candidate should remain available")
+        voltages = pd.to_numeric(matches["耐压（V）"].map(app["clean_voltage"]), errors="coerce")
+        self.assertTrue(voltages.notna().all())
+        self.assertTrue(voltages.ge(1000).all(), matches.to_string(index=False))
+        self.assertTrue(all(app["component_has_automotive_qualification"](r) for r in matches.to_dict("records")))
+
+    def test_murata_null_voltage_index_remains_searchable_without_writes(self):
+        app = self.app
+        for material in ("COG;NPO", "C0G;NP0", "C0G/NP0", "NP0", "COG(NPO)"):
+            self.assertEqual(app["clean_material"](material), "COG(NPO)")
+        self.assertEqual(app["clean_material"]("X7R"), "X7R")
+        # Exercise the SQL predicate independently of today's runtime data.
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute('CREATE TABLE parts ("品牌" TEXT, "型号" TEXT, _volt_num REAL)')
+            fixtures = [
+                ("村田Murata", "GCM32E5C3A223JX0AL", None),
+                ("村田Murata", "GCM32E5C2J223JX0AL", None),
+                ("村田Murata", "GCM32E5CZZ223JX0AL", None),
+                ("Other", "GCM32E5C3A223JX0AL", None),
+                ("Other", "documented-1000V", 1000),
+                ("Other", "documented-630V", 630),
+                ("Other", "documented-2000V", 2000),
+            ]
+            conn.executemany('INSERT INTO parts VALUES (?,?,?)', fixtures)
+            for exact in (True, False):
+                clause, params = app["mlcc_index_voltage_condition"]("1000", exact=exact)
+                found = conn.execute(f'SELECT "品牌", "型号" FROM parts WHERE {clause}', params).fetchall()
+                self.assertIn(("村田Murata", "GCM32E5C3A223JX0AL"), found)
+                self.assertIn(("Other", "documented-1000V"), found)
+                self.assertNotIn(("Other", "GCM32E5C3A223JX0AL"), found)
+                self.assertNotIn(("Other", "documented-630V"), found)
+                self.assertNotIn(("村田Murata", "GCM32E5C2J223JX0AL"), found)
+                self.assertNotIn(("村田Murata", "GCM32E5CZZ223JX0AL"), found)
+                self.assertEqual(("Other", "documented-2000V") in found, not exact)
+            self.assertEqual(conn.total_changes, len(fixtures))
+
+        # The shipped old index has this exact model with NULL _volt_num.
+        model = "GCM32E5C3A223JX0AL"
+        spec = app["parse_model_rule"](model)
+        pairs = app["fetch_search_candidate_pairs"](spec)
+        self.assertIn(model, [m for _, m in pairs])
+        rows = app["load_component_rows_by_brand_model_pairs"](pairs, preferred_component_type="MLCC")
+        murata = rows[rows["型号"].eq(model)]
+        self.assertFalse(murata.empty)
+        self.assertTrue(murata["_volt_num"].eq(1000).all())
+        self.assertTrue(murata["耐压（V）"].map(app["clean_voltage"]).eq("1000").all())
+
     def test_23_mlcc_vendor_models_preserve_official_core_parameters(self):
         app = self.app
 

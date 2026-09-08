@@ -4119,3 +4119,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Added a rebuild/load guard so future source imports and cache rebuilds discard PDC MLCC codes that stop after the voltage field. Complete models such as `FN18X104K500GBG` and `FN18X104K500PBG` remain; PDC resistors and other brands are unchanged.
 - Rebuilt and verified the public data bundle and split release parts. Raised `QUERY_RESULT_CACHE_VERSION` to `132` and both public release stamps to `2026-09-02T00:00:31+08:00`.
 - The complete 68-test release safety gate passed with isolated test databases and protected runtime data unchanged.
+
+### 2026-09-08 [Murata MLCC voltage] Restore high-voltage decoding and legacy index lookups
+
+- Reproduced the blank rated voltage for `GCM32E5C3A223JX0AL`. Murata's [exact official reference sheet](https://search.murata.co.jp/Ceramy/image/img/A01X/G101/ENG/GCM32E5C3A223JX0A-00B.pdf) specifies 1210 / C0G / 22nF / ±5% / DC 1000V and automotive qualification.
+- Replaced the incomplete Murata DC table with the 22 standard DC codes in the [official part-numbering table](https://search.murata.co.jp/Ceramy/image/img/A01X/SMD-EN.pdf). Removed unsupported `2K=1000`; added `3A=1000`, `3B=1250`, `3D=2000`, and Murata-specific `3F=3150`. Unknown, AC/safety, and derated codes are not guessed as ordinary DC ratings.
+- Read-only audit found 468 GRM/GCM rows with NULL indexed voltage under 3A/3D/3F. Added a constrained SQL fallback for documented Murata codes and restored missing voltage even in lightweight candidate loading; no database rewrite or full-library scan is required. Normalized the equivalent COG;NPO / COG(NPO) forms used by the old index and decoder.
+- Regression coverage checks all 22 codes across eight supported Murata families, the reported model and earlier `GRM31A5C3A221JW01D`, old NULL-index reverse lookups, source display, automotive filtering, and rejection of 630V/100V candidates for a 1000V requirement. Query-cache version is 137.
+- The unrelated domestic timing expansion remains uncommitted and is excluded from this release.
