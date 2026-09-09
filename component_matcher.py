@@ -275,7 +275,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 137
+QUERY_RESULT_CACHE_VERSION = 138
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -300,7 +300,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-08T16:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-09-09T08:47:39+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -16588,6 +16588,9 @@ YAGEO_MLCC_VOLTAGE_CODE_MAP = {
     "A": "200",
     "Y": "250",
     "B": "500",
+    # Newer high-CV YAGEO codes use G for 35 V (for example
+    # CC1206KKX7RGBB106 / AC0805KKX7RGBB225).  Older codes use Z for 630 V.
+    "G": "35",
     "Z": "630",
     "C": "1000",
     "D": "2000",
@@ -16748,7 +16751,7 @@ KYOCERA_AVX_MLCC_SERIES_CLASS = {
     "历史料号": "",
 }
 KYOCERA_AVX_HISTORICAL_MLCC_PATTERN = re.compile(
-    r"(?P<size>01005|\d{4})(?P<volt>[0-9AZYD])(?P<mat>[A-Z])"
+    r"(?P<size>01005|\d{4})(?P<volt>[0-9AGHVZYD])(?P<mat>[A-Z])"
     r"(?P<cap>(?:\d{3,4}|R\d+))(?P<tol>[BCDFGJKMZ])(?P<rest>[A-Z0-9]*)"
 )
 KYOCERA_AVX_HISTORICAL_SIZE_DIMENSION_MAP = {
@@ -20265,16 +20268,26 @@ def murata_standard_dc_voltage_codes():
 
 
 def mlcc_index_voltage_condition(voltage, exact=False):
-    # Old published sidecars have NULL voltage on Murata high-voltage rows.
-    # Recover only documented DC codes, within the existing size/value filters,
-    # without rewriting a shared database or loading the entire component library.
+    # Published sidecars have NULL voltage on some MLCC brands. Keep those
+    # rows in this candidate query so the lightweight model decoder can restore
+    # a documented voltage before the strict dataframe post-filter runs.
     target = float(voltage)
     comparison = "ABS(_volt_num - ?) < 1e-9" if exact else "_volt_num >= ?"
     base = f"(_volt_num IS NOT NULL AND {comparison})"
+    decodable_brand_clause = (
+        '("品牌" LIKE \'%国巨%\' OR UPPER("品牌") LIKE \'%YAGEO%\' '
+        'OR "品牌" LIKE \'%晶瓷%\' OR UPPER("品牌") LIKE \'%KYOCERA%\' '
+        'OR UPPER("品牌") LIKE \'%AVX%\' OR "品牌" LIKE \'%太诱%\' '
+        'OR UPPER("品牌") LIKE \'%TAIYO%\' OR "品牌" LIKE \'%东电化%\' '
+        'OR UPPER("品牌") LIKE \'%TDK%\' OR "品牌" LIKE \'%风华%\' '
+        'OR UPPER("品牌") LIKE \'%FENGHUA%\' OR "品牌" LIKE \'%达方%\' '
+        'OR UPPER("品牌") LIKE \'%DARFON%\' OR "品牌" LIKE \'%信昌%\' '
+        'OR UPPER("品牌") LIKE \'%PDC%\')'
+    )
     codes = [code for code, value in murata_standard_dc_voltage_codes().items()
              if (abs(float(value) - target) < 1e-9 if exact else float(value) >= target)]
     if not codes:
-        return base, [target]
+        return f"({base} OR (_volt_num IS NULL AND {decodable_brand_clause}))", [target]
     prefixes = ("GRM", "GCM", "GCJ", "GJM", "GQM", "GRT", "GCG", "GCQ")
     prefix_marks = ",".join("?" for _ in prefixes)
     code_marks = ",".join("?" for _ in codes)
@@ -20283,7 +20296,11 @@ def mlcc_index_voltage_condition(voltage, exact=False):
         f'AND LENGTH("型号") >= 14 AND SUBSTR("型号", 1, 3) IN ({prefix_marks}) '
         f'AND SUBSTR("型号", 9, 2) IN ({code_marks})'
     )
-    return f"({base} OR ({fallback}))", [target, *prefixes, *codes]
+    # Restrict the broad NULL branch to brands with a documented model-code
+    # decoder.  Unknown/free-text rows must not become candidates merely
+    # because their index voltage is blank.
+    generic_null = f"(_volt_num IS NULL AND {decodable_brand_clause})"
+    return f"({base} OR ({fallback}) OR {generic_null})", [target, *prefixes, *codes]
 
 
 def parse_murata_core(model, allow_partial=False):
@@ -20509,7 +20526,7 @@ def parse_tdk_c_series(model):
 
 def parse_tdk_cga_series(model):
     model = clean_model(model)
-    if not model.startswith("CGA") or len(model) < 12:
+    if not model.startswith(("CGA", "CNA", "CNC", "CTA", "CBA")) or len(model) < 12:
         return None
 
     size_map = {
@@ -20531,8 +20548,12 @@ def parse_tdk_cga_series(model):
         "C": "0.25PF", "D": "0.5PF", "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"
     }
 
+    # TDK's CGA/CNA/CNC families share the same electrical token order but
+    # use one- or two-character thickness codes (for example R4 and P1).
     match = re.fullmatch(
-        r"CGA([1-9D])([A-Z])([0-3])?(C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L)([0-3][A-Z])(\d{3,4}|R\d+)([BCDFGJKMZ])(.*)",
+        r"C(?P<series>[A-Z]{2})(?P<size>[1-9D])(?P<thickness>[A-Z0-9]{1,2})"
+        r"(?P<mat>C0G|COG|NP0|NPO|X5R|X7R|X7S|X7T|X6S|X8R|X8L)"
+        r"(?P<volt>[0-3][A-Z])(?P<cap>\d{3,4}|R\d+)(?P<tol>[BCDFGJKMZ])(?P<rest>.*)",
         model,
     )
     if not match:
@@ -20540,6 +20561,15 @@ def parse_tdk_cga_series(model):
 
     try:
         series_profile = tdk_mlcc_series_profile_from_model(model)
+        if not clean_text(series_profile.get("系列", "")):
+            series_code = "C" + match.group("series")
+            is_automotive = series_code in {"CGA", "CNA", "CNC", "CTA", "CBA"}
+            series_profile = {
+                "系列": series_code,
+                "系列说明": "车规 / AEC-Q200" if is_automotive else "常规 / General-purpose MLCC",
+                "特殊用途": "车规" if is_automotive else "",
+                "_mlcc_series_class": "车规" if is_automotive else "常规",
+            }
         return {
             "品牌": "TDK",
             "型号": model,
@@ -20548,11 +20578,11 @@ def parse_tdk_cga_series(model):
             "系列说明": series_profile["系列说明"],
             "特殊用途": series_profile["特殊用途"],
             "_mlcc_series_class": series_profile["_mlcc_series_class"],
-            "尺寸（inch）": size_map.get(match.group(1), ""),
-            "材质（介质）": clean_material(material_map.get(match.group(4), "")),
-            "容值_pf": murata_cap_code_to_pf(match.group(6)),
-            "容值误差": clean_tol_for_match(tol_map.get(match.group(7), "")),
-            "耐压（V）": clean_voltage(voltage_map.get(match.group(5), "")),
+            "尺寸（inch）": size_map.get(match.group("size"), ""),
+            "材质（介质）": clean_material(material_map.get(match.group("mat"), "")),
+            "容值_pf": murata_cap_code_to_pf(match.group("cap")),
+            "容值误差": clean_tol_for_match(tol_map.get(match.group("tol"), "")),
+            "耐压（V）": clean_voltage(voltage_map.get(match.group("volt"), "")),
             "_model_rule_authority": "tdk_cga_series",
             **decode_tdk_dimension_fields_from_model(model),
         }
@@ -20763,6 +20793,51 @@ def parse_fenghua_am_series(model):
     if dimension_fields:
         result.update(dimension_fields)
     return result
+
+
+def parse_fenghua_standard_mlcc(model):
+    """Decode Fenghua's legacy numeric-size MLCC ordering codes.
+
+    Examples include 1206CG271J102NT and MBK1206B682K102NT.  The final
+    three-digit block is the rated-voltage code (102 = 1000 V), while the
+    dielectric/capacitance/tolerance fields follow the same EIA conventions
+    used by the AM family.
+    """
+    model = clean_model(model)
+    match = re.fullmatch(
+        r"(?:(?P<prefix>[A-Z]{2,3}))?(?P<size>\d{4})"
+        r"(?P<dielectric>CG|B|C)(?P<cap>\d{3,4}|R\d+|\dR\d+)"
+        r"(?P<tol>[FGJKM])(?P<volt>\d{3})(?P<tail>[A-Z0-9]*)",
+        model,
+    )
+    if match is None:
+        return None
+    size_code = match.group("size")
+    size = clean_size(size_code)
+    dielectric = {"CG": "COG(NPO)", "B": "X7R", "C": "COG(NPO)"}.get(match.group("dielectric"), "")
+    cap_pf = murata_cap_code_to_pf(match.group("cap"))
+    tol = clean_tol_for_match(FENGHUA_AM_TOLERANCE_CODE_MAP.get(match.group("tol"), ""))
+    voltage = clean_voltage(FENGHUA_AM_VOLTAGE_CODE_MAP.get(match.group("volt"), ""))
+    if size == "" or dielectric == "" or cap_pf is None or tol == "" or voltage == "":
+        return None
+    cap_value, cap_unit = pf_to_value_unit(cap_pf)
+    return {
+        "品牌": "风华Fenghua",
+        "型号": model,
+        "器件类型": "MLCC",
+        "系列": clean_text(match.group("prefix") or "普通"),
+        "系列说明": "普通厚膜片式多层陶瓷电容",
+        "尺寸（inch）": size,
+        "材质（介质）": dielectric,
+        "容值_pf": cap_pf,
+        "容值": clean_text(cap_value),
+        "容值单位": clean_text(cap_unit).upper(),
+        "容值误差": tol,
+        "耐压（V）": voltage,
+        "安装方式": "贴片",
+        "_model_rule_authority": "fenghua_standard_mlcc",
+        "_param_count": 5,
+    }
 
 
 
@@ -30503,7 +30578,7 @@ def parse_taiyo_common(model):
     model = clean_model(model)
     # 太阳诱电旧料号体系：首字母是额定电压、M 是 MLCC、第三位是端电极。
     # 示例：EMK107ABJ225KAHT / TMK105BJ105KV-F。
-    prefixes = ["PMK", "AMK", "JMK", "LMK", "EMK", "TMK", "GMK", "UMK", "HMK", "QMK", "SMK", "XMK"]
+    prefixes = ["PMK", "AMK", "JMK", "LMK", "EMK", "TMK", "GMK", "UMK", "HMK", "QMK", "SMK", "XMK", "LDK"]
     prefix = next((p for p in prefixes if model.startswith(p)), None)
     if prefix is None or len(model) < 11:
         return None
@@ -30515,7 +30590,7 @@ def parse_taiyo_common(model):
     }
     material_map = {
         "CG": "COG(NPO)", "CH": "C0H", "CJ": "C0J", "CK": "C0K",
-        "BJ": "X5R", "B5": "X5R", "B6": "X5R",
+        "BJ": "X5R", "BB": "X5R", "B5": "X5R", "B6": "X5R",
         "B7": "X7R", "B8": "X7R", "E6": "X6S", "F": "Y5V",
     }
     tol_map = {"F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20"}
@@ -30551,6 +30626,16 @@ def parse_taiyo_common(model):
         body = body[len(mat_code):]
 
         value_match = re.match(r"(?P<cap>\d{3,4}|R\d+|\dR\d)(?P<tol>[FGJKMZ])(?P<rest>.*)", body)
+        # LDK/legacy high-CV variants place a one-character thickness code
+        # between the dielectric and capacitance (…BBJ475K…).
+        if value_match is None and len(body) >= 2:
+            legacy_match = re.match(
+                r"(?P<thickness>[A-Z0-9])(?P<cap>\d{3,4}|R\d+|\dR\d)(?P<tol>[FGJKMZ])(?P<rest>.*)",
+                body,
+            )
+            if legacy_match is not None:
+                thickness_code = legacy_match.group("thickness")
+                value_match = legacy_match
         if value_match is None:
             return None
         cap_code = value_match.group("cap")
@@ -30809,8 +30894,13 @@ def parse_kyocera_avx_common(model):
         "0805": "0805", "1206": "1206", "1210": "1210", "1808": "1808",
         "1812": "1812", "2220": "2220",
     }
+    # AVX/Kyocera historical MLCC codes.  These are single-character
+    # rated-voltage codes and are distinct from the newer 2-character KAM/KAF
+    # codes handled by the other parser.
     voltage_map = {
-        "4": "4", "6": "6.3", "Z": "10", "Y": "16", "1": "25", "3": "25", "D": "35", "5": "50", "8": "100"
+        "4": "4", "6": "6.3", "Z": "10", "Y": "16", "3": "25",
+        "D": "35", "5": "50", "1": "100", "2": "200", "V": "250",
+        "7": "500", "C": "600", "A": "1000", "G": "2000", "H": "3000",
     }
     material_map = {
         "C": "X7R", "D": "X5R", "Z": "COG(NPO)", "A": "X8R", "B": "X6S"
@@ -31375,7 +31465,7 @@ def parse_model_rule(model, brand="", component_type=""):
     if parsed is not None:
         return parsed
     if "TDK" in brand_upper or "东电化" in brand_text:
-        if m.startswith("CGA"):
+        if m.startswith(("CGA", "CNA", "CNC", "CTA", "CBA")):
             parsed = parse_tdk_cga_series(m)
             if parsed is not None:
                 return parsed
@@ -31394,7 +31484,7 @@ def parse_model_rule(model, brand="", component_type=""):
         parsed = parse_taiyo_new_common(m)
         if parsed is not None:
             return parsed
-        if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK")):
+        if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK", "XMK", "LDK")):
             return parse_taiyo_common(m)
     if "YAGEO" in brand_upper or "国巨" in brand_text:
         yageo_series_code = yageo_mlcc_series_code_from_model(m)
@@ -31433,6 +31523,9 @@ def parse_model_rule(model, brand="", component_type=""):
         parsed = parse_fenghua_am_series(m)
         if parsed is not None:
             return parsed
+    parsed_fenghua_standard = parse_fenghua_standard_mlcc(m)
+    if parsed_fenghua_standard is not None:
+        return parsed_fenghua_standard
     pdc_series_code = pdc_mlcc_series_code_from_model(m)
     if pdc_series_code == "MG":
         parsed = parse_pdc_mg_core(m, allow_partial=False)
@@ -31495,17 +31588,17 @@ def parse_model_rule(model, brand="", component_type=""):
         return parse_murata_common(m)
     if m.startswith("TCC"):
         return parse_cctc_common(m)
-    if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK")):
+    if m.startswith(("TMK", "JMK", "EMK", "LMK", "AMK", "XMK", "LDK")):
         return parse_taiyo_common(m)
     if yageo_mlcc_series_code_from_model(m):
         parsed = parse_yageo_common(m)
         if parsed is not None:
             return parsed
-    if m.startswith(("CGA", "CSA", "CTA", "CBA")) and len(m) >= 7 and m[3:7].isdigit():
+    if m.startswith(("CGA", "CNA", "CNC", "CSA", "CTA", "CBA")) and len(m) >= 7 and m[3:7].isdigit():
         parsed = parse_generic_size_first_mlcc(m, brand=brand_text)
         if parsed is not None:
             return parsed
-    if m.startswith("CGA") and len(m) >= 6 and m[3].isdigit() and not m[3:7].isdigit():
+    if m.startswith(("CGA", "CNA", "CNC", "CTA", "CBA")) and len(m) >= 6 and m[3].isdigit() and not m[3:7].isdigit():
         parsed = parse_tdk_cga_series(m)
         if parsed is not None:
             return parsed
@@ -35246,17 +35339,28 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         record["_power"] = power_text
         record["_power_watt"] = float(power_watt)
 
-    # The fast candidate path skips full decoding, but legacy Murata sidecars
+    # The fast candidate path skips full decoding, but legacy MLCC sidecars
     # need their documented voltage restored before numeric matching/ranking.
-    needs_murata_voltage = (
+    needs_mlcc_voltage = (
         component_type == "MLCC"
         and clean_voltage(record.get("耐压（V）", "")) == ""
-        and ("MURATA" in brand.upper() or "村田" in brand)
     )
-    if include_model_rule or needs_murata_voltage:
+    if include_model_rule or needs_mlcc_voltage:
         parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
         if isinstance(parsed_rule, dict) and parsed_rule:
             record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
+    # The sidecar stores the numeric index separately from the display field.
+    # When a model rule filled a previously blank display voltage, mirror it
+    # here so strict numeric matching sees the decoded value immediately.
+    if component_type == "MLCC":
+        existing_voltage_num = pd.to_numeric(
+            pd.Series([record.get("_volt_num", None)]), errors="coerce"
+        ).iloc[0]
+        decoded_voltage_num = pd.to_numeric(
+            pd.Series([clean_voltage(record.get("耐压（V）", ""))]), errors="coerce"
+        ).iloc[0]
+        if pd.isna(existing_voltage_num) and pd.notna(decoded_voltage_num):
+            record["_volt_num"] = float(decoded_voltage_num)
     return record
 
 

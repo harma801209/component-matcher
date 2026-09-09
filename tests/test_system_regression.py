@@ -6688,6 +6688,39 @@ class SystemRegressionTests(unittest.TestCase):
                     )
                 )
 
+    def test_mlcc_brand_voltage_backfill_for_legacy_sidecar_rows(self):
+        app = self.app
+        cases = {
+            "AC0805KKX7RGBB225": ("国巨YAGEO", "35"),
+            "1206GC102KAT2A": ("晶瓷Kyocera AVX", "2000"),
+            "LDK105BBJ475KV-F": ("太阳诱电Taiyo", "10"),
+            "CNA6P1X7R2A475KT000A": ("TDK", "100"),
+            "1206CG271J102NT": ("风华Fenghua", "1000"),
+            "MBK1206B682K102NT": ("风华Fenghua", "1000"),
+        }
+        for model, (brand, expected_voltage) in cases.items():
+            with self.subTest(model=model):
+                parsed = app["parse_model_rule"](model, brand=brand, component_type="MLCC")
+                self.assertIsNotNone(parsed)
+                self.assertEqual(app["clean_voltage"](parsed["耐压（V）"]), expected_voltage)
+
+        # The fast sidecar path must run the same decoder and mirror the
+        # display voltage into _volt_num; otherwise SQL candidates remain
+        # invisible to the strict numeric voltage filter.
+        rows = app["load_search_sidecar_rows_by_brand_model_pairs"](
+            [
+                ("国巨YAGEO", "CC1206KKX7RGBB106"),
+                ("晶瓷Kyocera AVX", "1206GC102KAT2A"),
+                ("风华Fenghua", "1206CG271J102NT"),
+            ],
+            preferred_component_type="MLCC",
+        )
+        self.assertFalse(rows.empty)
+        by_model = rows.set_index("型号")
+        self.assertEqual(app["clean_voltage"](by_model.at["CC1206KKX7RGBB106", "耐压（V）"]), "35")
+        self.assertEqual(float(by_model.at["CC1206KKX7RGBB106", "_volt_num"]), 35.0)
+        self.assertEqual(float(by_model.at["1206GC102KAT2A", "_volt_num"]), 2000.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

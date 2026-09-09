@@ -4127,3 +4127,11 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Read-only audit found 468 GRM/GCM rows with NULL indexed voltage under 3A/3D/3F. Added a constrained SQL fallback for documented Murata codes and restored missing voltage even in lightweight candidate loading; no database rewrite or full-library scan is required. Normalized the equivalent COG;NPO / COG(NPO) forms used by the old index and decoder.
 - Regression coverage checks all 22 codes across eight supported Murata families, the reported model and earlier `GRM31A5C3A221JW01D`, old NULL-index reverse lookups, source display, automotive filtering, and rejection of 630V/100V candidates for a 1000V requirement. Query-cache version is 137.
 - The unrelated domestic timing expansion remains uncommitted and is excluded from this release.
+
+### 2026-09-09 [MLCC cross-brand voltage backfill] Decode missing indexed ratings
+
+- Audited the capacitor sidecar and found 938 MLCC rows with a blank indexed rated voltage, including YAGEO, Kyocera AVX, Taiyo Yuden, TDK, Fenghua, Darfon, and PDC records.
+- Added documented order-code recovery for YAGEO 35V high-CV codes, Kyocera AVX 100/200/250/500/600/1000/2000/3000V legacy codes, Taiyo LDK/XMK variants, TDK CGA/CNA/CNC electrical tokens, and Fenghua numeric-size MLCC codes.
+- Lightweight candidate loading now decodes only recognized brands when the sidecar voltage is blank and mirrors the recovered value into `_volt_num`; unknown/free-text rows stay excluded, and Murata's stricter code-specific fallback is preserved.
+- Regression coverage verifies representative 10V–3kV models and sidecar numeric backfill. Query-cache version advanced to 138 and public stamp to `2026-09-09T08:47:39+08:00`.
+- Complete 77-test release safety gate passed with protected runtime data unchanged. The unrelated domestic timing expansion remains uncommitted and is excluded from this release.
