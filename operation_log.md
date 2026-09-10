@@ -4128,6 +4128,13 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Regression coverage checks all 22 codes across eight supported Murata families, the reported model and earlier `GRM31A5C3A221JW01D`, old NULL-index reverse lookups, source display, automotive filtering, and rejection of 630V/100V candidates for a 1000V requirement. Query-cache version is 137.
 - The unrelated domestic timing expansion remains uncommitted and is excluded from this release.
 
+### 2026-09-10 [Customer price ownership] Enforce assigned-sales-only access
+
+- Customer maintenance now supplies the authoritative salesperson assignment. Sales may use special prices only for active assigned customers; unassigned/other-owner customers and PM use general prices. Admin retains full management access.
+- Legacy customer-registration grants no longer override ownership. Group price fallback is limited to the same salesperson, with scope-isolated lookup caches and invalidation of saved BOM results/exports/checkpoints when pricing scope changes.
+- Owner updates validate active sales accounts; omitted owner fields preserve existing assignments. No real customer assignments or runtime database contents were populated by this patch. Admin must set each customer's responsible salesperson.
+- Targeted isolated tests passed for two salespeople, old grants, cross-owner group prices, admin cache reuse, PM, reassignment and unassignment. Full release gate is run by the publishing workflow before any push.
+
 ### 2026-09-09 [MLCC cross-brand voltage backfill] Decode missing indexed ratings
 
 - Audited the capacitor sidecar and found 938 MLCC rows with a blank indexed rated voltage, including YAGEO, Kyocera AVX, Taiyo Yuden, TDK, Fenghua, Darfon, and PDC records.

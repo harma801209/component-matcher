@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-09-10 - Customer prices require the assigned salesperson
+
+- Confirmed gaps in the initial ownership patch: unassigned customers could retain legacy price grants; newly assigned salespeople still needed a legacy grant; group fallback could expose a sibling customer's price across owners.
+- Customer-maintenance owner_member_id is now the sole sales authorization source. Old self-registration grants do not confer pricing rights. Unassigned, disabled, unknown and other-owner customers fall back to general prices; PM also uses general prices, while administrators retain maintenance access.
+- Restrict group fallback to active customer codes owned by the same salesperson, and partition the shared lookup cache by that code set. Refresh customer scope at lookup; invalidate cached BOM results, exports and persisted checkpoint signatures when the authorized scope changes.
+- Validate owner accounts as enabled sales accounts, preserve assignments when omitted in imports, and remove the conflicting legacy grant buttons.
+- Isolated regression exercises two salespeople, stale grants, cross-owner groups, admin cache reuse, PM, reassignment and unassignment. Real customer owners are not guessed or populated by the release.
+
 ## 2026-09-07 - Epson series lookup must use the official FA2016AA name
 
 - Symptom: searching `FC2016AA` returned no Epson family members, although the Epson 2.0 x 1.6 mm crystal family was expected.

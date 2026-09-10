@@ -1305,6 +1305,12 @@ class SystemRegressionTests(unittest.TestCase):
             members[job_title] = app["get_member_by_id"](member["id"])
 
         sales_member = members["销售"]
+        maintained = app["get_sales_customer_by_name"](customer_name)
+        ok, message, _ = app["save_sales_customer"](
+            customer_name, "AUTH-001", group_name="权限测试集团有限公司",
+            customer_id=maintained["id"], owner_member_id=sales_member["id"], sync_remote=False,
+        )
+        self.assertTrue(ok, message)
         ok, message, saved = app["save_member_sales_customer"](
             sales_member["id"], customer_name
         )
@@ -1319,7 +1325,7 @@ class SystemRegressionTests(unittest.TestCase):
             app["authorize_cost_customer_context"](
                 members["PM"], app["COST_CUSTOMER_TYPE_EXISTING"], customer_name
             ),
-            (app["COST_CUSTOMER_TYPE_EXISTING"], customer_name),
+            (app["COST_CUSTOMER_TYPE_NEW"], ""),
         )
         self.assertEqual(
             app["authorize_cost_customer_context"](
@@ -1364,6 +1370,87 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("YAGEO-GENERAL", pm_lookup)
         self.assertIn("__fojan_resistor_rules__", pm_lookup)
         self.assertIs(app["filter_cost_lookup_for_member"](lookup, sales_member), lookup)
+
+    def test_assigned_sales_prices_reject_legacy_grants_and_cross_owner_group_prices(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "assigned-sales.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            app["init_cost_price_db"]()
+            app["ensure_member_auth_schema"]()
+            members = []
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                for name in ["AssignSalesA", "AssignSalesB"]:
+                    cursor = conn.execute(
+                        "INSERT INTO members (username,password_hash,job_title,status,created_at,updated_at) "
+                        "VALUES (?, 'test-only', '销售', 'active', '', '')", (name,),
+                    )
+                    members.append(cursor.lastrowid)
+            a, b = [app["get_member_by_id"](member_id) for member_id in members]
+            name_a, name_b = "归属甲有限公司", "归属乙有限公司"
+            customer_ids = []
+            for name, code, owner in [(name_a, "OWN-A", a), (name_b, "OWN-B", b)]:
+                ok, message, cid = app["save_sales_customer"](
+                    name, code, group_name="共享集团", owner_member_id=owner["id"], sync_remote=False,
+                )
+                self.assertTrue(ok, message)
+                customer_ids.append(cid)
+            # No old registration or price flag is required for the assigned salesperson.
+            self.assertEqual(app["authorize_cost_customer_context"](a, "existing", name_a), ("existing", name_a))
+            self.assertEqual(app["authorize_cost_customer_context"](b, "existing", name_a), ("new", ""))
+            # A stale explicit grant must not override the customer owner.
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                conn.execute(
+                    "INSERT INTO member_sales_customers (member_id,customer_name,customer_key,price_access_enabled,created_at,updated_at) "
+                    "VALUES (?,?,?,1,'','')",
+                    (b["id"], name_a, app["normalize_cost_customer_key"](name_a)),
+                )
+            self.assertEqual(app["authorize_cost_customer_context"](b, "existing", name_a), ("new", ""))
+            self.assertNotIn(name_a, [row["customer_name"] for row in app["list_selectable_sales_customers"](b["id"])])
+
+            # One workbook with general and B1 customer-code prices, plus a legacy exact price.
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                cursor = conn.execute(
+                    "INSERT INTO cost_price_lists (file_name,uploaded_at,active) VALUES ('test.xlsx','',1)"
+                )
+                for model, price, code in [("OWNITEM", "10", ""), ("OWNITEM", "3", "OWN-A"),
+                                            ("GROUPITEM", "20", ""), ("GROUPITEM", "2", "OWN-B")]:
+                    raw = json.dumps(app["parse_cost_price_sheet_customer_scope"](pd.DataFrame([["客户代码", code or "通用"]])))
+                    conn.execute(
+                        "INSERT INTO cost_price_items (list_id,brand,model,model_clean,cost,raw_json) VALUES (?,?,?,?,?,?)",
+                        (cursor.lastrowid, "FOJAN", model, model, price, raw),
+                    )
+            def cost(member, name, model):
+                return app["load_authorized_cost_price_lookup"]("existing", name, member=member)[model][0]["cost"]
+            self.assertEqual(cost(a, name_a, "OWNITEM"), "3")
+            self.assertEqual(cost(b, name_a, "OWNITEM"), "10")
+            self.assertEqual(cost(a, name_a, "GROUPITEM"), "20")
+            self.assertEqual(cost(b, name_b, "GROUPITEM"), "2")
+            admin = {"id": 999, "username": "TestAdmin", "role": "admin"}
+            self.assertEqual(cost(admin, name_a, "GROUPITEM"), "2")
+            # Shared cached admin/group lookup must not expose the sibling owner's price.
+            self.assertEqual(cost(a, name_a, "GROUPITEM"), "20")
+            pm = {"id": 998, "username": "TestPM", "role": "member", "job_title": "PM"}
+            self.assertEqual(cost(pm, name_a, "OWNITEM"), "10")
+
+            ok, message, _ = app["save_sales_customer"](
+                name_a, "OWN-A", customer_id=customer_ids[0], group_name="共享集团",
+                owner_member_id=b["id"], sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(cost(a, name_a, "OWNITEM"), "10")
+            self.assertEqual(cost(b, name_a, "OWNITEM"), "3")
+            # Ordinary edits/import calls without owner arguments preserve the assignment.
+            app["save_sales_customer"](name_a, "OWN-A", customer_id=customer_ids[0], sync_remote=False)
+            self.assertEqual(app["get_sales_customer_by_name"](name_a)["owner_member_id"], b["id"])
+            # Removing the owner denies even the old, explicitly granted salesperson.
+            app["save_sales_customer"](name_a, "OWN-A", customer_id=customer_ids[0], owner_member_id=0, sync_remote=False)
+            self.assertEqual(cost(b, name_a, "OWNITEM"), "10")
+            self.assertEqual(app["authorize_cost_customer_context"](b, "existing", "未知客户"), ("new", ""))
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
 
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app

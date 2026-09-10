@@ -5356,30 +5356,13 @@ def render_member_admin_management_page():
             if not member_customers:
                 st.caption("此会员尚未登记客户。")
             else:
-                st.caption("会员只能看到自己的客户清单；开启专属价格后，系统才会读取该客户代码对应的报价。")
+                st.caption("专属价权限统一在“客户资讯”的“负责销售”栏维护。")
                 for customer in member_customers:
-                    customer_id = int(customer.get("id", 0) or 0)
                     customer_name = normalize_cost_customer_name(customer.get("customer_name", ""))
-                    access_enabled = bool(int(customer.get("price_access_enabled", 0) or 0))
-                    customer_cols = st.columns([0.62, 0.18, 0.20], gap="small")
+                    scope, _ = authorize_cost_customer_context(member, COST_CUSTOMER_TYPE_EXISTING, customer_name)
+                    customer_cols = st.columns([0.75, 0.25], gap="small")
                     customer_cols[0].write(customer_name)
-                    customer_cols[1].write("专属价格" if access_enabled else "通用价格")
-                    action_label = "改用通用价" if access_enabled else "允许专属价"
-                    if customer_cols[2].button(
-                        action_label,
-                        key=f"admin_member_customer_access_{member_id}_{customer_id}",
-                        use_container_width=True,
-                    ):
-                        ok, message = set_member_sales_customer_price_access(
-                            member_id,
-                            customer_id,
-                            not access_enabled,
-                        )
-                        if ok:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
+                    customer_cols[1].write("专属价格" if scope == COST_CUSTOMER_TYPE_EXISTING else "通用价格")
             member_logs = list_member_profile_change_logs(member_id, limit=30)
             log_count = len(member_logs)
             show_logs = st.checkbox(
@@ -6417,7 +6400,7 @@ def save_sales_customer(
     active=True,
     updated_by="",
     customer_id=None,
-    owner_member_id=0,
+    owner_member_id=None,
     owner_username="",
     sync_remote=True,
 ):
@@ -6439,11 +6422,26 @@ def save_sales_customer(
         parsed_id = int(customer_id) if customer_id not in (None, "") else None
     except Exception:
         return False, "客户记录 ID 无效。", None
+    # Omitted owner preserves assignments during legacy imports/edits.
+    # An explicit zero removes the assignment.
+    if owner_member_id is None and parsed_id is not None:
+        with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+            previous = conn.execute(
+                "SELECT owner_member_id, owner_username FROM sales_customers WHERE id=?",
+                (parsed_id,),
+            ).fetchone()
+        owner_member_id, owner_username = previous if previous else (0, "")
     try:
         owner_member_id = int(owner_member_id or 0)
-    except Exception:
-        owner_member_id = 0
-    owner_username = clean_text(owner_username)
+    except (ValueError, TypeError):
+        return False, "负责销售账号无效。", None
+    owner_username = ""
+    if owner_member_id:
+        owner = get_member_by_id(owner_member_id)
+        if (not owner or normalize_member_status(owner.get("status")) != "active"
+                or member_cost_access_level(owner) != "sales"):
+            return False, "负责销售必须是已启用的销售账号。", None
+        owner_username = clean_text(owner.get("username", ""))
     try:
         with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
             conn.execute("PRAGMA busy_timeout = 30000")
@@ -6640,9 +6638,6 @@ def authorize_cost_customer_context(member, customer_type=None, customer_name=""
     if access_level == "admin":
         return customer_type, customer_name
     if access_level == "pm":
-        resolved_type, resolved_name, ready = resolve_member_customer_price_scope(customer_name)
-        if ready and resolved_type == COST_CUSTOMER_TYPE_EXISTING:
-            return resolved_type, resolved_name
         return COST_CUSTOMER_TYPE_NEW, ""
     if access_level == "sales":
         try:
@@ -6650,20 +6645,8 @@ def authorize_cost_customer_context(member, customer_type=None, customer_name=""
         except Exception:
             member_id = 0
         maintained = get_sales_customer_by_name(customer_name, active_only=True)
-        if maintained and int(maintained.get("owner_member_id", 0) or 0) not in {0, member_id}:
-            return COST_CUSTOMER_TYPE_NEW, ""
-        owned_customer = next(
-            (
-                row
-                for row in list_member_sales_customers(member_id)
-                if normalize_cost_customer_key(row.get("customer_name", "")) == customer_key
-            ),
-            None,
-        )
-        if owned_customer and bool(int(owned_customer.get("price_access_enabled", 0) or 0)):
-            resolved_type, resolved_name, ready = resolve_member_customer_price_scope(customer_name)
-            if ready and resolved_type == COST_CUSTOMER_TYPE_EXISTING:
-                return resolved_type, resolved_name
+        if maintained and member_id > 0 and int(maintained.get("owner_member_id", 0) or 0) == member_id:
+            return COST_CUSTOMER_TYPE_EXISTING, maintained["customer_name"]
     return COST_CUSTOMER_TYPE_NEW, ""
 
 
@@ -6828,6 +6811,25 @@ def clear_customer_dependent_session_state():
         st.session_state.pop(key, None)
 
 
+def list_selectable_sales_customers(member_id):
+    """Registration is contact history; only an admin-assigned owner grants prices."""
+    maintained = {
+        row["customer_key"]: row for row in list_sales_customers(active_only=None)
+    }
+    assigned = [
+        row for row in maintained.values()
+        if int(row.get("active", 0) or 0) == 1
+        and int(row.get("owner_member_id", 0) or 0) == int(member_id)
+        and int(member_id) > 0
+    ]
+    # Unmaintained prospects can still be logged, at general prices only.
+    prospects = [
+        row for row in list_member_sales_customers(member_id)
+        if normalize_cost_customer_key(row.get("customer_name", "")) not in maintained
+    ]
+    return assigned + prospects
+
+
 def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", restored_name=""):
     del restored_type
     member = current_member()
@@ -6840,7 +6842,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     member_id = int(member.get("id", 0) or 0)
     is_admin = current_member_is_admin()
     access_level = member_cost_access_level(member)
-    if is_admin or access_level == "pm":
+    if is_admin:
         customer_rows = list_member_sales_customers_for_admin()
         known_keys = {
             normalize_cost_customer_key(row.get("customer_name", ""))
@@ -6861,25 +6863,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             )
             known_keys.add(existing_key)
     else:
-        # Sales users may only see customers explicitly assigned to their
-        # account in the customer-maintenance table. Legacy self-registered
-        # entries remain available only when no maintained owner exists yet.
-        legacy_rows = list_member_sales_customers(member_id)
-        maintained_by_key = {
-            normalize_cost_customer_key(row.get("customer_name", "")): row
-            for row in list_sales_customers(active_only=True)
-            if normalize_cost_customer_key(row.get("customer_name", ""))
-        }
-        customer_rows = []
-        for row in legacy_rows:
-            key = normalize_cost_customer_key(row.get("customer_name", ""))
-            maintained = maintained_by_key.get(key)
-            if maintained and int(maintained.get("owner_member_id", 0) or 0) not in {0, member_id}:
-                continue
-            customer_rows.append(row)
-        for row in maintained_by_key.values():
-            if int(row.get("owner_member_id", 0) or 0) == member_id:
-                customer_rows.append(row)
+        customer_rows = list_selectable_sales_customers(member_id)
     customer_by_key = {
         normalize_cost_customer_key(row.get("customer_name", "")): row
         for row in customer_rows
@@ -6913,9 +6897,9 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     if is_admin:
         help_text = "管理员可查看全部客户；不指定客户时使用通用成本。"
     elif access_level == "pm":
-        help_text = "PM 可切换全部客户；客户专属价格只会用于后台授权的负责品牌。"
+        help_text = "PM 使用通用价格；客户专属价仅供负责销售查看。"
     elif access_level == "sales":
-        help_text = "这里只显示当前销售账号自己登记过的客户。"
+        help_text = "专属价客户由管理员分配；自行登记新客户仅使用通用价格。"
     else:
         help_text = "其他职务可登记和切换客户，但价格始终使用通用价格。"
     selected_name = st.selectbox(
@@ -6971,14 +6955,19 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             selected_customer = select_member_sales_customer(member_id, selected_name) or selected_customer
     st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = selected_name
 
-    price_access_enabled = bool(int((selected_customer or {}).get("price_access_enabled", 0) or 0))
-    if is_admin or access_level == "pm" or (access_level == "sales" and price_access_enabled):
+    if is_admin or access_level in {"pm", "sales"}:
         customer_type, customer_name, ready = resolve_member_customer_price_scope(selected_name)
     else:
         customer_type, customer_name, ready = COST_CUSTOMER_TYPE_NEW, "", True
     customer_type, customer_name = authorize_cost_customer_context(
         member, customer_type, customer_name
     )
+    price_scope_signature = (member_id, access_level, customer_type, customer_name,
+                             get_cost_price_lookup_signature(customer_type, customer_name))
+    previous_scope = st.session_state.get("_sales_authorized_price_scope")
+    if previous_scope != price_scope_signature:
+        clear_customer_dependent_session_state()
+    st.session_state["_sales_authorized_price_scope"] = price_scope_signature
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
@@ -6993,11 +6982,9 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     if is_admin:
         st.caption("管理员可在上方下拉选单切换所有会员登记客户；没有专属价格时自动使用通用价格。")
     elif access_level == "pm":
-        assigned_brands = list_member_pm_brands(member_id)
-        brand_text = "、".join(assigned_brands) if assigned_brands else "尚未授权品牌"
-        st.caption(f"PM 可切换全部客户；客户专属价格仅用于负责品牌：{brand_text}。")
+        st.caption("PM 使用通用价格；客户专属价仅供负责销售查看。")
     elif access_level == "sales":
-        st.caption("可切换自己登记过的客户；客户专属价格须由后台管理员授权，否则使用通用价格。")
+        st.caption("只有后台分配给您的客户可使用专属价；其他客户使用通用价。")
     else:
         st.caption("可切换自己登记过的客户；当前职务只能查看通用价格。")
     return customer_type, customer_name, ready
@@ -8042,7 +8029,7 @@ def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, custom
     )
 
 
-def load_active_cost_price_lookup(customer_type=None, customer_name=None):
+def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowed_customer_codes=None):
     if customer_type is None:
         customer_type, selected_name, _ = selected_sales_cost_customer_context()
         customer_name = selected_name
@@ -8050,9 +8037,18 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None):
     signature = get_cost_price_lookup_signature(customer_type, customer_name)
     if signature is None:
         return {}
+    if allowed_customer_codes is not None:
+        allowed_customer_codes = frozenset(allowed_customer_codes)
+        signature = (signature, tuple(sorted(allowed_customer_codes)))
     if _COST_PRICE_LOOKUP_CACHE.get("signature") == signature and isinstance(_COST_PRICE_LOOKUP_CACHE.get("lookup"), dict):
         return _COST_PRICE_LOOKUP_CACHE["lookup"]
     customer_context = get_sales_customer_price_context(customer_name) if customer_type == COST_CUSTOMER_TYPE_EXISTING else {}
+    if allowed_customer_codes is not None:
+        customer_context = dict(customer_context)
+        customer_context["group_code_keys"] = [
+            code for code in customer_context.get("group_code_keys", [])
+            if code in allowed_customer_codes
+        ]
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -8191,10 +8187,20 @@ def filter_cost_lookup_for_member(lookup, member):
 
 def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, member=None):
     member = current_member() if member is None else member
+    refresh_runtime_store_remote_snapshot("cost-price")
+    if customer_type is None:
+        customer_type, customer_name, _ = selected_sales_cost_customer_context()
     authorized_type, authorized_name = authorize_cost_customer_context(
         member, customer_type, customer_name or ""
     )
-    lookup = load_active_cost_price_lookup(authorized_type, authorized_name)
+    allowed_codes = None
+    if member_cost_access_level(member or {}) == "sales" and authorized_type == COST_CUSTOMER_TYPE_EXISTING:
+        member_id = int((member or {}).get("id", 0) or 0)
+        allowed_codes = {
+            row["customer_code_key"] for row in list_sales_customers(active_only=True)
+            if member_id > 0 and int(row.get("owner_member_id", 0) or 0) == member_id
+        }
+    lookup = load_active_cost_price_lookup(authorized_type, authorized_name, allowed_customer_codes=allowed_codes)
     return filter_cost_lookup_for_member(lookup, member)
 
 
@@ -8656,7 +8662,7 @@ def render_sales_customer_admin_page():
     for member in sales_members:
         label = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
         username = clean_text(member.get("username", ""))
-        if username and username not in label:
+        if username:
             label = f"{label}（{username}）"
         owner_options[label] = int(member.get("id", 0) or 0)
     selected_owner_id = int(selected.get("owner_member_id", 0) or 0)
@@ -44934,6 +44940,8 @@ def build_bom_workbook_run_signature(uploaded_file, sheet_mappings, export_setti
             "file": build_uploaded_file_signature(uploaded_file),
             "sheet_mappings": sheet_mappings or {},
             "export_settings": normalize_bom_export_settings(export_settings),
+            # Never resume a priced checkpoint produced under an older owner scope.
+            "price_access_scope": st.session_state.get("_sales_authorized_price_scope"),
         },
         sort_keys=True,
         ensure_ascii=True,
