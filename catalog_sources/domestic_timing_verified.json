@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "checked_at": "2026-09-07",
+  "policy": "Only explicitly published complete ordering codes. No frequency/CL/suffix Cartesian products. These are candidate records, not certified P2P pairs. Manufacturer-authored PDFs hosted by distributors are identified as mirrors.",
+  "records": [
+    {
+      "brand": "YXC扬兴",
+      "model": "X201616MLB4SI",
+      "series": "YSX211SL",
+      "source": "https://file.elecfans.com/web2/M00/26/59/poYBAGG69I2ARKysAAWs8EBFItM703.pdf",
+      "evidence": "扬兴原厂逐料号规格书，镜像；A0.0，2020-11-11；第1、3页。",
+      "fields": {
+        "器件类型": "晶振", "安装方式": "贴片", "尺寸（inch）": "2016",
+        "尺寸（mm）": "2.00 x 1.60 x 0.50", "长度（mm）": "2.00", "宽度（mm）": "1.60", "高度（mm）": "0.50",
+        "频率": "16", "频率单位": "MHZ", "频差（ppm）": "10", "负载电容（pF）": "9",
+        "ESR": "250Ω Max", "频率温度特性（ppm）": "±20ppm", "工作温度": "-40~85℃",
+        "储存温度": "-40~125℃", "25℃老化（ppm）": "±3ppm/year", "泛音阶次": "基频（Fundamental）",
+        "终端/脚位": "4焊盘；脚位功能需确认", "封装数量": "3000"
+      },
+      "cautions": "单料号ESR为250Ω，不能套用系列网页的100Ω。原表GL标题为最大激励、数值100µW却在Typ栏，最大值待原厂确认。推荐焊盘0.9x0.8mm，横向间隙0.5mm、纵向间隙0.3mm；未与目标板逐项验证。"
+    },
+    {
+      "brand": "YXC扬兴",
+      "model": "X201632MMB4SI",
+      "series": "YSX211SL",
+      "source": "https://pese.oss-cn-shenzhen.aliyuncs.com/pdfs/1904031205_Yangxing-Tech-X201632MMB4SI_C383840.pdf",
+      "evidence": "扬兴原厂逐料号规格书，镜像；REV A，YXC1600001；第1、2、4页。",
+      "fields": {
+        "器件类型": "晶振", "安装方式": "贴片", "尺寸（inch）": "2016",
+        "尺寸（mm）": "2.00 x 1.60", "长度（mm）": "2.00", "宽度（mm）": "1.60",
+        "频率": "32", "频率单位": "MHZ", "频差（ppm）": "10", "负载电容（pF）": "10",
+        "ESR": "80Ω Max", "频率温度特性（ppm）": "±20ppm", "工作温度": "-40~85℃",
+        "储存温度": "-55~125℃", "25℃老化（ppm）": "±3ppm/year", "泛音阶次": "基频（Fundamental）",
+        "终端/脚位": "1/3晶体，2/4 GND（第4页连接图）", "封装数量": "3000"
+      },
+      "cautions": "原厂旧版文档第2页高度0.70mm与第4页0.50mm Max冲突，高度留空待确认。驱动电平10µW未明确最大允许值，不能作为最大值使用。推荐焊盘0.9x0.8mm，横向间隙0.5mm、纵向间隙0.3mm；现行版本及目标板兼容性待核实。"
+    },
+    {
+      "brand": "YXC扬兴",
+      "model": "X201640MMB4SI",
+      "series": "YSX211SL",
+      "source": "https://www.quartz1.com/price/techdata/YSX211SL%5B40MHz%5D.pdf",
+      "evidence": "扬兴原厂逐料号规格书，镜像；A0.1，2021-01-25；第1、3页。",
+      "fields": {
+        "器件类型": "晶振", "安装方式": "贴片", "尺寸（inch）": "2016",
+        "尺寸（mm）": "2.00 x 1.60 x 0.50", "长度（mm）": "2.00", "宽度（mm）": "1.60", "高度（mm）": "0.50",
+        "频率": "40", "频率单位": "MHZ", "频差（ppm）": "10", "负载电容（pF）": "10",
+        "ESR": "35Ω Max", "频率温度特性（ppm）": "±30ppm", "工作温度": "-40~85℃",
+        "储存温度": "-55~125℃", "25℃老化（ppm）": "±3ppm/year", "泛音阶次": "基频（Fundamental）",
+        "终端/脚位": "4焊盘；脚位功能需确认", "封装数量": "3000"
+      },
+      "cautions": "本料号温度稳定度±30ppm、ESR35Ω，不能套用系列默认±20ppm、80Ω。原表GL标题为最大激励、数值100µW却在Typ栏，最大值待原厂确认。推荐焊盘0.9x0.8mm，横向间隙0.5mm、纵向间隙0.3mm；未与目标板逐项验证。"
+    },
+    {
+      "brand": "TKD泰晶",
+      "model": "CD01K032768ABMBAEAE",
+      "series": "TF-206",
+      "source": "https://www.sztkd.com/parametric_search/CD01K032768ABMBAEAE.html",
+      "evidence": "泰晶官网逐料号页面：产品概述、电性能参数。",
+      "fields": {
+        "器件类型": "晶振", "安装方式": "直插", "尺寸（inch）": "6020", "尺寸（mm）": "6.0 x 2.0（圆柱）",
+        "频率": "32.768", "频率单位": "KHZ", "频差（ppm）": "5", "负载电容（pF）": "12.5",
+        "工作温度": "-20~70℃", "储存温度": "-40~85℃", "驱动电平": "1.0µW Max",
+        "25℃老化（ppm）": "±5ppm/year"
+      },
+      "cautions": "圆柱直插晶体，不是2012贴片晶体。官网未列ESR、拐点温度和抛物线系数，不从其他系列补值。"
+    },
+    {
+      "brand": "TKD泰晶",
+      "model": "CD01K032768ACNBAEAE",
+      "series": "TF-206",
+      "source": "https://www.sztkd.com/parametric_search/CD01K032768ACNBAEAE.html",
+      "evidence": "泰晶官网逐料号页面：电性能参数。",
+      "fields": {
+        "器件类型": "晶振", "安装方式": "直插", "尺寸（inch）": "6020", "尺寸（mm）": "6.0 x 2.0（圆柱）",
+        "频率": "32.768", "频率单位": "KHZ", "频差（ppm）": "10", "负载电容（pF）": "12.5",
+        "工作温度": "-20~70℃", "储存温度": "-40~85℃", "驱动电平": "1.0µW Max",
+        "25℃老化（ppm）": "±5ppm/year"
+      },
+      "cautions": "圆柱直插晶体，不是2012贴片晶体。官网未列ESR、拐点温度和抛物线系数，不从其他系列补值。"
+    }
+  ],
+  "excluded": [
+    {"model": "X201612MOB4SC", "source": "https://www.yangxing.hk/products-detail/ysx211sl", "reason": "订货示例12MHz不在该网页16~54MHz范围内，不导入。"},
+    {"model": "XE201616MKB4SA-*", "source": "https://www.yangxing.hk/products-detail/ysx211sc", "reason": "带星号占位尾缀，不是完整料号，不导入。"},
+    {"model": "XF161224MKB4SA-*", "source": "https://www.yangxing.hk/products-detail/ysx1612sc", "reason": "带星号占位尾缀，不是完整料号，不导入。"}
+  ]
+}

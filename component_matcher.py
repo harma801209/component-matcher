@@ -10969,6 +10969,7 @@ BRAND_QUERY_ALIAS_GROUPS = (
     ("TXC", ("TXC",)),
     ("NDK", ("NDK", "NIHON DEMPA KOGYO")),
     ("TKD泰晶", ("TKD", "泰晶")),
+    ("YXC扬兴", ("YXC", "扬兴", "揚興", "YANGXING")),
     ("YL惠伦", ("YL", "惠伦", "惠倫", "慧伦", "HUILUN")),
     ("Abracon", ("ABRACON",)),
     ("SiTime", ("SITIME",)),
@@ -26940,6 +26941,12 @@ def timing_orderable_model(row):
     return clean_text(row.get("型号", ""))
 
 
+def timing_p2p_confirmation_pending(row):
+    # A reviewed full PN is not a verified interchange pair. Keep this flag
+    # in an existing sidecar field so lightweight production lookups retain it.
+    return "P2P待工程确认" in clean_text(row.get("数据状态", ""))
+
+
 def find_timing_output_type_in_text(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -38284,6 +38291,10 @@ def match_other_passive_spec(df, spec):
         work["_configuration_rank"] = configurable_mask.astype(int)
         work.loc[configurable_mask, "推荐等级"] = "需确认配置"
         work.loc[(esr_conflict | drive_conflict) & ~configurable_mask, "推荐等级"] = "需确认替代"
+        pending_p2p = work.apply(timing_p2p_confirmation_pending, axis=1)
+        if timing_p2p_confirmation_pending(spec):
+            pending_p2p = pd.Series(True, index=work.index)
+        work.loc[pending_p2p & ~configurable_mask, "推荐等级"] = "需确认替代"
         work.loc[work["_exact_model_rank"].eq(0) & ~configurable_mask, "推荐等级"] = "完全匹配"
         work["_level_rank"] = work["推荐等级"].map(
             {

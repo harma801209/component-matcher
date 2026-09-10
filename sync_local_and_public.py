@@ -50,6 +50,8 @@ PUBLISH_FILES = [
     "sync_abracon_inductors.py",
     "sync_coilcraft_inductors.py",
     "sync_official_timing_brands.py",
+    "sync_domestic_timing_verified.py",
+    "catalog_sources",
     "sync_local_and_public.py",
     "sync_local_and_public.ps1",
     "sync_local_and_public.cmd",
