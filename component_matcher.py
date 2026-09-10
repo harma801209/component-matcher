@@ -6038,6 +6038,8 @@ def init_cost_price_db():
                 customer_code_key TEXT NOT NULL DEFAULT '',
                 group_name TEXT NOT NULL DEFAULT '',
                 group_key TEXT NOT NULL DEFAULT '',
+                owner_member_id INTEGER NOT NULL DEFAULT 0,
+                owner_username TEXT NOT NULL DEFAULT '',
                 active INTEGER NOT NULL DEFAULT 1,
                 note TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT '',
@@ -6063,6 +6065,7 @@ def init_cost_price_db():
 
             CREATE INDEX IF NOT EXISTS idx_sales_customers_group
             ON sales_customers(group_key, active, customer_code_key);
+
             """
         )
         try:
@@ -6088,6 +6091,21 @@ def init_cost_price_db():
             ):
                 if column_name not in existing_columns:
                     conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+        customer_columns = {
+            clean_text(row[1])
+            for row in conn.execute("PRAGMA table_info(sales_customers)").fetchall()
+            if len(row) > 1
+        }
+        for column_name, column_definition in (
+            ("owner_member_id", "INTEGER NOT NULL DEFAULT 0"),
+            ("owner_username", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column_name not in customer_columns:
+                conn.execute(f"ALTER TABLE sales_customers ADD COLUMN {column_name} {column_definition}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sales_customers_owner "
+            "ON sales_customers(owner_member_id, active, customer_key)"
+        )
         conn.execute("DROP INDEX IF EXISTS idx_cost_price_manual_brand_model")
         conn.execute(
             """
@@ -6325,7 +6343,8 @@ def list_sales_customers(active_only=None):
         rows = conn.execute(
             f"""
             SELECT id, customer_name, customer_key, customer_code, customer_code_key,
-                   group_name, group_key, active, note, created_at, created_by,
+                   group_name, group_key, owner_member_id, owner_username,
+                   active, note, created_at, created_by,
                    updated_at, updated_by
             FROM sales_customers
             {where_sql}
@@ -6398,6 +6417,8 @@ def save_sales_customer(
     active=True,
     updated_by="",
     customer_id=None,
+    owner_member_id=0,
+    owner_username="",
     sync_remote=True,
 ):
     customer_name = normalize_cost_customer_name(customer_name)
@@ -6419,6 +6440,11 @@ def save_sales_customer(
     except Exception:
         return False, "客户记录 ID 无效。", None
     try:
+        owner_member_id = int(owner_member_id or 0)
+    except Exception:
+        owner_member_id = 0
+    owner_username = clean_text(owner_username)
+    try:
         with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
             conn.execute("PRAGMA busy_timeout = 30000")
             if parsed_id is None:
@@ -6426,13 +6452,15 @@ def save_sales_customer(
                     """
                     INSERT INTO sales_customers (
                         customer_name, customer_key, customer_code, customer_code_key,
-                        group_name, group_key, active, note, created_at, created_by,
+                        group_name, group_key, owner_member_id, owner_username,
+                        active, note, created_at, created_by,
                         updated_at, updated_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         customer_name, customer_key, customer_code, customer_code_key,
-                        group_name, group_key, 1 if active else 0, clean_text(note),
+                        group_name, group_key, owner_member_id, owner_username,
+                        1 if active else 0, clean_text(note),
                         now_text, clean_text(updated_by), now_text, clean_text(updated_by),
                     ),
                 )
@@ -6443,12 +6471,14 @@ def save_sales_customer(
                     """
                     UPDATE sales_customers
                     SET customer_name=?, customer_key=?, customer_code=?, customer_code_key=?,
-                        group_name=?, group_key=?, active=?, note=?, updated_at=?, updated_by=?
+                        group_name=?, group_key=?, owner_member_id=?, owner_username=?,
+                        active=?, note=?, updated_at=?, updated_by=?
                     WHERE id=?
                     """,
                     (
                         customer_name, customer_key, customer_code, customer_code_key,
-                        group_name, group_key, 1 if active else 0, clean_text(note),
+                        group_name, group_key, owner_member_id, owner_username,
+                        1 if active else 0, clean_text(note),
                         now_text, clean_text(updated_by), parsed_id,
                     ),
                 )
@@ -6469,15 +6499,15 @@ def build_sales_customer_template_bytes():
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "客户资讯"
-    headers = ["所属集团", "客户名称/公司抬头", "客户代码", "状态", "备注"]
+    headers = ["所属集团", "客户名称/公司抬头", "客户代码", "负责销售账号", "状态", "备注"]
     sheet.append(headers)
-    sheet.append(["A集团", "A集团深圳子公司", "F0001", "启用", "同集团代码自动共享专价"])
-    sheet.append(["A集团", "A集团东莞子公司", "F0002", "启用", ""])
+    sheet.append(["A集团", "A集团深圳子公司", "F0001", "sales01", "启用", "同集团代码自动共享专价"])
+    sheet.append(["A集团", "A集团东莞子公司", "F0002", "sales02", "启用", ""])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F4E78")
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    for index, width in enumerate([24, 34, 18, 14, 42], start=1):
+    for index, width in enumerate([24, 34, 18, 22, 14, 42], start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     sheet.freeze_panes = "A2"
     output = BytesIO()
@@ -6504,6 +6534,8 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
             header_map["customer_name"] = column
         elif normalized in {"客户代码", "客户编码", "customercode", "code"}:
             header_map["customer_code"] = column
+        elif normalized in {"负责销售账号", "销售账号", "负责销售", "sales", "salesusername", "owner"}:
+            header_map["owner_username"] = column
         elif normalized in {"状态", "status"}:
             header_map["status"] = column
         elif normalized in {"备注", "note", "notes"}:
@@ -6520,6 +6552,19 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
         note = clean_text(row.get(header_map.get("note"), "")) if header_map.get("note") else ""
         status_text = clean_text(row.get(header_map.get("status"), "启用")) if header_map.get("status") else "启用"
         active = status_text.lower() not in {"停用", "disabled", "inactive", "0", "false", "否"}
+        owner_username = clean_text(row.get(header_map.get("owner_username", ""), "")) if header_map.get("owner_username") else ""
+        owner_member_id = 0
+        if owner_username:
+            refresh_member_auth_remote_snapshot()
+            ensure_member_auth_schema()
+            with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as member_conn:
+                owner_row = member_conn.execute(
+                    "SELECT id FROM members WHERE username=? AND status='active' LIMIT 1",
+                    (owner_username,),
+                ).fetchone()
+            if owner_row is None:
+                return False, f"第 {row_index} 行负责销售账号不存在或未启用：{owner_username}", imported
+            owner_member_id = int(owner_row[0])
         existing = None
         code_key = normalize_sales_customer_code_key(customer_code)
         if code_key:
@@ -6539,6 +6584,8 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
             active=active,
             updated_by=updated_by,
             customer_id=(existing or {}).get("id"),
+            owner_member_id=owner_member_id if owner_username else (existing or {}).get("owner_member_id", 0),
+            owner_username=owner_username or (existing or {}).get("owner_username", ""),
             sync_remote=False,
         )
         if not ok:
@@ -6602,6 +6649,9 @@ def authorize_cost_customer_context(member, customer_type=None, customer_name=""
             member_id = int(member.get("id", 0) or 0)
         except Exception:
             member_id = 0
+        maintained = get_sales_customer_by_name(customer_name, active_only=True)
+        if maintained and int(maintained.get("owner_member_id", 0) or 0) not in {0, member_id}:
+            return COST_CUSTOMER_TYPE_NEW, ""
         owned_customer = next(
             (
                 row
@@ -6811,7 +6861,25 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             )
             known_keys.add(existing_key)
     else:
-        customer_rows = list_member_sales_customers(member_id)
+        # Sales users may only see customers explicitly assigned to their
+        # account in the customer-maintenance table. Legacy self-registered
+        # entries remain available only when no maintained owner exists yet.
+        legacy_rows = list_member_sales_customers(member_id)
+        maintained_by_key = {
+            normalize_cost_customer_key(row.get("customer_name", "")): row
+            for row in list_sales_customers(active_only=True)
+            if normalize_cost_customer_key(row.get("customer_name", ""))
+        }
+        customer_rows = []
+        for row in legacy_rows:
+            key = normalize_cost_customer_key(row.get("customer_name", ""))
+            maintained = maintained_by_key.get(key)
+            if maintained and int(maintained.get("owner_member_id", 0) or 0) not in {0, member_id}:
+                continue
+            customer_rows.append(row)
+        for row in maintained_by_key.values():
+            if int(row.get("owner_member_id", 0) or 0) == member_id:
+                customer_rows.append(row)
     customer_by_key = {
         normalize_cost_customer_key(row.get("customer_name", "")): row
         for row in customer_rows
@@ -8507,13 +8575,14 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
 
 def sales_customer_summary_dataframe(rows):
     if not rows:
-        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "状态", "备注", "更新时间"])
+        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "负责销售", "状态", "备注", "更新时间"])
     return pd.DataFrame(
         [
             {
                 "所属集团": row.get("group_name", ""),
                 "客户名称/公司抬头": row.get("customer_name", ""),
                 "客户代码": row.get("customer_code", ""),
+                "负责销售": row.get("owner_username", "") or "未指定（仅通用价）",
                 "状态": "启用" if int(row.get("active", 0) or 0) == 1 else "停用",
                 "备注": row.get("note", ""),
                 "更新时间": row.get("updated_at", ""),
@@ -8526,7 +8595,7 @@ def sales_customer_summary_dataframe(rows):
 def render_sales_customer_admin_page():
     render_admin_section_header(
         "客户资讯维护",
-        "维护公司抬头、客户代码与集团关系。成本清单分页 B1 写客户代码后，会按本客户、同集团、通用的顺序取价。",
+        "维护公司抬头、客户代码、集团关系与负责销售。销售只能看到自己负责客户的专属价，未指定负责销售的客户仅使用通用价。",
         "客户价格",
     )
     rows = list_sales_customers(active_only=None)
@@ -8578,12 +8647,30 @@ def render_sales_customer_admin_page():
     selected_label = st.selectbox("客户记录", options, key="sales_customer_admin_selector")
     selected = option_rows.get(selected_label) or {}
     selected_id = selected.get("id")
+    sales_members = [
+        member for member in list_members_for_admin()
+        if normalize_member_status(member.get("status", "")) == "active"
+        and normalize_member_job_title(member.get("job_title", "")) == MEMBER_JOB_TITLE_SALES
+    ]
+    owner_options = {"未指定（仅通用价）": 0}
+    for member in sales_members:
+        label = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
+        username = clean_text(member.get("username", ""))
+        if username and username not in label:
+            label = f"{label}（{username}）"
+        owner_options[label] = int(member.get("id", 0) or 0)
+    selected_owner_id = int(selected.get("owner_member_id", 0) or 0)
+    selected_owner_label = next(
+        (label for label, owner_id in owner_options.items() if owner_id == selected_owner_id),
+        "未指定（仅通用价）",
+    )
     with st.form(f"sales_customer_admin_form_{selected_id or 'new'}"):
-        cols = st.columns([0.28, 0.32, 0.18, 0.22], gap="small")
+        cols = st.columns([0.24, 0.28, 0.16, 0.20, 0.20], gap="small")
         group_name = cols[0].text_input("所属集团", value=clean_text(selected.get("group_name", "")), placeholder="例如 A集团")
         customer_name = cols[1].text_input("客户名称/公司抬头", value=clean_text(selected.get("customer_name", "")))
         customer_code = cols[2].text_input("客户代码", value=clean_text(selected.get("customer_code", "")), placeholder="例如 F0001")
-        active = cols[3].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
+        owner_label = cols[3].selectbox("负责销售", list(owner_options), index=list(owner_options).index(selected_owner_label))
+        active = cols[4].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
         note = st.text_area("备注", value=clean_text(selected.get("note", "")), height=82)
         submitted = st.form_submit_button("保存客户资讯", use_container_width=True)
     if submitted:
@@ -8596,6 +8683,12 @@ def render_sales_customer_admin_page():
             active=active,
             updated_by=actor,
             customer_id=selected_id,
+            owner_member_id=owner_options.get(owner_label, 0),
+            owner_username=next(
+                (clean_text(member.get("username", "")) for member in sales_members
+                 if int(member.get("id", 0) or 0) == owner_options.get(owner_label, 0)),
+                "",
+            ),
         )
         if ok:
             st.session_state["sales_customer_admin_flash"] = message
