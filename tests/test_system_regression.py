@@ -1187,6 +1187,50 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertFalse(ok)
                 self.assertIn("全称", message)
 
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "full-customer-name.sqlite")
+            ok, message, customer_id = app["save_sales_customer"](
+                "星际悦动", "SHORT-001", sync_remote=False,
+            )
+            self.assertFalse(ok)
+            self.assertIn("全称", message)
+            self.assertIsNone(customer_id)
+            ok, message, customer_id = app["save_sales_customer"](
+                "广州星际悦动科技有限公司", "FULL-001", sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertIsNotNone(customer_id)
+            app["init_cost_price_db"]()
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sales_customers (
+                        customer_name, customer_key, customer_code, customer_code_key,
+                        group_name, group_key, active
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1)
+                    """,
+                    ("历史客户简称", "历史客户简称", "LEGACY-001", "LEGACY001", "", ""),
+                )
+                conn.commit()
+            audit_rows = app["build_sales_customer_admin_rows"](
+                maintained_rows=app["list_sales_customers"](), registration_rows=[]
+            )
+            self.assertEqual(audit_rows[0]["customer_name"], "历史客户简称")
+            self.assertFalse(audit_rows[0]["_full_name_valid"])
+            audit_summary = app["sales_customer_summary_dataframe"](
+                audit_rows, scope_summary={"code_keys": set(), "customer_keys": set()}
+            )
+            self.assertEqual(
+                audit_summary.loc[
+                    audit_summary["客户名称/公司全名"] == "历史客户简称", "全名状态"
+                ].iloc[0],
+                "待补全名",
+            )
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
     def test_02ab_job_title_is_admin_managed_and_controls_cost_visibility(self):
         app = self.app
         ok, message = app["create_member_account"](
@@ -1514,9 +1558,9 @@ class SystemRegressionTests(unittest.TestCase):
                 "有专属价",
             )
             summary = app["sales_customer_summary_dataframe"](rows, scope_summary)
-            self.assertIn("惠州高盛达科技股份有限公司", set(summary["客户名称/公司抬头"]))
+            self.assertIn("惠州高盛达科技股份有限公司", set(summary["客户名称/公司全名"]))
             self.assertEqual(
-                summary.loc[summary["客户名称/公司抬头"] == "广州星际悦动有限公司", "价格状态"].iloc[0],
+                summary.loc[summary["客户名称/公司全名"] == "广州星际悦动有限公司", "价格状态"].iloc[0],
                 "有专属价",
             )
 
@@ -4075,9 +4119,9 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-group-price-test.sqlite")
             app["clear_cost_price_lookup_cache"]()
             for name, code, group in [
-                ("A集团深圳公司", "F0001", "A集团"),
-                ("A集团东莞公司", "F0002", "A集团"),
-                ("B集团公司", "B0001", "B集团"),
+                ("A集团深圳有限公司", "F0001", "A集团"),
+                ("A集团东莞有限公司", "F0002", "A集团"),
+                ("B集团有限公司", "B0001", "B集团"),
             ]:
                 ok, message, _ = app["save_sales_customer"](
                     name, code, group_name=group, updated_by="regression", sync_remote=False
@@ -4115,21 +4159,21 @@ class SystemRegressionTests(unittest.TestCase):
                 "容值误差": "±1%", "功率": "1/10W",
             }
             a1 = app["lookup_active_cost_price_for_row"](
-                row, app["load_active_cost_price_lookup"]("existing", "A集团深圳公司")
+                row, app["load_active_cost_price_lookup"]("existing", "A集团深圳有限公司")
             )
             a2 = app["lookup_active_cost_price_for_row"](
-                row, app["load_active_cost_price_lookup"]("existing", "A集团东莞公司")
+                row, app["load_active_cost_price_lookup"]("existing", "A集团东莞有限公司")
             )
             b = app["lookup_active_cost_price_for_row"](
-                row, app["load_active_cost_price_lookup"]("existing", "B集团公司")
+                row, app["load_active_cost_price_lookup"]("existing", "B集团有限公司")
             )
             self.assertEqual(app["normalize_cost_value_for_compare"](a1["cost"]), "1.25")
             self.assertEqual(app["normalize_cost_value_for_compare"](a2["cost"]), "1.25")
             self.assertEqual(app["normalize_cost_value_for_compare"](b["cost"]), "1.7")
             self.assertIn("集团共享价", a2["cost_source"])
-            context = app["get_sales_customer_price_context"]("A集团深圳公司")
+            context = app["get_sales_customer_price_context"]("A集团深圳有限公司")
             self.assertEqual(set(context["group_code_keys"]), {"F0001", "F0002"})
-            self.assertIn("A集团深圳公司", app["list_existing_cost_customers"]())
+            self.assertIn("A集团深圳有限公司", app["list_existing_cost_customers"]())
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

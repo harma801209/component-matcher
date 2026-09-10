@@ -71,6 +71,21 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="component-matcher-release-gate-") as temp_dir:
         temp_root = Path(temp_dir)
         env = os.environ.copy()
+        # Python 3.14 asks Windows WMI for platform metadata while importing
+        # Streamlit. Some managed Windows hosts leave that query waiting
+        # indefinitely. Disable only that optional probe inside validation
+        # subprocesses; platform.win32_ver() then uses its standard fallback.
+        if os.name == "nt" and sys.version_info >= (3, 14):
+            compat_root = temp_root / "python-startup-compat"
+            compat_root.mkdir()
+            (compat_root / "sitecustomize.py").write_text(
+                "import platform\nplatform._wmi = None\n",
+                encoding="utf-8",
+            )
+            existing_pythonpath = env.get("PYTHONPATH", "").strip()
+            env["PYTHONPATH"] = os.pathsep.join(
+                value for value in (str(compat_root), existing_pythonpath) if value
+            )
         env.update(
             {
                 "MEMBER_AUTH_DB_PATH": str(temp_root / "member.sqlite"),

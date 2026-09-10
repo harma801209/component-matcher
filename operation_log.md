@@ -2,6 +2,14 @@
 
 This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
+### 2026-09-11 [Customer data] Require legal full names and audit legacy abbreviations
+
+- Sales customer registration, administrator maintenance and customer Excel import now share the same legal full-name validation. New Chinese company names must retain a legal entity ending such as `有限公司`; overseas names must retain a registered suffix such as Ltd., Inc., LLC or GmbH.
+- The sales form, maintenance form and downloadable template explicitly request `客户名称/公司全名`. Template examples are complete company names.
+- Existing abbreviated records are not rewritten, merged or deleted because their legal identity cannot be inferred safely. They are marked `待补全名`, sorted to the front of customer maintenance, and cannot be saved again until an administrator supplies the registered full name.
+- Tests use isolated temporary cost databases and cover rejection, valid saves and legacy-data audit state. Production customer and price rows are not rewritten by this release.
+- The Windows release gate also gained a temporary Python 3.14 compatibility startup hook after the host WMI platform query was observed hanging before tests began. This hook exists only inside the validation temp directory and does not change application runtime behavior.
+
 ### 2026-09-10 [Customer workflow] Join member registrations to price customer maintenance
 
 - Customer information now combines the cost customer master with customer names entered by members. Missing master rows appear as `待完善`, so an administrator can add the customer code without retyping or overlooking the customer.

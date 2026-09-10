@@ -1,5 +1,14 @@
 # Issue Ledger
 
+## 2026-09-11 - Customer records accepted abbreviations instead of legal company names
+
+- Symptom: member registration already asked for a customer full name, but the customer master and Excel import could still save abbreviations. Existing short names were mixed into the normal customer list, making duplicate identities and special-price ownership harder to verify.
+- Root cause: the legal-name validator was only enforced on the member self-registration path. The shared customer-master save function accepted any non-empty name, and the maintenance list did not expose validation state.
+- Fix: enforce the same legal company-name validator in the customer-master write function used by manual saves and Excel imports. Rename the sales field and import template to `客户名称/公司全名`, and use legal full-name examples in the template.
+- Existing data: preserve legacy records and their price links. Customer maintenance now marks records without a recognized legal-entity suffix as `待补全名`, sorts them before complete records, and requires an administrator to replace the abbreviation with the name from the business licence or registration document before it can be saved. No legal name is guessed and no customer is automatically merged or deleted.
+- Regression: isolated tests reject an abbreviated new master customer, accept a complete company name, and verify that a directly seeded legacy abbreviation is surfaced as `待补全名`. Existing customer-price group tests now use complete company names.
+- Release tooling: Python 3.14 on this Windows host could hang while Streamlit imported optional WMI platform metadata. The safety gate now disables only that WMI probe in its temporary validation subprocesses and retains Python's normal Windows-version fallback.
+
 ## 2026-09-10 - Member-entered customers were disconnected from customer price maintenance
 
 - Symptom: the customer master showed only manually maintained rows, so a customer entered by a member (for example 高盛达) could not be selected to add its customer code. The owner dropdown also hid active ordinary accounts whose job title was recorded as `其他`. A code such as `F0001` gave no indication that the current workbook already contained a code-specific price.

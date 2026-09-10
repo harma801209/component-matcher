@@ -6433,7 +6433,10 @@ def save_sales_customer(
     group_name = normalize_sales_customer_group(group_name, fallback=customer_name)
     group_key = normalize_cost_customer_key(group_name)
     if customer_name == "":
-        return False, "请填写客户名称/公司抬头。", None
+        return False, "请填写客户公司全名。", None
+    full_name_ok, full_name_message = validate_customer_legal_full_name(customer_name)
+    if not full_name_ok:
+        return False, full_name_message, None
     if customer_code_key == "":
         return False, "请填写客户代码。", None
     if len(customer_name) > 120 or len(group_name) > 120 or len(customer_code) > 40:
@@ -6518,10 +6521,10 @@ def build_sales_customer_template_bytes():
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "客户资讯"
-    headers = ["所属集团", "客户名称/公司抬头", "客户代码", "负责销售账号", "状态", "备注"]
+    headers = ["所属集团", "客户名称/公司全名", "客户代码", "负责销售账号", "状态", "备注"]
     sheet.append(headers)
-    sheet.append(["A集团", "A集团深圳子公司", "F0001", "sales01", "启用", "同集团代码自动共享专价"])
-    sheet.append(["A集团", "A集团东莞子公司", "F0002", "sales02", "启用", ""])
+    sheet.append(["A集团", "深圳市示例科技有限公司", "F0001", "sales01", "启用", "同集团代码自动共享专价"])
+    sheet.append(["A集团", "东莞市示例电子有限公司", "F0002", "sales02", "启用", ""])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F4E78")
@@ -6549,7 +6552,7 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
         normalized = normalize_cost_price_header(column)
         if normalized in {"所属集团", "集团", "集团名称", "customergroup", "group"}:
             header_map["group_name"] = column
-        elif normalized in {"客户名称公司抬头", "客户名称", "公司抬头", "customername", "company"}:
+        elif normalized in {"客户名称公司全名", "客户公司全名", "客户名称公司抬头", "客户名称", "公司抬头", "customername", "company"}:
             header_map["customer_name"] = column
         elif normalized in {"客户代码", "客户编码", "customercode", "code"}:
             header_map["customer_code"] = column
@@ -6560,7 +6563,7 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
         elif normalized in {"备注", "note", "notes"}:
             header_map["note"] = column
     if "customer_name" not in header_map or "customer_code" not in header_map:
-        return False, "模板必须包含“客户名称/公司抬头”和“客户代码”栏位。", 0
+        return False, "模板必须包含“客户名称/公司全名”和“客户代码”栏位。", 0
     imported = 0
     for row_index, (_, row) in enumerate(frame.iterrows(), start=2):
         customer_name = clean_text(row.get(header_map["customer_name"], ""))
@@ -6944,7 +6947,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             return COST_CUSTOMER_TYPE_NEW, "", True
         with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
             new_customer_name = st.text_input(
-                "新客户名称",
+                "新客户公司全名",
                 max_chars=120,
                 placeholder="请输入注册/营业执照公司全称（含有限公司、Ltd.、Inc. 等法定后缀）",
                 help="必须填写客户法定全称。中文公司请保留“有限公司”等结尾；海外公司请保留 Ltd.、Inc.、LLC、GmbH 等注册后缀。",
@@ -8695,6 +8698,17 @@ def build_sales_customer_admin_rows(maintained_rows=None, registration_rows=None
                 "_pending_master": True,
             }
         )
+    for row in rows:
+        full_name_ok, full_name_message = validate_customer_legal_full_name(row.get("customer_name", ""))
+        row["_full_name_valid"] = bool(full_name_ok)
+        row["_full_name_message"] = clean_text(full_name_message)
+    rows.sort(
+        key=lambda row: (
+            0 if bool(row.get("_pending_master")) or not bool(row.get("_full_name_valid")) else 1,
+            0 if int(row.get("active", 0) or 0) == 1 else 1,
+            normalize_cost_customer_key(row.get("customer_name", "")),
+        )
+    )
     return rows
 
 
@@ -8765,13 +8779,14 @@ def sales_customer_price_status(row, all_rows=None, scope_summary=None):
 
 def sales_customer_summary_dataframe(rows, scope_summary=None):
     if not rows:
-        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "价格状态", "负责销售", "会员登记人", "状态", "备注", "更新时间"])
+        return pd.DataFrame(columns=["所属集团", "客户名称/公司全名", "全名状态", "客户代码", "价格状态", "负责销售", "会员登记人", "状态", "备注", "更新时间"])
     scope_summary = load_active_customer_price_scope_summary() if scope_summary is None else scope_summary
     return pd.DataFrame(
         [
             {
                 "所属集团": row.get("group_name", ""),
-                "客户名称/公司抬头": row.get("customer_name", ""),
+                "客户名称/公司全名": row.get("customer_name", ""),
+                "全名状态": "完整" if bool(row.get("_full_name_valid")) else "待补全名",
                 "客户代码": row.get("customer_code", "") or "待补",
                 "价格状态": sales_customer_price_status(row, rows, scope_summary),
                 "负责销售": row.get("owner_username", "") or "未指定",
@@ -8796,12 +8811,14 @@ def render_sales_customer_admin_page():
     price_scope_summary = load_active_customer_price_scope_summary()
     active_rows = [row for row in maintained_rows if int(row.get("active", 0) or 0) == 1]
     pending_rows = [row for row in rows if bool(row.get("_pending_master"))]
+    incomplete_name_rows = [row for row in rows if not bool(row.get("_full_name_valid"))]
     group_count = len({clean_text(row.get("group_key", "")) for row in active_rows if clean_text(row.get("group_key", ""))})
     render_admin_metric_cards(
         [
             {"label": "客户公司", "value": len(rows), "note": "全部公司抬头", "tone": "neutral"},
             {"label": "启用", "value": len(active_rows), "note": "可供会员选择", "tone": "green"},
             {"label": "待完善", "value": len(pending_rows), "note": "会员已登记，待补代码", "tone": "red" if pending_rows else "neutral"},
+            {"label": "待补全名", "value": len(incomplete_name_rows), "note": "简称不能新增或保存", "tone": "red" if incomplete_name_rows else "neutral"},
             {"label": "客户集团", "value": group_count, "note": "同负责人可共享集团价", "tone": "neutral"},
         ]
     )
@@ -8842,7 +8859,8 @@ def render_sales_customer_admin_page():
         else:
             status = "启用" if int(row.get("active", 0) or 0) == 1 else "停用"
             price_status = sales_customer_price_status(row, rows, price_scope_summary)
-            label = f"#{row.get('id')} · {status} · {row.get('customer_code')} · {price_status} · {row.get('customer_name')}"
+            full_name_status = "" if bool(row.get("_full_name_valid")) else " · 待补全名"
+            label = f"#{row.get('id')} · {status}{full_name_status} · {row.get('customer_code')} · {price_status} · {row.get('customer_name')}"
         options.append(label)
         option_rows[label] = row
     selected_label = st.selectbox("客户记录", options, key="sales_customer_admin_selector")
@@ -8870,7 +8888,11 @@ def render_sales_customer_admin_page():
     with st.form(f"sales_customer_admin_form_{form_identity}"):
         cols = st.columns([0.24, 0.28, 0.16, 0.20, 0.20], gap="small")
         group_name = cols[0].text_input("所属集团", value=clean_text(selected.get("group_name", "")), placeholder="例如 A集团")
-        customer_name = cols[1].text_input("客户名称/公司抬头", value=clean_text(selected.get("customer_name", "")))
+        customer_name = cols[1].text_input(
+            "客户名称/公司全名",
+            value=clean_text(selected.get("customer_name", "")),
+            placeholder="营业执照或注册文件上的完整公司名称",
+        )
         customer_code = cols[2].text_input("客户代码", value=clean_text(selected.get("customer_code", "")), placeholder="例如 F0001")
         owner_label = cols[3].selectbox("负责销售", list(owner_options), index=list(owner_options).index(selected_owner_label))
         active = cols[4].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
@@ -8882,6 +8904,8 @@ def render_sales_customer_admin_page():
             st.caption(f"会员登记人：{registered_by}。负责人已按登记人预选，点击保存后才会正式开放专属价。")
         else:
             st.caption(f"会员登记人：{registered_by}。请由管理员确认实际负责人，保存后才会正式开放专属价。")
+    if selected and not bool(selected.get("_full_name_valid")):
+        st.warning("当前客户名称是简称或缺少法定实体后缀，请先改为营业执照/注册文件上的公司全名。")
     if selected:
         selected_price_status = sales_customer_price_status(selected, rows, price_scope_summary)
         if selected_price_status in {"有专属价", "集团专属价"}:
