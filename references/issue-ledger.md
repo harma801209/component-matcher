@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-09-10 - Member-entered customers were disconnected from customer price maintenance
+
+- Symptom: the customer master showed only manually maintained rows, so a customer entered by a member (for example 高盛达) could not be selected to add its customer code. The owner dropdown also hid active ordinary accounts whose job title was recorded as `其他`. A code such as `F0001` gave no indication that the current workbook already contained a code-specific price.
+- Root cause: member customer registrations and the cost customer master were read independently; owner eligibility relied only on the optional job-title field; the customer table inferred price availability from ownership instead of reading active workbook scopes.
+- Fix: merge member registrations into the admin customer view as `待完善` rows, retain their registrant as a suggested (not automatically granted) owner, list every active non-PM ordinary member as an eligible owner, and treat an explicit admin assignment as the sales role for that customer. Display actual `有专属价`/`集团专属价`/`通用价` status from the active cost data.
+- Security: self-registering a customer never grants special pricing. An administrator must supply/confirm its code and save the responsible account. PM and administrators cannot be selected as sales owners; cross-owner group-price isolation remains enforced.
+- Regression: an isolated F0001 workbook verifies price-status detection, an existing registered customer, a missing-master registered customer, an account labelled `其他`, PM exclusion, explicit admin assignment and the resulting authorized lookup.
+
 ## 2026-09-10 - Customer prices require the assigned salesperson
 
 - Confirmed gaps in the initial ownership patch: unassigned customers could retain legacy price grants; newly assigned salespeople still needed a legacy grant; group fallback could expose a sibling customer's price across owners.

@@ -1452,6 +1452,100 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
 
+    def test_registered_customers_flow_into_admin_master_and_non_pm_owners_are_visible(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        original_member_path = app["MEMBER_AUTH_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-flow.sqlite")
+            app["MEMBER_AUTH_DB_PATH"] = os.path.join(self.temp_dir, "customer-flow-members.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            app["init_cost_price_db"]()
+            app["ensure_member_auth_schema"]()
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                other_cursor = conn.execute(
+                    "INSERT INTO members (username,password_hash,display_name,job_title,role,status,created_at,updated_at) "
+                    "VALUES ('FlowOther','test-only','实际销售','其他','member','active','','')"
+                )
+                owner_id = int(other_cursor.lastrowid)
+                pm_cursor = conn.execute(
+                    "INSERT INTO members (username,password_hash,display_name,job_title,role,status,created_at,updated_at) "
+                    "VALUES ('FlowPM','test-only','产品经理','PM','member','active','','')"
+                )
+                pm_id = int(pm_cursor.lastrowid)
+                for customer_name in ["广州星际悦动有限公司", "惠州高盛达科技股份有限公司"]:
+                    conn.execute(
+                        "INSERT INTO member_sales_customers "
+                        "(member_id,customer_name,customer_key,price_access_enabled,created_at,updated_at,last_selected_at) "
+                        "VALUES (?,?,?,0,'','','')",
+                        (owner_id, customer_name, app["normalize_cost_customer_key"](customer_name)),
+                    )
+
+            ok, message, star_id = app["save_sales_customer"](
+                "广州星际悦动有限公司", "F0001", owner_member_id=0, sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                price_list = conn.execute(
+                    "INSERT INTO cost_price_lists (file_name,uploaded_at,active) VALUES ('flow.xlsx','',1)"
+                )
+                raw = json.dumps(app["parse_cost_price_sheet_customer_scope"](
+                    pd.DataFrame([["客户代码", "F0001"]])
+                ))
+                conn.execute(
+                    "INSERT INTO cost_price_items (list_id,brand,model,model_clean,cost,raw_json) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (price_list.lastrowid, "FOJAN", "FLOWITEM", "FLOWITEM", "3", raw),
+                )
+
+            registrations = app["list_member_sales_customer_registrations_for_admin"]()
+            rows = app["build_sales_customer_admin_rows"](
+                app["list_sales_customers"](), registrations
+            )
+            by_name = {row["customer_name"]: row for row in rows}
+            self.assertFalse(by_name["广州星际悦动有限公司"]["_pending_master"])
+            self.assertEqual(by_name["广州星际悦动有限公司"]["_suggested_owner_member_id"], owner_id)
+            self.assertTrue(by_name["惠州高盛达科技股份有限公司"]["_pending_master"])
+            self.assertEqual(by_name["惠州高盛达科技股份有限公司"]["_suggested_owner_member_id"], owner_id)
+
+            scope_summary = app["load_active_customer_price_scope_summary"]()
+            self.assertEqual(
+                app["sales_customer_price_status"](by_name["广州星际悦动有限公司"], rows, scope_summary),
+                "有专属价",
+            )
+            summary = app["sales_customer_summary_dataframe"](rows, scope_summary)
+            self.assertIn("惠州高盛达科技股份有限公司", set(summary["客户名称/公司抬头"]))
+            self.assertEqual(
+                summary.loc[summary["客户名称/公司抬头"] == "广州星际悦动有限公司", "价格状态"].iloc[0],
+                "有专属价",
+            )
+
+            owner_ids = {member["id"] for member in app["list_customer_owner_members_for_admin"]()}
+            self.assertIn(owner_id, owner_ids)
+            self.assertNotIn(pm_id, owner_ids)
+            owner = app["get_member_by_id"](owner_id)
+            self.assertEqual(
+                app["authorize_cost_customer_context"](owner, "existing", "广州星际悦动有限公司"),
+                ("new", ""),
+            )
+            ok, message, _ = app["save_sales_customer"](
+                "广州星际悦动有限公司", "F0001", customer_id=star_id,
+                owner_member_id=owner_id, sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(
+                app["authorize_cost_customer_context"](owner, "existing", "广州星际悦动有限公司"),
+                ("existing", "广州星际悦动有限公司"),
+            )
+            lookup = app["load_authorized_cost_price_lookup"](
+                "existing", "广州星际悦动有限公司", member=owner
+            )
+            self.assertEqual(lookup["FLOWITEM"][0]["cost"], "3")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["MEMBER_AUTH_DB_PATH"] = original_member_path
+            app["clear_cost_price_lookup_cache"]()
+
     def test_02b_member_login_returns_to_requesting_page(self):
         app = self.app
         original_functions = {

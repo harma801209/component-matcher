@@ -2,6 +2,13 @@
 
 This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
+### 2026-09-10 [Customer workflow] Join member registrations to price customer maintenance
+
+- Customer information now combines the cost customer master with customer names entered by members. Missing master rows appear as `待完善`, so an administrator can add the customer code without retyping or overlooking the customer.
+- Active ordinary accounts are available as responsible-account choices even when their job title was saved as `其他`; PM and administrator accounts remain excluded. A registrant is only preselected as a suggestion and receives no special-price access until the administrator saves the assignment.
+- The customer list reads active cost scopes and labels each row as direct special price, group special price, general price, or missing code. Thus F0001 is visibly special when the active workbook actually has an F0001 page.
+- Backend authorization accepts an explicitly assigned non-PM ordinary member and retains the prior per-owner/group cache isolation. Isolated tests cover F0001, 星际悦动, 高盛达, job-title mismatch, PM exclusion and post-assignment pricing; no production customer or price record is modified by the release.
+
 ### 2026-07-09 23:05 [direct] Source-scoped FOJAN FRM/FPM alloy resistor fallback
 
 - Received / problem: User reported many alloy-resistor specs (for example `合金电阻 电阻10毫欧 ±1% 1206`, `贴片合金电阻 0.06R 2512 3W ±1%`) could not return FOJAN models, and asked for an accurate way to expand alloy-resistor brand/model coverage without risking member/backend data.

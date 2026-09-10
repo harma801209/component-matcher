@@ -2232,7 +2232,7 @@ def list_member_sales_customers(member_id):
     return [dict(row) for row in rows]
 
 
-def list_member_sales_customers_for_admin():
+def list_member_sales_customer_registrations_for_admin():
     refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -2246,7 +2246,8 @@ def list_member_sales_customers_for_admin():
                    m.display_name AS member_display_name,
                    m.company AS member_company,
                    m.role AS member_role,
-                   m.status AS member_status
+                   m.status AS member_status,
+                   m.job_title AS member_job_title
             FROM member_sales_customers c
             LEFT JOIN members m ON m.id=c.member_id
             WHERE c.customer_key<>''
@@ -2254,18 +2255,28 @@ def list_member_sales_customers_for_admin():
                      c.last_selected_at DESC, c.updated_at DESC, c.id ASC
             """
         ).fetchall()
-    customers = []
-    seen_keys = set()
+    registrations = []
     for row in rows:
         customer = dict(row)
         if normalize_member_status(customer.get("member_status", "")) == "disabled":
             continue
         name = normalize_cost_customer_name(customer.get("customer_name", ""))
         key = normalize_cost_customer_key(customer.get("customer_key", "") or name)
-        if key == "" or key in seen_keys:
+        if key == "":
             continue
         customer["customer_name"] = name
         customer["customer_key"] = key
+        registrations.append(customer)
+    return registrations
+
+
+def list_member_sales_customers_for_admin():
+    customers = []
+    seen_keys = set()
+    for customer in list_member_sales_customer_registrations_for_admin():
+        key = customer["customer_key"]
+        if key in seen_keys:
+            continue
         customers.append(customer)
         seen_keys.add(key)
     return customers
@@ -2625,6 +2636,17 @@ def member_cost_access_level(member):
     if job_title == MEMBER_JOB_TITLE_SALES:
         return "sales"
     return "general"
+
+
+def member_can_own_sales_customer(member):
+    """An admin assignment is authoritative even when an account was labelled '其他'."""
+    member = member if isinstance(member, dict) else {}
+    return bool(
+        clean_text(member.get("username", ""))
+        and normalize_member_status(member.get("status", "")) == "active"
+        and normalize_member_role(member.get("role", "")) != "admin"
+        and normalize_member_job_title(member.get("job_title", "")) != MEMBER_JOB_TITLE_PM
+    )
 
 
 def member_can_view_cost(member):
@@ -6438,9 +6460,8 @@ def save_sales_customer(
     owner_username = ""
     if owner_member_id:
         owner = get_member_by_id(owner_member_id)
-        if (not owner or normalize_member_status(owner.get("status")) != "active"
-                or member_cost_access_level(owner) != "sales"):
-            return False, "负责销售必须是已启用的销售账号。", None
+        if not member_can_own_sales_customer(owner):
+            return False, "负责人必须是已启用的普通会员账号，且不能是 PM 或管理员。", None
         owner_username = clean_text(owner.get("username", ""))
     try:
         with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
@@ -6639,7 +6660,7 @@ def authorize_cost_customer_context(member, customer_type=None, customer_name=""
         return customer_type, customer_name
     if access_level == "pm":
         return COST_CUSTOMER_TYPE_NEW, ""
-    if access_level == "sales":
+    if access_level in {"sales", "general"}:
         try:
             member_id = int(member.get("id", 0) or 0)
         except Exception:
@@ -6901,7 +6922,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif access_level == "sales":
         help_text = "专属价客户由管理员分配；自行登记新客户仅使用通用价格。"
     else:
-        help_text = "其他职务可登记和切换客户，但价格始终使用通用价格。"
+        help_text = "管理员分配的客户可使用专属价；自行登记客户在确认前使用通用价格。"
     selected_name = st.selectbox(
         "当前客户",
         selector_options,
@@ -6955,7 +6976,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             selected_customer = select_member_sales_customer(member_id, selected_name) or selected_customer
     st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = selected_name
 
-    if is_admin or access_level in {"pm", "sales"}:
+    if is_admin or access_level in {"pm", "sales", "general"}:
         customer_type, customer_name, ready = resolve_member_customer_price_scope(selected_name)
     else:
         customer_type, customer_name, ready = COST_CUSTOMER_TYPE_NEW, "", True
@@ -6986,7 +7007,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif access_level == "sales":
         st.caption("只有后台分配给您的客户可使用专属价；其他客户使用通用价。")
     else:
-        st.caption("可切换自己登记过的客户；当前职务只能查看通用价格。")
+        st.caption("如管理员把客户分配给此账号，该客户可使用专属价；其他客户使用通用价。")
     return customer_type, customer_name, ready
 
 
@@ -8194,7 +8215,7 @@ def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, me
         member, customer_type, customer_name or ""
     )
     allowed_codes = None
-    if member_cost_access_level(member or {}) == "sales" and authorized_type == COST_CUSTOMER_TYPE_EXISTING:
+    if member_cost_access_level(member or {}) in {"sales", "general"} and authorized_type == COST_CUSTOMER_TYPE_EXISTING:
         member_id = int((member or {}).get("id", 0) or 0)
         allowed_codes = {
             row["customer_code_key"] for row in list_sales_customers(active_only=True)
@@ -8579,17 +8600,183 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
         render_admin_empty_state("还没有上传成本清单", "上传第一份清单后，系统会立即把它作为当前使用成本。")
 
 
-def sales_customer_summary_dataframe(rows):
+def format_customer_registrant_label(registration):
+    display_name = clean_text(registration.get("member_display_name", ""))
+    username = clean_text(registration.get("member_username", ""))
+    job_title = normalize_member_job_title(registration.get("member_job_title", ""))
+    identity = display_name or username or f"会员 #{registration.get('member_id', '')}"
+    if username and username != identity:
+        identity = f"{identity}（{username}）"
+    return f"{identity} · {job_title}"
+
+
+def registration_member_can_own_sales_customer(registration):
+    return member_can_own_sales_customer(
+        {
+            "username": registration.get("member_username", ""),
+            "status": registration.get("member_status", ""),
+            "role": registration.get("member_role", ""),
+            "job_title": registration.get("member_job_title", ""),
+        }
+    )
+
+
+def build_sales_customer_admin_rows(maintained_rows=None, registration_rows=None):
+    """Combine the price customer master with member-entered customer leads."""
+    maintained_rows = list_sales_customers(active_only=None) if maintained_rows is None else maintained_rows
+    registration_rows = (
+        list_member_sales_customer_registrations_for_admin()
+        if registration_rows is None else registration_rows
+    )
+    registrations_by_key = {}
+    for registration in registration_rows or []:
+        key = normalize_cost_customer_key(
+            registration.get("customer_key", "") or registration.get("customer_name", "")
+        )
+        if key:
+            registrations_by_key.setdefault(key, []).append(registration)
+
+    rows = []
+    maintained_keys = set()
+    for raw_row in maintained_rows or []:
+        row = dict(raw_row)
+        key = normalize_cost_customer_key(row.get("customer_key", "") or row.get("customer_name", ""))
+        maintained_keys.add(key)
+        registrations = registrations_by_key.get(key, [])
+        unique_registrants = {
+            int(item.get("member_id", 0) or 0): item
+            for item in registrations if int(item.get("member_id", 0) or 0) > 0
+        }
+        eligible_registrants = {
+            member_id: item for member_id, item in unique_registrants.items()
+            if registration_member_can_own_sales_customer(item)
+        }
+        row["_registered_by"] = "；".join(
+            format_customer_registrant_label(item) for item in unique_registrants.values()
+        )
+        row["_suggested_owner_member_id"] = (
+            next(iter(eligible_registrants))
+            if int(row.get("owner_member_id", 0) or 0) == 0 and len(eligible_registrants) == 1
+            else 0
+        )
+        row["_pending_master"] = False
+        rows.append(row)
+
+    for key, registrations in registrations_by_key.items():
+        if key in maintained_keys:
+            continue
+        unique_registrants = {
+            int(item.get("member_id", 0) or 0): item
+            for item in registrations if int(item.get("member_id", 0) or 0) > 0
+        }
+        eligible_registrants = {
+            member_id: item for member_id, item in unique_registrants.items()
+            if registration_member_can_own_sales_customer(item)
+        }
+        first = registrations[0]
+        rows.append(
+            {
+                "id": None,
+                "customer_name": normalize_cost_customer_name(first.get("customer_name", "")),
+                "customer_key": key,
+                "customer_code": "",
+                "customer_code_key": "",
+                "group_name": "",
+                "group_key": "",
+                "owner_member_id": 0,
+                "owner_username": "",
+                "active": 1,
+                "note": "",
+                "updated_at": clean_text(first.get("updated_at", "")),
+                "_registered_by": "；".join(
+                    format_customer_registrant_label(item) for item in unique_registrants.values()
+                ),
+                "_suggested_owner_member_id": next(iter(eligible_registrants)) if len(eligible_registrants) == 1 else 0,
+                "_pending_master": True,
+            }
+        )
+    return rows
+
+
+def list_customer_owner_members_for_admin():
+    return [member for member in list_members_for_admin() if member_can_own_sales_customer(member)]
+
+
+def load_active_customer_price_scope_summary():
+    """Return customer codes/names that actually have an active special price."""
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    code_keys = set()
+    customer_keys = set()
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT i.raw_json
+            FROM cost_price_items i
+            JOIN cost_price_lists l ON l.id=i.list_id
+            WHERE l.active=1 AND i.raw_json LIKE '%price_customer_code_keys%'
+            """
+        ).fetchall()
+        legacy_rows = conn.execute(
+            """
+            SELECT customer_key FROM cost_price_lists
+            WHERE active=1 AND customer_type=? AND customer_key<>''
+            UNION
+            SELECT customer_key FROM cost_price_manual_items
+            WHERE active=1 AND customer_type=? AND customer_key<>''
+            """,
+            (COST_CUSTOMER_TYPE_EXISTING, COST_CUSTOMER_TYPE_EXISTING),
+        ).fetchall()
+    for (raw_json,) in rows:
+        try:
+            rule_data = json.loads(clean_text(raw_json) or "{}")
+        except Exception:
+            continue
+        if clean_text(rule_data.get("price_scope_kind", "")).lower() != "customer_codes":
+            continue
+        code_keys.update(
+            normalize_sales_customer_code_key(value)
+            for value in (rule_data.get("price_customer_code_keys", []) or [])
+            if normalize_sales_customer_code_key(value)
+        )
+    customer_keys.update(normalize_cost_customer_key(row[0]) for row in legacy_rows if normalize_cost_customer_key(row[0]))
+    return {"code_keys": code_keys, "customer_keys": customer_keys}
+
+
+def sales_customer_price_status(row, all_rows=None, scope_summary=None):
+    if bool(row.get("_pending_master")) or not normalize_sales_customer_code_key(row.get("customer_code", "")):
+        return "待补客户代码"
+    scope_summary = scope_summary or {"code_keys": set(), "customer_keys": set()}
+    customer_key = normalize_cost_customer_key(row.get("customer_key", "") or row.get("customer_name", ""))
+    code_key = normalize_sales_customer_code_key(row.get("customer_code_key", "") or row.get("customer_code", ""))
+    if customer_key in scope_summary.get("customer_keys", set()) or code_key in scope_summary.get("code_keys", set()):
+        return "有专属价"
+    group_key = normalize_cost_customer_key(row.get("group_key", "") or row.get("group_name", ""))
+    if group_key:
+        for peer in all_rows or []:
+            peer_group_key = normalize_cost_customer_key(peer.get("group_key", "") or peer.get("group_name", ""))
+            peer_code_key = normalize_sales_customer_code_key(
+                peer.get("customer_code_key", "") or peer.get("customer_code", "")
+            )
+            if peer_group_key == group_key and peer_code_key in scope_summary.get("code_keys", set()):
+                return "集团专属价"
+    return "通用价"
+
+
+def sales_customer_summary_dataframe(rows, scope_summary=None):
     if not rows:
-        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "负责销售", "状态", "备注", "更新时间"])
+        return pd.DataFrame(columns=["所属集团", "客户名称/公司抬头", "客户代码", "价格状态", "负责销售", "会员登记人", "状态", "备注", "更新时间"])
+    scope_summary = load_active_customer_price_scope_summary() if scope_summary is None else scope_summary
     return pd.DataFrame(
         [
             {
                 "所属集团": row.get("group_name", ""),
                 "客户名称/公司抬头": row.get("customer_name", ""),
-                "客户代码": row.get("customer_code", ""),
-                "负责销售": row.get("owner_username", "") or "未指定（仅通用价）",
-                "状态": "启用" if int(row.get("active", 0) or 0) == 1 else "停用",
+                "客户代码": row.get("customer_code", "") or "待补",
+                "价格状态": sales_customer_price_status(row, rows, scope_summary),
+                "负责销售": row.get("owner_username", "") or "未指定",
+                "会员登记人": row.get("_registered_by", "") or "-",
+                "状态": "待完善" if bool(row.get("_pending_master")) else ("启用" if int(row.get("active", 0) or 0) == 1 else "停用"),
                 "备注": row.get("note", ""),
                 "更新时间": row.get("updated_at", ""),
             }
@@ -8604,14 +8791,18 @@ def render_sales_customer_admin_page():
         "维护公司抬头、客户代码、集团关系与负责销售。销售只能看到自己负责客户的专属价，未指定负责销售的客户仅使用通用价。",
         "客户价格",
     )
-    rows = list_sales_customers(active_only=None)
-    active_rows = [row for row in rows if int(row.get("active", 0) or 0) == 1]
+    maintained_rows = list_sales_customers(active_only=None)
+    rows = build_sales_customer_admin_rows(maintained_rows=maintained_rows)
+    price_scope_summary = load_active_customer_price_scope_summary()
+    active_rows = [row for row in maintained_rows if int(row.get("active", 0) or 0) == 1]
+    pending_rows = [row for row in rows if bool(row.get("_pending_master"))]
     group_count = len({clean_text(row.get("group_key", "")) for row in active_rows if clean_text(row.get("group_key", ""))})
     render_admin_metric_cards(
         [
             {"label": "客户公司", "value": len(rows), "note": "全部公司抬头", "tone": "neutral"},
             {"label": "启用", "value": len(active_rows), "note": "可供会员选择", "tone": "green"},
-            {"label": "客户集团", "value": group_count, "note": "同集团共享专价", "tone": "neutral"},
+            {"label": "待完善", "value": len(pending_rows), "note": "会员已登记，待补代码", "tone": "red" if pending_rows else "neutral"},
+            {"label": "客户集团", "value": group_count, "note": "同负责人可共享集团价", "tone": "neutral"},
         ]
     )
 
@@ -8646,31 +8837,37 @@ def render_sales_customer_admin_page():
     options = ["新增客户"]
     option_rows = {}
     for row in rows:
-        status = "启用" if int(row.get("active", 0) or 0) == 1 else "停用"
-        label = f"#{row.get('id')} · {status} · {row.get('customer_code')} · {row.get('customer_name')}"
+        if bool(row.get("_pending_master")):
+            label = f"待完善 · 会员登记 · {row.get('customer_name')}"
+        else:
+            status = "启用" if int(row.get("active", 0) or 0) == 1 else "停用"
+            price_status = sales_customer_price_status(row, rows, price_scope_summary)
+            label = f"#{row.get('id')} · {status} · {row.get('customer_code')} · {price_status} · {row.get('customer_name')}"
         options.append(label)
         option_rows[label] = row
     selected_label = st.selectbox("客户记录", options, key="sales_customer_admin_selector")
     selected = option_rows.get(selected_label) or {}
     selected_id = selected.get("id")
-    sales_members = [
-        member for member in list_members_for_admin()
-        if normalize_member_status(member.get("status", "")) == "active"
-        and normalize_member_job_title(member.get("job_title", "")) == MEMBER_JOB_TITLE_SALES
-    ]
+    sales_members = list_customer_owner_members_for_admin()
     owner_options = {"未指定（仅通用价）": 0}
     for member in sales_members:
         label = clean_text(member.get("display_name", "")) or clean_text(member.get("username", ""))
         username = clean_text(member.get("username", ""))
+        job_title = normalize_member_job_title(member.get("job_title", ""))
         if username:
-            label = f"{label}（{username}）"
+            label = f"{label}（{username} · {job_title}）"
         owner_options[label] = int(member.get("id", 0) or 0)
-    selected_owner_id = int(selected.get("owner_member_id", 0) or 0)
+    selected_owner_id = int(
+        selected.get("owner_member_id", 0)
+        or selected.get("_suggested_owner_member_id", 0)
+        or 0
+    )
     selected_owner_label = next(
         (label for label, owner_id in owner_options.items() if owner_id == selected_owner_id),
         "未指定（仅通用价）",
     )
-    with st.form(f"sales_customer_admin_form_{selected_id or 'new'}"):
+    form_identity = selected_id or selected.get("customer_key") or "new"
+    with st.form(f"sales_customer_admin_form_{form_identity}"):
         cols = st.columns([0.24, 0.28, 0.16, 0.20, 0.20], gap="small")
         group_name = cols[0].text_input("所属集团", value=clean_text(selected.get("group_name", "")), placeholder="例如 A集团")
         customer_name = cols[1].text_input("客户名称/公司抬头", value=clean_text(selected.get("customer_name", "")))
@@ -8679,6 +8876,21 @@ def render_sales_customer_admin_page():
         active = cols[4].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
         note = st.text_area("备注", value=clean_text(selected.get("note", "")), height=82)
         submitted = st.form_submit_button("保存客户资讯", use_container_width=True)
+    registered_by = clean_text(selected.get("_registered_by", ""))
+    if registered_by:
+        if int(selected.get("_suggested_owner_member_id", 0) or 0) > 0:
+            st.caption(f"会员登记人：{registered_by}。负责人已按登记人预选，点击保存后才会正式开放专属价。")
+        else:
+            st.caption(f"会员登记人：{registered_by}。请由管理员确认实际负责人，保存后才会正式开放专属价。")
+    if selected:
+        selected_price_status = sales_customer_price_status(selected, rows, price_scope_summary)
+        if selected_price_status in {"有专属价", "集团专属价"}:
+            if int(selected.get("owner_member_id", 0) or 0) > 0:
+                st.success(f"价格状态：{selected_price_status}；仅当前负责销售可读取。")
+            else:
+                st.warning(f"价格状态：{selected_price_status}；目前尚未指定负责销售，因此会员端仍使用通用价。")
+        elif selected_price_status == "待补客户代码":
+            st.info("该客户来自会员登记。请补客户代码并确认负责人，保存后才会进入客户专属价流程。")
     if submitted:
         actor = clean_text((current_member() or {}).get("username", "")) or get_no_match_admin_credentials()[0]
         ok, message, _ = save_sales_customer(
@@ -8704,7 +8916,11 @@ def render_sales_customer_admin_page():
 
     if rows:
         st.subheader("客户资讯清单")
-        st.dataframe(sales_customer_summary_dataframe(rows), use_container_width=True, hide_index=True)
+        st.dataframe(
+            sales_customer_summary_dataframe(rows, scope_summary=price_scope_summary),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         render_admin_empty_state("还没有客户资讯", "可先下载模板批量导入，或新增第一条客户记录。")
 
