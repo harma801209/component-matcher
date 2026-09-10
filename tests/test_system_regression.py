@@ -1016,7 +1016,7 @@ class SystemRegressionTests(unittest.TestCase):
         authorized = app["list_member_sales_customers"](member_ids[0])[0]
         self.assertEqual(int(authorized["price_access_enabled"]), 1)
 
-    def test_02aa1_admin_customer_selector_lists_all_member_customers_and_defaults_to_general(self):
+    def test_02aa1_admin_customer_selector_only_lists_active_customer_master_and_defaults_to_general(self):
         app = self.app
         customer_names = [
             "管理员查看深圳客户有限公司",
@@ -1110,6 +1110,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "st",
                 "current_member",
                 "current_member_is_admin",
+                "list_existing_cost_customers",
             ]
         }
         try:
@@ -1120,6 +1121,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "status": "active",
             }
             app["current_member_is_admin"] = lambda: True
+            app["list_existing_cost_customers"] = lambda: ["旧价格表孤立客户有限公司"]
 
             fake_st = FakeStreamlit()
             app["st"] = fake_st
@@ -1130,8 +1132,11 @@ class SystemRegressionTests(unittest.TestCase):
             options = fake_st.selectbox_calls[0]["options"]
             self.assertEqual(options[0], "通用成本（不指定客户）")
             self.assertIn(customer_names[0], options)
-            self.assertIn(customer_names[1], options)
+            self.assertNotIn(customer_names[1], options)
             self.assertNotIn("管理员隐藏客户有限公司", options)
+            self.assertNotIn("旧价格表孤立客户有限公司", options)
+            self.assertIn("客户资讯", fake_st.selectbox_calls[0]["help"])
+            self.assertIn("已启用客户", fake_st.selectbox_calls[0]["help"])
             self.assertIn("直接搜索料号", fake_st.caption_messages[-1])
 
             fake_selected_st = FakeStreamlit(selection=customer_names[0])

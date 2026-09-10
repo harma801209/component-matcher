@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-09-11 - Price-search customer choices diverged from the customer master
+
+- Symptom: the administrator's `当前客户` price-search dropdown showed names such as member-entered prospects and old price-sheet customer labels even when no corresponding active row existed in customer maintenance.
+- Root cause: the admin selector unioned three sources: member customer registrations, active customer-master rows, and every legacy customer name found in active price data. Customer maintenance was therefore not the source of truth for selectable pricing identities.
+- Fix: build the administrator's price-search choices exclusively from active `sales_customers` rows. Pending member registrations remain in customer maintenance for review, and orphaned price-sheet labels remain in price maintenance/audit data, but neither is selectable until an administrator creates or enables the customer-master record.
+- Security and behavior: administrators still retain access to every active customer-master price; ordinary members keep the existing owner-scoped authorization. Disabled customers, unapproved prospects and historical orphan names cannot be selected from price search.
+- Regression: the admin selector includes an active master customer while excluding an unmaintained member registration, a disabled registration and a synthetic legacy price-only customer.
+
 ## 2026-09-11 - Customer records accepted abbreviations instead of legal company names
 
 - Symptom: member registration already asked for a customer full name, but the customer master and Excel import could still save abbreviations. Existing short names were mixed into the normal customer list, making duplicate identities and special-price ownership harder to verify.

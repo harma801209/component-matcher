@@ -6867,25 +6867,10 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     is_admin = current_member_is_admin()
     access_level = member_cost_access_level(member)
     if is_admin:
-        customer_rows = list_member_sales_customers_for_admin()
-        known_keys = {
-            normalize_cost_customer_key(row.get("customer_name", ""))
-            for row in customer_rows
-            if normalize_cost_customer_key(row.get("customer_name", ""))
-        }
-        for existing_name in list_existing_cost_customers():
-            existing_key = normalize_cost_customer_key(existing_name)
-            if existing_key == "" or existing_key in known_keys:
-                continue
-            customer_rows.append(
-                {
-                    "member_id": 0,
-                    "customer_name": existing_name,
-                    "customer_key": existing_key,
-                    "price_access_enabled": 1,
-                }
-            )
-            known_keys.add(existing_key)
+        # Price-search choices must mirror the customer master. Member-entered
+        # prospects and orphaned names from old price sheets stay visible in
+        # their maintenance/audit flows, but are not selectable as customers.
+        customer_rows = list_sales_customers(active_only=True)
     else:
         customer_rows = list_selectable_sales_customers(member_id)
     customer_by_key = {
@@ -6919,7 +6904,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         st.session_state[selector_key] = desired_selection
 
     if is_admin:
-        help_text = "管理员可查看全部客户；不指定客户时使用通用成本。"
+        help_text = "管理员可查看客户资讯中全部已启用客户；不指定客户时使用通用成本。"
     elif access_level == "pm":
         help_text = "PM 使用通用价格；客户专属价仅供负责销售查看。"
     elif access_level == "sales":
@@ -6943,7 +6928,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
             st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
             st.success("当前客户：通用成本　·　价格来源：通用价格")
-            st.caption("管理员可直接搜索料号；如需查看客户专属价格，请从下拉选单选择会员登记客户。")
+            st.caption("管理员可直接搜索料号；如需查看客户专属价格，请从下拉选单选择客户资讯中已启用的客户。")
             return COST_CUSTOMER_TYPE_NEW, "", True
         with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
             new_customer_name = st.text_input(
@@ -7004,7 +6989,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         price_source = "通用价格"
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
     if is_admin:
-        st.caption("管理员可在上方下拉选单切换所有会员登记客户；没有专属价格时自动使用通用价格。")
+        st.caption("管理员可在上方下拉选单切换客户资讯中已启用的客户；没有专属价格时自动使用通用价格。")
     elif access_level == "pm":
         st.caption("PM 使用通用价格；客户专属价仅供负责销售查看。")
     elif access_level == "sales":

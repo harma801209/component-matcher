@@ -2,6 +2,12 @@
 
 This file is the shared handoff record for work in `C:\Users\zjh\Desktop\data`.
 
+### 2026-09-11 [Customer pricing] Make the active customer master the selector source of truth
+
+- The administrator price-search dropdown previously combined member-entered prospects and legacy price-sheet labels with maintained customers. This produced selectable names that did not exist as active customer-information records.
+- Price search now lists only active customer-master rows. Pending registrations still appear in customer maintenance so an administrator can complete them; historical price labels remain preserved for audit and are not deleted.
+- Focused regression verifies that an active master customer appears while an unmaintained registration, a disabled customer and a legacy price-only label do not. Existing owner-scoped sales authorization is unchanged.
+
 ### 2026-09-11 [Customer data] Require legal full names and audit legacy abbreviations
 
 - Sales customer registration, administrator maintenance and customer Excel import now share the same legal full-name validation. New Chinese company names must retain a legal entity ending such as `有限公司`; overseas names must retain a registered suffix such as Ltd., Inc., LLC or GmbH.
