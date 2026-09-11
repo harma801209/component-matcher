@@ -4530,6 +4530,43 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(customer_bom_mapping["name"], "中文名称")
         self.assertIsNone(customer_bom_mapping["quantity"])
 
+        euro_total_mapping = app["guess_bom_column_mapping"](
+            pd.DataFrame(
+                {
+                    "品号": ["12114001870H02", "12215004590H01", "1211422400H03"],
+                    "品名": ["贴片电阻", "陶瓷贴片电容", "贴片电阻"],
+                    "规格": [
+                        "100Ω;±1%;1/4W;1206;WALSIN;WR12X1000FTL;无卤",
+                        "4.7uF;25V;±10%;0805;X7R;YAGEO;CC0805KKX7R8BB475;无卤",
+                        "4.3KΩ;75V;±0.1%;1/10W;0603;FENGHUA;TD03G4301BT;无卤",
+                    ],
+                    "申请数量": [10, 20, 30],
+                }
+            )
+        )
+        self.assertIsNone(euro_total_mapping["model"])
+        self.assertEqual(euro_total_mapping["spec"], "规格")
+
+        euro_vendor_mapping = app["guess_bom_column_mapping"](
+            pd.DataFrame(
+                {
+                    "品号": ["12215004590H01", "12215001640H07", "12215001020H01"],
+                    "规格": ["4.7uF 25V 0805", "1000pF 50V 0402", "0.22uF 25V 0402"],
+                    "华科样品": ["0805B475K250CT", "0402N102J500CT", "0402B224K250CT"],
+                }
+            )
+        )
+        self.assertEqual(euro_vendor_mapping["model"], "华科样品")
+        self.assertTrue(app["looks_like_internal_bom_part_number"]("12114001870H02"))
+        self.assertFalse(app["looks_like_internal_bom_part_number"]("0805B475K250CT"))
+        internal_candidates = app["build_bom_query_candidates"](
+            "12114001870H02",
+            "100Ω;±1%;1/4W;1206;WALSIN;WR12X1000FTL;无卤",
+            "贴片电阻",
+        )
+        self.assertEqual(internal_candidates[0]["source"], "规格列+品名列")
+        self.assertTrue(all("型号列" not in item["source"] for item in internal_candidates))
+
         original_current_parser = app["find_labeled_current_in_text"]
         current_parser_calls = []
         try:
@@ -6881,6 +6918,10 @@ class SystemRegressionTests(unittest.TestCase):
             {"_size": "1210", "_mat": "COG(NPO)", "_pf": 22_000, "_tol": "5", "_volt_num": None},
         )
         self.assertEqual(app["clean_voltage"](lightweight["耐压（V）"]), "1000")
+        self.assertTrue(
+            set(app["PREPARED_SEARCH_REQUIRED_COLUMNS"]).issubset(lightweight),
+            "Lightweight sidecar rows must remain ready for matching without full re-normalization",
+        )
         displayed = app["build_part_info_df"](source, reverse, model)
         self.assertIn("1000V", displayed.to_string(index=False))
 

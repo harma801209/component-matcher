@@ -32,6 +32,7 @@ from copy import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from functools import lru_cache
 try:
     from zoneinfo import ZoneInfo
 except Exception:
@@ -11313,6 +11314,7 @@ BOM_COLUMN_KEYWORDS = {
 BOM_COLUMN_NEGATIVE_KEYWORDS = {
     "model": [
         ("客户料号", 160), ("客户物料", 150), ("客户编码", 130),
+        ("规格", 160), ("参数", 150), ("描述", 140), ("品名", 130), ("名称", 110),
     ],
     "quantity": [
         ("单价", 220), ("單價", 220), ("price", 220), ("金额", 220),
@@ -22565,6 +22567,7 @@ def merge_query_text_hints_into_spec(spec, query_text):
         pass
     return merged
 
+@lru_cache(maxsize=8192)
 def normalize_component_keyword_compact(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -22573,6 +22576,7 @@ def normalize_component_keyword_compact(text):
     return re.sub(r"[^A-Z0-9\u4E00-\u9FFFΩ]+", "", compact)
 
 
+@lru_cache(maxsize=32768)
 def alias_token_matches(upper_text, compact_text, token):
     token_upper = clean_text(token).upper()
     if token_upper == "":
@@ -22581,15 +22585,20 @@ def alias_token_matches(upper_text, compact_text, token):
     if token_compact == "":
         return False
     if re.fullmatch(r"[A-Z0-9]+", token_compact) and len(token_compact) <= 4:
-        boundary_patterns = [
-            rf"(?<![A-Z0-9]){re.escape(token_compact)}(?![A-Z0-9])",
-            rf"(?<![A-Z0-9]){re.escape(token_compact)}(?=\d)",
-            rf"^{re.escape(token_compact)}(?=\d)",
-        ]
-        return any(re.search(pattern, upper_text) is not None for pattern in boundary_patterns)
+        return any(pattern.search(upper_text) is not None for pattern in alias_boundary_patterns(token_compact))
     if re.search(r"[^A-Z0-9Ω]", token_upper) or " " in token_upper:
         return token_upper in upper_text
     return token_compact in compact_text
+
+
+@lru_cache(maxsize=256)
+def alias_boundary_patterns(token_compact):
+    escaped = re.escape(clean_text(token_compact).upper())
+    return (
+        re.compile(rf"(?<![A-Z0-9]){escaped}(?![A-Z0-9])"),
+        re.compile(rf"(?<![A-Z0-9]){escaped}(?=\d)"),
+        re.compile(rf"^{escaped}(?=\d)"),
+    )
 
 
 COMPONENT_ALIAS_TOKENS = {
@@ -22717,6 +22726,7 @@ COMPONENT_ALIAS_TOKENS = {
 }
 
 
+@lru_cache(maxsize=16384)
 def matches_component_alias(text, component_type):
     upper = clean_text(text).upper()
     compact = normalize_component_keyword_compact(text)
@@ -23197,6 +23207,7 @@ def find_safety_class(text):
         return match.group(1)
     return ""
 
+@lru_cache(maxsize=8192)
 def detect_component_type_hint(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -35806,6 +35817,81 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         ).iloc[0]
         if pd.isna(existing_voltage_num) and pd.notna(decoded_voltage_num):
             record["_volt_num"] = float(decoded_voltage_num)
+
+    # Sidecar detail tables already contain the normalized search fields.  Keep
+    # the lightweight row fully prepared so every BOM candidate does not run
+    # the complete dataframe normalization pipeline again.  This path is used
+    # repeatedly during specification fallback matching, so avoiding that
+    # redundant work materially reduces the delay before the first BOM result.
+    record["_size"] = clean_size(record.get("尺寸（inch）", detail_row.get("_size", "")))
+    record["_mat"] = clean_material(record.get("材质（介质）", detail_row.get("_mat", "")))
+    record["_tol"] = (
+        clean_frequency_tolerance_for_match(record.get("容值误差", ""))
+        if timing_component
+        else clean_tol_for_match(record.get("容值误差", detail_row.get("_tol", "")))
+    )
+    record["_volt"] = clean_voltage(
+        record.get("电源电压", "") if timing_component else record.get("耐压（V）", "")
+    )
+    record["_pf"] = pd.to_numeric(pd.Series([record.get("容值_pf", None)]), errors="coerce").iloc[0]
+    tolerance_key = tolerance_sort_key(record.get("_tol", ""))
+    record["_tol_kind"] = tolerance_key[0]
+    record["_tol_num"] = pd.to_numeric(pd.Series([tolerance_key[1]]), errors="coerce").iloc[0]
+    voltage_num = pd.to_numeric(
+        pd.Series([record.get("_volt_num", record.get("_volt", None))]),
+        errors="coerce",
+    ).iloc[0]
+    record["_volt_num"] = float(voltage_num) if pd.notna(voltage_num) else None
+    record["_component_type"] = component_type
+    record["_res_ohm"] = pd.to_numeric(
+        pd.Series([record.get("_resistance_ohm", detail_row.get("_res_ohm", None))]),
+        errors="coerce",
+    ).iloc[0]
+    if component_type == "热敏电阻":
+        thermistor_power = thermistor_max_power_text_from_record(record)
+        if thermistor_power != "":
+            record["功率"] = thermistor_power
+            record["_power"] = thermistor_power
+            record["_power_watt"] = parse_power_to_watts(thermistor_power)
+    record["_power"] = clean_text(record.get("_power", record.get("功率", "")))
+    record["_power_watt"] = pd.to_numeric(
+        pd.Series([record.get("_power_watt", detail_row.get("_power_watt", None))]),
+        errors="coerce",
+    ).iloc[0]
+    record["_body_size"] = clean_text(detail_row.get("_body_size", record.get("尺寸（mm）", "")))
+    record["_pitch"] = clean_text(detail_row.get("_pitch", record.get("脚距", "")))
+    record["_safety_class"] = clean_text(detail_row.get("_safety_class", record.get("安规", "")))
+    record["_varistor_voltage"] = clean_voltage(
+        detail_row.get("_varistor_voltage", record.get("压敏电压", ""))
+    )
+    record["_disc_size"] = clean_text(detail_row.get("_disc_size", record.get("规格", "")))
+    record["_temp_low"] = pd.to_numeric(
+        pd.Series([detail_row.get("_temp_low", None)]), errors="coerce"
+    ).iloc[0]
+    record["_temp_high"] = pd.to_numeric(
+        pd.Series([detail_row.get("_temp_high", None)]), errors="coerce"
+    ).iloc[0]
+    record["_life_hours_num"] = pd.to_numeric(
+        pd.Series([detail_row.get("_life_hours_num", None)]), errors="coerce"
+    ).iloc[0]
+    record["_mount_style"] = normalize_mounting_style(
+        detail_row.get("_mount_style", record.get("安装方式", "")),
+        record.get("封装代码", ""),
+    )
+    record["_special_use_norm"] = normalize_special_use(
+        detail_row.get("_special_use_norm", record.get("特殊用途", ""))
+    )
+    record["_mlcc_series_class"] = normalize_mlcc_series_class(
+        "/".join(
+            part
+            for part in [
+                clean_text(record.get("_mlcc_series_class", "")),
+                clean_text(record.get("系列说明", "")),
+                clean_text(record.get("特殊用途", "")),
+            ]
+            if clean_text(part) != ""
+        )
+    )
     return record
 
 
@@ -35930,7 +36016,9 @@ def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_com
                         record = build_lightweight_component_row_from_search_sidecar(
                             detail_row,
                             detail_row,
-                            include_model_rule=False,
+                            include_model_rule=(
+                                normalize_component_type(preferred_component_type) != "MLCC"
+                            ),
                         )
                         if record:
                             records.append(record)
@@ -43506,12 +43594,18 @@ def guess_bom_column(upload_df, role, used_columns=None):
                 score += int((non_empty_count / max(1, len(upload_df))) * 30)
             elif role == "model":
                 model_ratio = 0
+                internal_id_ratio = 0
                 for x in sample:
                     raw = clean_text(x)
                     compact = raw.upper().replace(" ", "")
                     if re.fullmatch(r"[A-Z0-9._/\-]+", compact or "") and re.search(r"[A-Z]", compact or "") and re.search(r"\d", compact or ""):
                         model_ratio += 1
+                    if looks_like_internal_bom_part_number(raw):
+                        internal_id_ratio += 1
                 score += int((model_ratio / len(sample)) * 18)
+                if model_ratio == 0:
+                    score -= 40
+                score -= int((internal_id_ratio / len(sample)) * 80)
                 non_empty_count = int(upload_df[col].apply(clean_text).ne("").sum())
                 score += int((non_empty_count / max(1, len(upload_df))) * 30)
 
@@ -43641,7 +43735,10 @@ def looks_like_internal_bom_part_number(value):
     text = clean_text(value).replace(" ", "")
     if text == "":
         return False
-    return bool(re.fullmatch(r"\d+(?:\.\d+){2,}(?:-\d+)?", text))
+    return bool(
+        re.fullmatch(r"\d+(?:\.\d+){2,}(?:-\d+)?", text)
+        or re.fullmatch(r"\d{8,}[A-Z]\d{2,}", text, flags=re.I)
+    )
 
 
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):

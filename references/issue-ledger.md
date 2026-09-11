@@ -1561,3 +1561,10 @@
 - Fix: default the search-record module to all history, add 今日/本周/本月/总共/自定义 range controls, make the full detail set selectable without a SQL row cap, add a per-member 今日/本周/本月/总共 summary, and add an all-time normalized trend view.
 - Safety: bounded 300/1,000-row display choices remain available for slower clients; keyword and custom-date filters still apply to the detailed audit query. No protected database rows are modified.
 - Regression: isolated fixtures verify period boundaries, unlimited and bounded detail queries, unlimited copy-event merging, all-time trend grouping, and the new default/labels in the admin source.
+
+## 2026-09-11 - ERP item numbers stalled BOM matching before the first result
+
+- Symptom: the 196-row `欧陆通样品明细.xlsx` upload could remain at `准备开始 BOM 匹配` and later advance only 33 rows in about 4 minutes 39 seconds.
+- Root cause: compact ERP item numbers such as `12114001870H02` and `12215004590H01` were treated as manufacturer order numbers. Every row first ran an unsuccessful exact/prefix lookup and repeatedly prepared brand/model rows before the richer specification was evaluated. The generic `品号` column could also outrank a partially populated, real vendor-model column such as `华科样品`.
+- Fix: recognize the workbook's digit-heavy ERP item-number shape, exclude those values from model candidates when specifications are available, penalize internal-ID columns during automatic mapping, and allow the actual vendor-model column to win. Keep search-sidecar candidates in their already-normalized form and cache repeated component-alias classification work instead of rebuilding the same fields and regular expressions for every BOM row.
+- Regression: fixtures cover representative 欧陆通 ERP numbers, vendor MLCC order numbers, automatic mapping with and without a vendor-model column, and candidate ordering that starts directly from the complete specification.
