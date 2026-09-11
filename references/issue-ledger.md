@@ -1539,3 +1539,12 @@
 - Fix: decode CCTC M/EM automotive suffixes and their flexible-terminal variants into strict automotive series classes; classify only the reported Taiyo legacy model by its official preferred AEC-Q200 successor; and show only `MCASE168AB5225KTNA01` as its current recommended automotive order number. TDK CGA remains automotive by its official family definition.
 - Safety: automotive is a hard MLCC equivalence condition. General-purpose, industrial-only, and medical-only rows are removed rather than demoted, so an empty alternative list is preferable to an unsafe substitution. Other EMK legacy models are not globally reclassified.
 - Regression: all three reported source models resolve with the automotive constraint; every returned alternative is automotive-qualified; the Taiyo source card contains only the legacy model and the preferred MCASE successor.
+
+## 2026-09-11 - Search details hid older members and truncated the audit history
+
+- Symptom: the backend search-detail table showed only recent Terry records; 刘洋/Lyon was absent even though the account had searched, and the page did not expose clear daily, weekly, monthly, or all-time totals.
+- Root cause: the page silently defaulted to the latest seven days and imposed a 300-row detail limit. The daily/weekly/monthly selector controlled only the normalized Top 10 trend, not the underlying audit range, and there was no all-time option or per-member period summary.
+- Confirmed data: the protected remote member snapshot contains 3,660 search rows. 刘洋 (`Lyon`) has two intact rows from 2026-09-03, which fell outside the old default 2026-09-05 through 2026-09-11 window.
+- Fix: default the search-record module to all history, add 今日/本周/本月/总共/自定义 range controls, make the full detail set selectable without a SQL row cap, add a per-member 今日/本周/本月/总共 summary, and add an all-time normalized trend view.
+- Safety: bounded 300/1,000-row display choices remain available for slower clients; keyword and custom-date filters still apply to the detailed audit query. No protected database rows are modified.
+- Regression: isolated fixtures verify period boundaries, unlimited and bounded detail queries, unlimited copy-event merging, all-time trend grouping, and the new default/labels in the admin source.

@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 import warnings
+from datetime import date
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -658,6 +659,86 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(no_match_detail["outcome_status"], "无法识别")
         self.assertEqual(int(no_match_detail["returned_result_count"]), 0)
         self.assertEqual(app["list_member_search_log_results"](no_match_ids[0]), [])
+
+    def test_02a_search_admin_period_summary_and_unlimited_details(self):
+        app = self.app
+        member = app["get_member_by_username"]("caseuser")
+        self.assertIsNotNone(member)
+        rows = [
+            ("period-check-day", "2026-09-11", "2026-09-11 08:00:00"),
+            ("period-check-week", "2026-09-08", "2026-09-08 08:00:00"),
+            ("period-check-month", "2026-09-01", "2026-09-01 08:00:00"),
+            ("period-check-total", "2026-08-01", "2026-08-01 08:00:00"),
+        ]
+        with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+            for suffix, search_date, created_at in rows:
+                query_text = f"PERIOD-CHECK-{suffix}"
+                conn.execute(
+                    """
+                    INSERT INTO member_search_logs (
+                        audit_key, member_id, username_snapshot, display_name_snapshot,
+                        query_text, query_key, query_type, source, search_date, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, '料号', 'regression-period', ?, ?)
+                    """,
+                    (
+                        f"audit-{suffix}",
+                        int(member["id"]),
+                        member["username"],
+                        member["display_name"],
+                        query_text,
+                        query_text.upper(),
+                        search_date,
+                        created_at,
+                    ),
+                )
+            conn.commit()
+
+        period_rows = app["list_member_search_member_period_summary"](
+            keyword="PERIOD-CHECK-",
+            reference_date=date(2026, 9, 11),
+        )
+        self.assertEqual(len(period_rows), 1)
+        self.assertEqual(int(period_rows[0]["daily_count"]), 1)
+        self.assertEqual(int(period_rows[0]["weekly_count"]), 2)
+        self.assertEqual(int(period_rows[0]["monthly_count"]), 3)
+        self.assertEqual(int(period_rows[0]["total_count"]), 4)
+        period_df = app["member_search_member_period_dataframe"](period_rows)
+        self.assertEqual(
+            list(period_df.columns),
+            ["会员", "账号", "今日", "本周", "本月", "总共", "最近搜索"],
+        )
+
+        all_details = app["list_member_search_log_details"](
+            keyword="PERIOD-CHECK-",
+            limit=None,
+        )
+        self.assertEqual(len(all_details), 4)
+        merged = app["merge_member_search_details_with_copy_events"](
+            all_details,
+            [],
+            limit=None,
+        )
+        self.assertEqual(len(merged), 4)
+        limited = app["list_member_search_log_details"](
+            keyword="PERIOD-CHECK-",
+            limit=1,
+        )
+        self.assertEqual(len(limited), 1)
+
+        summary = [
+            {
+                "search_date": "2026-09-11",
+                "query_text": "0402 10K 1% 1/16W",
+                "search_count": 2,
+            }
+        ]
+        total_trend = app["build_member_search_trend_dataframe"](
+            summary,
+            period="total",
+        )
+        self.assertFalse(total_trend.empty)
+        self.assertEqual(set(total_trend["周期"]), {"总共"})
+        self.assertEqual(app["member_search_trend_period_label"]("2026-09-11", "total"), "总共")
 
     def test_02a0_search_result_copy_audit_is_signed_invisible_and_traceable(self):
         app = self.app

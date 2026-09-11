@@ -3348,11 +3348,14 @@ def list_member_search_log_details(start_date="", end_date="", keyword="", limit
     refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
-    try:
-        limit = max(1, min(1000, int(limit)))
-    except Exception:
-        limit = 300
-    params.append(limit)
+    limit_clause = ""
+    if limit is not None:
+        try:
+            limit = max(1, min(5000, int(limit)))
+        except Exception:
+            limit = 300
+        limit_clause = "LIMIT ?"
+        params.append(limit)
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -3361,7 +3364,50 @@ def list_member_search_log_details(start_date="", end_date="", keyword="", limit
             FROM member_search_logs
             {where_clause}
             ORDER BY id DESC
-            LIMIT ?
+            {limit_clause}
+            """,
+            tuple(params),
+        ).fetchall()
+    return [member_row_to_dict(row) for row in rows]
+
+
+def list_member_search_member_period_summary(keyword="", reference_date=None):
+    """Return complete per-member counts for today, this week, month, and all time."""
+    refresh_member_auth_remote_snapshot()
+    ensure_member_auth_schema()
+    if reference_date is None:
+        reference_date = datetime.now(APP_TIMEZONE).date()
+    elif isinstance(reference_date, datetime):
+        reference_date = reference_date.date()
+    week_start = reference_date - timedelta(days=reference_date.weekday())
+    month_start = reference_date.replace(day=1)
+    today_text = reference_date.isoformat()
+    where_clause, keyword_params = build_member_search_log_where("", "", keyword)
+    params = [
+        today_text,
+        week_start.isoformat(),
+        today_text,
+        month_start.isoformat(),
+        today_text,
+        *keyword_params,
+    ]
+    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT
+                member_id,
+                MAX(username_snapshot) AS username_snapshot,
+                MAX(display_name_snapshot) AS display_name_snapshot,
+                SUM(CASE WHEN search_date=? THEN 1 ELSE 0 END) AS daily_count,
+                SUM(CASE WHEN search_date>=? AND search_date<=? THEN 1 ELSE 0 END) AS weekly_count,
+                SUM(CASE WHEN search_date>=? AND search_date<=? THEN 1 ELSE 0 END) AS monthly_count,
+                COUNT(*) AS total_count,
+                MAX(created_at) AS last_searched_at
+            FROM member_search_logs
+            {where_clause}
+            GROUP BY member_id
+            ORDER BY total_count DESC, last_searched_at DESC, member_id ASC
             """,
             tuple(params),
         ).fetchall()
@@ -3559,10 +3605,6 @@ def merge_member_search_details_with_copy_events(rows, copy_events, limit=1000):
             }
         )
         represented.add(group_key)
-    try:
-        limit = max(1, min(1000, int(limit or 1000)))
-    except Exception:
-        limit = 1000
     merged.sort(
         key=lambda row: (
             clean_text(row.get("created_at", "")),
@@ -3570,6 +3612,12 @@ def merge_member_search_details_with_copy_events(rows, copy_events, limit=1000):
         ),
         reverse=True,
     )
+    if limit is None:
+        return merged
+    try:
+        limit = max(1, min(5000, int(limit or 1000)))
+    except Exception:
+        limit = 1000
     return merged[:limit]
 
 
@@ -3613,6 +3661,25 @@ def member_search_detail_dataframe(rows, copy_events=None):
                 "返回型号数": int(row.get("returned_result_count") or 0),
                 "来源": clean_text(row.get("source", "")),
                 "完成时间": clean_text(row.get("completed_at", "")),
+            }
+        )
+    return pd.DataFrame(data)
+
+
+def member_search_member_period_dataframe(rows):
+    data = []
+    for row in rows or []:
+        display_name = clean_text(row.get("display_name_snapshot", ""))
+        username = clean_text(row.get("username_snapshot", ""))
+        data.append(
+            {
+                "会员": display_name or username,
+                "账号": username,
+                "今日": int(row.get("daily_count") or 0),
+                "本周": int(row.get("weekly_count") or 0),
+                "本月": int(row.get("monthly_count") or 0),
+                "总共": int(row.get("total_count") or 0),
+                "最近搜索": clean_text(row.get("last_searched_at", "")),
             }
         )
     return pd.DataFrame(data)
@@ -3900,6 +3967,8 @@ def member_search_trend_period_label(search_date, period):
         day = datetime.strptime(search_date, "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return ""
+    if period == "total":
+        return "总共"
     if period == "weekly":
         week_start = day - timedelta(days=day.weekday())
         week_end = week_start + timedelta(days=6)
@@ -3963,7 +4032,7 @@ def _build_member_search_trend_base_dataframe_cached(rows_signature, database_si
 
 def build_member_search_trend_dataframe(summary_rows, period="daily"):
     period = clean_text(period).lower()
-    if period not in {"daily", "weekly", "monthly"}:
+    if period not in {"daily", "weekly", "monthly", "total"}:
         period = "daily"
     base_df = _build_member_search_trend_base_dataframe_cached(
         member_search_trend_rows_signature(summary_rows),
@@ -3999,6 +4068,7 @@ def render_member_search_trend_chart(trend_df, period="daily"):
         "daily": ("趋势日期", "admin_search_trend_daily", "日期"),
         "weekly": ("趋势周", "admin_search_trend_weekly", "周"),
         "monthly": ("趋势月份", "admin_search_trend_monthly", "月份"),
+        "total": ("统计范围", "admin_search_trend_total", "范围"),
     }
     selector_label, selector_key, empty_label = period_config.get(period, period_config["daily"])
     periods = sorted([clean_text(x) for x in trend_df["周期"].dropna().unique() if clean_text(x) != ""], reverse=True)
@@ -5411,29 +5481,69 @@ def render_member_search_logs_admin_page():
         "需求统计",
     )
     today = datetime.now(APP_TIMEZONE).date()
-    default_start = today - timedelta(days=6)
-    filter_cols = st.columns([0.22, 0.22, 0.36, 0.20], gap="small")
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    range_options = ["今日", "本周", "本月", "总共", "自定义"]
+    range_label = clean_text(st.session_state.get("admin_search_logs_range", "总共"))
+    if range_label not in range_options:
+        range_label = "总共"
+    range_label = render_admin_segmented_control(
+        "搜索明细范围",
+        range_options,
+        key="admin_search_logs_range",
+        default="总共",
+    )
+    start_text = ""
+    end_text = ""
+    if range_label == "今日":
+        start_text = today.isoformat()
+        end_text = today.isoformat()
+    elif range_label == "本周":
+        start_text = week_start.isoformat()
+        end_text = today.isoformat()
+    elif range_label == "本月":
+        start_text = month_start.isoformat()
+        end_text = today.isoformat()
+    elif range_label == "自定义":
+        date_cols = st.columns(2, gap="small")
+        with date_cols[0]:
+            start_date_value = st.date_input(
+                "开始日期",
+                value=today - timedelta(days=6),
+                key="admin_search_logs_custom_start_date",
+            )
+        with date_cols[1]:
+            end_date_value = st.date_input(
+                "结束日期",
+                value=today,
+                key="admin_search_logs_custom_end_date",
+            )
+        start_text = (
+            start_date_value.strftime("%Y-%m-%d")
+            if hasattr(start_date_value, "strftime")
+            else clean_text(start_date_value)
+        )
+        end_text = (
+            end_date_value.strftime("%Y-%m-%d")
+            if hasattr(end_date_value, "strftime")
+            else clean_text(end_date_value)
+        )
+
+    filter_cols = st.columns([0.72, 0.28], gap="small")
     with filter_cols[0]:
-        start_date_value = st.date_input("开始日期", value=default_start, key="admin_search_logs_start_date")
-    with filter_cols[1]:
-        end_date_value = st.date_input("结束日期", value=today, key="admin_search_logs_end_date")
-    with filter_cols[2]:
         keyword = st.text_input(
             "筛选关键词",
             key="admin_search_logs_keyword",
             placeholder="输入搜索内容、账号、会员名或类型",
         )
-    with filter_cols[3]:
-        limit = st.number_input(
-            "显示上限",
-            min_value=50,
-            max_value=1000,
-            value=300,
-            step=50,
-            key="admin_search_logs_limit",
+    with filter_cols[1]:
+        detail_limit_label = st.selectbox(
+            "明细显示数量",
+            options=["全部", "最近 300 条", "最近 1000 条"],
+            index=0,
+            key="admin_search_logs_detail_limit",
         )
-    start_text = start_date_value.strftime("%Y-%m-%d") if hasattr(start_date_value, "strftime") else clean_text(start_date_value)
-    end_text = end_date_value.strftime("%Y-%m-%d") if hasattr(end_date_value, "strftime") else clean_text(end_date_value)
+    detail_limit = {"最近 300 条": 300, "最近 1000 条": 1000}.get(detail_limit_label)
     if start_text and end_text and start_text > end_text:
         st.warning("开始日期不能晚于结束日期。")
         return
@@ -5441,9 +5551,10 @@ def render_member_search_logs_admin_page():
     if st.button("刷新复制记录", key="admin_search_logs_refresh_copy_audit"):
         fetch_member_search_copy_events_remote.clear()
 
-    summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=limit)
-    trend_summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=None)
-    detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=limit)
+    summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=None)
+    trend_summary_rows = summary_rows
+    detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=detail_limit)
+    member_period_rows = list_member_search_member_period_summary(keyword=keyword, reference_date=today)
     copy_events_response = list_member_search_copy_events(
         start_text,
         end_text,
@@ -5455,7 +5566,7 @@ def render_member_search_logs_admin_page():
     detail_rows = merge_member_search_details_with_copy_events(
         detail_rows,
         copy_events,
-        limit=limit,
+        limit=detail_limit,
     )
     startup_trace(
         f"search_logs:queries summary={len(summary_rows)} trend={len(trend_summary_rows)} details={len(detail_rows)} elapsed={time.perf_counter() - trace_started:.4f}"
@@ -5465,24 +5576,39 @@ def render_member_search_logs_admin_page():
     total_search_count = sum(int(row.get("search_count") or 0) for row in summary_rows)
     unique_query_count = len(summary_rows)
     active_member_count = len({int(row.get("member_id") or 0) for row in detail_rows if int(row.get("member_id") or 0) > 0})
+    daily_search_count = sum(int(row.get("daily_count") or 0) for row in member_period_rows)
+    weekly_search_count = sum(int(row.get("weekly_count") or 0) for row in member_period_rows)
+    monthly_search_count = sum(int(row.get("monthly_count") or 0) for row in member_period_rows)
+    all_time_search_count = sum(int(row.get("total_count") or 0) for row in member_period_rows)
     top_row = max(summary_rows, key=lambda row: int(row.get("search_count") or 0), default={})
     top_query = clean_text(top_row.get("query_text", ""))
     if len(top_query) > 28:
         top_query = top_query[:28] + "..."
     render_admin_metric_cards(
         [
-            {"label": "区间搜索次数", "value": total_search_count, "note": f"{start_text} 至 {end_text}", "tone": "blue"},
-            {"label": "不同搜索内容", "value": unique_query_count, "note": "按日期和标准化内容统计", "tone": "neutral"},
-            {"label": "涉及会员", "value": active_member_count, "note": "当前明细范围内去重", "tone": "green"},
+            {"label": "今日搜索", "value": daily_search_count, "note": today.isoformat(), "tone": "blue"},
+            {"label": "本周搜索", "value": weekly_search_count, "note": f"{week_start.isoformat()} 起", "tone": "blue"},
+            {"label": "本月搜索", "value": monthly_search_count, "note": today.strftime("%Y-%m"), "tone": "green"},
+            {"label": "累计搜索", "value": all_time_search_count, "note": "全部历史记录", "tone": "neutral"},
+            {"label": "涉及会员", "value": active_member_count, "note": f"当前{range_label}范围", "tone": "green"},
             {"label": "结果复制次数", "value": len(copy_events), "note": "仅记录结果表中的品牌/型号", "tone": "green"},
-            {
-                "label": "最高频搜索",
-                "value": int(top_row.get("search_count") or 0) if top_row else 0,
-                "note": top_query or "暂无记录",
-                "tone": "amber",
-            },
         ]
     )
+    range_note = "全部历史" if range_label == "总共" else (
+        f"{start_text} 至 {end_text}" if start_text and end_text else range_label
+    )
+    st.caption(
+        f"当前筛选：{range_note} · 搜索 {total_search_count:,} 次 · "
+        f"不同搜索内容 {unique_query_count:,} 条 · 最高频 {int(top_row.get('search_count') or 0):,} 次"
+        + (f"（{top_query}）" if top_query else "")
+    )
+
+    st.markdown("#### 会员搜索统计（日／周／月／总共）")
+    member_period_df = member_search_member_period_dataframe(member_period_rows)
+    if member_period_df.empty:
+        st.info("当前关键词下没有会员搜索记录。")
+    else:
+        st.dataframe(member_period_df, use_container_width=True, hide_index=True)
 
     if not summary_rows:
         render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
@@ -5495,7 +5621,7 @@ def render_member_search_logs_admin_page():
                 )
         return
 
-    trend_period_options = ["每日", "每周", "每月"]
+    trend_period_options = ["每日", "每周", "每月", "总共"]
     trend_period_label = clean_text(st.session_state.get("admin_search_trend_period", "每日"))
     if trend_period_label not in trend_period_options:
         trend_period_label = "每日"
@@ -5505,11 +5631,17 @@ def render_member_search_logs_admin_page():
         key="admin_search_trend_period",
         default="每日",
     )
-    trend_period = {"每日": "daily", "每周": "weekly", "每月": "monthly"}.get(trend_period_label, "daily")
+    trend_period = {
+        "每日": "daily",
+        "每周": "weekly",
+        "每月": "monthly",
+        "总共": "total",
+    }.get(trend_period_label, "daily")
     trend_title = {
         "daily": "每日十大搜索规格趋势",
         "weekly": "每周十大搜索规格趋势",
         "monthly": "每月十大搜索规格趋势",
+        "total": "累计十大搜索规格趋势",
     }[trend_period]
     st.markdown(f"#### {trend_title}")
     trend_df = build_member_search_trend_dataframe(trend_summary_rows, period=trend_period)
@@ -5522,6 +5654,7 @@ def render_member_search_logs_admin_page():
             "daily": "查看每日搜索规格趋势明细",
             "weekly": "查看每周搜索规格趋势明细",
             "monthly": "查看每月搜索规格趋势明细",
+            "total": "查看累计搜索规格趋势明细",
         }[trend_period]
         with st.expander(detail_label, expanded=False):
             st.dataframe(

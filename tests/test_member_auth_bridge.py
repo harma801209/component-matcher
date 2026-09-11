@@ -171,6 +171,20 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('with st.expander("查看搜索明细"', admin_function)
         self.assertIn('"已复制品牌/型号":', self.matcher)
 
+    def test_search_admin_defaults_to_all_history_and_shows_period_totals(self):
+        admin_start = self.matcher.index("def render_member_search_logs_admin_page():")
+        admin_end = self.matcher.index("\ndef render_member_approval_admin_page", admin_start)
+        admin_function = self.matcher[admin_start:admin_end]
+        self.assertIn('range_options = ["今日", "本周", "本月", "总共", "自定义"]', admin_function)
+        self.assertIn('key="admin_search_logs_range"', admin_function)
+        self.assertIn('default="总共"', admin_function)
+        self.assertIn('"明细显示数量"', admin_function)
+        self.assertIn('options=["全部", "最近 300 条", "最近 1000 条"]', admin_function)
+        self.assertIn('"#### 会员搜索统计（日／周／月／总共）"', admin_function)
+        self.assertIn("list_member_search_member_period_summary", admin_function)
+        self.assertIn("limit=detail_limit", admin_function)
+        self.assertIn('"总共": "total"', admin_function)
+
     def test_member_session_persists_for_twelve_hours(self):
         self.assertIn("MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60", self.matcher)
         self.assertIn("const ttlMs = 12 * 60 * 60 * 1000;", self.worker)
