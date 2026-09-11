@@ -3678,7 +3678,7 @@ def member_search_member_period_dataframe(rows):
                 "今日": int(row.get("daily_count") or 0),
                 "本周": int(row.get("weekly_count") or 0),
                 "本月": int(row.get("monthly_count") or 0),
-                "总共": int(row.get("total_count") or 0),
+                "所有": int(row.get("total_count") or 0),
                 "最近搜索": clean_text(row.get("last_searched_at", "")),
             }
         )
@@ -3968,7 +3968,7 @@ def member_search_trend_period_label(search_date, period):
     except (TypeError, ValueError):
         return ""
     if period == "total":
-        return "总共"
+        return "所有"
     if period == "weekly":
         week_start = day - timedelta(days=day.weekday())
         week_end = week_start + timedelta(days=6)
@@ -5483,15 +5483,17 @@ def render_member_search_logs_admin_page():
     today = datetime.now(APP_TIMEZONE).date()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
-    range_options = ["今日", "本周", "本月", "总共", "自定义"]
-    range_label = clean_text(st.session_state.get("admin_search_logs_range", "总共"))
+    range_options = ["今日", "本周", "本月", "所有", "自定义"]
+    range_label = clean_text(st.session_state.get("admin_search_logs_range", "所有"))
+    if range_label == "总共":
+        range_label = "所有"
     if range_label not in range_options:
-        range_label = "总共"
+        range_label = "所有"
     range_label = render_admin_segmented_control(
         "搜索明细范围",
         range_options,
         key="admin_search_logs_range",
-        default="总共",
+        default="所有",
     )
     start_text = ""
     end_text = ""
@@ -5590,11 +5592,11 @@ def render_member_search_logs_admin_page():
             {"label": "本周搜索", "value": weekly_search_count, "note": f"{week_start.isoformat()} 起", "tone": "blue"},
             {"label": "本月搜索", "value": monthly_search_count, "note": today.strftime("%Y-%m"), "tone": "green"},
             {"label": "累计搜索", "value": all_time_search_count, "note": "全部历史记录", "tone": "neutral"},
-            {"label": "涉及会员", "value": active_member_count, "note": f"当前{range_label}范围", "tone": "green"},
+            {"label": "涉及会员", "value": active_member_count, "note": "当前筛选范围", "tone": "green"},
             {"label": "结果复制次数", "value": len(copy_events), "note": "仅记录结果表中的品牌/型号", "tone": "green"},
         ]
     )
-    range_note = "全部历史" if range_label == "总共" else (
+    range_note = "全部历史" if range_label == "所有" else (
         f"{start_text} 至 {end_text}" if start_text and end_text else range_label
     )
     st.caption(
@@ -5603,7 +5605,19 @@ def render_member_search_logs_admin_page():
         + (f"（{top_query}）" if top_query else "")
     )
 
-    st.markdown("#### 会员搜索统计（日／周／月／总共）")
+    st.markdown("#### 搜索规格／复制型号明细")
+    st.caption("每条搜索记录都会同时显示搜索规格、复制次数、已复制品牌／型号和最近复制时间。")
+    if detail_rows:
+        st.dataframe(
+            member_search_detail_dataframe(detail_rows, copy_events=copy_events),
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+        )
+    else:
+        st.info("当前筛选范围没有明细记录。")
+
+    st.markdown("#### 会员搜索统计（日／周／月／所有）")
     member_period_df = member_search_member_period_dataframe(member_period_rows)
     if member_period_df.empty:
         st.info("当前关键词下没有会员搜索记录。")
@@ -5612,16 +5626,9 @@ def render_member_search_logs_admin_page():
 
     if not summary_rows:
         render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
-        if detail_rows:
-            with st.expander("查看搜索明细", expanded=True):
-                st.dataframe(
-                    member_search_detail_dataframe(detail_rows, copy_events=copy_events),
-                    use_container_width=True,
-                    hide_index=True,
-                )
         return
 
-    trend_period_options = ["每日", "每周", "每月", "总共"]
+    trend_period_options = ["每日", "每周", "每月", "所有"]
     trend_period_label = clean_text(st.session_state.get("admin_search_trend_period", "每日"))
     if trend_period_label not in trend_period_options:
         trend_period_label = "每日"
@@ -5635,7 +5642,7 @@ def render_member_search_logs_admin_page():
         "每日": "daily",
         "每周": "weekly",
         "每月": "monthly",
-        "总共": "total",
+        "所有": "total",
     }.get(trend_period_label, "daily")
     trend_title = {
         "daily": "每日十大搜索规格趋势",
@@ -5654,7 +5661,7 @@ def render_member_search_logs_admin_page():
             "daily": "查看每日搜索规格趋势明细",
             "weekly": "查看每周搜索规格趋势明细",
             "monthly": "查看每月搜索规格趋势明细",
-            "total": "查看累计搜索规格趋势明细",
+            "total": "查看所有搜索规格趋势明细",
         }[trend_period]
         with st.expander(detail_label, expanded=False):
             st.dataframe(
@@ -5669,16 +5676,6 @@ def render_member_search_logs_admin_page():
         use_container_width=True,
         hide_index=True,
     )
-
-    with st.expander("查看搜索明细", expanded=False):
-        if detail_rows:
-            st.dataframe(
-                member_search_detail_dataframe(detail_rows, copy_events=copy_events),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("当前筛选范围没有明细记录。")
 
     with st.expander("追查单次搜索结果", expanded=False):
         if not detail_rows:

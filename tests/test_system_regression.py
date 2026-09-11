@@ -705,7 +705,7 @@ class SystemRegressionTests(unittest.TestCase):
         period_df = app["member_search_member_period_dataframe"](period_rows)
         self.assertEqual(
             list(period_df.columns),
-            ["会员", "账号", "今日", "本周", "本月", "总共", "最近搜索"],
+            ["会员", "账号", "今日", "本周", "本月", "所有", "最近搜索"],
         )
 
         all_details = app["list_member_search_log_details"](
@@ -737,8 +737,8 @@ class SystemRegressionTests(unittest.TestCase):
             period="total",
         )
         self.assertFalse(total_trend.empty)
-        self.assertEqual(set(total_trend["周期"]), {"总共"})
-        self.assertEqual(app["member_search_trend_period_label"]("2026-09-11", "total"), "总共")
+        self.assertEqual(set(total_trend["周期"]), {"所有"})
+        self.assertEqual(app["member_search_trend_period_label"]("2026-09-11", "total"), "所有")
 
     def test_02a0_search_result_copy_audit_is_signed_invisible_and_traceable(self):
         app = self.app

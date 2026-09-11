@@ -1426,6 +1426,12 @@
 - Fix: remove the page-level recent-copy table and place `复制次数`, `已复制品牌/型号`, and `最近复制时间` immediately after `搜索内容` in each search-detail row. Multiple distinct copied models are combined on their search row; exact event history remains available under `追查单次搜索结果`.
 - Regression: focused tests require the new column order and integrated label, reject the removed standalone heading, and preserve the per-search detailed audit table. Formal browser verification confirmed the standalone heading is gone while `查看搜索明细`, `结果复制次数`, and `追查单次搜索结果` remain available.
 
+### 2026-09-11 - Search/copy details looked missing after the history dashboard expansion
+- Symptom: the detailed rows containing search specifications and copied brand/models were moved below the member summary and trend sections and collapsed by default, so administrators could not see the former detail module in the normal viewport.
+- Root cause: the all-history dashboard retained the old bottom-of-page collapsed expander even after several new summary sections were inserted above it.
+- Fix: render `搜索规格／复制型号明细` directly below the top metrics and filter caption, keep the integrated copy columns visible, and rename the search-dashboard label `总共` to `所有` throughout the range, member-summary, and trend controls.
+- Regression: focused UI assertions require the direct detail section, reject the collapsed detail expander, and require the new `所有` labels; dataframe tests verify the all-history column and trend period label.
+
 ## 2026-08-27 - Browser refresh reset the active backend module
 
 - Symptom: the formal page could remain in the administrator backend after F5, but refreshing while `搜索记录` or another internal module was active returned to the default `无匹配回报` module.
