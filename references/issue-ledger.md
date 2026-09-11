@@ -1,5 +1,12 @@
 # Issue Ledger
 
+## 2026-09-11 - Multiple factories can share a customer group and price code
+
+- Requirement: separate legal companies may manufacture for the same brand-side group. They must remain separate customer records but may use the same group name and customer code, and the customer code—not the group label—determines which dedicated cost applies.
+- Previous behavior: `sales_customers.customer_code_key` had a unique index, imports treated a matching code as the existing customer, and price lookup expanded one customer's access to every code found under the same group.
+- Fix: migrate the customer-code index from unique to non-unique, continue keeping the legal company name unique, make imports update by company name, and restrict dedicated-price lookup/status to the selected customer's own code. Customers sharing that code receive the same price; customers sharing only the group name do not.
+- Regression: an old unique-index database migrates safely; two legal companies can be saved and imported with one group/code; both same-code companies receive the dedicated price, while a same-group/different-code company receives the general price. Salesperson ownership checks remain enforced.
+
 ## 2026-09-11 - Price-search customer choices diverged from the customer master
 
 - Symptom: the administrator's `当前客户` price-search dropdown showed names such as member-entered prospects and old price-sheet customer labels even when no corresponding active row existed in customer maintenance.

@@ -6195,8 +6195,8 @@ def init_cost_price_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_customers_name
             ON sales_customers(customer_key);
 
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_customers_code
-            ON sales_customers(customer_code_key);
+            CREATE INDEX IF NOT EXISTS idx_sales_customers_code
+            ON sales_customers(customer_code_key, active);
 
             CREATE INDEX IF NOT EXISTS idx_sales_customers_group
             ON sales_customers(group_key, active, customer_code_key);
@@ -6240,6 +6240,20 @@ def init_cost_price_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sales_customers_owner "
             "ON sales_customers(owner_member_id, active, customer_key)"
+        )
+        customer_code_index = next(
+            (
+                row
+                for row in conn.execute("PRAGMA index_list(sales_customers)").fetchall()
+                if len(row) > 2 and clean_text(row[1]) == "idx_sales_customers_code"
+            ),
+            None,
+        )
+        if customer_code_index is not None and int(customer_code_index[2] or 0) == 1:
+            conn.execute("DROP INDEX idx_sales_customers_code")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sales_customers_code "
+            "ON sales_customers(customer_code_key, active)"
         )
         conn.execute("DROP INDEX IF EXISTS idx_cost_price_manual_brand_model")
         conn.execute(
@@ -6515,32 +6529,16 @@ def get_sales_customer_price_context(customer_name):
             "group_codes": [],
             "group_code_keys": [],
         }
-    group_key = clean_text(record.get("group_key", ""))
-    init_cost_price_db()
-    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
-        rows = conn.execute(
-            """
-            SELECT customer_code, customer_code_key
-            FROM sales_customers
-            WHERE active=1 AND group_key=? AND customer_code_key<>''
-            ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END, customer_code ASC
-            """,
-            (group_key, int(record.get("id", 0) or 0)),
-        ).fetchall()
-    group_codes = [normalize_sales_customer_code(row[0]) for row in rows if normalize_sales_customer_code(row[0])]
-    group_code_keys = [normalize_sales_customer_code_key(row[1]) for row in rows if normalize_sales_customer_code_key(row[1])]
     primary_code = normalize_sales_customer_code(record.get("customer_code", ""))
     primary_code_key = normalize_sales_customer_code_key(record.get("customer_code_key", "") or primary_code)
-    if primary_code and primary_code not in group_codes:
-        group_codes.insert(0, primary_code)
-    if primary_code_key and primary_code_key not in group_code_keys:
-        group_code_keys.insert(0, primary_code_key)
     return {
         "record": record,
         "primary_code": primary_code,
         "primary_code_key": primary_code_key,
-        "group_codes": group_codes,
-        "group_code_keys": group_code_keys,
+        # Compatibility keys retained for existing lookup callers. Sharing is
+        # deliberately code-based: the group name alone grants no other code.
+        "group_codes": [primary_code] if primary_code else [],
+        "group_code_keys": [primary_code_key] if primary_code_key else [],
     }
 
 
@@ -6639,7 +6637,7 @@ def save_sales_customer(
                 action = "更新"
             conn.commit()
     except sqlite3.IntegrityError:
-        return False, "客户名称或客户代码已由其他记录使用，请检查后再保存。", None
+        return False, "客户公司全名已由其他记录使用，请检查后再保存。", None
     clear_cost_price_lookup_cache()
     synced = flush_runtime_store_remote_snapshot("cost-price") if sync_remote else True
     _, _, remote_enabled = get_runtime_store_remote_config()
@@ -6653,7 +6651,7 @@ def build_sales_customer_template_bytes():
     sheet.title = "客户资讯"
     headers = ["所属集团", "客户名称/公司全名", "客户代码", "负责销售账号", "状态", "备注"]
     sheet.append(headers)
-    sheet.append(["A集团", "深圳市示例科技有限公司", "F0001", "sales01", "启用", "同集团代码自动共享专价"])
+    sheet.append(["A集团", "深圳市示例科技有限公司", "F0001", "sales01", "启用", "不同公司可填写相同集团及客户代码；专价按客户代码共享"])
     sheet.append(["A集团", "东莞市示例电子有限公司", "F0002", "sales02", "启用", ""])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -6718,14 +6716,14 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
                 return False, f"第 {row_index} 行负责销售账号不存在或未启用：{owner_username}", imported
             owner_member_id = int(owner_row[0])
         existing = None
-        code_key = normalize_sales_customer_code_key(customer_code)
-        if code_key:
+        customer_key = normalize_cost_customer_key(customer_name)
+        if customer_key:
             init_cost_price_db()
             with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
                 conn.row_factory = sqlite3.Row
                 found = conn.execute(
-                    "SELECT * FROM sales_customers WHERE customer_code_key=? LIMIT 1",
-                    (code_key,),
+                    "SELECT * FROM sales_customers WHERE customer_key=? LIMIT 1",
+                    (customer_key,),
                 ).fetchone()
                 existing = dict(found) if found is not None else None
         ok, message, _ = save_sales_customer(
@@ -7671,15 +7669,8 @@ def cost_price_item_scope_rank(item, customer_context=None, legacy_rank=30):
     if scope_kind in {"", "general"} or not scope_keys:
         return int(legacy_rank)
     primary_key = normalize_sales_customer_code_key(customer_context.get("primary_code_key", ""))
-    group_keys = {
-        normalize_sales_customer_code_key(value)
-        for value in (customer_context.get("group_code_keys", []) or [])
-        if normalize_sales_customer_code_key(value)
-    }
     if primary_key and primary_key in scope_keys:
         return 10
-    if group_keys.intersection(scope_keys):
-        return 20
     return None
 
 
@@ -8184,6 +8175,9 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
     customer_context = get_sales_customer_price_context(customer_name) if customer_type == COST_CUSTOMER_TYPE_EXISTING else {}
     if allowed_customer_codes is not None:
         customer_context = dict(customer_context)
+        if customer_context.get("primary_code_key") not in allowed_customer_codes:
+            customer_context["primary_code"] = ""
+            customer_context["primary_code_key"] = ""
         customer_context["group_code_keys"] = [
             code for code in customer_context.get("group_code_keys", [])
             if code in allowed_customer_codes
@@ -8256,8 +8250,6 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
             item["cost_source"] = f"客户专属清单：{customer_name}"
         elif rank == 10:
             item["cost_source"] = f"客户代码价：{customer_context.get('primary_code', '')}"
-        elif rank == 20:
-            item["cost_source"] = f"集团共享价：{clean_text((customer_context.get('record') or {}).get('group_name', ''))}"
         else:
             item["cost_source"] = "当前启用成本清单"
         ranked_items.append(item)
@@ -8658,7 +8650,7 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
         st.caption(
             "支持 Excel/CSV。系统会按每个分页 B1 自动判断价格归属："
             "B1 留空或填写“通用”就是通用价；填写一个/多个客户代码时，"
-            "该分页只供对应客户或同集团客户使用，并优先于通用分页。"
+            "该分页只供使用对应客户代码的客户使用，并优先于通用分页。"
         )
         uploaded_file = st.file_uploader(
             "选择成本清单",
@@ -8880,15 +8872,6 @@ def sales_customer_price_status(row, all_rows=None, scope_summary=None):
     code_key = normalize_sales_customer_code_key(row.get("customer_code_key", "") or row.get("customer_code", ""))
     if customer_key in scope_summary.get("customer_keys", set()) or code_key in scope_summary.get("code_keys", set()):
         return "有专属价"
-    group_key = normalize_cost_customer_key(row.get("group_key", "") or row.get("group_name", ""))
-    if group_key:
-        for peer in all_rows or []:
-            peer_group_key = normalize_cost_customer_key(peer.get("group_key", "") or peer.get("group_name", ""))
-            peer_code_key = normalize_sales_customer_code_key(
-                peer.get("customer_code_key", "") or peer.get("customer_code", "")
-            )
-            if peer_group_key == group_key and peer_code_key in scope_summary.get("code_keys", set()):
-                return "集团专属价"
     return "通用价"
 
 
@@ -8934,7 +8917,7 @@ def render_sales_customer_admin_page():
             {"label": "启用", "value": len(active_rows), "note": "可供会员选择", "tone": "green"},
             {"label": "待完善", "value": len(pending_rows), "note": "会员已登记，待补代码", "tone": "red" if pending_rows else "neutral"},
             {"label": "待补全名", "value": len(incomplete_name_rows), "note": "简称不能新增或保存", "tone": "red" if incomplete_name_rows else "neutral"},
-            {"label": "客户集团", "value": group_count, "note": "同负责人可共享集团价", "tone": "neutral"},
+            {"label": "客户集团", "value": group_count, "note": "多个公司可归属同一集团", "tone": "neutral"},
         ]
     )
 
@@ -8952,7 +8935,7 @@ def render_sales_customer_admin_page():
             "批量导入客户资讯",
             type=["xlsx"],
             key="sales_customer_admin_upload",
-            help="使用标准模板；相同客户代码会更新原记录，不会重复新增。",
+            help="使用标准模板；相同公司全名会更新原记录，不同公司可共用所属集团和客户代码。",
         )
     if st.button("导入客户资讯", key="sales_customer_admin_import", use_container_width=True):
         actor = clean_text((current_member() or {}).get("username", "")) or get_no_match_admin_credentials()[0]
@@ -9000,6 +8983,7 @@ def render_sales_customer_admin_page():
         "未指定（仅通用价）",
     )
     form_identity = selected_id or selected.get("customer_key") or "new"
+    st.caption("不同公司可以填写相同的所属集团和客户代码；专属价格按客户代码共享，集团名称只用于归类。")
     with st.form(f"sales_customer_admin_form_{form_identity}"):
         cols = st.columns([0.24, 0.28, 0.16, 0.20, 0.20], gap="small")
         group_name = cols[0].text_input("所属集团", value=clean_text(selected.get("group_name", "")), placeholder="例如 A集团")
@@ -9023,7 +9007,7 @@ def render_sales_customer_admin_page():
         st.warning("当前客户名称是简称或缺少法定实体后缀，请先改为营业执照/注册文件上的公司全名。")
     if selected:
         selected_price_status = sales_customer_price_status(selected, rows, price_scope_summary)
-        if selected_price_status in {"有专属价", "集团专属价"}:
+        if selected_price_status == "有专属价":
             if int(selected.get("owner_member_id", 0) or 0) > 0:
                 st.success(f"价格状态：{selected_price_status}；仅当前负责销售可读取。")
             else:

@@ -1501,7 +1501,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("__fojan_resistor_rules__", pm_lookup)
         self.assertIs(app["filter_cost_lookup_for_member"](lookup, sales_member), lookup)
 
-    def test_assigned_sales_prices_reject_legacy_grants_and_cross_owner_group_prices(self):
+    def test_assigned_sales_prices_reject_legacy_grants_and_cross_owner_codes(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
         try:
@@ -1558,8 +1558,8 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(cost(a, name_a, "GROUPITEM"), "20")
             self.assertEqual(cost(b, name_b, "GROUPITEM"), "2")
             admin = {"id": 999, "username": "TestAdmin", "role": "admin"}
-            self.assertEqual(cost(admin, name_a, "GROUPITEM"), "2")
-            # Shared cached admin/group lookup must not expose the sibling owner's price.
+            self.assertEqual(cost(admin, name_a, "GROUPITEM"), "20")
+            # Shared cached lookups must not expose a sibling customer's different-code price.
             self.assertEqual(cost(a, name_a, "GROUPITEM"), "20")
             pm = {"id": 998, "username": "TestPM", "role": "member", "job_title": "PM"}
             self.assertEqual(cost(pm, name_a, "OWNITEM"), "10")
@@ -4198,14 +4198,27 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
 
-    def test_05e_customer_group_price_pages_override_general_without_cross_group_leak(self):
+    def test_05e_customer_codes_can_be_shared_without_cross_code_leak(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
         try:
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-group-price-test.sqlite")
             app["clear_cost_price_lookup_cache"]()
+            ok, message, _ = app["save_sales_customer"](
+                "A集团深圳有限公司", "F0001", group_name="A集团",
+                updated_by="regression", sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            # Simulate a deployed database created under the old unique-code rule.
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                conn.execute("DROP INDEX idx_sales_customers_code")
+                conn.execute(
+                    "CREATE UNIQUE INDEX idx_sales_customers_code "
+                    "ON sales_customers(customer_code_key)"
+                )
+            app["init_cost_price_db"]()
             for name, code, group in [
-                ("A集团深圳有限公司", "F0001", "A集团"),
+                ("A集团惠州有限公司", "F0001", "A集团"),
                 ("A集团东莞有限公司", "F0002", "A集团"),
                 ("B集团有限公司", "B0001", "B集团"),
             ]:
@@ -4213,6 +4226,29 @@ class SystemRegressionTests(unittest.TestCase):
                     name, code, group_name=group, updated_by="regression", sync_remote=False
                 )
                 self.assertTrue(ok, message)
+
+            customer_workbook = Workbook()
+            customer_sheet = customer_workbook.active
+            customer_sheet.append(["所属集团", "客户名称/公司全名", "客户代码"])
+            customer_sheet.append(["C集团", "C集团广州有限公司", "C0001"])
+            customer_sheet.append(["C集团", "C集团苏州有限公司", "C0001"])
+            customer_output = BytesIO()
+            customer_workbook.save(customer_output)
+            ok, message, imported = app["import_sales_customers_from_upload"](
+                UploadedBytes("customers.xlsx", customer_output.getvalue()),
+                updated_by="regression",
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(imported, 2)
+            self.assertEqual(
+                len(
+                    [
+                        row for row in app["list_sales_customers"]()
+                        if row["customer_code_key"] == "C0001"
+                    ]
+                ),
+                2,
+            )
 
             workbook = Workbook()
             general = workbook.active
@@ -4247,18 +4283,32 @@ class SystemRegressionTests(unittest.TestCase):
             a1 = app["lookup_active_cost_price_for_row"](
                 row, app["load_active_cost_price_lookup"]("existing", "A集团深圳有限公司")
             )
-            a2 = app["lookup_active_cost_price_for_row"](
+            a_same_code = app["lookup_active_cost_price_for_row"](
+                row, app["load_active_cost_price_lookup"]("existing", "A集团惠州有限公司")
+            )
+            a_other_code = app["lookup_active_cost_price_for_row"](
                 row, app["load_active_cost_price_lookup"]("existing", "A集团东莞有限公司")
             )
             b = app["lookup_active_cost_price_for_row"](
                 row, app["load_active_cost_price_lookup"]("existing", "B集团有限公司")
             )
             self.assertEqual(app["normalize_cost_value_for_compare"](a1["cost"]), "1.25")
-            self.assertEqual(app["normalize_cost_value_for_compare"](a2["cost"]), "1.25")
+            self.assertEqual(app["normalize_cost_value_for_compare"](a_same_code["cost"]), "1.25")
+            self.assertEqual(app["normalize_cost_value_for_compare"](a_other_code["cost"]), "1.7")
             self.assertEqual(app["normalize_cost_value_for_compare"](b["cost"]), "1.7")
-            self.assertIn("集团共享价", a2["cost_source"])
+            self.assertIn("客户代码价", a_same_code["cost_source"])
             context = app["get_sales_customer_price_context"]("A集团深圳有限公司")
-            self.assertEqual(set(context["group_code_keys"]), {"F0001", "F0002"})
+            self.assertEqual(context["group_code_keys"], ["F0001"])
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                code_rows = conn.execute(
+                    "SELECT customer_name FROM sales_customers WHERE customer_code_key='F0001' ORDER BY customer_name"
+                ).fetchall()
+                code_index = next(
+                    row for row in conn.execute("PRAGMA index_list(sales_customers)").fetchall()
+                    if row[1] == "idx_sales_customers_code"
+                )
+            self.assertEqual(len(code_rows), 2)
+            self.assertEqual(int(code_index[2]), 0)
             self.assertIn("A集团深圳有限公司", app["list_existing_cost_customers"]())
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
