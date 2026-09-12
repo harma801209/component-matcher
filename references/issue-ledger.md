@@ -1568,3 +1568,11 @@
 - Root cause: compact ERP item numbers such as `12114001870H02` and `12215004590H01` were treated as manufacturer order numbers. Every row first ran an unsuccessful exact/prefix lookup and repeatedly prepared brand/model rows before the richer specification was evaluated. The generic `品号` column could also outrank a partially populated, real vendor-model column such as `华科样品`.
 - Fix: recognize the workbook's digit-heavy ERP item-number shape, exclude those values from model candidates when specifications are available, penalize internal-ID columns during automatic mapping, and allow the actual vendor-model column to win. Keep search-sidecar candidates in their already-normalized form and cache repeated component-alias classification work instead of rebuilding the same fields and regular expressions for every BOM row.
 - Regression: fixtures cover representative 欧陆通 ERP numbers, vendor MLCC order numbers, automatic mapping with and without a vendor-model column, and candidate ordering that starts directly from the complete specification.
+
+## 2026-09-13 - General-purpose Yageo MLCC exported an automotive PDC replacement
+
+- Symptom: the general-purpose Yageo CC0805KKX7R8BB475 specification was exported as PDC MT21X475K350EIG, even though MT is an AEC-Q200 automotive family and the source CC family is not automotive.
+- Root cause: BOM own-brand selection ranked electrical upgrade status and cost before MLCC series class. A stale lightweight search-sidecar tolerance for the matching PDC FS order number also prevented that regular/high-capacitance family from outranking the 35V automotive candidate.
+- Fix: make MLCC application class a first-order constraint for match levels and own-brand export, keep non-strict high-capacitance families valid for general-purpose requests, and re-decode complete PDC MLCC order numbers before using cached electrical fields.
+- Safety: automotive candidates may remain visible as clearly non-equivalent fallback information, but they cannot be labelled or exported as a complete/general-purpose equivalent. Automotive source searches retain their strict automotive-only behavior.
+- Regression: the reported Yageo model, PDC FS21X475K250EIG, PDC MT21X475K350EIG, and a deliberately stale PDC sidecar tolerance are covered.

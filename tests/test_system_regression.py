@@ -7123,6 +7123,65 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(float(by_model.at["CC1206KKX7RGBB106", "_volt_num"]), 35.0)
         self.assertEqual(float(by_model.at["1206GC102KAT2A", "_volt_num"]), 2000.0)
 
+    def test_general_yageo_mlcc_does_not_export_automotive_pdc_as_equivalent(self):
+        app = self.app
+        source = app["parse_model_rule"](
+            "CC0805KKX7R8BB475", brand="国巨YAGEO", component_type="MLCC"
+        )
+        self.assertIsNotNone(source)
+        source["特殊用途"] = "无卤"
+        candidate_pairs = app["fetch_search_candidate_pairs"](source)
+        self.assertIn(
+            ("信昌PDC", "FS21X475K250EIG"),
+            candidate_pairs,
+        )
+
+        regular = app["parse_model_rule"](
+            "FS21X475K250EIG", brand="信昌PDC", component_type="MLCC"
+        )
+        automotive = app["parse_model_rule"](
+            "MT21X475K350EIG", brand="信昌PDC", component_type="MLCC"
+        )
+        candidates = app["prepare_search_dataframe"](
+            pd.DataFrame([automotive, regular])
+        )
+        matched = app["apply_match_levels_and_sort"](candidates, source)
+        by_model = matched.set_index("型号")
+
+        self.assertNotEqual(by_model.at["MT21X475K350EIG", "推荐等级"], "完全匹配")
+        slots = app["build_bom_own_brand_export_slots"](
+            matched,
+            spec=source,
+            export_settings={"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["信昌PDC"]},
+        )
+        self.assertEqual(slots["自有型号"], "FS21X475K250EIG")
+        self.assertNotEqual(slots["自有型号"], "MT21X475K350EIG")
+
+        stale_sidecar_row = app["build_lightweight_component_row_from_search_sidecar"](
+            {
+                "品牌": "信昌PDC",
+                "型号": "FS21X475K250EIG",
+                "_model_clean": "FS21X475K250EIG",
+                "_component_type": "MLCC",
+            },
+            {
+                "品牌": "信昌PDC",
+                "型号": "FS21X475K250EIG",
+                "_component_type": "MLCC",
+                "_size": "0805",
+                "_mat": "X7R",
+                "_pf": 4_700_000,
+                "_tol": "0.1",
+                "_volt_num": 25,
+                "系列": "FS",
+                "_mlcc_series_class": "高容",
+            },
+            include_model_rule=False,
+        )
+        self.assertEqual(stale_sidecar_row["容值误差"], "10")
+        self.assertEqual(stale_sidecar_row["_tol"], "10")
+        self.assertEqual(stale_sidecar_row["耐压（V）"], "25")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

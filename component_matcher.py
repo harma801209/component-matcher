@@ -17988,9 +17988,9 @@ def mlcc_series_class_sort_rank(candidate, target):
     candidate_text = normalize_mlcc_series_class(candidate)
     candidate_tokens = set(mlcc_series_class_tokens(candidate_text))
     if target_tokens <= {"常规"}:
-        if candidate_tokens <= {"常规"}:
-            return 0 if candidate_text == "常规" else 1
-        return 3
+        if candidate_tokens & MLCC_STRICT_CLASS_TOKENS:
+            return 3
+        return 0 if candidate_text == "常规" else 1
     if candidate_text != "" and candidate_text == target_text:
         return 0
     if mlcc_series_class_matches(candidate_text, target_text):
@@ -30355,6 +30355,24 @@ def sort_bom_own_brand_candidates(candidates, component_type, spec=None):
     if not candidates:
         return []
     ctype = normalize_component_type(component_type)
+    if ctype == "MLCC":
+        target_class = infer_mlcc_series_class_from_spec(spec)
+        return sorted(
+            candidates,
+            key=lambda item: (
+                mlcc_series_class_sort_rank(
+                    resolve_mlcc_series_profile(
+                        brand=item.get("_row", {}).get("品牌", ""),
+                        model=item.get("_row", {}).get("型号", ""),
+                        series=item.get("_row", {}).get("系列", ""),
+                        series_desc=item.get("_row", {}).get("系列说明", ""),
+                        special_use=item.get("_row", {}).get("特殊用途", ""),
+                    ).get("_mlcc_series_class", ""),
+                    target_class,
+                ),
+                item.get("_order", 0),
+            ),
+        )
     if ctype not in RESISTOR_COMPONENT_TYPES or bom_spec_has_special_requirement(spec):
         return sorted(candidates, key=lambda item: item.get("_order", 0))
     return sorted(
@@ -30477,9 +30495,24 @@ def build_bom_own_brand_export_slots(
         match_level_rank = {"完全匹配": 0, "高代低": 1, "可直接替代": 1, "部分参数匹配": 2}
         for selection_order, item in enumerate(ordered_candidates):
             item["_selection_order"] = selection_order
+            item["_mlcc_class_rank"] = (
+                mlcc_series_class_sort_rank(
+                    resolve_mlcc_series_profile(
+                        brand=item.get("_row", {}).get("品牌", ""),
+                        model=item.get("_row", {}).get("型号", ""),
+                        series=item.get("_row", {}).get("系列", ""),
+                        series_desc=item.get("_row", {}).get("系列说明", ""),
+                        special_use=item.get("_row", {}).get("特殊用途", ""),
+                    ).get("_mlcc_series_class", ""),
+                    infer_mlcc_series_class_from_spec(spec),
+                )
+                if component_type == "MLCC"
+                else 0
+            )
         ordered_candidates = sorted(
             ordered_candidates,
             key=lambda item: (
+                int(item.get("_mlcc_class_rank", 0) or 0),
                 match_level_rank.get(clean_text(item.get("_row", {}).get("推荐等级", "")), 9),
                 0 if clean_text(item.get("成本", "")) != "" else 1,
                 int(item.get("_selection_order", 0) or 0),
@@ -35801,10 +35834,19 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
         component_type == "MLCC"
         and clean_voltage(record.get("耐压（V）", "")) == ""
     )
-    if include_model_rule or needs_mlcc_voltage:
+    validate_pdc_mlcc_rule = (
+        component_type == "MLCC"
+        and ("PDC" in clean_brand(brand).upper() or "信昌" in clean_brand(brand))
+        and pdc_general_mlcc_series_code_from_model(model) != ""
+    )
+    if include_model_rule or needs_mlcc_voltage or validate_pdc_mlcc_rule:
         parsed_rule = parse_model_rule(model, brand=brand, component_type=component_type)
         if isinstance(parsed_rule, dict) and parsed_rule:
-            record = merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
+            record = merge_parsed_rule_into_record(
+                record,
+                parsed_rule,
+                override_conflicts=validate_pdc_mlcc_rule,
+            )
     # The sidecar stores the numeric index separately from the display field.
     # When a model rule filled a previously blank display voltage, mirror it
     # here so strict numeric matching sees the decoded value immediately.
@@ -37962,7 +38004,13 @@ def fetch_search_candidate_pairs(spec):
             where_clauses.append("_mat IN (" + ",".join("?" for _ in material_aliases) + ")")
             params.extend(material_aliases)
         if tol != "":
-            where_clauses.append("_tol = ?")
+            # Some legacy PDC search-sidecar rows contain a decimal-form
+            # tolerance that disagrees with the complete order-number code.
+            # Let those few MLCC rows through this coarse SQL prefilter; the
+            # lightweight loader re-decodes the PDC model before exact matching.
+            where_clauses.append(
+                '(_tol = ? OR UPPER("品牌") LIKE \'%PDC%\' OR "品牌" LIKE \'%信昌%\')'
+            )
             params.append(tol)
         if volt != "":
             exact_voltage_clauses = list(where_clauses)
@@ -41927,6 +41975,9 @@ def apply_match_levels_and_sort(df, spec):
         row_volt_raw = work["_volt"] if "_volt" in work.columns else work["耐压（V）"].astype(str).apply(clean_voltage)
         row_pf = work["_pf"] if "_pf" in work.columns else pd.to_numeric(work["容值_pf"], errors="coerce")
         row_mlcc_class = work["_mlcc_series_class"] if "_mlcc_series_class" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
+        mlcc_class_compatible = row_mlcc_class.astype(str).apply(
+            lambda value: mlcc_series_class_matches(value, spec_mlcc_class)
+        )
         if spec_special_use != "":
             row_special_use = work["特殊用途"].astype(str) if "特殊用途" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
             special_use_confirmed = row_special_use.apply(
@@ -41961,6 +42012,7 @@ def apply_match_levels_and_sort(df, spec):
                 exact_mask &= row_tol_raw.ne("") & tolerance_equal_series(work, spec_tol)
                 exact_mask &= row_volt_raw.ne("") & row_volt_raw.eq(spec_volt)
                 exact_mask &= special_use_confirmed
+                exact_mask &= mlcc_class_compatible
                 level_series.loc[exact_mask] = "完全匹配"
                 rank_series.loc[exact_mask] = 1
 
@@ -41981,6 +42033,7 @@ def apply_match_levels_and_sort(df, spec):
                     volt_strictly_better_mask = pd.Series(False, index=work.index)
 
                 high_mask = remaining_same_core & tol_ok & volt_ok & (tol_strictly_better_mask | volt_strictly_better_mask)
+                high_mask &= special_use_confirmed & mlcc_class_compatible
                 level_series.loc[high_mask] = "高代低"
                 rank_series.loc[high_mask] = 3
             else:
@@ -41989,6 +42042,7 @@ def apply_match_levels_and_sort(df, spec):
                     partial_mask &= tolerance_equal_series(work, spec_tol)
                 if spec_volt != "":
                     partial_mask &= row_volt_raw.ne("") & row_volt_raw.eq(spec_volt)
+                partial_mask &= special_use_confirmed & mlcc_class_compatible
                 level_series.loc[partial_mask] = "部分参数匹配"
                 rank_series.loc[partial_mask] = 2
 
@@ -42080,11 +42134,13 @@ def apply_match_levels_and_sort(df, spec):
         work["_model_family_sort_key"] = work["型号"].astype(str).map(clean_model) if "型号" in work.columns else ""
         work["_fojan_frc_suffix_rank"] = 0
     if target_type in CAPACITOR_COMPONENT_TYPES:
-        sort_cols = ["_exact_model_rank", "_automotive_rank", "_seed_rank", "_level_rank", "_brand_rank"]
-        ascending = [True, True, True, True, True]
+        sort_cols = ["_exact_model_rank", "_automotive_rank", "_seed_rank"]
+        ascending = [True, True, True]
         if "_mlcc_class_rank" in work.columns:
             sort_cols.append("_mlcc_class_rank")
             ascending.append(True)
+        sort_cols.extend(["_level_rank", "_brand_rank"])
+        ascending.extend([True, True])
         if "_matched_param_count" in work.columns:
             sort_cols.append("_matched_param_count")
             ascending.append(False)
