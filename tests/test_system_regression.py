@@ -4985,8 +4985,10 @@ class SystemRegressionTests(unittest.TestCase):
             extra_values=["车规"],
         )
         sources = [item["source"] for item in candidates]
-        self.assertEqual(sources[0], "型号列")
-        self.assertLess(sources.index("型号列+规格列+品名列"), sources.index("规格列"))
+        self.assertEqual(sources[0], "规格列+品名列")
+        self.assertLess(sources.index("规格列"), sources.index("型号列"))
+        self.assertLess(sources.index("规格列+品名列+其他列"), sources.index("型号列"))
+        self.assertLess(sources.index("型号列"), sources.index("型号列+规格列+品名列"))
         self.assertLess(sources.index("规格列+品名列+其他列"), sources.index("品名列"))
 
         cache = {}
@@ -7181,6 +7183,32 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(stale_sidecar_row["容值误差"], "10")
         self.assertEqual(stale_sidecar_row["_tol"], "10")
         self.assertEqual(stale_sidecar_row["耐压（V）"], "25")
+
+        bom_row = app["build_bom_upload_result_row"](
+            None,
+            0,
+            {
+                "参考型号": "MT21X475K350EIG",
+                "规格": "4.7uF;25V;±10%;0805;X7R;无卤",
+                "品名": "陶瓷贴片电容",
+            },
+            {
+                "model": "参考型号",
+                "spec": "规格",
+                "name": "品名",
+                "quantity": None,
+            },
+            query_cache={},
+            export_settings={
+                "mode": app["BOM_EXPORT_MODE_CUSTOM"],
+                "brands": ["信昌PDC"],
+                "include_cost": False,
+            },
+        )
+        self.assertTrue(bom_row["解析来源"].startswith("规格列"))
+        self.assertEqual(app["clean_voltage"](bom_row["耐压（V）"]), "25")
+        self.assertEqual(bom_row["自有型号"], "FS21X475K250EIG")
+        self.assertNotEqual(bom_row["自有型号"], "MT21X475K350EIG")
 
 
 if __name__ == "__main__":

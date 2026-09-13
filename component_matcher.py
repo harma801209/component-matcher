@@ -43812,19 +43812,21 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
             candidates.append({"query": query, "source": source})
             seen.add(query)
 
-    # Exact models are cheapest and most authoritative. If that misses, try the
-    # richest combined specification before weaker single-column fallbacks.
+    # The customer's written target specification is authoritative. A supplied
+    # manufacturer model is only a secondary reference because that model may
+    # itself be a higher-voltage or otherwise upgraded substitute.
+    add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
+    if extra_values:
+        add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
+        add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
+    add_candidate(spec_value, "规格列")
     if not model_is_internal_number:
         add_candidate(model_value, "型号列")
     if not model_is_internal_number and clean_text(model_value) != "" and clean_text(spec_value) != "":
         add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
         add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
-    add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
     if extra_values:
-        add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
-        add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
         add_candidate(join_bom_parts(name_value, *extra_values), "品名列+其他列")
-    add_candidate(spec_value, "规格列")
     add_candidate(name_value, "品名列")
     return candidates
 
@@ -44126,6 +44128,39 @@ def bom_candidate_good_enough(candidate_result):
     return False
 
 
+def bom_candidate_has_authoritative_spec(candidate_result):
+    if candidate_result is None:
+        return False
+    source = clean_text(candidate_result.get("source", ""))
+    if not source.startswith("规格列"):
+        return False
+    if clean_text(candidate_result.get("parse_status", "")) != "解析成功":
+        return False
+    spec = candidate_result.get("spec")
+    if not isinstance(spec, dict):
+        return False
+    component_type = infer_spec_component_type(spec)
+    if component_type == "MLCC":
+        return all(
+            [
+                clean_size(spec.get("尺寸（inch）", "")) != "",
+                spec.get("容值_pf", None) is not None,
+                clean_tol_for_match(spec.get("容值误差", "")) != "",
+                clean_voltage(spec.get("耐压（V）", "")) != "",
+            ]
+        )
+    if component_type in RESISTOR_COMPONENT_TYPES:
+        return all(
+            [
+                clean_size(spec.get("尺寸（inch）", "")) != "",
+                spec.get("_resistance_ohm", None) is not None,
+                clean_tol_for_match(spec.get("容值误差", "")) != "",
+                clean_text(spec.get("_power", "")) != "",
+            ]
+        )
+    return count_query_params(spec) >= max(3, other_passive_min_required_params(spec))
+
+
 def choose_best_bom_candidate(
     df,
     candidates,
@@ -44162,6 +44197,8 @@ def choose_best_bom_candidate(
         )
         if should_replace_best_bom_candidate(best, result):
             best = result
+        if bom_candidate_has_authoritative_spec(best):
+            break
         if bom_candidate_good_enough(best):
             break
     return best

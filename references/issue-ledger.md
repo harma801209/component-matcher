@@ -1576,3 +1576,10 @@
 - Fix: make MLCC application class a first-order constraint for match levels and own-brand export, keep non-strict high-capacitance families valid for general-purpose requests, and re-decode complete PDC MLCC order numbers before using cached electrical fields.
 - Safety: automotive candidates may remain visible as clearly non-equivalent fallback information, but they cannot be labelled or exported as a complete/general-purpose equivalent. Automotive source searches retain their strict automotive-only behavior.
 - Regression: the reported Yageo model, PDC FS21X475K250EIG, PDC MT21X475K350EIG, and a deliberately stale PDC sidecar tolerance are covered.
+
+## 2026-09-13 - BOM reference models overrode the customer's written specification
+
+- Symptom: when a BOM contained both a written target specification and another-brand reference model, the model column was evaluated first and could determine the exported PDC part. A reference model that was already a higher-voltage substitute therefore changed the target voltage instead of serving as supporting evidence.
+- Root cause: BOM candidate ordering treated an exact manufacturer model as cheaper and more authoritative than the explicit specification, and stopped as soon as that model produced a complete result.
+- Fix: evaluate specification, name, and auxiliary specification fields before the model column. Once the written specification contains the complete electrical core for its component type, keep that specification as the matching target regardless of whether its result is recommended, confirmation-required, or currently unmatched. Use the manufacturer model only as a secondary fallback when the written core is incomplete.
+- Regression: a 25V MLCC specification paired with the 35V automotive PDC reference MT21X475K350EIG remains a 25V general-purpose search and exports FS21X475K250EIG instead of inheriting 35V or automotive classification.
