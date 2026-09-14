@@ -2548,6 +2548,7 @@ def create_member_account(
     ensure_member_auth_schema()
     username = clean_text(username)
     company = clean_text(company)
+    phone = clean_text(phone)
     raw_job_title = clean_text(job_title)
     if not member_username_is_valid(username):
         return False, "账号只能使用 3-64 位英文、数字、点号、下划线、加号、减号或 @。"
@@ -2559,6 +2560,8 @@ def create_member_account(
         return False, "请选择职务。"
     if raw_job_title not in MEMBER_JOB_TITLE_OPTIONS:
         return False, "职务只能选择 PM、销售或其他。"
+    if phone == "":
+        return False, "电话为必填项。"
     normalized_job_title = normalize_member_job_title(raw_job_title)
     now = current_timestamp_text()
     try:
@@ -2582,7 +2585,7 @@ def create_member_account(
                     clean_text(customer_name),
                     normalized_job_title,
                     clean_text(email),
-                    clean_text(phone),
+                    phone,
                     now,
                     now,
                 ),
@@ -5282,7 +5285,7 @@ def render_member_auth_panel(action_text=""):
         )
         st.caption("公司资料用于判断价格查看权限，注册后如需修改请联系管理员。")
         email = st.text_input("邮箱", key="member_register_email")
-        phone = st.text_input("电话", key="member_register_phone")
+        phone = st.text_input("电话（必填）", key="member_register_phone")
         password = st.text_input("密码", type="password", key="member_register_password")
         password2 = st.text_input("确认密码", type="password", key="member_register_password2")
         submitted = st.button("提交注册申请", key="member_register_submit", use_container_width=True)
