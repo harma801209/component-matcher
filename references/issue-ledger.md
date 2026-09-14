@@ -2,9 +2,9 @@
 
 ## 2026-09-14 - Registration and price access must be scoped by company
 
-- Requirement: new member registration must require a company and a dropdown job title. Companies containing “富临通” (including 富临通股份/富临通电子 variants) may see general prices or their own assigned customer prices; all other companies may match models but must not see any price.
+- Requirement: new member registration must require a company, phone number, and a dropdown job title. Companies containing “富临通” (including 富临通股份/富临通电子 variants) may see general prices or their own assigned customer prices; all other companies may match models but must not see any price.
 - Fix: persist the required job title at registration, recognize the 富临通 company substring after punctuation normalization, keep administrators unrestricted, and apply the company gate to selector messaging, search/BOM cost visibility, and the authorized price lookup itself. Member self-service cannot change the company field; administrators remain the authority for corrections.
-- Regression: missing company/job/invalid job registrations are rejected; internal PM/sales/other accounts retain their intended access; external sales/other accounts resolve to no-cost access and an empty price lookup; customer-code ownership isolation remains intact.
+- Regression: missing company/phone/job/invalid job registrations are rejected; internal PM/sales/other accounts retain their intended access; external sales/other accounts resolve to no-cost access and an empty price lookup; customer-code ownership isolation remains intact.
 
 ## 2026-09-14 - Member-centre page duplicated the ordinary-member logout action
 

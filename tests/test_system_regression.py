@@ -1065,6 +1065,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "secret1",
                 display_name=username,
                 company="富临通测试有限公司",
+                phone="10001",
                 job_title="销售",
             )
             self.assertTrue(ok, message)
@@ -1252,6 +1253,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "secret1",
                 display_name=username,
                 company="富临通回归测试有限公司",
+                phone="10002",
                 job_title="其他",
             )
             self.assertTrue(ok, message)
@@ -1464,15 +1466,20 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("公司", message)
         ok, message = app["create_member_account"](
-            "MissingJobTitle", "secret1", company="富临通电子有限公司"
+            "MissingJobTitle", "secret1", company="富临通电子有限公司", phone="10003"
         )
         self.assertFalse(ok)
         self.assertIn("职务", message)
         ok, message = app["create_member_account"](
-            "InvalidJobTitle", "secret1", company="富临通电子有限公司", job_title="工程"
+            "InvalidJobTitle", "secret1", company="富临通电子有限公司", phone="10004", job_title="工程"
         )
         self.assertFalse(ok)
         self.assertIn("PM、销售或其他", message)
+        ok, message = app["create_member_account"](
+            "MissingPhone", "secret1", company="富临通电子有限公司", job_title="其他"
+        )
+        self.assertFalse(ok)
+        self.assertIn("电话", message)
 
         ok, message = app["create_member_account"](
             "SalesTitleUser",
@@ -1578,6 +1585,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "secret1",
                 display_name=username,
                 company="富临通价格权限测试有限公司",
+                phone="10005",
                 job_title=job_title,
             )
             self.assertTrue(ok, message)
@@ -5582,6 +5590,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "secret1",
                 "Durable User",
                 company="外部测试有限公司",
+                phone="10006",
                 job_title="其他",
             )
             self.assertTrue(ok, message)
@@ -5659,6 +5668,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "OtherInstanceUser",
                 "secret2",
                 company="外部测试有限公司",
+                phone="10007",
                 job_title="其他",
             )
             self.assertTrue(ok, message)
