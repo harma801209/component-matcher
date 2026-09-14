@@ -7350,8 +7350,6 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         price_context = get_sales_customer_price_context(customer_name)
         record = price_context.get("record") or {}
         price_source = f"客户价格：{record.get('customer_code') or customer_name}"
-        if clean_text(record.get("group_name", "")):
-            price_source += f"（{record.get('group_name')}）"
     else:
         price_source = "通用价格"
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
