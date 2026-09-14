@@ -4269,6 +4269,11 @@ class SystemRegressionTests(unittest.TestCase):
             ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
             self.assertTrue(ok, message)
             self.assertIn("按各分页 B1 自动归属价格", message)
+            ok, message, _ = app["save_manual_cost_price_item"](
+                "FOJAN", "FRC0603F1002TS", "1.70",
+                customer_type="new", updated_by="regression",
+            )
+            self.assertTrue(ok, message)
             with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
                 list_scope = conn.execute(
                     "SELECT customer_type, customer_name, customer_key FROM cost_price_lists WHERE active=1"
@@ -4297,6 +4302,13 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(app["normalize_cost_value_for_compare"](a_other_code["cost"]), "1.7")
             self.assertEqual(app["normalize_cost_value_for_compare"](b["cost"]), "1.7")
             self.assertIn("客户代码价", a_same_code["cost_source"])
+            self.assertEqual(
+                app["prefer_cost_price_candidate"](
+                    {"cost": "1.11", "_scope_rank": 0},
+                    {"cost": "1.25", "_scope_rank": 10},
+                )["cost"],
+                "1.11",
+            )
             context = app["get_sales_customer_price_context"]("A集团深圳有限公司")
             self.assertEqual(context["group_code_keys"], ["F0001"])
             with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:

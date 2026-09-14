@@ -1583,3 +1583,11 @@
 - Root cause: BOM candidate ordering treated an exact manufacturer model as cheaper and more authoritative than the explicit specification, and stopped as soon as that model produced a complete result.
 - Fix: evaluate specification, name, and auxiliary specification fields before the model column. Once the written specification contains the complete electrical core for its component type, keep that specification as the matching target regardless of whether its result is recommended, confirmation-required, or currently unmatched. Use the manufacturer model only as a secondary fallback when the written core is incomplete.
 - Regression: a 25V MLCC specification paired with the 35V automotive PDC reference MT21X475K350EIG remains a 25V general-purpose search and exports FS21X475K250EIG instead of inheriting 35V or automotive classification.
+
+## 2026-09-14 - General exact-model prices overrode customer-code series prices
+
+- Symptom: an administrator selected 广州星际悦动股份有限公司 and the page correctly showed customer code F0001, but FOJAN `FRC0402F1002TS` still displayed the general cost 1.70 instead of the F0001 cost 1.73.
+- Root cause: the lookup returned immediately after finding a general exact-model price. It never compared that entry with a matching, more-specific F0001 resistor-series rule from the same active workbook.
+- Fix: evaluate both exact-model and FOJAN series-rule candidates, choose the lower customer-scope rank first, and use exact-model status only as the tie-breaker within the same scope. This preserves exact customer items and exact general items while allowing a customer-code rule to override a general exact item.
+- Safety: administrators and the customer's assigned salesperson can receive the F0001 rule; an unrelated salesperson is still authorized only for general prices. Non-resistor and non-FOJAN exact-model lookups keep their established behavior.
+- Regression: the shared-customer-code fixture now includes a competing general exact-model cost. Both companies using F0001 receive the dedicated price, while a different code in the same group and a different group receive the general price.

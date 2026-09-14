@@ -8336,6 +8336,29 @@ def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, me
     return filter_cost_lookup_for_member(lookup, member)
 
 
+def prefer_cost_price_candidate(exact_candidate, rule_candidate):
+    """Prefer the most specific customer scope; use an exact model to break ties."""
+    exact_candidate = exact_candidate if isinstance(exact_candidate, dict) else {}
+    rule_candidate = rule_candidate if isinstance(rule_candidate, dict) else {}
+    if not exact_candidate:
+        return rule_candidate
+    if not rule_candidate:
+        return exact_candidate
+    try:
+        exact_rank_raw = exact_candidate.get("_scope_rank", 99)
+        exact_rank = int(exact_rank_raw) if exact_rank_raw not in (None, "") else 99
+    except Exception:
+        exact_rank = 99
+    try:
+        rule_rank_raw = rule_candidate.get("_scope_rank", 99)
+        rule_rank = int(rule_rank_raw) if rule_rank_raw not in (None, "") else 99
+    except Exception:
+        rule_rank = 99
+    if rule_rank < exact_rank:
+        return rule_candidate
+    return exact_candidate
+
+
 def lookup_active_cost_price_for_row(row, lookup=None):
     if row is None:
         return {}
@@ -8344,26 +8367,31 @@ def lookup_active_cost_price_for_row(row, lookup=None):
         return {}
     model_clean = clean_model(row.get("型号", ""))
     entries = lookup.get(model_clean, []) if model_clean else []
+    exact_candidate = {}
     if entries:
         row_brand = clean_brand(row.get("品牌", ""))
         for entry in entries:
             entry_brand = clean_brand(entry.get("brand", ""))
             if entry_brand and brand_matches_loose(row_brand, entry_brand):
-                return entry
-        for entry in entries:
-            if clean_brand(entry.get("brand", "")) == "":
-                return entry
-        return entries[0]
+                exact_candidate = entry
+                break
+        if not exact_candidate:
+            for entry in entries:
+                if clean_brand(entry.get("brand", "")) == "":
+                    exact_candidate = entry
+                    break
+        if not exact_candidate:
+            exact_candidate = entries[0]
 
     series = normalize_resistor_pricing_series(row)
     if series == "":
-        return {}
+        return exact_candidate
     size = clean_size(row.get("尺寸（inch）", "")) or infer_resistor_size_from_model(row.get("型号", ""))
     power = format_power_display(infer_resistor_power_text_from_record(row) or row.get("功率", "") or row.get("_power", ""))
     resistance_ohm = get_row_resistance_for_pricing(row)
     tolerance = clean_tol_for_match(row.get("容值误差", "") or row.get("_tol", ""))
     if size == "" or power == "" or resistance_ohm is None or tolerance == "":
-        return {}
+        return exact_candidate
     pricing_resistance_ohm = resistance_ohm
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
         pricing_resistance_ohm = 10.0
@@ -8374,7 +8402,7 @@ def lookup_active_cost_price_for_row(row, lookup=None):
         series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES
         and not fojan_alloy_extended_profile_supports(series, size, power, alloy_mohm)
     ):
-        return {}
+        return exact_candidate
     for rule in lookup.get("__fojan_resistor_rules__", []):
         if clean_text(rule.get("series", "")).upper() != series:
             continue
@@ -8391,8 +8419,8 @@ def lookup_active_cost_price_for_row(row, lookup=None):
         if selected_cost != "":
             matched = dict(rule)
             matched["cost"] = selected_cost
-            return matched
-    return {}
+            return prefer_cost_price_candidate(exact_candidate, matched)
+    return exact_candidate
 
 
 def fojan_alloy_pricing_terminal_from_row(row):
