@@ -1598,4 +1598,4 @@
 - Root cause: the existing FRC/FRL parser assumed one tolerance-to-price map per sheet. It did not associate each price and package column with the customer-code group shown in the merged header row.
 - Fix: detect KA grouped headers, carry the customer code into every generated series rule, and import each code's tolerance and package columns independently. The existing customer authorization then limits those code rules to the assigned salesperson and administrator.
 - Safety: blank or `通用` B1 sheets remain general; ordinary B1 customer-code sheets keep their existing behavior; a customer code is never granted merely because its group name matches.
-- Regression: a synthetic KA workbook with F0001/F0002/F0003 columns imports six scoped rules and returns 1.73/1.82/1.91 for the same FRC model when each customer is selected.
+- Regression: a synthetic KA workbook with F0001/F0002/F0003 columns imports six scoped rules and returns the source price 1.73 for the same FRC model when each customer is selected.

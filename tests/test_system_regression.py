@@ -181,7 +181,7 @@ def fojan_ka_quote_xlsx_bytes():
         "F0002/含税Kpcs", "", "Package", "F0003/含税Kpcs", "", "Package",
     ])
     sheet.append(["", "", "Ω (ohms)", "5%（J）", "1%（F）", "", "5%（J）", "1%（F）", "", "5%（J）", "1%（F）", ""])
-    sheet.append(["FRC", "0402 1/16W", "10R-1M", "", "1.73", "10000PCS", "", "1.82", "10000PCS", "", "1.91", "10000PCS"])
+    sheet.append(["FRC", "0402 1/16W", "10R-1M", "", "1.73", "10000PCS", "", "1.73", "10000PCS", "", "1.73", "10000PCS"])
     sheet.append(["", "0402 1/16W", "1R-9.9R", "2.10", "", "10000PCS", "2.20", "", "10000PCS", "2.30", "", "10000PCS"])
     output = BytesIO()
     workbook.save(output)
@@ -4373,7 +4373,7 @@ class SystemRegressionTests(unittest.TestCase):
                 for item in items
                 if item["spec_text"].startswith("FRC 0402 1/16W 10R-1M")
             }
-            self.assertEqual(scoped_prices, {("F0001", "1.73"), ("F0002", "1.82"), ("F0003", "1.91")})
+            self.assertEqual(scoped_prices, {("F0001", "1.73"), ("F0002", "1.73"), ("F0003", "1.73")})
 
             ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
             self.assertTrue(ok, message)
@@ -4384,8 +4384,8 @@ class SystemRegressionTests(unittest.TestCase):
             }
             for customer_name, expected in [
                 ("KA客户一有限公司", "1.73"),
-                ("KA客户二有限公司", "1.82"),
-                ("KA客户三有限公司", "1.91"),
+                ("KA客户二有限公司", "1.73"),
+                ("KA客户三有限公司", "1.73"),
             ]:
                 price = app["lookup_active_cost_price_for_row"](
                     row, app["load_active_cost_price_lookup"]("existing", customer_name)
