@@ -22868,13 +22868,41 @@ def find_impedance_in_text(text):
     )
 
 
-def find_b_value_in_text(text):
+def _find_unlabeled_b_value_in_text(text, resistance_ohm=None):
+    """Recover an unlabeled thermistor B value such as ``3435K``."""
+    upper = clean_text(text).upper()
+    if upper == "":
+        return ""
+    if resistance_ohm is None:
+        for value_match in RESISTOR_VALUE_PATTERN.finditer(upper):
+            token = clean_text(value_match.group(1))
+            parsed = parse_resistance_token_to_ohm(token)
+            if parsed is None or is_embedded_resistor_package_token(token):
+                continue
+            resistance_ohm = parsed
+            break
+    for match in re.finditer(
+        r"(?<![A-Z0-9])(\d{4,5})\s*K(?![A-Z0-9])",
+        upper,
+        flags=re.I,
+    ):
+        token = f"{match.group(1)}K"
+        parsed = parse_resistance_token_to_ohm(token)
+        if parsed is None:
+            continue
+        if resistance_ohm is not None and parsed == resistance_ohm:
+            continue
+        return normalize_b_value_text(token)
+    return ""
+
+
+def find_b_value_in_text(text, resistance_ohm=None):
     upper = clean_text(text).upper().replace("β", "B")
     if upper == "":
         return ""
     match = re.search(r"(?:B(?:ETA)?(?:25/50|25/85)?|B值)[^0-9]{0,12}(\d{3,5}(?:\.\d+)?)\s*K?", upper, flags=re.I)
     if not match:
-        return ""
+        return _find_unlabeled_b_value_in_text(upper, resistance_ohm=resistance_ohm)
     return normalize_b_value_text(match.group(1))
 
 
@@ -23718,6 +23746,8 @@ def detect_component_type_hint(text):
         return "MLCC"
     if looks_like_electrolytic_context(text):
         return "铝电解电容"
+    if looks_like_thermistor_context(text):
+        return "热敏电阻"
     if resistor_hint != "":
         return resistor_hint
     return ""
@@ -23951,6 +23981,25 @@ def looks_like_thermistor_context(text):
     if "MURATA" in upper and re.search(r"PRG\d", compact):
         return True
     if re.search(r"(?:FTN|NCP|NCU|NCG)\d{2}[A-Z]{2}\d{3}[BCDEFGJKMZ]", compact):
+        return True
+
+    # A common NTC purchasing shorthand gives resistance and B value together
+    # without the words "NTC" or "B=", e.g. ``10K, ±1%, 3435K, 0603``.
+    # Require a package size and two distinct resistance-like tokens so a
+    # normal resistor value (or a lone four-digit package code) is unchanged.
+    resistance_ohm = None
+    for value_match in RESISTOR_VALUE_PATTERN.finditer(upper):
+        token = clean_text(value_match.group(1))
+        parsed = parse_resistance_token_to_ohm(token)
+        if parsed is None or is_embedded_resistor_package_token(token):
+            continue
+        resistance_ohm = parsed
+        break
+    if (
+        resistance_ohm is not None
+        and find_embedded_size(raw) != ""
+        and _find_unlabeled_b_value_in_text(raw, resistance_ohm=resistance_ohm) != ""
+    ):
         return True
     return False
 
@@ -24425,7 +24474,7 @@ def parse_thermistor_spec_query(line):
     tol = find_tolerance_in_text(raw)
     resistance_ohm = find_resistance_in_text(raw)
     resistance_value, resistance_unit = ohm_to_library_value_unit(resistance_ohm)
-    b_value = find_b_value_in_text(raw)
+    b_value = find_b_value_in_text(raw, resistance_ohm=resistance_ohm)
     b_condition = find_b_value_condition_in_text(raw)
     b_tolerance = thermistor_b_tolerance_from_record({"规格摘要": raw})
     power = find_power_in_text(raw)
@@ -25988,7 +26037,7 @@ def infer_component_display_fallbacks_from_row(row):
             if tol != "":
                 result["阻值误差"] = tol
         if clean_text(row.get("B值", "")) == "":
-            b_value = find_b_value_in_text(row_text)
+            b_value = find_b_value_in_text(row_text, resistance_ohm=find_resistance_in_text(row_text))
             if b_value != "":
                 result["B值"] = b_value
         if clean_text(row.get("B值条件", "")) == "":
@@ -30297,7 +30346,7 @@ def build_component_spec_detail_from_row(row, component_type_hint=""):
         resistance_25c=row.get("阻值@25C", ""),
         resistance_unit=row.get("阻值单位", ""),
         resistance_tol=row.get("阻值误差", ""),
-        b_value=row.get("B值", "") or find_b_value_in_text(row_text),
+        b_value=row.get("B值", "") or find_b_value_in_text(row_text, resistance_ohm=find_resistance_in_text(row_text)),
         b_value_condition=row.get("B值条件", "") or find_b_value_condition_in_text(row_text),
         common_mode_impedance=row.get("共模阻抗", "") if is_inductive else "",
         impedance_unit=row.get("阻抗单位", "") if is_inductive else "",

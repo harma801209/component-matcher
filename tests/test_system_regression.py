@@ -2812,6 +2812,30 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertFalse(thermistor_rows.empty)
         self.assertEqual(set(thermistor_rows["器件类型"].map(app["normalize_component_type"])), {"热敏电阻"})
 
+        # NTC BOM shorthand may omit both "NTC" and an explicit B= label.
+        # The resistance + four-digit B value + package combination must take
+        # the thermistor path instead of being treated as a thick-film chip
+        # resistor.
+        unlabeled_ntc = "10K,±1%,3435K,0603"
+        ntc_spec = app["parse_thermistor_spec_query"](unlabeled_ntc)
+        self.assertIsNotNone(ntc_spec, unlabeled_ntc)
+        self.assertEqual(ntc_spec["器件类型"], "热敏电阻")
+        self.assertEqual(ntc_spec["B值"], "3435K")
+        self.assertAlmostEqual(float(ntc_spec["_resistance_ohm"]), 10_000.0)
+        self.assertEqual(ntc_spec["尺寸（inch）"], "0603")
+        ntc_mode, detected_ntc = app["detect_query_mode_and_spec"](
+            pd.DataFrame(), unlabeled_ntc
+        )
+        self.assertEqual(ntc_mode, "热敏电阻")
+        self.assertEqual(detected_ntc["B值"], "3435K")
+
+        ordinary_resistor = "10K,±1%,0603"
+        resistor_mode, detected_resistor = app["detect_query_mode_and_spec"](
+            pd.DataFrame(), ordinary_resistor
+        )
+        self.assertEqual(resistor_mode, "贴片电阻")
+        self.assertEqual(detected_resistor["器件类型"], "贴片电阻")
+
         slash_specs = [
             ("贴片\\1.24K\\±1%\\1/16W\\0402 ROHS", 1_240.0, "1"),
             ("贴片\\499R\\±1%\\1/16W\\0402 ROHS", 499.0, "1"),
