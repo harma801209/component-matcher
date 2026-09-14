@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-09-14 - Ordinary members lacked a visible logout action on working pages
+
+- Symptom: an authenticated ordinary member could see `会员中心` and `BOM批量匹配` in the upper-right navigation, but had to enter the member centre and find the profile-tab button before signing out.
+- Root cause: the shared fixed navigation rendered page links only; the existing session-revoking `logout_member()` action was exposed solely inside the member-centre profile tab.
+- Fix: add a third fixed `退出会员` action for authenticated non-admin members on search, member-centre and BOM pages. The link carries the active session token across the page navigation, then delegates to the existing logout path, which revokes the database session, clears customer-dependent state and removes browser persistence.
+- Scope: administrators retain their existing backend/member navigation and do not receive the ordinary-member-only fixed control.
+- Regression: tests verify the fixed action and token-preserving URL are emitted only for ordinary members, the logout query delegates to the established revocation function, and the normal/admin logout tests include cleanup of the one-shot logout query parameter.
+
 ## 2026-09-14 - Customer maintenance had no safe deletion path
 
 - Symptom: administrators could create and edit customer information but had no control for removing an obsolete or incorrect customer.

@@ -2072,6 +2072,86 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
+    def test_02bae_ordinary_member_has_fixed_logout_action_but_admin_does_not(self):
+        app = self.app
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {"_member_auth_token": "ordinary-token"}
+                self.markup = []
+
+            def markdown(self, value, **kwargs):
+                self.markup.append(value)
+
+        fake_st = FakeStreamlit()
+        captured_updates = []
+        original_functions = {
+            name: app[name]
+            for name in [
+                "st",
+                "current_member",
+                "get_query_param_value",
+                "build_app_href",
+            ]
+        }
+        try:
+            app["st"] = fake_st
+            app["current_member"] = lambda: {
+                "username": "ordinary-member",
+                "_session_token": "ordinary-token",
+                "role": "member",
+            }
+            app["get_query_param_value"] = lambda name: ""
+            app["build_app_href"] = lambda **updates: captured_updates.append(updates) or "?logout"
+
+            app["render_member_logout_button"]()
+            self.assertEqual(len(fake_st.markup), 1)
+            self.assertIn('class="member-logout-fixed"', fake_st.markup[0])
+            self.assertIn("退出会员", fake_st.markup[0])
+            self.assertEqual(
+                captured_updates,
+                [{
+                    app["MEMBER_LOGOUT_QUERY_PARAM"]: "1",
+                    app["MEMBER_AUTH_QUERY_PARAM"]: "ordinary-token",
+                }],
+            )
+
+            fake_st.markup.clear()
+            app["current_member"] = lambda: {"username": "admin", "role": "admin"}
+            app["render_member_logout_button"]()
+            self.assertEqual(fake_st.markup, [])
+        finally:
+            app.update(original_functions)
+
+    def test_02bae1_logout_query_uses_existing_session_revocation(self):
+        app = self.app
+        calls = []
+        original_functions = {
+            name: app[name]
+            for name in [
+                "get_query_param_value",
+                "current_member",
+                "logout_member",
+                "update_query_params",
+            ]
+        }
+        try:
+            app["get_query_param_value"] = lambda name: (
+                "1" if name == app["MEMBER_LOGOUT_QUERY_PARAM"] else ""
+            )
+            app["current_member"] = lambda: {"username": "ordinary-member"}
+            app["logout_member"] = lambda: calls.append("logout") or True
+            app["update_query_params"] = lambda **updates: calls.append(updates)
+            self.assertTrue(app["process_member_logout_request"]())
+            self.assertEqual(calls, ["logout"])
+
+            calls.clear()
+            app["current_member"] = lambda: None
+            self.assertTrue(app["process_member_logout_request"]())
+            self.assertEqual(calls, [{app["MEMBER_LOGOUT_QUERY_PARAM"]: ""}])
+        finally:
+            app.update(original_functions)
+
     def test_02baf_member_and_bom_navigation_preserve_session_token(self):
         app = self.app
 
@@ -2188,6 +2268,7 @@ class SystemRegressionTests(unittest.TestCase):
                         "member": "",
                         "admin": "",
                         "bom": "",
+                        app["MEMBER_LOGOUT_QUERY_PARAM"]: "",
                         app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                     }
                 ],
@@ -2255,6 +2336,7 @@ class SystemRegressionTests(unittest.TestCase):
                         "member": "",
                         "admin": "",
                         "bom": "",
+                        app["MEMBER_LOGOUT_QUERY_PARAM"]: "",
                         app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                     }
                 ],
