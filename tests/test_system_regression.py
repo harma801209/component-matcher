@@ -4406,6 +4406,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotIn('render_admin_cost_customer_selector(', upload_section)
         self.assertNotIn('cost_price_upload_ownership', upload_section)
         self.assertIn('B1 留空或填写“通用”就是通用价', upload_section)
+        self.assertIn('KA 分页', upload_section)
         self.assertIn('customer_type=COST_CUSTOMER_TYPE_NEW', upload_section)
         self.assertIn('customer_name=""', upload_section)
 

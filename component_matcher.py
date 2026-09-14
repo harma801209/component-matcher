@@ -8803,9 +8803,11 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     with st.container(border=True):
         st.subheader("上传新成本清单")
         st.caption(
-            "支持 Excel/CSV。系统会按每个分页 B1 自动判断价格归属："
+            "支持 Excel/CSV。普通分页按 B1 自动判断价格归属："
             "B1 留空或填写“通用”就是通用价；填写一个/多个客户代码时，"
-            "该分页只供使用对应客户代码的客户使用，并优先于通用分页。"
+            "该分页只供使用对应客户代码的客户使用，并优先于通用分页。KA 分页"
+            "可在顶部各价格组写 F0001/含税Kpcs、F0002/含税Kpcs 等客户代码，"
+            "系统会按每个客户代码分别导入容差价格和 MOQ。"
         )
         uploaded_file = st.file_uploader(
             "选择成本清单",
@@ -8834,7 +8836,7 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
                 + (
                     f" · 旧版整表专属：{normalize_cost_customer_name(row.get('customer_name', '')) or '未命名客户'}"
                     if normalize_cost_customer_type(row.get("customer_type", "new")) == COST_CUSTOMER_TYPE_EXISTING
-                    else " · 按各分页 B1 自动归属"
+                    else " · 按各分页 B1/KA 客户代码自动归属"
                 )
                 + (" · 当前使用" if int(row.get("active", 0) or 0) == 1 else ""),
                 expanded=int(row.get("active", 0) or 0) == 1,
