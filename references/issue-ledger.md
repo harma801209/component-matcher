@@ -1599,3 +1599,10 @@
 - Fix: detect KA grouped headers, carry the customer code into every generated series rule, and import each code's tolerance and package columns independently. The existing customer authorization then limits those code rules to the assigned salesperson and administrator.
 - Safety: blank or `通用` B1 sheets remain general; ordinary B1 customer-code sheets keep their existing behavior; a customer code is never granted merely because its group name matches.
 - Regression: a synthetic KA workbook with F0001/F0002/F0003 columns imports six scoped rules and returns the source price 1.73 for the same FRC model when each customer is selected.
+
+## 2026-09-14 - LIZ R1206 package marker was parsed as a resistor value
+
+- Symptom: LIZ descriptions such as `贴片电阻 R1206 3K-1% ... 1206 ...` and `R1206 390R-1% ...` were parsed as 120.6mΩ, causing the matcher to recommend a 1206 alloy/metal-strip resistor instead of the 3KΩ or 390Ω chip resistor.
+- Root cause: `R1206` matched the compact resistor-value pattern before the actual resistance token. In these vendor descriptions, `R1206` is a package marker and the following `3K`/`390R` is the electrical value.
+- Fix: collect bounded resistor-value candidates, ignore an `R####` token when it is a known package code and another value candidate is present, and retain standalone `R####` shorthand behavior when no other value exists.
+- Regression: both reported LIZ descriptions now parse as 1206, 1/4W, with resistance 3000Ω and 390Ω respectively; the full 82-test safety gate passes with protected runtime data unchanged.

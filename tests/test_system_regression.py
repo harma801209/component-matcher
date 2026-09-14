@@ -2407,6 +2407,20 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(float(milliohm["_resistance_ohm"]), 0.01)
         self.assertAlmostEqual(float(megaohm["_resistance_ohm"]), 1_000_000.0)
 
+        # LIZ descriptions use ``R1206`` as a package marker and provide the
+        # actual resistance in the following field.  Do not parse the marker
+        # as 0.1206 ohm and accidentally recommend a low-resistance alloy part.
+        liz_description_specs = [
+            ("贴片电阻 R1206 3K-1% RES-ChipResister-3K-E24-±1%-1/4W-200V-1206-(-55~155℃) LIZ(丽智)", 3_000.0),
+            ("贴片电阻 R1206 390R-1% RES-ChipResister-390R-E12-±1%-1/4W-200V-1206-(-55~155℃) LIZ(丽智)", 390.0),
+        ]
+        for query, expected_ohm in liz_description_specs:
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["尺寸（inch）"], "1206", query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), expected_ohm, msg=query)
+            self.assertEqual(parsed["_power"], "1/4W", query)
+
         for query in ("0805 1/4 40mR 1%", "0805 1/4 0.04R 1%"):
             bare_fraction = app["parse_resistor_spec_query"](query)
             self.assertIsNotNone(bare_fraction, query)
