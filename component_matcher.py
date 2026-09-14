@@ -6661,6 +6661,135 @@ def save_sales_customer(
     return True, f"已{action}客户资讯：{customer_name} / {customer_code}{suffix}。", parsed_id
 
 
+def delete_sales_customer(customer_id=None, customer_name="", sync_remote=True):
+    """Delete one customer identity without cascading into shared prices or audit history."""
+    if sync_remote:
+        refresh_runtime_store_remote_snapshot("cost-price", force=True)
+        refresh_member_auth_remote_snapshot(force=True)
+    init_cost_price_db()
+    ensure_member_auth_schema()
+    try:
+        parsed_id = int(customer_id) if customer_id not in (None, "") else None
+    except Exception:
+        return False, "客户记录 ID 无效。"
+
+    requested_name = normalize_cost_customer_name(customer_name)
+    requested_key = normalize_cost_customer_key(requested_name)
+    if parsed_id is None and requested_key == "":
+        return False, "请选择要删除的客户。"
+
+    cost_path = os.path.abspath(COST_PRICE_DB_PATH)
+    member_path = os.path.abspath(MEMBER_AUTH_DB_PATH)
+    same_database = os.path.normcase(cost_path) == os.path.normcase(member_path)
+    member_schema = "main" if same_database else "member_store"
+    conn = sqlite3.connect(cost_path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    attached_member_store = False
+    try:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        if not same_database:
+            conn.execute("ATTACH DATABASE ? AS member_store", (member_path,))
+            attached_member_store = True
+        conn.execute("BEGIN IMMEDIATE")
+
+        master_row = None
+        if parsed_id is not None:
+            master_row = conn.execute(
+                "SELECT id, customer_name, customer_key FROM main.sales_customers WHERE id=? LIMIT 1",
+                (parsed_id,),
+            ).fetchone()
+        elif requested_key:
+            master_row = conn.execute(
+                "SELECT id, customer_name, customer_key FROM main.sales_customers WHERE customer_key=? LIMIT 1",
+                (requested_key,),
+            ).fetchone()
+
+        resolved_name = normalize_cost_customer_name(
+            master_row["customer_name"] if master_row is not None else requested_name
+        )
+        resolved_key = normalize_cost_customer_key(
+            master_row["customer_key"] if master_row is not None else requested_key
+        )
+        if resolved_key == "":
+            conn.rollback()
+            return False, "客户名称无效，无法删除。"
+
+        registration_rows = conn.execute(
+            f"SELECT id, customer_name, customer_key FROM {member_schema}.member_sales_customers"
+        ).fetchall()
+        registration_ids = [
+            int(row["id"])
+            for row in registration_rows
+            if normalize_cost_customer_key(row["customer_key"] or row["customer_name"]) == resolved_key
+        ]
+        legacy_member_rows = conn.execute(
+            f"SELECT id, customer_name FROM {member_schema}.members "
+            "WHERE TRIM(IFNULL(customer_name, ''))<>''"
+        ).fetchall()
+        legacy_member_ids = [
+            int(row["id"])
+            for row in legacy_member_rows
+            if normalize_cost_customer_key(row["customer_name"]) == resolved_key
+        ]
+
+        if master_row is not None:
+            master_deleted = int(
+                conn.execute(
+                    "DELETE FROM main.sales_customers WHERE id=?",
+                    (int(master_row["id"]),),
+                ).rowcount
+                or 0
+            )
+        else:
+            master_deleted = 0
+        for registration_id in registration_ids:
+            conn.execute(
+                f"DELETE FROM {member_schema}.member_sales_customers WHERE id=?",
+                (registration_id,),
+            )
+        now_text = current_timestamp_text()
+        for member_id in legacy_member_ids:
+            conn.execute(
+                f"UPDATE {member_schema}.members "
+                "SET customer_name='', updated_at=? WHERE id=?",
+                (now_text, member_id),
+            )
+
+        if master_deleted <= 0 and not registration_ids and not legacy_member_ids:
+            conn.rollback()
+            return False, "客户不存在或已被删除。"
+        conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False, f"删除客户失败：{clean_text(exc)}"
+    finally:
+        if attached_member_store:
+            try:
+                conn.execute("DETACH DATABASE member_store")
+            except Exception:
+                pass
+        conn.close()
+
+    clear_cost_price_lookup_cache()
+    cost_synced = flush_runtime_store_remote_snapshot("cost-price") if sync_remote else True
+    member_synced = flush_member_auth_remote_snapshot() if sync_remote else True
+    _, _, cost_remote_enabled = get_runtime_store_remote_config()
+    _, _, member_remote_enabled = get_member_auth_remote_config()
+    remote_failed = sync_remote and (
+        (cost_remote_enabled and not cost_synced) or (member_remote_enabled and not member_synced)
+    )
+    suffix = "；远端备份失败，请稍后重试" if remote_failed else ""
+    registration_count = len(registration_ids)
+    return True, (
+        f"已删除客户资讯：{resolved_name or requested_name}；"
+        f"已移除 {registration_count} 条销售账号客户登记。"
+        f"共享客户代码价格和历史记录已保留{suffix}。"
+    )
+
+
 def build_sales_customer_template_bytes():
     workbook = Workbook()
     sheet = workbook.active
@@ -9193,6 +9322,38 @@ def render_sales_customer_admin_page():
             st.session_state.pop("sales_customer_admin_selector", None)
             st.rerun()
         st.warning(message)
+
+    if selected:
+        delete_name = normalize_cost_customer_name(selected.get("customer_name", ""))
+        delete_identity = hashlib.sha256(
+            f"{selected_id or ''}|{selected.get('customer_key', '')}|{delete_name}".encode("utf-8")
+        ).hexdigest()[:12]
+        with st.expander("删除当前客户资讯"):
+            st.warning(
+                "删除后，这家公司会从客户资讯和相关销售账号的客户清单中移除。"
+                "共享客户代码的专属价格、成本清单及历史搜索记录会保留，不会影响使用同一客户代码的其他公司。"
+            )
+            delete_confirmed = st.checkbox(
+                f"确认永久删除“{delete_name}”及其销售账号登记",
+                key=f"sales_customer_delete_confirm_{delete_identity}",
+            )
+            if st.button(
+                "删除客户资讯",
+                key=f"sales_customer_delete_button_{delete_identity}",
+                type="primary",
+                use_container_width=True,
+                disabled=not delete_confirmed,
+            ):
+                ok, message = delete_sales_customer(
+                    customer_id=selected_id,
+                    customer_name=delete_name,
+                )
+                if ok:
+                    st.session_state["sales_customer_admin_flash"] = message
+                    st.session_state.pop("sales_customer_admin_selector", None)
+                    st.session_state.pop(f"sales_customer_delete_confirm_{delete_identity}", None)
+                    st.rerun()
+                st.warning(message)
 
     if rows:
         st.subheader("客户资讯清单")
