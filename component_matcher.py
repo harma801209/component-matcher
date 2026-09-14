@@ -6081,6 +6081,21 @@ def normalize_cost_price_tolerance_header(value):
     return f"{numeric:.8f}".rstrip("0").rstrip(".")
 
 
+def extract_ka_customer_code_header(value):
+    """Extract a customer code from a KA grouped-price header such as F0001/含税Kpcs."""
+    text = clean_text(value)
+    if text == "":
+        return ""
+    # Ordinary headers such as ``Type / Dimension`` also contain a slash. KA
+    # customer groups are explicitly marked as tax-inclusive Kpcs columns.
+    if not re.search(r"(?:含税|kpcs)", text, flags=re.I):
+        return ""
+    match = re.match(r"^([A-Za-z0-9][A-Za-z0-9_-]*)\s*(?:[/／]|含税|税)", text, flags=re.I)
+    if match is None:
+        return ""
+    return normalize_sales_customer_code(match.group(1))
+
+
 def find_cost_price_column(columns, include_keywords, exclude_keywords=()):
     for column in columns:
         if not cost_price_header_matches(column, include_keywords):
@@ -7854,6 +7869,113 @@ def build_fojan_alloy_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scop
     return items
 
 
+def build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name):
+    """Parse a KA sheet whose price columns are grouped by customer code."""
+    if not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
+        return []
+    header_index = None
+    series_col = type_col = range_col = None
+    grouped_columns = []
+    for idx in range(min(len(raw_df) - 1, 20)):
+        values = raw_df.iloc[idx].tolist()
+        normalized = [normalize_cost_price_header(value) for value in values]
+        candidate_series = next((i for i, value in enumerate(normalized) if value == "series"), None)
+        candidate_type = next((i for i, value in enumerate(normalized) if "typedimension" in value), None)
+        candidate_range = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
+        if None in {candidate_series, candidate_type, candidate_range}:
+            continue
+        subheaders = raw_df.iloc[idx + 1].tolist()
+        current_code = ""
+        current_package_col = None
+        current_group_start = 0
+        groups = []
+        for column_index, value in enumerate(values):
+            code = extract_ka_customer_code_header(value)
+            if code:
+                current_code = code
+                current_package_col = None
+                current_group_start = len(groups)
+            if not current_code or column_index <= candidate_range:
+                continue
+            if normalized[column_index] == "package":
+                current_package_col = column_index
+                for group in groups[current_group_start:]:
+                    group["package_col"] = current_package_col
+                continue
+            tolerance = normalize_cost_price_tolerance_header(
+                subheaders[column_index] if column_index < len(subheaders) else ""
+            )
+            if tolerance:
+                groups.append({
+                    "customer_code": current_code,
+                    "tolerance": tolerance,
+                    "price_col": column_index,
+                    "package_col": current_package_col,
+                })
+        if groups:
+            header_index = idx
+            series_col, type_col, range_col = candidate_series, candidate_type, candidate_range
+            grouped_columns = groups
+            break
+    if header_index is None:
+        return []
+
+    items = []
+    last_series = ""
+    for row_idx in range(header_index + 2, len(raw_df)):
+        values = raw_df.iloc[row_idx].tolist()
+        series = clean_text(values[series_col]) if series_col < len(values) else ""
+        if series:
+            last_series = series
+        series = clean_text(last_series).upper()
+        series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
+        if not series_profile:
+            continue
+        series = clean_text(series_profile.get("系列", series)).upper()
+        type_dimension = clean_text(values[type_col]) if type_col < len(values) else ""
+        resistance_range = clean_text(values[range_col]) if range_col < len(values) else ""
+        if type_dimension == "" or resistance_range == "":
+            continue
+        for group in grouped_columns:
+            price_col = group["price_col"]
+            price = clean_text(values[price_col]) if price_col < len(values) else ""
+            if price == "":
+                continue
+            package_col = group.get("package_col")
+            package = clean_text(values[package_col]) if package_col is not None and package_col < len(values) else ""
+            customer_code = group["customer_code"]
+            code_key = normalize_sales_customer_code_key(customer_code)
+            if code_key == "":
+                continue
+            rule_data = {
+                "cost_rule_type": "fojan_resistor_series",
+                "series": series,
+                "type_dimension": type_dimension,
+                "resistance_range": resistance_range,
+                "tolerance": group["tolerance"],
+                "package": package,
+                "price_scope_kind": "customer_codes",
+                "price_scope_text": customer_code,
+                "price_customer_codes": [customer_code],
+                "price_customer_code_keys": [code_key],
+            }
+            items.append(
+                {
+                    "sheet_name": clean_text(sheet_name),
+                    "row_index": row_idx + 1,
+                    "brand": "FOJAN(富捷)",
+                    "model": "",
+                    "model_clean": "",
+                    "spec_text": f"{series} {type_dimension} {resistance_range} {group['tolerance']}% {customer_code}",
+                    "cost": price,
+                    "moq": package,
+                    "lead_time": "",
+                    "raw_json": json.dumps(rule_data, ensure_ascii=False, sort_keys=True),
+                }
+            )
+    return items
+
+
 def build_fojan_cost_price_items_from_workbook(uploaded_file):
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
     if not raw_bytes:
@@ -7867,6 +7989,10 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
         try:
             raw_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, dtype=object).fillna("")
         except Exception:
+            continue
+        ka_items = build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name)
+        if ka_items:
+            items.extend(ka_items)
             continue
         sheet_scope = parse_cost_price_sheet_customer_scope(raw_df)
         alloy_items = build_fojan_alloy_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope)
@@ -8086,7 +8212,7 @@ def import_cost_price_list_from_upload(
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
         scope_summary = f"旧版整表专属客户“{customer_name}”"
     else:
-        scope_summary = "按各分页 B1 自动归属价格"
+        scope_summary = "按各分页 B1 自动归属价格；KA 分页按顶部客户代码列自动归属"
     return True, (
         f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{sheet_summary}；"
         f"{scope_summary}{suffix}。"

@@ -1591,3 +1591,11 @@
 - Fix: evaluate both exact-model and FOJAN series-rule candidates, choose the lower customer-scope rank first, and use exact-model status only as the tie-breaker within the same scope. This preserves exact customer items and exact general items while allowing a customer-code rule to override a general exact item.
 - Safety: administrators and the customer's assigned salesperson can receive the F0001 rule; an unrelated salesperson is still authorized only for general prices. Non-resistor and non-FOJAN exact-model lookups keep their established behavior.
 - Regression: the shared-customer-code fixture now includes a competing general exact-model cost. Both companies using F0001 receive the dedicated price, while a different code in the same group and a different group receive the general price.
+
+## 2026-09-14 - KA grouped customer columns were imported as one unscoped price
+
+- Symptom: the KA sheet placed `F0001/含税Kpcs`, `F0002/含税Kpcs`, and other customer codes horizontally above each pair of tolerance columns, but the importer only read a single B1 scope and could not select the correct customer's price for each model.
+- Root cause: the existing FRC/FRL parser assumed one tolerance-to-price map per sheet. It did not associate each price and package column with the customer-code group shown in the merged header row.
+- Fix: detect KA grouped headers, carry the customer code into every generated series rule, and import each code's tolerance and package columns independently. The existing customer authorization then limits those code rules to the assigned salesperson and administrator.
+- Safety: blank or `通用` B1 sheets remain general; ordinary B1 customer-code sheets keep their existing behavior; a customer code is never granted merely because its group name matches.
+- Regression: a synthetic KA workbook with F0001/F0002/F0003 columns imports six scoped rules and returns 1.73/1.82/1.91 for the same FRC model when each customer is selected.

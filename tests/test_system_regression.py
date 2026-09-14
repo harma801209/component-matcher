@@ -170,6 +170,25 @@ def fojan_alloy_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_ka_quote_xlsx_bytes():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "KA"
+    sheet.append(["KA", "", "FRC&FRL常规电阻系列产品报价单", "", "", "", "", "", "", "", "", ""])
+    sheet.append(["Date:2026/7/1"])
+    sheet.append([
+        "Series", "Type / Dimension", "Resistance Range", "F0001/含税Kpcs", "", "Package",
+        "F0002/含税Kpcs", "", "Package", "F0003/含税Kpcs", "", "Package",
+    ])
+    sheet.append(["", "", "Ω (ohms)", "5%（J）", "1%（F）", "", "5%（J）", "1%（F）", "", "5%（J）", "1%（F）", ""])
+    sheet.append(["FRC", "0402 1/16W", "10R-1M", "", "1.73", "10000PCS", "", "1.82", "10000PCS", "", "1.91", "10000PCS"])
+    sheet.append(["", "0402 1/16W", "1R-9.9R", "2.10", "", "10000PCS", "2.20", "", "10000PCS", "2.30", "", "10000PCS"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 class SystemRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -4322,6 +4341,57 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(len(code_rows), 2)
             self.assertEqual(int(code_index[2]), 0)
             self.assertIn("A集团深圳有限公司", app["list_existing_cost_customers"]())
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_05f_ka_sheet_imports_each_customer_group_and_selects_its_price(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "ka-group-price-test.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            for name, code in [
+                ("KA客户一有限公司", "F0001"),
+                ("KA客户二有限公司", "F0002"),
+                ("KA客户三有限公司", "F0003"),
+            ]:
+                ok, message, _ = app["save_sales_customer"](
+                    name, code, group_name="KA客户集团", updated_by="regression", sync_remote=False,
+                )
+                self.assertTrue(ok, message)
+
+            upload = UploadedBytes("ka-price.xlsx", fojan_ka_quote_xlsx_bytes())
+            items, error = app["build_cost_price_items_from_workbook"](upload)
+            self.assertEqual(error, "")
+            self.assertEqual(len(items), 6)
+            scoped_prices = {
+                (
+                    json.loads(item["raw_json"])["price_customer_code_keys"][0],
+                    item["cost"],
+                )
+                for item in items
+                if item["spec_text"].startswith("FRC 0402 1/16W 10R-1M")
+            }
+            self.assertEqual(scoped_prices, {("F0001", "1.73"), ("F0002", "1.82"), ("F0003", "1.91")})
+
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+            row = {
+                "品牌": "FOJAN(富捷)", "型号": "FRC0402F1002TS", "系列": "FRC",
+                "尺寸（inch）": "0402", "阻值": 10, "阻值单位": "KΩ", "_resistance_ohm": 10000.0,
+                "容值误差": "±1%", "功率": "1/16W",
+            }
+            for customer_name, expected in [
+                ("KA客户一有限公司", "1.73"),
+                ("KA客户二有限公司", "1.82"),
+                ("KA客户三有限公司", "1.91"),
+            ]:
+                price = app["lookup_active_cost_price_for_row"](
+                    row, app["load_active_cost_price_lookup"]("existing", customer_name)
+                )
+                self.assertEqual(app["normalize_cost_value_for_compare"](price["cost"]), expected)
+                self.assertIn("客户代码价", price["cost_source"])
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
