@@ -479,7 +479,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotIn("123456", admin["password_hash"])
 
         ok, message = app["create_member_account"](
-            "CaseUser", "secret1", "Case User", "Old Co", "old@example.com", "100"
+            "CaseUser", "secret1", "Case User", "Old Co", "old@example.com", "100", "", "其他"
         )
         self.assertTrue(ok, message)
         pending, message = app["authenticate_member"]("caseuser", "secret1")
@@ -1064,7 +1064,8 @@ class SystemRegressionTests(unittest.TestCase):
                 username,
                 "secret1",
                 display_name=username,
-                company="Test Co",
+                company="富临通测试有限公司",
+                job_title="销售",
             )
             self.assertTrue(ok, message)
             member = app["get_member_by_username"](username)
@@ -1135,7 +1136,7 @@ class SystemRegressionTests(unittest.TestCase):
                 cursor = conn.execute(
                     "INSERT INTO members "
                     "(username,password_hash,display_name,company,customer_name,job_title,role,status,created_at,updated_at) "
-                    "VALUES ('DeleteCustomerOwner','test-only','删除测试销售','测试公司',?,'销售','member','active','','')",
+                    "VALUES ('DeleteCustomerOwner','test-only','删除测试销售','富临通测试有限公司',?,'销售','member','active','','')",
                     (deleted_name,),
                 )
                 member_id = int(cursor.lastrowid)
@@ -1250,7 +1251,8 @@ class SystemRegressionTests(unittest.TestCase):
                 username,
                 "secret1",
                 display_name=username,
-                company="Regression Co",
+                company="富临通回归测试有限公司",
+                job_title="其他",
             )
             self.assertTrue(ok, message)
             member = app["get_member_by_username"](username)
@@ -1457,19 +1459,36 @@ class SystemRegressionTests(unittest.TestCase):
     def test_02ab_job_title_is_admin_managed_and_controls_cost_visibility(self):
         app = self.app
         ok, message = app["create_member_account"](
+            "MissingCompany", "secret1", job_title="其他"
+        )
+        self.assertFalse(ok)
+        self.assertIn("公司", message)
+        ok, message = app["create_member_account"](
+            "MissingJobTitle", "secret1", company="富临通电子有限公司"
+        )
+        self.assertFalse(ok)
+        self.assertIn("职务", message)
+        ok, message = app["create_member_account"](
+            "InvalidJobTitle", "secret1", company="富临通电子有限公司", job_title="工程"
+        )
+        self.assertFalse(ok)
+        self.assertIn("PM、销售或其他", message)
+
+        ok, message = app["create_member_account"](
             "SalesTitleUser",
             "secret1",
             display_name="Sales Title User",
-            company="Sales Co",
+            company="富临通电子股份有限公司",
             email="sales@example.com",
             phone="300",
+            job_title="其他",
         )
         self.assertTrue(ok, message)
         member = app["get_member_by_username"]("salestitleuser")
         ok, message = app["approve_member_account_admin"](member["id"])
         self.assertTrue(ok, message)
         member = app["get_member_by_id"](member["id"])
-        self.assertEqual(member.get("job_title", ""), "")
+        self.assertEqual(member.get("job_title", ""), "其他")
         self.assertEqual(app["member_cost_access_level"](member), "general")
         self.assertTrue(app["member_can_view_cost"](member))
 
@@ -1494,22 +1513,33 @@ class SystemRegressionTests(unittest.TestCase):
         ok, message = app["update_current_member_profile"](
             member["id"],
             "Sales Renamed",
-            "Sales Co 2",
+            "外部公司有限公司",
             "sales2@example.com",
             "301",
         )
-        self.assertTrue(ok, message)
+        self.assertFalse(ok, message)
+        self.assertIn("后台管理员", message)
         self.assertEqual(app["get_member_by_id"](member["id"])["job_title"], "销售")
 
         non_sales_member = dict(sales_member, job_title="工程")
         assistant_member = dict(sales_member, job_title=" 销售 助理 ")
         admin_member = dict(non_sales_member, role="admin")
+        external_sales_member = dict(sales_member, company="其他公司有限公司")
+        external_other_member = dict(non_sales_member, company="其他公司有限公司")
         self.assertEqual(app["member_cost_access_level"](non_sales_member), "general")
         self.assertEqual(app["member_cost_access_level"](assistant_member), "sales")
         self.assertEqual(app["member_cost_access_level"](admin_member), "admin")
+        self.assertEqual(app["member_cost_access_level"](external_sales_member), "none")
+        self.assertEqual(app["member_cost_access_level"](external_other_member), "none")
         self.assertTrue(app["member_can_view_cost"](non_sales_member))
         self.assertTrue(app["member_can_view_cost"](assistant_member))
         self.assertTrue(app["member_can_view_cost"](admin_member))
+        self.assertFalse(app["member_can_view_cost"](external_sales_member))
+        self.assertFalse(app["member_can_view_cost"](external_other_member))
+        self.assertEqual(
+            app["load_authorized_cost_price_lookup"](member=external_sales_member),
+            {},
+        )
 
         visible_df = pd.DataFrame(
             [{"品牌": "FOJAN(富捷)", "型号": "FRC0402F1001TS", "成本": "1.70", "更新时间": "2026-08-12", "MOQ": "10000PCS"}]
@@ -1547,7 +1577,8 @@ class SystemRegressionTests(unittest.TestCase):
                 username,
                 "secret1",
                 display_name=username,
-                company="Price Scope Co",
+                company="富临通价格权限测试有限公司",
+                job_title=job_title,
             )
             self.assertTrue(ok, message)
             member = app["get_member_by_username"](username)
@@ -1650,8 +1681,8 @@ class SystemRegressionTests(unittest.TestCase):
             with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
                 for name in ["AssignSalesA", "AssignSalesB"]:
                     cursor = conn.execute(
-                        "INSERT INTO members (username,password_hash,job_title,status,created_at,updated_at) "
-                        "VALUES (?, 'test-only', '销售', 'active', '', '')", (name,),
+                        "INSERT INTO members (username,password_hash,company,job_title,status,created_at,updated_at) "
+                        "VALUES (?, 'test-only', '富临通测试有限公司', '销售', 'active', '', '')", (name,),
                     )
                     members.append(cursor.lastrowid)
             a, b = [app["get_member_by_id"](member_id) for member_id in members]
@@ -1698,7 +1729,13 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(cost(admin, name_a, "GROUPITEM"), "20")
             # Shared cached lookups must not expose a sibling customer's different-code price.
             self.assertEqual(cost(a, name_a, "GROUPITEM"), "20")
-            pm = {"id": 998, "username": "TestPM", "role": "member", "job_title": "PM"}
+            pm = {
+                "id": 998,
+                "username": "TestPM",
+                "role": "member",
+                "company": "富临通测试有限公司",
+                "job_title": "PM",
+            }
             self.assertEqual(cost(pm, name_a, "OWNITEM"), "10")
 
             ok, message, _ = app["save_sales_customer"](
@@ -1731,13 +1768,13 @@ class SystemRegressionTests(unittest.TestCase):
             app["ensure_member_auth_schema"]()
             with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
                 other_cursor = conn.execute(
-                    "INSERT INTO members (username,password_hash,display_name,job_title,role,status,created_at,updated_at) "
-                    "VALUES ('FlowOther','test-only','实际销售','其他','member','active','','')"
+                    "INSERT INTO members (username,password_hash,display_name,company,job_title,role,status,created_at,updated_at) "
+                    "VALUES ('FlowOther','test-only','实际销售','富临通测试有限公司','其他','member','active','','')"
                 )
                 owner_id = int(other_cursor.lastrowid)
                 pm_cursor = conn.execute(
-                    "INSERT INTO members (username,password_hash,display_name,job_title,role,status,created_at,updated_at) "
-                    "VALUES ('FlowPM','test-only','产品经理','PM','member','active','','')"
+                    "INSERT INTO members (username,password_hash,display_name,company,job_title,role,status,created_at,updated_at) "
+                    "VALUES ('FlowPM','test-only','产品经理','富临通测试有限公司','PM','member','active','','')"
                 )
                 pm_id = int(pm_cursor.lastrowid)
                 for customer_name in ["广州星际悦动有限公司", "惠州高盛达科技股份有限公司"]:
@@ -2092,6 +2129,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "current_member",
                 "get_query_param_value",
                 "build_app_href",
+                "is_member_page_requested",
             ]
         }
         try:
@@ -2103,6 +2141,7 @@ class SystemRegressionTests(unittest.TestCase):
             }
             app["get_query_param_value"] = lambda name: ""
             app["build_app_href"] = lambda **updates: captured_updates.append(updates) or "?logout"
+            app["is_member_page_requested"] = lambda: False
 
             app["render_member_logout_button"]()
             self.assertEqual(len(fake_st.markup), 1)
@@ -2115,6 +2154,12 @@ class SystemRegressionTests(unittest.TestCase):
                     app["MEMBER_AUTH_QUERY_PARAM"]: "ordinary-token",
                 }],
             )
+
+            fake_st.markup.clear()
+            app["is_member_page_requested"] = lambda: True
+            app["current_member"] = lambda: {"username": "ordinary-member", "role": "member"}
+            app["render_member_logout_button"]()
+            self.assertEqual(fake_st.markup, [])
 
             fake_st.markup.clear()
             app["current_member"] = lambda: {"username": "admin", "role": "admin"}
@@ -5532,7 +5577,13 @@ class SystemRegressionTests(unittest.TestCase):
             os.environ["MEMBER_AUTH_REMOTE_API_SECRET"] = api_secret
             os.environ["MEMBER_AUTH_REMOTE_FORCE"] = "1"
             app["MEMBER_AUTH_REMOTE_STATE_PATH"] = os.path.join(self.temp_dir, "remote_state.json")
-            ok, message = app["create_member_account"]("DurableUser", "secret1", "Durable User")
+            ok, message = app["create_member_account"](
+                "DurableUser",
+                "secret1",
+                "Durable User",
+                company="外部测试有限公司",
+                job_title="其他",
+            )
             self.assertTrue(ok, message)
             member = app["get_member_by_username"]("durableuser")
             app["approve_member_account_admin"](member["id"])
@@ -5604,7 +5655,12 @@ class SystemRegressionTests(unittest.TestCase):
 
             stale_path = os.path.join(self.temp_dir, "member-stale.sqlite")
             shutil.copy2(app["MEMBER_AUTH_DB_PATH"], stale_path)
-            ok, message = app["create_member_account"]("OtherInstanceUser", "secret2")
+            ok, message = app["create_member_account"](
+                "OtherInstanceUser",
+                "secret2",
+                company="外部测试有限公司",
+                job_title="其他",
+            )
             self.assertTrue(ok, message)
             original_db_path = app["MEMBER_AUTH_DB_PATH"]
             app["MEMBER_AUTH_DB_PATH"] = stale_path

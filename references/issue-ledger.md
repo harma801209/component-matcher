@@ -1,5 +1,17 @@
 # Issue Ledger
 
+## 2026-09-14 - Registration and price access must be scoped by company
+
+- Requirement: new member registration must require a company and a dropdown job title. Companies containing “富临通” (including 富临通股份/富临通电子 variants) may see general prices or their own assigned customer prices; all other companies may match models but must not see any price.
+- Fix: persist the required job title at registration, recognize the 富临通 company substring after punctuation normalization, keep administrators unrestricted, and apply the company gate to selector messaging, search/BOM cost visibility, and the authorized price lookup itself. Member self-service cannot change the company field; administrators remain the authority for corrections.
+- Regression: missing company/job/invalid job registrations are rejected; internal PM/sales/other accounts retain their intended access; external sales/other accounts resolve to no-cost access and an empty price lookup; customer-code ownership isolation remains intact.
+
+## 2026-09-14 - Member-centre page duplicated the ordinary-member logout action
+
+- Symptom: the fixed upper-right “退出会员” link remained visible after an ordinary member opened 会员中心, where the profile tab already contains the same action.
+- Fix: suppress the fixed logout link only while the member-centre page is active. Search and BOM pages still expose the quick logout action, and administrators remain excluded.
+- Regression: the logout navigation test verifies the fixed action on normal pages and no fixed markup on the member-centre page.
+
 ## 2026-09-14 - Ordinary members lacked a visible logout action on working pages
 
 - Symptom: an authenticated ordinary member could see `会员中心` and `BOM批量匹配` in the upper-right navigation, but had to enter the member centre and find the profile-tab button before signing out.
