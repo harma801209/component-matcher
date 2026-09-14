@@ -4612,7 +4612,7 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
 
-    def test_05f_ka_sheet_imports_each_customer_group_and_selects_its_price(self):
+    def test_05f_ka_sheet_imports_each_customer_code_and_selects_its_price(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
         try:
@@ -4659,6 +4659,20 @@ class SystemRegressionTests(unittest.TestCase):
                 )
                 self.assertEqual(app["normalize_cost_value_for_compare"](price["cost"]), expected)
                 self.assertIn("客户代码价", price["cost_source"])
+            code_specific_row = dict(
+                row,
+                **{"阻值": 1, "_resistance_ohm": 1.0, "容值误差": "±5%"},
+            )
+            for customer_name, expected in [
+                ("KA客户一有限公司", "2.1"),
+                ("KA客户二有限公司", "2.2"),
+                ("KA客户三有限公司", "2.3"),
+            ]:
+                price = app["lookup_active_cost_price_for_row"](
+                    code_specific_row,
+                    app["load_active_cost_price_lookup"]("existing", customer_name),
+                )
+                self.assertEqual(app["normalize_cost_value_for_compare"](price["cost"]), expected)
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

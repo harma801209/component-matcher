@@ -1,5 +1,11 @@
 # Issue Ledger
 
+## 2026-09-14 - KA prices are selected strictly by customer code
+
+- Requirement: KA columns such as `F0001/含税Kpcs`, `F0002/含税Kpcs`, and `F0003/含税Kpcs` must be the only price scope. The customer group label is informational and must not make prices interchangeable.
+- Fix: keep KA import rules keyed to normalized customer-code keys and show the selected code as the price source; customers sharing one code receive the same KA price, while customers with different codes remain isolated even when their group name is identical.
+- Regression: KA fixture prices 2.1/2.2/2.3 are returned for F0001/F0002/F0003 respectively, and shared-code/different-code isolation remains covered.
+
 ## 2026-09-14 - Registration and price access must be scoped by company
 
 - Requirement: new member registration must require a company, phone number, and a dropdown job title. Companies containing “富临通” (including 富临通股份/富临通电子 variants) may see general prices or their own assigned customer prices; all other companies may match models but must not see any price.
