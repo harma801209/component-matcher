@@ -2542,14 +2542,24 @@ def create_member_account(
     email="",
     phone="",
     customer_name="",
+    job_title="",
 ):
     refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     username = clean_text(username)
+    company = clean_text(company)
+    raw_job_title = clean_text(job_title)
     if not member_username_is_valid(username):
         return False, "账号只能使用 3-64 位英文、数字、点号、下划线、加号、减号或 @。"
     if len(str(password or "")) < 6:
         return False, "密码至少需要 6 位。"
+    if company == "":
+        return False, "公司为必填项。"
+    if raw_job_title == "":
+        return False, "请选择职务。"
+    if raw_job_title not in MEMBER_JOB_TITLE_OPTIONS:
+        return False, "职务只能选择 PM、销售或其他。"
+    normalized_job_title = normalize_member_job_title(raw_job_title)
     now = current_timestamp_text()
     try:
         with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
@@ -2559,17 +2569,18 @@ def create_member_account(
             conn.execute(
                 """
                 INSERT INTO members (
-                    username, password_hash, display_name, company, customer_name, email, phone,
+                    username, password_hash, display_name, company, customer_name, job_title, email, phone,
                     role, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'member', 'pending', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'member', 'pending', ?, ?)
                 """,
                 (
                     username,
                     hash_member_password(password),
                     clean_text(display_name) or username,
-                    clean_text(company),
+                    company,
                     clean_text(customer_name),
+                    normalized_job_title,
                     clean_text(email),
                     clean_text(phone),
                     now,
@@ -2626,12 +2637,19 @@ def normalize_member_job_title(value):
     return MEMBER_JOB_TITLE_OTHER
 
 
+def member_company_is_fruition(value):
+    company_key = re.sub(r"[^A-Z0-9\u3400-\u9fff]+", "", clean_text(value).upper())
+    return "富临通" in company_key
+
+
 def member_cost_access_level(member):
     member = member if isinstance(member, dict) else {}
     if not member or not clean_text(member.get("username", "")):
         return "none"
     if normalize_member_role(member.get("role", "")) == "admin":
         return "admin"
+    if not member_company_is_fruition(member.get("company", "")):
+        return "none"
     job_title = normalize_member_job_title(member.get("job_title", ""))
     if job_title == MEMBER_JOB_TITLE_PM:
         return "pm"
@@ -2647,6 +2665,7 @@ def member_can_own_sales_customer(member):
         clean_text(member.get("username", ""))
         and normalize_member_status(member.get("status", "")) == "active"
         and normalize_member_role(member.get("role", "")) != "admin"
+        and member_company_is_fruition(member.get("company", ""))
         and normalize_member_job_title(member.get("job_title", "")) != MEMBER_JOB_TITLE_PM
     )
 
@@ -4349,6 +4368,10 @@ def update_current_member_profile(
     except Exception:
         return False, "会员 ID 无效。"
     existing_member = get_member_by_id(member_id) or {}
+    existing_company = clean_text(existing_member.get("company", ""))
+    requested_company = clean_text(company)
+    if requested_company != existing_company:
+        return False, "公司资料关系到价格权限，只能由后台管理员修改。"
     existing_customer_name = normalize_cost_customer_name(existing_member.get("customer_name", ""))
     requested_customer_name = (
         existing_customer_name
@@ -4359,7 +4382,7 @@ def update_current_member_profile(
         return False, "客户绑定只能由后台管理员维护。"
     new_values = {
         "display_name": clean_text(display_name),
-        "company": clean_text(company),
+        "company": existing_company,
         "customer_name": existing_customer_name,
         "email": clean_text(email),
         "phone": clean_text(phone),
@@ -5162,7 +5185,11 @@ def render_bom_entry_button():
 
 def render_member_logout_button():
     member = current_member()
-    if not member or normalize_member_role(member.get("role", "")) == "admin":
+    if (
+        not member
+        or normalize_member_role(member.get("role", "")) == "admin"
+        or is_member_page_requested()
+    ):
         return
     session_state = getattr(st, "session_state", {})
     member_token = clean_text(session_state.get("_member_auth_token", "")) or clean_text(
@@ -5247,7 +5274,13 @@ def render_member_auth_panel(action_text=""):
     with register_tab:
         username = st.text_input("账号", key="member_register_username", help="3-64 位英文、数字、点号、下划线、加号、减号或 @。")
         display_name = st.text_input("姓名/称呼", key="member_register_display_name")
-        company = st.text_input("公司", key="member_register_company")
+        company = st.text_input("公司（必填）", key="member_register_company")
+        job_title = st.selectbox(
+            "职务（必填）",
+            options=["请选择职务", *MEMBER_JOB_TITLE_OPTIONS],
+            key="member_register_job_title",
+        )
+        st.caption("公司资料用于判断价格查看权限，注册后如需修改请联系管理员。")
         email = st.text_input("邮箱", key="member_register_email")
         phone = st.text_input("电话", key="member_register_phone")
         password = st.text_input("密码", type="password", key="member_register_password")
@@ -5264,6 +5297,7 @@ def render_member_auth_panel(action_text=""):
                     company=company,
                     email=email,
                     phone=phone,
+                    job_title="" if job_title == "请选择职务" else job_title,
                 )
                 if ok:
                     st.success(message)
@@ -5306,7 +5340,13 @@ def render_member_center_page():
     with edit_tab:
         with st.form(f"member_profile_edit_{member.get('id', '')}", clear_on_submit=False):
             edit_display_name = st.text_input("姓名/称呼", value=clean_text(member.get("display_name", "")))
-            edit_company = st.text_input("公司", value=clean_text(member.get("company", "")))
+            edit_company = st.text_input(
+                "公司",
+                value=clean_text(member.get("company", "")),
+                disabled=True,
+                help="公司资料关系到价格权限，只能由后台管理员修改。",
+            )
+            st.caption("公司资料关系到价格权限，如需修改请联系管理员。")
             edit_email = st.text_input("邮箱", value=clean_text(member.get("email", "")))
             edit_phone = st.text_input("电话", value=clean_text(member.get("phone", "")))
             submitted = st.form_submit_button("保存资料", use_container_width=True)
@@ -5835,6 +5875,7 @@ def render_member_approval_admin_page():
                 {"字段": "账号", "值": username},
                 {"字段": "姓名/称呼", "值": display_name},
                 {"字段": "公司", "值": clean_text(member.get("company", ""))},
+                {"字段": "职务", "值": normalize_member_job_title(member.get("job_title", ""))},
                 {"字段": "邮箱", "值": clean_text(member.get("email", ""))},
                 {"字段": "电话", "值": clean_text(member.get("phone", ""))},
                 {"字段": "提交时间", "值": clean_text(member.get("created_at", ""))},
@@ -7188,7 +7229,12 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     customer_names = [normalize_cost_customer_name(row.get("customer_name", "")) for row in customer_rows]
     customer_names = [name for name in customer_names if name]
     customer_names = list(dict.fromkeys(customer_names))
-    new_customer_option = "通用成本（不指定客户）" if is_admin else "新客户"
+    if is_admin:
+        new_customer_option = "通用成本（不指定客户）"
+    elif access_level == "none":
+        new_customer_option = "型号匹配（不显示价格）"
+    else:
+        new_customer_option = "新客户"
     customer_names = [name for name in customer_names if name != new_customer_option]
     selector_owner_key = "admin" if is_admin else str(member_id)
     selector_key = f"{key_prefix}_member_sales_customer_selector_{selector_owner_key}_v3"
@@ -7212,6 +7258,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
 
     if is_admin:
         help_text = "管理员可查看客户资讯中全部已启用客户；不指定客户时使用通用成本。"
+    elif access_level == "none":
+        help_text = "当前公司不属于富临通，仅可匹配型号，不显示通用价格或客户专属价格。"
     elif access_level == "pm":
         help_text = "PM 使用通用价格；客户专属价仅供负责销售查看。"
     elif access_level == "sales":
@@ -7236,6 +7284,13 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
             st.success("当前客户：通用成本　·　价格来源：通用价格")
             st.caption("管理员可直接搜索料号；如需查看客户专属价格，请从下拉选单选择客户资讯中已启用的客户。")
+            return COST_CUSTOMER_TYPE_NEW, "", True
+        if access_level == "none":
+            st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = ""
+            st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
+            st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
+            st.success("当前模式：型号匹配　·　价格来源：不显示价格")
+            st.caption("当前公司不属于富临通，可以正常匹配型号，但不显示通用价格或客户专属价格。")
             return COST_CUSTOMER_TYPE_NEW, "", True
         with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
             new_customer_name = st.text_input(
@@ -7286,7 +7341,9 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.session_state["_sales_authorized_price_scope"] = price_scope_signature
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
-    if customer_type == COST_CUSTOMER_TYPE_EXISTING:
+    if access_level == "none":
+        price_source = "不显示价格"
+    elif customer_type == COST_CUSTOMER_TYPE_EXISTING:
         price_context = get_sales_customer_price_context(customer_name)
         record = price_context.get("record") or {}
         price_source = f"客户价格：{record.get('customer_code') or customer_name}"
@@ -7297,6 +7354,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
     if is_admin:
         st.caption("管理员可在上方下拉选单切换客户资讯中已启用的客户；没有专属价格时自动使用通用价格。")
+    elif access_level == "none":
+        st.caption("当前公司不属于富临通：可以正常匹配型号，但所有通用价格和客户专属价格均不显示。")
     elif access_level == "pm":
         st.caption("PM 使用通用价格；客户专属价仅供负责销售查看。")
     elif access_level == "sales":
@@ -8608,6 +8667,8 @@ def filter_cost_lookup_for_member(lookup, member):
 
 def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, member=None):
     member = current_member() if member is None else member
+    if member and not member_can_view_cost(member):
+        return {}
     refresh_runtime_store_remote_snapshot("cost-price")
     if customer_type is None:
         customer_type, customer_name, _ = selected_sales_cost_customer_context()
@@ -9044,6 +9105,7 @@ def registration_member_can_own_sales_customer(registration):
     return member_can_own_sales_customer(
         {
             "username": registration.get("member_username", ""),
+            "company": registration.get("member_company", ""),
             "status": registration.get("member_status", ""),
             "role": registration.get("member_role", ""),
             "job_title": registration.get("member_job_title", ""),
