@@ -1116,6 +1116,124 @@ class SystemRegressionTests(unittest.TestCase):
         authorized = app["list_member_sales_customers"](member_ids[0])[0]
         self.assertEqual(int(authorized["price_access_enabled"]), 1)
 
+    def test_02aaa1_admin_can_delete_customer_without_deleting_shared_prices_or_history(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        original_member_path = app["MEMBER_AUTH_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "customer-delete-cost.sqlite")
+            app["MEMBER_AUTH_DB_PATH"] = os.path.join(self.temp_dir, "customer-delete-members.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            app["init_cost_price_db"]()
+            app["ensure_member_auth_schema"]()
+            deleted_name = "深圳市待删除客户有限公司"
+            sibling_name = "东莞市保留客户有限公司"
+            pending_name = "惠州市仅登记待删除客户有限公司"
+            deleted_key = app["normalize_cost_customer_key"](deleted_name)
+            pending_key = app["normalize_cost_customer_key"](pending_name)
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                cursor = conn.execute(
+                    "INSERT INTO members "
+                    "(username,password_hash,display_name,company,customer_name,job_title,role,status,created_at,updated_at) "
+                    "VALUES ('DeleteCustomerOwner','test-only','删除测试销售','测试公司',?,'销售','member','active','','')",
+                    (deleted_name,),
+                )
+                member_id = int(cursor.lastrowid)
+                conn.execute(
+                    "INSERT INTO member_sales_customers "
+                    "(member_id,customer_name,customer_key,price_access_enabled,created_at,updated_at,last_selected_at) "
+                    "VALUES (?,?,?,1,'','','')",
+                    (member_id, deleted_name, deleted_key),
+                )
+                conn.execute(
+                    "INSERT INTO member_sales_customers "
+                    "(member_id,customer_name,customer_key,price_access_enabled,created_at,updated_at,last_selected_at) "
+                    "VALUES (?,?,?,0,'','','')",
+                    (member_id, pending_name, pending_key),
+                )
+                conn.commit()
+
+            ok, message, deleted_id = app["save_sales_customer"](
+                deleted_name,
+                "SHARED-001",
+                group_name="共享客户集团",
+                owner_member_id=member_id,
+                updated_by="regression",
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            ok, message, sibling_id = app["save_sales_customer"](
+                sibling_name,
+                "SHARED-001",
+                group_name="共享客户集团",
+                updated_by="regression",
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                price_list = conn.execute(
+                    "INSERT INTO cost_price_lists "
+                    "(file_name,uploaded_at,row_count,active,customer_type,customer_name,customer_key) "
+                    "VALUES ('shared-price.xlsx','',1,1,'new','','')"
+                )
+                rule_data = json.dumps({
+                    "price_scope_kind": "customer_codes",
+                    "price_customer_code_keys": ["SHARED001"],
+                })
+                conn.execute(
+                    "INSERT INTO cost_price_items "
+                    "(list_id,brand,model,model_clean,cost,raw_json) VALUES (?,?,?,?,?,?)",
+                    (price_list.lastrowid, "FOJAN", "DELETE-SHARED-PRICE", "DELETESHAREDPRICE", "1.23", rule_data),
+                )
+                conn.commit()
+
+            ok, message = app["delete_sales_customer"](
+                customer_id=deleted_id,
+                customer_name=deleted_name,
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertIn("共享客户代码价格和历史记录已保留", message)
+            self.assertIsNone(app["get_sales_customer_by_name"](deleted_name, active_only=False))
+            sibling = app["get_sales_customer_by_name"](sibling_name, active_only=False)
+            self.assertEqual(int(sibling["id"]), int(sibling_id))
+            self.assertEqual(sibling["customer_code"], "SHARED-001")
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM cost_price_lists").fetchone()[0], 1)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM cost_price_items").fetchone()[0], 1)
+            with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
+                self.assertEqual(
+                    conn.execute("SELECT customer_name FROM members WHERE id=?", (member_id,)).fetchone()[0],
+                    "",
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM member_sales_customers WHERE customer_key=?",
+                        (deleted_key,),
+                    ).fetchone()[0],
+                    0,
+                )
+            admin_names = {
+                row["customer_name"] for row in app["build_sales_customer_admin_rows"]()
+            }
+            self.assertNotIn(deleted_name, admin_names)
+            self.assertIn(sibling_name, admin_names)
+            self.assertIn(pending_name, admin_names)
+
+            ok, message = app["delete_sales_customer"](
+                customer_name=pending_name,
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertNotIn(
+                pending_name,
+                {row["customer_name"] for row in app["build_sales_customer_admin_rows"]()},
+            )
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["MEMBER_AUTH_DB_PATH"] = original_member_path
+            app["clear_cost_price_lookup_cache"]()
+
     def test_02aa1_admin_customer_selector_only_lists_active_customer_master_and_defaults_to_general(self):
         app = self.app
         customer_names = [

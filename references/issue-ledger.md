@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-09-14 - Customer maintenance had no safe deletion path
+
+- Symptom: administrators could create and edit customer information but had no control for removing an obsolete or incorrect customer.
+- Root cause: customer identity is composed from both the cost-store customer master and member-store sales registrations, with an older `members.customer_name` compatibility field able to recreate a removed registration during schema maintenance. There was no coordinated delete operation or confirmation UI.
+- Fix: add an administrator-only, explicitly confirmed customer deletion action. It removes the selected legal-company master, all matching sales-account customer registrations, and the matching legacy member field in one cross-database transaction. Pending registration-only customers can also be removed.
+- Data safety: shared customer-code prices, uploaded cost lists, manual prices, search history and other audit history are intentionally retained. A different company using the same customer code is not removed or altered.
+- Regression: an isolated two-store test deletes a maintained customer and a pending-only registration, verifies that the deleted identities do not reappear, confirms the legacy member field is cleared, and preserves both a same-code sibling customer and the shared price rows.
+
 ## 2026-09-11 - Multiple factories can share a customer group and price code
 
 - Requirement: separate legal companies may manufacture for the same brand-side group. They must remain separate customer records but may use the same group name and customer code, and the customer code—not the group label—determines which dedicated cost applies.
