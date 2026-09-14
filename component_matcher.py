@@ -21888,6 +21888,24 @@ def parse_resistance_token_to_ohm(token):
         return float(t)
     return None
 
+
+def is_embedded_resistor_package_token(token):
+    """Return whether ``R####`` is acting as a package marker, not a value.
+
+    LIZ/other vendor descriptions commonly use ``R1206`` to label the
+    resistor package and then provide the resistance in the next field.  The
+    same text also legitimately supports a standalone ``R1206`` shorthand for
+    0.1206 ohm, so this helper only classifies the token; callers decide
+    whether another value token is available before ignoring it.
+    """
+    upper = clean_text(token).upper()
+    match = re.fullmatch(r"R(\d{4,6})", upper)
+    if match is None:
+        return False
+    package_code = match.group(1)
+    known_codes = set(CHIP_PACKAGE_IMPERIAL_TO_METRIC) | set(CHIP_PACKAGE_METRIC_TO_IMPERIAL)
+    return package_code in known_codes
+
 def normalize_common_tolerance_symbol_typos(text):
     value = clean_text(text).replace("％", "%").replace("﹪", "%")
     return re.sub(r"(?<![\u4e00-\u9fff])[士土]\s*(?=\d+(?:\.\d+)?\s*%)", "±", value)
@@ -21927,6 +21945,24 @@ def find_resistance_in_text(text):
     if explicit_ohm is not None:
         return explicit_ohm
     upper = raw.upper().replace("OHMS", "Ω").replace("OHM", "Ω")
+    # Some vendor descriptions put the imperial package immediately after an
+    # ``R`` marker (for example ``R1206 3K``).  ``R1206`` is a package code in
+    # that position, not a 0.1206-ohm resistor value.  Prefer the first real
+    # value token when both forms occur, while retaining the legacy fallback
+    # for a standalone R-code query.
+    value_candidates = []
+    for match in RESISTOR_VALUE_PATTERN.finditer(upper):
+        token = clean_text(match.group(1))
+        parsed = parse_resistance_token_to_ohm(token)
+        if parsed is not None:
+            value_candidates.append((match.start(), token, parsed))
+    if value_candidates:
+        non_package_candidates = [
+            item for item in value_candidates
+            if not is_embedded_resistor_package_token(item[1])
+        ]
+        return (non_package_candidates or value_candidates)[0][2]
+
     ohm_match = RESISTOR_OHM_PATTERN.search(upper)
     if ohm_match:
         return parse_resistance_token_to_ohm(ohm_match.group(1))
