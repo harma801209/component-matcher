@@ -225,6 +225,7 @@ NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
 MEMBER_SEARCH_COPY_TICKET_TTL_SECONDS = 7 * 24 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
+MEMBER_LOGOUT_QUERY_PARAM = "member_logout"
 BOM_JOB_QUERY_PARAM = "bom_job"
 MEMBER_AUTH_BRIDGE_CHANNEL_PARAM = "member_auth_bridge_channel"
 ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY = "_admin_route_clear_outer_shell"
@@ -5009,6 +5010,7 @@ def logout_member():
             "member": "",
             "admin": "",
             "bom": "",
+            MEMBER_LOGOUT_QUERY_PARAM: "",
             ADMIN_BACKEND_MODULE_QUERY_PARAM: "",
         }
     )
@@ -5045,6 +5047,18 @@ def logout_member():
         except Exception:
             pass
     return session_deleted
+
+
+def process_member_logout_request():
+    if get_query_param_value(MEMBER_LOGOUT_QUERY_PARAM).lower() not in {
+        "1", "true", "yes", "on", "logout",
+    }:
+        return False
+    if current_member():
+        logout_member()
+    else:
+        update_query_params(**{MEMBER_LOGOUT_QUERY_PARAM: ""})
+    return True
 
 
 def is_member_page_requested():
@@ -5142,6 +5156,26 @@ def render_bom_entry_button():
         css_class += " nav-slot-second"
     st.markdown(
         f'<a class="{css_class}" href="{href}" target="_self" role="button">{html.escape(label)}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_member_logout_button():
+    member = current_member()
+    if not member or normalize_member_role(member.get("role", "")) == "admin":
+        return
+    session_state = getattr(st, "session_state", {})
+    member_token = clean_text(session_state.get("_member_auth_token", "")) or clean_text(
+        member.get("_session_token", "")
+    )
+    if member_token == "":
+        member_token = clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+    href_updates = {MEMBER_LOGOUT_QUERY_PARAM: "1"}
+    if member_token:
+        href_updates[MEMBER_AUTH_QUERY_PARAM] = member_token
+    href = build_app_href(**href_updates)
+    st.markdown(
+        f'<a class="member-logout-fixed" href="{href}" target="_self" role="button">退出会员</a>',
         unsafe_allow_html=True,
     )
 
@@ -10996,6 +11030,32 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
 .bom-entry-fixed.nav-slot-second {
     top: 68px;
 }
+.member-logout-fixed {
+    position: fixed;
+    top: 118px;
+    right: 28px;
+    z-index: 100000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(220, 38, 38, 0.22);
+    background: #ffffff;
+    color: #b91c1c !important;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+.member-logout-fixed:hover {
+    background: #fef2f2;
+    color: #991b1b !important;
+    text-decoration: none !important;
+}
 @media (max-width: 700px) {
     .admin-hero {
         display: block;
@@ -11045,6 +11105,14 @@ div[data-testid="stSegmentedControl"] button[data-selected="true"] {
     }
     .bom-entry-fixed.nav-slot-second {
         top: 54px;
+    }
+    .member-logout-fixed {
+        top: 96px;
+        right: 12px;
+        min-width: 86px;
+        height: 34px;
+        padding: 0 12px;
+        font-size: 13px;
     }
 }
 .interp-chip-row {
@@ -47651,10 +47719,13 @@ elif STARTUP_MAINTENANCE_ENABLED and not is_component_matcher_build_mode() and n
 
 st.session_state["_member_auth_panel_rendered_in_run"] = False
 initialize_member_auth_remote_storage()
+if process_member_logout_request():
+    st.rerun()
 render_member_auth_browser_persistence_bridge()
 render_no_match_admin_entry_button()
 render_member_entry_button()
 render_bom_entry_button()
+render_member_logout_button()
 
 logo_b64 = image_to_base64(LOGO_PATH)
 startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
