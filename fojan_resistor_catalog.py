@@ -387,7 +387,9 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         "FRT 系列薄膜片式电阻.pdf",
         component_type="薄膜电阻",
         tolerances=("0.05", "0.1", "0.25", "0.5", "1"),
-        suffixes=("TSV",),
+        # FRT precision thin-film models use the same lead-free ``TSX``
+        # suffix as the BOM料号 (for example FRT0603B1302TSX).
+        suffixes=("TSX",),
     ),
     "FTH": _series(
         "超高精度低温漂薄膜贴片电阻",

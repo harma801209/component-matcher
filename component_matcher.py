@@ -35129,6 +35129,40 @@ def run_query_match(df, mode, spec):
             work["推荐等级"] = "后台补料"
             return work
         return pd.DataFrame()
+    # A complete part-number query must first try the exact model supplied by
+    # the customer.  Resistor model rules intentionally carry resistance and
+    # power fields rather than capacitor ``容值_pf`` fields, so routing every
+    # resistor part number through the partial-spec matcher can discard an
+    # otherwise valid own-brand row (for example FOJAN FRT...TSX).
+    if mode == "料号" and isinstance(df, pd.DataFrame) and not df.empty and "型号" in df.columns:
+        requested_model = clean_model(spec.get("型号", ""))
+        if requested_model != "":
+            model_mask = df["型号"].astype(str).map(clean_model).eq(requested_model)
+            exact_model_rows = df.loc[model_mask].copy()
+            # Keep the historical substitute search for ordinary indexed
+            # models (for example YAGEO source parts).  The exact-model
+            # shortcut is only for an authoritative model-rule fallback that
+            # was synthesized because the official own-brand row is absent
+            # from the search index.
+            if "_model_rule_authority" in exact_model_rows.columns:
+                authoritative_rows = exact_model_rows[
+                    exact_model_rows["_model_rule_authority"].astype(str).map(clean_text).str.startswith("fojan_official")
+                ]
+                if not authoritative_rows.empty:
+                    exact_model_rows = authoritative_rows
+                else:
+                    exact_model_rows = pd.DataFrame()
+            else:
+                exact_model_rows = pd.DataFrame()
+            if not exact_model_rows.empty:
+                requested_brand = clean_brand(spec.get("品牌", ""))
+                if requested_brand != "" and "品牌" in exact_model_rows.columns:
+                    brand_rows = exact_model_rows[exact_model_rows["品牌"].astype(str).map(
+                        lambda value: brand_alias_matches(value, (requested_brand,) + tuple(brand_query_aliases_for_label(requested_brand)))
+                    )]
+                    if not brand_rows.empty:
+                        exact_model_rows = brand_rows
+                return apply_match_levels_and_sort(exact_model_rows, spec)
     spec_type = infer_spec_component_type(spec)
     if spec_type in SEMICONDUCTOR_COMPONENT_TYPES:
         return match_semiconductor_spec(df, spec)
@@ -44731,8 +44765,27 @@ def choose_best_bom_candidate(
         if should_replace_best_bom_candidate(best, result):
             best = result
         if bom_candidate_has_authoritative_spec(best):
-            break
+            # Specifications remain authoritative when they return a result.
+            # If they return no rows, however, continue to the explicitly
+            # supplied model column so an official own-brand part is not
+            # reported as unmatched merely because the spec parser chose a
+            # broader resistor family.
+            if not (
+                best.get("status") == "无匹配"
+                and any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+            ):
+                break
         if bom_candidate_good_enough(best):
+            # A rich specification can legitimately have no result while the
+            # BOM's supplied manufacturer model still resolves through an
+            # official model rule.  Keep evaluating when a later candidate is
+            # a model-based lookup; otherwise the early no-match result hides
+            # an existing exact own-brand part.
+            if (
+                best.get("status") == "无匹配"
+                and any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+            ):
+                continue
             break
     return best
 

@@ -3776,6 +3776,25 @@ class SystemRegressionTests(unittest.TestCase):
             ["FRC1206J106TS"],
         )
 
+    def test_03af_bom_explicit_fojan_model_is_resolved_after_spec_miss(self):
+        model = "FRT0603B1302TSX"
+        parsed = self.app["parse_fojan_catalog_resistor_model"](model, brand="FOJAN(富捷)")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["系列"], "FRT")
+        self.assertEqual(parsed["器件类型"], "薄膜电阻")
+        self.assertAlmostEqual(float(parsed["_resistance_ohm"]), 13_000.0)
+
+        fallback = self.app["build_rule_fallback_row_from_model"](model)
+        self.assertFalse(fallback.empty)
+        self.assertEqual(fallback.iloc[0]["型号"], model)
+
+        spec_line = "13KΩ;75V;±0.1%;1/10W;0603;FOJAN;FRT0603B1302TSX;无卤"
+        candidates = self.app["build_bom_query_candidates"](model, spec_line, "贴片电阻")
+        best = self.app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
+        self.assertEqual(best["source"], "型号列")
+        self.assertNotEqual(best["status"], "无匹配")
+        self.assertIn(model, set(best["matched"]["型号"].astype(str)))
+
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
         parsed_models = [
