@@ -3795,6 +3795,26 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotEqual(best["status"], "无匹配")
         self.assertIn(model, set(best["matched"]["型号"].astype(str)))
 
+    def test_03ag_explicit_fojan_series_models_win_over_broad_substitutes(self):
+        # These are representative rows from the customer's BOM where the
+        # specification parser previously stopped on another-brand results
+        # (or reported no match) even though the FOJAN model was present.
+        cases = (
+            ("FRR0805F0000TS", "0Ω;±1%;1/8W;0805;FOJAN;FRR0805F0000TS;抗硫化;无卤"),
+            ("FRP1206J512TS", "5.1KΩ;±5%;1/2W;1206;FOJAN;FRP1206J512TS;无卤"),
+            ("FRH0603D1002T", "10KΩ;±0.5%;1/10W;0603;FOJAN;FRH0603D1002T;无卤"),
+            ("FQH0402B5112TS", "51.1KΩ;75V;±0.1%;1/8W;0402;FOJAN;FQH0402B5112TS;车规级;无卤"),
+            ("FRT0603B3600TSV", "360Ω;±0.1%;1/10W;0603;FOJAN;FRT0603B3600TSV;无卤"),
+            ("FRV0805J206TS", "20MΩ;400V;±5%;1/8W;0805;FOJAN;FRV0805J206TS;无卤"),
+        )
+        for model, spec_line in cases:
+            parsed = self.app["parse_fojan_catalog_resistor_model"](model, brand="FOJAN")
+            self.assertIsNotNone(parsed, model)
+            candidates = self.app["build_bom_query_candidates"](model, spec_line, "贴片电阻")
+            best = self.app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
+            self.assertEqual(best["source"], "型号列", model)
+            self.assertIn(model, {self.app["clean_model"](value) for value in best["matched"]["型号"].astype(str)}, model)
+
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
         parsed_models = [

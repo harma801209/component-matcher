@@ -196,7 +196,8 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
     "FRR": _series(
         "车规抗硫化厚膜贴片电阻",
         "车规 | 抗硫化 | 无卤",
-        _size_limits(NORMAL_POWER, minimum=0.1, min_0201=10.0),
+        # FRR includes the 0Ω jumper code used in customer BOMs.
+        _size_limits(NORMAL_POWER, minimum=0.0, min_0201=10.0),
         "FRR系列车规抗硫化厚膜电阻.pdf",
     ),
     "FRN": _series(
@@ -223,7 +224,7 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         "高压厚膜贴片电阻",
         "高压 | 无卤",
         {
-            size: {"power": NORMAL_POWER[size], "voltage": voltage, "min_ohm": 47.0, "max_ohm": 10_000_000.0}
+            size: {"power": NORMAL_POWER[size], "voltage": voltage, "min_ohm": 47.0, "max_ohm": 100_000_000.0}
             for size, voltage in HIGH_VOLTAGE.items()
         },
         "FRV系列高压厚膜片式电阻.pdf",
@@ -350,6 +351,20 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         model_prefix="FRH",
         suffixes=("TSX",),
     ),
+    "FQH": _series(
+        "车规高精度厚膜贴片电阻",
+        "车规 | 高精度 | 无卤",
+        {
+            "0402": {
+                "power": "1/8W",
+                "voltage": "75",
+                "min_ohm": 2.2,
+                "max_ohm": 1_000_000.0,
+            }
+        },
+        "FQH系列车规高精度厚膜片式电阻（BOM型号规则）",
+        tolerances=("0.1", "0.25", "0.5", "1"),
+    ),
     "FRB": _series(
         "低温漂厚膜贴片电阻",
         "低温漂 | 无卤",
@@ -363,6 +378,7 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         _size_limits({key: value for key, value in NORMAL_POWER.items() if key != "0201"}),
         "FRH系列高精度厚膜片式电阻器.pdf",
         tolerances=("0.1", "0.25", "0.5"),
+        suffixes=("TS", "T"),
     ),
     "FRT": _series(
         "高精度低温漂薄膜贴片电阻",
@@ -375,7 +391,7 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
                 "max_ohm": maximum,
             }
             for size, maximum in {
-                "0402": 220_000.0,
+                "0402": 1_000_000.0,
                 "0603": 680_000.0,
                 "0805": 1_000_000.0,
                 "1206": 1_500_000.0,
@@ -387,9 +403,8 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         "FRT 系列薄膜片式电阻.pdf",
         component_type="薄膜电阻",
         tolerances=("0.05", "0.1", "0.25", "0.5", "1"),
-        # FRT precision thin-film models use the same lead-free ``TSX``
-        # suffix as the BOM料号 (for example FRT0603B1302TSX).
-        suffixes=("TSX",),
+        # Historical/customer BOMs contain both suffix variants.
+        suffixes=("TSX", "TSV"),
     ),
     "FTH": _series(
         "超高精度低温漂薄膜贴片电阻",

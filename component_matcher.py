@@ -37183,9 +37183,15 @@ FOJAN_TOLERANCE_CODE_TO_PERCENT = {
     "F": "1",
     "G": "2",
     "J": "5",
+    # P is the legacy jumper/0Ω code.  The BOMs in this workspace use it
+    # alongside the ordinary ±5% code, so normalize it to the same tolerance
+    # for catalog validation and matching.
+    "P": "5",
 }
 FOJAN_TOLERANCE_PERCENT_TO_CODE = {
-    value: key for key, value in FOJAN_TOLERANCE_CODE_TO_PERCENT.items()
+    value: key
+    for key, value in FOJAN_TOLERANCE_CODE_TO_PERCENT.items()
+    if key != "P"
 }
 FOJAN_E24_BASE_VALUES = (
     10, 11, 12, 13, 15, 16, 18, 20, 22, 24, 27, 30,
@@ -37458,7 +37464,7 @@ def parse_fojan_catalog_resistor_model(model, brand="", component_type=""):
             model_size = model_size_by_size.get(display_size, display_size)
             for suffix in profile.get("suffixes", ("TS",)):
                 pattern = re.compile(
-                    rf"^{re.escape(model_prefix)}{re.escape(model_size)}(?P<tol>[TABCDFGJ])(?P<value>[0-9R]+){re.escape(suffix)}$"
+                    rf"^{re.escape(model_prefix)}{re.escape(model_size)}(?P<tol>[TABCDFGJP])(?P<value>[0-9R]+){re.escape(suffix)}$"
                 )
                 match = pattern.fullmatch(compact)
                 if match is None:
@@ -44364,6 +44370,25 @@ def looks_like_internal_bom_part_number(value):
     )
 
 
+def looks_like_explicit_fojan_model(model_value):
+    """Return whether a BOM value is an explicit 富捷 model reference.
+
+    The model column is a secondary hint for ordinary BOMs, but when the
+    customer has named a FOJAN model in that column it must be allowed to win
+    over a broad specification-only substitute result.  Keep this check tied
+    to the maintained FOJAN catalog prefixes so unrelated customer part
+    numbers are not promoted accidentally.
+    """
+    compact = clean_model(model_value).upper()
+    if compact == "":
+        return False
+    prefixes = {
+        (clean_text(profile.get("model_prefix", "")) or clean_text(series).split("-", 1)[0]).upper()
+        for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items()
+    }
+    return any(compact.startswith(prefix) and len(compact) > len(prefix) + 4 for prefix in prefixes)
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
@@ -44373,10 +44398,15 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
         and (clean_text(spec_value) != "" or clean_text(name_value) != "")
     )
 
-    def add_candidate(text, source):
+    explicit_fojan_model = looks_like_explicit_fojan_model(model_value)
+
+    def add_candidate(text, source, *, fojan_model_reference=False):
         query = join_bom_parts(text)
         if query and query not in seen:
-            candidates.append({"query": query, "source": source})
+            candidate = {"query": query, "source": source}
+            if fojan_model_reference:
+                candidate["fojan_model_reference"] = True
+            candidates.append(candidate)
             seen.add(query)
 
     # The customer's written target specification is authoritative. A supplied
@@ -44388,10 +44418,18 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
         add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
     add_candidate(spec_value, "规格列")
     if not model_is_internal_number:
-        add_candidate(model_value, "型号列")
+        add_candidate(model_value, "型号列", fojan_model_reference=explicit_fojan_model)
     if not model_is_internal_number and clean_text(model_value) != "" and clean_text(spec_value) != "":
-        add_candidate(join_bom_parts(model_value, spec_value, name_value), "型号列+规格列+品名列")
-        add_candidate(join_bom_parts(model_value, spec_value), "型号列+规格列")
+        add_candidate(
+            join_bom_parts(model_value, spec_value, name_value),
+            "型号列+规格列+品名列",
+            fojan_model_reference=explicit_fojan_model,
+        )
+        add_candidate(
+            join_bom_parts(model_value, spec_value),
+            "型号列+规格列",
+            fojan_model_reference=explicit_fojan_model,
+        )
     if extra_values:
         add_candidate(join_bom_parts(name_value, *extra_values), "品名列+其他列")
     add_candidate(name_value, "品名列")
@@ -44762,8 +44800,14 @@ def choose_best_bom_candidate(
             exact_part_rows=prefetched_rows,
             export_settings=export_settings,
         )
+        if candidate.get("fojan_model_reference"):
+            result["fojan_model_reference"] = True
         if should_replace_best_bom_candidate(best, result):
             best = result
+        later_explicit_fojan_model = any(
+            bool(item.get("fojan_model_reference"))
+            for item in candidates[idx + 1:]
+        )
         if bom_candidate_has_authoritative_spec(best):
             # Specifications remain authoritative when they return a result.
             # If they return no rows, however, continue to the explicitly
@@ -44771,8 +44815,11 @@ def choose_best_bom_candidate(
             # reported as unmatched merely because the spec parser chose a
             # broader resistor family.
             if not (
-                best.get("status") == "无匹配"
-                and any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+                later_explicit_fojan_model
+                or (
+                    best.get("status") == "无匹配"
+                    and any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+                )
             ):
                 break
         if bom_candidate_good_enough(best):
@@ -44781,9 +44828,18 @@ def choose_best_bom_candidate(
             # official model rule.  Keep evaluating when a later candidate is
             # a model-based lookup; otherwise the early no-match result hides
             # an existing exact own-brand part.
+            if later_explicit_fojan_model and not best.get("fojan_model_reference"):
+                # A rich spec can be a valid substitute result, but an
+                # explicitly supplied FOJAN model later in the same BOM row
+                # is the customer's stronger identity reference.  Do not let
+                # the generic "good enough" shortcut stop before that lookup.
+                continue
             if (
                 best.get("status") == "无匹配"
-                and any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+                and (
+                    later_explicit_fojan_model
+                    or any("型号列" in clean_text(item.get("source", "")) for item in candidates[idx + 1:])
+                )
             ):
                 continue
             break
