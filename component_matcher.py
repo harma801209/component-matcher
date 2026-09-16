@@ -6215,6 +6215,7 @@ def init_cost_price_db():
                 row_count INTEGER NOT NULL DEFAULT 0,
                 active INTEGER NOT NULL DEFAULT 0,
                 note TEXT NOT NULL DEFAULT '',
+                previous_list_id INTEGER NOT NULL DEFAULT 0,
                 customer_type TEXT NOT NULL DEFAULT 'new',
                 customer_name TEXT NOT NULL DEFAULT '',
                 customer_key TEXT NOT NULL DEFAULT ''
@@ -6259,6 +6260,34 @@ def init_cost_price_db():
                 customer_key TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS cost_price_list_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                list_id INTEGER NOT NULL,
+                previous_list_id INTEGER NOT NULL DEFAULT 0,
+                change_type TEXT NOT NULL DEFAULT '',
+                change_fields TEXT NOT NULL DEFAULT '',
+                item_key TEXT NOT NULL DEFAULT '',
+                customer_scope TEXT NOT NULL DEFAULT '',
+                sheet_name TEXT NOT NULL DEFAULT '',
+                row_index INTEGER NOT NULL DEFAULT 0,
+                brand TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                series TEXT NOT NULL DEFAULT '',
+                type_dimension TEXT NOT NULL DEFAULT '',
+                resistance_range TEXT NOT NULL DEFAULT '',
+                tolerance TEXT NOT NULL DEFAULT '',
+                previous_spec_text TEXT NOT NULL DEFAULT '',
+                new_spec_text TEXT NOT NULL DEFAULT '',
+                previous_cost TEXT NOT NULL DEFAULT '',
+                new_cost TEXT NOT NULL DEFAULT '',
+                previous_moq TEXT NOT NULL DEFAULT '',
+                new_moq TEXT NOT NULL DEFAULT '',
+                previous_lead_time TEXT NOT NULL DEFAULT '',
+                new_lead_time TEXT NOT NULL DEFAULT '',
+                recorded_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(list_id) REFERENCES cost_price_lists(id)
+            );
+
             CREATE TABLE IF NOT EXISTS sales_customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_name TEXT NOT NULL DEFAULT '',
@@ -6283,6 +6312,9 @@ def init_cost_price_db():
             CREATE INDEX IF NOT EXISTS idx_cost_price_items_model
             ON cost_price_items(model_clean, list_id);
 
+            CREATE INDEX IF NOT EXISTS idx_cost_price_list_changes_list
+            ON cost_price_list_changes(list_id, change_type, id);
+
             CREATE INDEX IF NOT EXISTS idx_cost_price_manual_active_updated
             ON cost_price_manual_items(active, updated_at, id);
 
@@ -6304,6 +6336,11 @@ def init_cost_price_db():
                 raise
         try:
             conn.execute("ALTER TABLE cost_price_manual_items ADD COLUMN cost_updated_at TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+        try:
+            conn.execute("ALTER TABLE cost_price_lists ADD COLUMN previous_list_id INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -7434,9 +7471,129 @@ def apply_cost_price_item_update_times(items, previous_change_map, now_text):
     return items
 
 
+def normalize_cost_price_diff_text(value):
+    return re.sub(r"\s+", " ", clean_text(value)).strip().upper()
+
+
+def load_cost_price_items_for_comparison(conn, list_id):
+    try:
+        list_id = int(list_id or 0)
+    except Exception:
+        return []
+    if list_id <= 0:
+        return []
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT sheet_name, row_index, brand, model, model_clean, spec_text,
+               cost, moq, lead_time, raw_json
+        FROM cost_price_items
+        WHERE list_id=?
+        ORDER BY id ASC
+        """,
+        (list_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cost_price_item_diff_metadata(item):
+    item = item if isinstance(item, dict) else {}
+    try:
+        rule_data = json.loads(clean_text(item.get("raw_json", "")) or "{}")
+    except Exception:
+        rule_data = {}
+    customer_codes = [
+        normalize_sales_customer_code(value)
+        for value in (rule_data.get("price_customer_codes", []) or [])
+        if normalize_sales_customer_code(value)
+    ]
+    customer_scope = "/".join(customer_codes) or clean_text(rule_data.get("price_scope_text", "")) or "通用"
+    return {
+        "customer_scope": customer_scope,
+        "series": clean_text(rule_data.get("series", "")),
+        "type_dimension": clean_text(rule_data.get("type_dimension", "")),
+        "resistance_range": clean_text(
+            rule_data.get("raw_resistance_range", "") or rule_data.get("resistance_range", "")
+        ),
+        "tolerance": clean_text(rule_data.get("tolerance", "")),
+    }
+
+
+def build_cost_price_list_changes(previous_items, new_items, previous_list_id=0, recorded_at=""):
+    def item_map(items):
+        result = {}
+        for item in items or []:
+            key = cost_price_item_change_key(item)
+            if key is not None:
+                result[key] = dict(item)
+        return result
+
+    previous_map = item_map(previous_items)
+    new_map = item_map(new_items)
+    changes = []
+    for key in sorted(set(previous_map) | set(new_map), key=lambda value: repr(value)):
+        previous = previous_map.get(key)
+        current = new_map.get(key)
+        if previous is None:
+            change_type = "新增"
+            change_fields = ["新增"]
+        elif current is None:
+            change_type = "删除"
+            change_fields = ["删除"]
+        else:
+            comparisons = (
+                ("规格", normalize_cost_price_spec_key(previous.get("spec_text", "")), normalize_cost_price_spec_key(current.get("spec_text", ""))),
+                ("成本", normalize_cost_value_for_compare(previous.get("cost", "")), normalize_cost_value_for_compare(current.get("cost", ""))),
+                ("MOQ", normalize_cost_price_diff_text(previous.get("moq", "")), normalize_cost_price_diff_text(current.get("moq", ""))),
+                ("L&T", normalize_cost_price_diff_text(previous.get("lead_time", "")), normalize_cost_price_diff_text(current.get("lead_time", ""))),
+            )
+            change_fields = [label for label, old_value, new_value in comparisons if old_value != new_value]
+            if not change_fields:
+                continue
+            change_type = "修改"
+        identity = current or previous or {}
+        metadata = cost_price_item_diff_metadata(identity)
+        changes.append(
+            {
+                "previous_list_id": int(previous_list_id or 0),
+                "change_type": change_type,
+                "change_fields": "/".join(change_fields),
+                "item_key": json.dumps(list(key), ensure_ascii=False),
+                "customer_scope": metadata["customer_scope"],
+                "sheet_name": clean_text(identity.get("sheet_name", "")),
+                "row_index": int(identity.get("row_index", 0) or 0),
+                "brand": clean_text(identity.get("brand", "")),
+                "model": clean_text(identity.get("model", "")),
+                "series": metadata["series"],
+                "type_dimension": metadata["type_dimension"],
+                "resistance_range": metadata["resistance_range"],
+                "tolerance": metadata["tolerance"],
+                "previous_spec_text": clean_text((previous or {}).get("spec_text", "")),
+                "new_spec_text": clean_text((current or {}).get("spec_text", "")),
+                "previous_cost": clean_text((previous or {}).get("cost", "")),
+                "new_cost": clean_text((current or {}).get("cost", "")),
+                "previous_moq": clean_text((previous or {}).get("moq", "")),
+                "new_moq": clean_text((current or {}).get("moq", "")),
+                "previous_lead_time": clean_text((previous or {}).get("lead_time", "")),
+                "new_lead_time": clean_text((current or {}).get("lead_time", "")),
+                "recorded_at": clean_text(recorded_at),
+            }
+        )
+    return changes
+
+
+def cost_price_change_counts(changes):
+    counts = {"新增": 0, "修改": 0, "删除": 0}
+    for change in changes or []:
+        change_type = clean_text(change.get("change_type", ""))
+        if change_type in counts:
+            counts[change_type] += 1
+    return counts
+
+
 def cost_price_list_summary_dataframe(rows):
     if not rows:
-        return pd.DataFrame(columns=["ID", "分页价格规则", "当前使用", "文件名", "上传时间", "上传人", "行数", "文件大小"])
+        return pd.DataFrame(columns=["ID", "分页价格规则", "当前使用", "文件名", "上传时间", "上传人", "行数", "与上一版差异", "文件大小"])
     return pd.DataFrame(
         [
             {
@@ -7451,6 +7608,15 @@ def cost_price_list_summary_dataframe(rows):
                 "上传时间": row.get("uploaded_at", ""),
                 "上传人": row.get("uploaded_by", ""),
                 "行数": row.get("row_count", 0),
+                "与上一版差异": (
+                    "无对比记录"
+                    if int(row.get("previous_list_id", 0) or 0) <= 0
+                    else (
+                        f"新增 {int(row.get('added_count', 0) or 0)} / "
+                        f"修改 {int(row.get('modified_count', 0) or 0)} / "
+                        f"删除 {int(row.get('removed_count', 0) or 0)}"
+                    )
+                ),
                 "文件大小": format_file_size(row.get("file_size", 0)),
             }
             for row in rows
@@ -7471,10 +7637,25 @@ def list_cost_price_lists(customer_type=None, customer_name=""):
             params = [normalized_type, customer_key]
         rows = conn.execute(
             f"""
-            SELECT *
-            FROM cost_price_lists
+            SELECT
+                l.*,
+                COALESCE(c.added_count, 0) AS added_count,
+                COALESCE(c.modified_count, 0) AS modified_count,
+                COALESCE(c.removed_count, 0) AS removed_count,
+                COALESCE(c.change_count, 0) AS change_count
+            FROM cost_price_lists l
+            LEFT JOIN (
+                SELECT
+                    list_id,
+                    SUM(CASE WHEN change_type='新增' THEN 1 ELSE 0 END) AS added_count,
+                    SUM(CASE WHEN change_type='修改' THEN 1 ELSE 0 END) AS modified_count,
+                    SUM(CASE WHEN change_type='删除' THEN 1 ELSE 0 END) AS removed_count,
+                    COUNT(*) AS change_count
+                FROM cost_price_list_changes
+                GROUP BY list_id
+            ) c ON c.list_id=l.id
             {where_sql}
-            ORDER BY active DESC, uploaded_at DESC, id DESC
+            ORDER BY l.active DESC, l.uploaded_at DESC, l.id DESC
             """,
             params,
         ).fetchall()
@@ -7586,6 +7767,70 @@ def cost_price_items_preview_dataframe(items):
             }
             for row in items
         ]
+    )
+
+
+def list_cost_price_list_changes(list_id, limit=None):
+    refresh_runtime_store_remote_snapshot("cost-price")
+    init_cost_price_db()
+    try:
+        list_id = int(list_id or 0)
+    except Exception:
+        return []
+    if list_id <= 0:
+        return []
+    query = """
+        SELECT *
+        FROM cost_price_list_changes
+        WHERE list_id=?
+        ORDER BY
+            CASE change_type WHEN '修改' THEN 1 WHEN '新增' THEN 2 WHEN '删除' THEN 3 ELSE 4 END,
+            customer_scope, sheet_name, row_index, id
+    """
+    params = [list_id]
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(max(1, int(limit or 300)))
+    with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cost_price_list_changes_dataframe(changes):
+    columns = [
+        "变化类型", "变化字段", "客户范围", "分页", "系列", "规格/尺寸", "阻值范围",
+        "精度", "品牌", "型号", "更改前规格", "更改后规格", "更改前成本", "更改后成本",
+        "更改前MOQ", "更改后MOQ", "更改前L&T", "更改后L&T", "行号",
+    ]
+    if not changes:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(
+        [
+            {
+                "变化类型": row.get("change_type", ""),
+                "变化字段": row.get("change_fields", ""),
+                "客户范围": row.get("customer_scope", ""),
+                "分页": row.get("sheet_name", ""),
+                "系列": row.get("series", ""),
+                "规格/尺寸": row.get("type_dimension", ""),
+                "阻值范围": row.get("resistance_range", ""),
+                "精度": (f"{row.get('tolerance')}%" if clean_text(row.get("tolerance", "")) else ""),
+                "品牌": row.get("brand", ""),
+                "型号": row.get("model", ""),
+                "更改前规格": row.get("previous_spec_text", ""),
+                "更改后规格": row.get("new_spec_text", ""),
+                "更改前成本": row.get("previous_cost", ""),
+                "更改后成本": row.get("new_cost", ""),
+                "更改前MOQ": row.get("previous_moq", ""),
+                "更改后MOQ": row.get("new_moq", ""),
+                "更改前L&T": row.get("previous_lead_time", ""),
+                "更改后L&T": row.get("new_lead_time", ""),
+                "行号": row.get("row_index", ""),
+            }
+            for row in changes
+        ],
+        columns=columns,
     )
 
 
@@ -8377,8 +8622,22 @@ def import_cost_price_list_from_upload(
     if customer_type == COST_CUSTOMER_TYPE_EXISTING and customer_key == "":
         return False, "旧有客户专属价必须填写客户名称。", None
     file_sha = cost_price_file_signature(raw_bytes)
+    changes = []
+    previous_list_id = 0
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.execute("PRAGMA busy_timeout = 30000")
+        previous_row = conn.execute(
+            """
+            SELECT id
+            FROM cost_price_lists
+            WHERE active=1 AND customer_type=? AND customer_key=?
+            ORDER BY uploaded_at DESC, id DESC
+            LIMIT 1
+            """,
+            (customer_type, customer_key),
+        ).fetchone()
+        previous_list_id = int(previous_row[0]) if previous_row is not None else 0
+        previous_items = load_cost_price_items_for_comparison(conn, previous_list_id)
         previous_change_map = load_active_cost_price_change_map(conn, customer_type, customer_name)
         items = apply_cost_price_item_update_times(items, previous_change_map, now_text)
         conn.execute(
@@ -8389,13 +8648,13 @@ def import_cost_price_list_from_upload(
             """
             INSERT INTO cost_price_lists (
                 file_name, file_sha256, file_size, uploaded_at, uploaded_by, row_count, active,
-                customer_type, customer_name, customer_key
+                previous_list_id, customer_type, customer_name, customer_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
             """,
             (
                 file_name, file_sha, len(raw_bytes), now_text, clean_text(uploaded_by), len(items),
-                customer_type, customer_name, customer_key,
+                previous_list_id, customer_type, customer_name, customer_key,
             ),
         )
         list_id = int(cur.lastrowid)
@@ -8425,6 +8684,57 @@ def import_cost_price_list_from_upload(
                 for item in items
             ],
         )
+        changes = (
+            build_cost_price_list_changes(
+                previous_items,
+                items,
+                previous_list_id=previous_list_id,
+                recorded_at=now_text,
+            )
+            if previous_list_id > 0
+            else []
+        )
+        if changes:
+            conn.executemany(
+                """
+                INSERT INTO cost_price_list_changes (
+                    list_id, previous_list_id, change_type, change_fields, item_key,
+                    customer_scope, sheet_name, row_index, brand, model, series,
+                    type_dimension, resistance_range, tolerance,
+                    previous_spec_text, new_spec_text, previous_cost, new_cost,
+                    previous_moq, new_moq, previous_lead_time, new_lead_time, recorded_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        list_id,
+                        change.get("previous_list_id", 0),
+                        change.get("change_type", ""),
+                        change.get("change_fields", ""),
+                        change.get("item_key", ""),
+                        change.get("customer_scope", ""),
+                        change.get("sheet_name", ""),
+                        change.get("row_index", 0),
+                        change.get("brand", ""),
+                        change.get("model", ""),
+                        change.get("series", ""),
+                        change.get("type_dimension", ""),
+                        change.get("resistance_range", ""),
+                        change.get("tolerance", ""),
+                        change.get("previous_spec_text", ""),
+                        change.get("new_spec_text", ""),
+                        change.get("previous_cost", ""),
+                        change.get("new_cost", ""),
+                        change.get("previous_moq", ""),
+                        change.get("new_moq", ""),
+                        change.get("previous_lead_time", ""),
+                        change.get("new_lead_time", ""),
+                        change.get("recorded_at", ""),
+                    )
+                    for change in changes
+                ],
+            )
         conn.commit()
     clear_cost_price_lookup_cache()
     synced = flush_runtime_store_remote_snapshot("cost-price")
@@ -8436,9 +8746,16 @@ def import_cost_price_list_from_upload(
         scope_summary = f"旧版整表专属客户“{customer_name}”"
     else:
         scope_summary = "按各分页 B1 自动归属价格；KA 分页按顶部客户代码列自动归属"
+    if previous_list_id > 0:
+        counts = cost_price_change_counts(changes)
+        difference_summary = (
+            f"；与上一版比较：新增 {counts['新增']} 项、修改 {counts['修改']} 项、删除 {counts['删除']} 项"
+        )
+    else:
+        difference_summary = "；这是首版清单，暂无上一版可比较"
     return True, (
         f"已上传并启用成本清单：{file_name}，导入 {len(items)} 行{sheet_summary}；"
-        f"{scope_summary}{suffix}。"
+        f"{scope_summary}{difference_summary}{suffix}。"
     ), list_id
 
 
@@ -9055,6 +9372,7 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
     st.subheader("成本清单历史")
     if lists:
         st.dataframe(cost_price_list_summary_dataframe(lists), use_container_width=True, hide_index=True)
+        list_by_id = {int(item.get("id", 0) or 0): item for item in lists}
         for row in lists:
             with st.expander(
                 f"#{row.get('id')} · {row.get('file_name')} · {row.get('uploaded_at')}"
@@ -9079,8 +9397,36 @@ def render_uploaded_cost_price_admin_section(lists, uploaded_by):
                             st.rerun()
                         else:
                             st.warning(message)
+                st.markdown("#### 与上一版差异")
+                previous_list_id = int(row.get("previous_list_id", 0) or 0)
+                if previous_list_id <= 0:
+                    st.caption("暂无上一版关联记录（可能是首版清单，或在差异记录功能启用前上传）。")
+                else:
+                    previous_list = list_by_id.get(previous_list_id, {})
+                    previous_label = clean_text(previous_list.get("file_name", "")) or f"清单 #{previous_list_id}"
+                    previous_time = clean_text(previous_list.get("uploaded_at", ""))
+                    st.caption(
+                        f"比较基准：#{previous_list_id} · {previous_label}"
+                        + (f" · {previous_time}" if previous_time else "")
+                    )
+                    list_changes = list_cost_price_list_changes(row.get("id"), limit=None)
+                    if list_changes:
+                        change_counts = cost_price_change_counts(list_changes)
+                        difference_cols = st.columns(3, gap="small")
+                        difference_cols[0].metric("新增", change_counts["新增"])
+                        difference_cols[1].metric("修改", change_counts["修改"])
+                        difference_cols[2].metric("删除", change_counts["删除"])
+                        st.dataframe(
+                            cost_price_list_changes_dataframe(list_changes),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=min(560, 90 + len(list_changes) * 36),
+                        )
+                    else:
+                        st.success("与上一版完全相同，没有规格、成本、MOQ 或 L&T 变化。")
                 preview_items = list_cost_price_items(row.get("id"), limit=None)
                 if preview_items:
+                    st.markdown("#### 本版完整成本")
                     st.caption(f"显示全部 {len(preview_items)} 行（可在表格内上下滚动）")
                     st.dataframe(
                         cost_price_items_preview_dataframe(preview_items),

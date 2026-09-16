@@ -4259,6 +4259,71 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(entry["moq"], "5000")
         self.assertEqual(entry["lead_time"], "4W")
 
+    def test_05aa_cost_list_upload_records_version_differences(self):
+        app = self.app
+        app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "cost-diff-test.sqlite")
+        app["clear_cost_price_lookup_cache"]()
+        first = pd.DataFrame(
+            [
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-A", "规格参数": "0603 10K 1%", "成本": "1.00", "MOQ": "5000", "L&T": "4W"},
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-B", "规格参数": "0603 20K 1%", "成本": "2.00", "MOQ": "5000", "L&T": "4W"},
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-SAME", "规格参数": "0603 30K 1%", "成本": "4.00", "MOQ": "5000", "L&T": "4W"},
+            ]
+        )
+        app["current_timestamp_text"] = lambda: "2026-09-15 09:00:00"
+        ok, message, first_id = app["import_cost_price_list_from_upload"](
+            UploadedBytes("成本第一版.xlsx", dataframe_to_xlsx_bytes(first)), "regression"
+        )
+        self.assertTrue(ok, message)
+        self.assertIn("首版清单", message)
+        self.assertEqual(app["list_cost_price_list_changes"](first_id), [])
+
+        second = pd.DataFrame(
+            [
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-A", "规格参数": "0603 10K 1%", "成本": "1.20", "MOQ": "5000", "L&T": "4W"},
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-C", "规格参数": "0603 40K 1%", "成本": "3.00", "MOQ": "10000", "L&T": "5W"},
+                {"品牌": "FOJAN(富捷)", "型号": "DIFF-SAME", "规格参数": "0603 30K 1%", "成本": "4", "MOQ": "5000", "L&T": "4W"},
+            ]
+        )
+        app["current_timestamp_text"] = lambda: "2026-09-16 10:30:00"
+        ok, message, second_id = app["import_cost_price_list_from_upload"](
+            UploadedBytes("成本第二版.xlsx", dataframe_to_xlsx_bytes(second)), "regression"
+        )
+        self.assertTrue(ok, message)
+        self.assertIn("新增 1 项、修改 1 项、删除 1 项", message)
+        changes = app["list_cost_price_list_changes"](second_id, limit=None)
+        self.assertEqual(app["cost_price_change_counts"](changes), {"新增": 1, "修改": 1, "删除": 1})
+        modified = next(row for row in changes if row["change_type"] == "修改")
+        self.assertEqual(modified["model"], "DIFF-A")
+        self.assertEqual(modified["previous_cost"], "1.00")
+        self.assertEqual(modified["new_cost"], "1.20")
+        self.assertEqual(modified["change_fields"], "成本")
+        lists = app["list_cost_price_lists"]()
+        current = next(row for row in lists if int(row["id"]) == second_id)
+        self.assertEqual(int(current["previous_list_id"]), first_id)
+        self.assertEqual((current["added_count"], current["modified_count"], current["removed_count"]), (1, 1, 1))
+
+        rule_data = json.dumps(
+            {
+                "series": "FRC",
+                "type_dimension": "0402 1/16W",
+                "resistance_range": "10R-1M",
+                "tolerance": "1",
+                "price_customer_codes": ["F0001"],
+            },
+            ensure_ascii=False,
+        )
+        series_changes = app["build_cost_price_list_changes"](
+            [{"brand": "FOJAN", "model": "", "spec_text": "FRC 0402 1/16W 10R-1M 1%", "cost": "1.73", "raw_json": rule_data}],
+            [{"brand": "FOJAN", "model": "", "spec_text": "FRC 0402 1/16W 10R-1M 1%", "cost": "1.80", "raw_json": rule_data}],
+            previous_list_id=first_id,
+            recorded_at="2026-09-16 10:30:00",
+        )
+        self.assertEqual(series_changes[0]["customer_scope"], "F0001")
+        self.assertEqual(series_changes[0]["resistance_range"], "10R-1M")
+        self.assertEqual(series_changes[0]["previous_cost"], "1.73")
+        self.assertEqual(series_changes[0]["new_cost"], "1.80")
+
     def test_05a_cost_list_admin_preview_loads_every_imported_row(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
