@@ -1640,3 +1640,10 @@
 - Root cause: `R1206` matched the compact resistor-value pattern before the actual resistance token. In these vendor descriptions, `R1206` is a package marker and the following `3K`/`390R` is the electrical value.
 - Fix: collect bounded resistor-value candidates, ignore an `R####` token when it is a known package code and another value candidate is present, and retain standalone `R####` shorthand behavior when no other value exists.
 - Regression: both reported LIZ descriptions now parse as 1206, 1/4W, with resistance 3000Ω and 390Ω respectively; the full 82-test safety gate passes with protected runtime data unchanged.
+
+## 2026-09-16 - Explicit FOJAN BOM models were exported as another resistor series
+
+- Symptom: BOM rows that explicitly contained models such as `FRR0603J222TS`, `FRR0603F3001TS`, or `FRQ0603F4701TS` could show that model in the source column but export an FRN/FRC model in the matched-model column. The resulting price could therefore come from the wrong FOJAN series.
+- Root cause: explicit FOJAN identity was promoted only when the workbook column mapper classified the value as the model column. A model embedded in the specification or an auxiliary column remained a normal specification hint, and the own-brand export stage was free to select a different electrically similar series.
+- Fix: extract complete FOJAN order numbers from every mapped BOM field, normalize harmless internal spaces, resolve the exact order number, and pin the recommendation/export candidate frame to that exact model. Price enrichment now evaluates only the pinned model's own series; if that series has no price, the system leaves the price blank instead of borrowing another series' price.
+- Regression: coverage includes the reported FRR/FRQ 0603 rows, model-column and specification-only layouts, recommendation/export identity, and a competing FRQ-versus-FRC price fixture that must return the FRQ price `4.20` rather than the FRC price `3.84`.

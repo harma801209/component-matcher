@@ -3887,6 +3887,10 @@ class SystemRegressionTests(unittest.TestCase):
         # (or reported no match) even though the FOJAN model was present.
         cases = (
             ("FRR0805F0000TS", "0Ω;±1%;1/8W;0805;FOJAN;FRR0805F0000TS;抗硫化;无卤"),
+            ("FRR0603J222TS", "2.2KΩ;±5%;1/10W;0603;FOJAN;FRR0603J222 TS;抗硫化;无卤"),
+            ("FRR0603F3001TS", "3KΩ;±1%;1/10W;0603;FOJAN;FRR0603F3001TS;抗硫化;无卤"),
+            ("FRR0603F1000TS", "100Ω;75V;±1%;1/10W;0603;FOJAN;FRR0603F1000TS;防硫化;无卤"),
+            ("FRQ0603F4701TS", "4.7KΩ;±1%;1/10W;0603;FOJAN;FRQ0603F4701TS;车规级;无卤"),
             ("FRP1206J512TS", "5.1KΩ;±5%;1/2W;1206;FOJAN;FRP1206J512TS;无卤"),
             ("FRH0603D1002T", "10KΩ;±0.5%;1/10W;0603;FOJAN;FRH0603D1002T;无卤"),
             ("FQH0402B5112TS", "51.1KΩ;75V;±0.1%;1/8W;0402;FOJAN;FQH0402B5112TS;车规级;无卤"),
@@ -3900,6 +3904,49 @@ class SystemRegressionTests(unittest.TestCase):
             best = self.app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
             self.assertEqual(best["source"], "型号列", model)
             self.assertIn(model, {self.app["clean_model"](value) for value in best["matched"]["型号"].astype(str)}, model)
+            recommendation = best.get("recommendation") or {}
+            recommendation_row = recommendation.get("row")
+            self.assertIsNotNone(recommendation_row, model)
+            self.assertEqual(self.app["clean_model"](recommendation_row.get("型号", "")), model, model)
+
+            result_row = self.app["build_bom_upload_result_row"](
+                pd.DataFrame(),
+                0,
+                {"型号": "", "规格": spec_line, "品名": "贴片电阻"},
+                {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+                export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+            )
+            self.assertEqual(self.app["clean_model"](result_row.get("推荐型号", "")), model, model)
+            self.assertEqual(self.app["clean_model"](result_row.get("自有型号", "")), model, model)
+
+        pricing_rules = [
+            {
+                "series": "FRQ",
+                "type_dimension_norm": "0603 1/10W",
+                "range": "10R-1M",
+                "price_5": "4.00",
+                "price_1": "4.20",
+                "package": "5000PCS",
+            },
+            {
+                "series": "FRC",
+                "type_dimension_norm": "0603 1/10W",
+                "range": "10R-1M",
+                "price_5": "3.60",
+                "price_1": "3.84",
+                "package": "5000PCS",
+            },
+        ]
+        locked_price_row = self.app["build_bom_upload_result_row"](
+            pd.DataFrame(),
+            0,
+            {"型号": "", "规格": "4.7KΩ;±1%;1/10W;0603;FOJAN;FRQ0603F4701TS;车规级;无卤", "品名": "贴片电阻"},
+            {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+            export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+            resistor_pricing_rules=pricing_rules,
+        )
+        self.assertEqual(self.app["clean_model"](locked_price_row.get("自有型号", "")), "FRQ0603F4701TS")
+        self.assertEqual(locked_price_row.get("自有成本", ""), "4.20")
 
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app

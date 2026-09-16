@@ -44811,6 +44811,32 @@ def looks_like_explicit_fojan_model(model_value):
     return any(compact.startswith(prefix) and len(compact) > len(prefix) + 4 for prefix in prefixes)
 
 
+def extract_explicit_fojan_models_from_bom(*values):
+    """Extract canonical FOJAN order numbers from any mapped BOM field.
+
+    Customer workbooks do not always map the manufacturer model column
+    consistently.  The same order number may be present in the specification,
+    an auxiliary column, or contain a harmless space before its suffix (for
+    example ``FRR0603J222 TS``).  Treat that explicit identity independently
+    from column mapping so a later specification match cannot switch series.
+    """
+    models = []
+    seen = set()
+    for value in values:
+        text = clean_text(value)
+        if text == "":
+            continue
+        parts = re.split(r"[;；,，|/\r\n\t]+", text)
+        parts.extend(extract_model_like_tokens(text))
+        for part in parts:
+            compact = re.sub(r"[^A-Za-z0-9]", "", clean_text(part)).upper()
+            if compact in seen or not looks_like_explicit_fojan_model(compact):
+                continue
+            seen.add(compact)
+            models.append(compact)
+    return models
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
@@ -44820,14 +44846,22 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
         and (clean_text(spec_value) != "" or clean_text(name_value) != "")
     )
 
-    explicit_fojan_model = looks_like_explicit_fojan_model(model_value)
+    explicit_fojan_models = extract_explicit_fojan_models_from_bom(
+        model_value,
+        spec_value,
+        name_value,
+        *extra_values,
+    )
+    model_explicit_fojan_models = extract_explicit_fojan_models_from_bom(model_value)
+    explicit_fojan_model = model_explicit_fojan_models[0] if model_explicit_fojan_models else ""
 
-    def add_candidate(text, source, *, fojan_model_reference=False):
+    def add_candidate(text, source, *, fojan_model_reference=False, exact_fojan_model=""):
         query = join_bom_parts(text)
         if query and query not in seen:
             candidate = {"query": query, "source": source}
             if fojan_model_reference:
                 candidate["fojan_model_reference"] = True
+                candidate["explicit_fojan_model"] = clean_model(exact_fojan_model or query)
             candidates.append(candidate)
             seen.add(query)
 
@@ -44840,17 +44874,31 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
         add_candidate(join_bom_parts(spec_value, *extra_values), "规格列+其他列")
     add_candidate(spec_value, "规格列")
     if not model_is_internal_number:
-        add_candidate(model_value, "型号列", fojan_model_reference=explicit_fojan_model)
+        add_candidate(
+            model_value,
+            "型号列",
+            fojan_model_reference=bool(explicit_fojan_model),
+            exact_fojan_model=explicit_fojan_model,
+        )
+    for exact_model in explicit_fojan_models:
+        add_candidate(
+            exact_model,
+            "规格内明确富捷型号",
+            fojan_model_reference=True,
+            exact_fojan_model=exact_model,
+        )
     if not model_is_internal_number and clean_text(model_value) != "" and clean_text(spec_value) != "":
         add_candidate(
             join_bom_parts(model_value, spec_value, name_value),
             "型号列+规格列+品名列",
-            fojan_model_reference=explicit_fojan_model,
+            fojan_model_reference=bool(explicit_fojan_model),
+            exact_fojan_model=explicit_fojan_model,
         )
         add_candidate(
             join_bom_parts(model_value, spec_value),
             "型号列+规格列",
-            fojan_model_reference=explicit_fojan_model,
+            fojan_model_reference=bool(explicit_fojan_model),
+            exact_fojan_model=explicit_fojan_model,
         )
     if extra_values:
         add_candidate(join_bom_parts(name_value, *extra_values), "品名列+其他列")
@@ -45188,6 +45236,60 @@ def bom_candidate_has_authoritative_spec(candidate_result):
     return count_query_params(spec) >= max(3, other_passive_min_required_params(spec))
 
 
+def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model):
+    """Restrict an explicit FOJAN BOM reference to that exact order number."""
+    if not isinstance(candidate_result, dict):
+        return False
+    exact_key = clean_model(exact_model)
+    if exact_key == "" or not looks_like_explicit_fojan_model(exact_key):
+        return False
+
+    exact_frames = []
+    for frame in (candidate_result.get("matched"), candidate_result.get("query_df")):
+        if not isinstance(frame, pd.DataFrame) or frame.empty or "型号" not in frame.columns:
+            continue
+        exact_rows = frame[frame["型号"].astype(str).map(clean_model).eq(exact_key)].copy()
+        if not exact_rows.empty:
+            exact_frames.append(exact_rows)
+
+    if not exact_frames:
+        sidecar_rows = load_component_rows_by_exact_models_from_search_sidecar([exact_key]).get(
+            exact_key,
+            pd.DataFrame(),
+        )
+        if isinstance(sidecar_rows, pd.DataFrame) and not sidecar_rows.empty:
+            exact_frames.append(sidecar_rows)
+    if not exact_frames:
+        fallback_rows = build_rule_fallback_row_from_model(exact_key)
+        if isinstance(fallback_rows, pd.DataFrame) and not fallback_rows.empty:
+            exact_frames.append(fallback_rows)
+    if not exact_frames:
+        return False
+
+    exact_rows = safe_concat_dataframes(exact_frames, ignore_index=True, sort=False)
+    exact_rows = deduplicate_component_matches(exact_rows).reset_index(drop=True)
+    if "推荐等级" not in exact_rows.columns:
+        exact_rows["推荐等级"] = "完全匹配"
+    else:
+        exact_rows["推荐等级"] = exact_rows["推荐等级"].where(
+            exact_rows["推荐等级"].astype(str).map(clean_text).ne(""),
+            "完全匹配",
+        )
+
+    recommendation = build_procurement_recommendation(exact_rows, candidate_result.get("spec"))
+    candidate_result["matched"] = exact_rows
+    candidate_result["query_df"] = exact_rows.copy()
+    candidate_result["recommendation"] = recommendation
+    candidate_result["status"] = recommendation.get("status", "可推荐")
+    candidate_result["recommendation_reason"] = recommendation.get("reason", "")
+    candidate_result["top_match_level"] = recommendation.get("level", "完全匹配")
+    candidate_result["fojan_model_reference"] = True
+    candidate_result["explicit_fojan_model"] = exact_key
+    candidate_result["exact_fojan_model_pinned"] = True
+    candidate_result["difference_note"] = describe_bom_result(candidate_result)
+    return True
+
+
 def choose_best_bom_candidate(
     df,
     candidates,
@@ -45224,6 +45326,10 @@ def choose_best_bom_candidate(
         )
         if candidate.get("fojan_model_reference"):
             result["fojan_model_reference"] = True
+            exact_model = clean_model(candidate.get("explicit_fojan_model", ""))
+            if pin_bom_result_to_explicit_fojan_model(result, exact_model):
+                best = result
+                break
         if should_replace_best_bom_candidate(best, result):
             best = result
         later_explicit_fojan_model = any(
@@ -45546,9 +45652,12 @@ def build_bom_upload_result_row(
 
     best_source = clean_text(best.get("source", ""))
     export_exact_model = (
-        model_value
-        if clean_text(best.get("mode", "")) == "料号" and best_source.startswith("型号列")
-        else ""
+        clean_text(best.get("explicit_fojan_model", ""))
+        or (
+            model_value
+            if clean_text(best.get("mode", "")) == "料号" and best_source.startswith("型号列")
+            else ""
+        )
     )
     export_candidates = build_bom_export_candidate_frame(
         matched if isinstance(matched, pd.DataFrame) else pd.DataFrame(),
