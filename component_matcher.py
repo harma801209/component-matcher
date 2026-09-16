@@ -2662,19 +2662,49 @@ def member_cost_access_level(member):
 
 
 def member_can_own_sales_customer(member):
-    """An admin assignment is authoritative even when an account was labelled '其他'."""
+    """Return whether an active member/admin can be assigned a customer record.
+
+    Customer records may be created by sales, PMs, or an administrator.  A
+    non-Fruition member still cannot become an owner because that account is
+    not eligible for any Fruition pricing scope, while the administrator is
+    allowed regardless of the company field.
+    """
     member = member if isinstance(member, dict) else {}
-    return bool(
-        clean_text(member.get("username", ""))
-        and normalize_member_status(member.get("status", "")) == "active"
-        and normalize_member_role(member.get("role", "")) != "admin"
-        and member_company_is_fruition(member.get("company", ""))
-        and normalize_member_job_title(member.get("job_title", "")) != MEMBER_JOB_TITLE_PM
-    )
+    if not clean_text(member.get("username", "")):
+        return False
+    if normalize_member_status(member.get("status", "")) != "active":
+        return False
+    if normalize_member_role(member.get("role", "")) == "admin":
+        return True
+    return member_company_is_fruition(member.get("company", ""))
 
 
 def member_can_view_cost(member):
     return member_cost_access_level(member) != "none"
+
+
+def member_is_sales_account(member):
+    """Sales accounts may see quoted sales prices, but never unmarked costs."""
+    member = member if isinstance(member, dict) else {}
+    return bool(
+        normalize_member_role(member.get("role", "")) == "member"
+        and normalize_member_job_title(member.get("job_title", "")) == MEMBER_JOB_TITLE_SALES
+    )
+
+
+def is_marked_sales_price(value):
+    """Recognise the intentional ``售价`` marker used in uploaded price lists."""
+    text = clean_text(value)
+    return bool(re.match(r"^售价(?:\s*[:：]?\s*|$)", text, flags=re.IGNORECASE))
+
+
+def mask_internal_cost_value_for_member(value, member=None):
+    """Keep a marked sales price while hiding an unmarked internal cost."""
+    resolved_member = current_member() if member is None else member
+    text = clean_text(value)
+    if member_is_sales_account(resolved_member):
+        return text if is_marked_sales_price(text) else ""
+    return value
 
 
 def current_member_can_view_cost():
@@ -5526,7 +5556,7 @@ def render_member_admin_management_page():
             if not member_customers:
                 st.caption("此会员尚未登记客户。")
             else:
-                st.caption("专属价权限统一在“客户资讯”的“负责销售”栏维护。")
+                st.caption("专属价权限统一在“客户资讯”的“负责成员/账号”栏维护。")
                 for customer in member_customers:
                     customer_name = normalize_cost_customer_name(customer.get("customer_name", ""))
                     scope, _ = authorize_cost_customer_context(member, COST_CUSTOMER_TYPE_EXISTING, customer_name)
@@ -6718,12 +6748,12 @@ def save_sales_customer(
     try:
         owner_member_id = int(owner_member_id or 0)
     except (ValueError, TypeError):
-        return False, "负责销售账号无效。", None
+        return False, "负责人账号无效。", None
     owner_username = ""
     if owner_member_id:
         owner = get_member_by_id(owner_member_id)
         if not member_can_own_sales_customer(owner):
-            return False, "负责人必须是已启用的普通会员账号，且不能是 PM 或管理员。", None
+            return False, "负责人必须是已启用的富临通会员或管理员账号。", None
         owner_username = clean_text(owner.get("username", ""))
     try:
         with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
@@ -6909,7 +6939,7 @@ def build_sales_customer_template_bytes():
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "客户资讯"
-    headers = ["所属集团", "客户名称/公司全名", "客户代码", "负责销售账号", "状态", "备注"]
+    headers = ["所属集团", "客户名称/公司全名", "客户代码", "负责成员账号", "状态", "备注"]
     sheet.append(headers)
     sheet.append(["A集团", "深圳市示例科技有限公司", "F0001", "sales01", "启用", "不同公司可填写相同集团及客户代码；专价按客户代码共享"])
     sheet.append(["A集团", "东莞市示例电子有限公司", "F0002", "sales02", "启用", ""])
@@ -6944,7 +6974,7 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
             header_map["customer_name"] = column
         elif normalized in {"客户代码", "客户编码", "customercode", "code"}:
             header_map["customer_code"] = column
-        elif normalized in {"负责销售账号", "销售账号", "负责销售", "sales", "salesusername", "owner"}:
+        elif normalized in {"负责销售账号", "负责成员账号", "销售账号", "负责销售", "负责成员", "sales", "salesusername", "owner"}:
             header_map["owner_username"] = column
         elif normalized in {"状态", "status"}:
             header_map["status"] = column
@@ -6968,13 +6998,15 @@ def import_sales_customers_from_upload(uploaded_file, updated_by=""):
             refresh_member_auth_remote_snapshot()
             ensure_member_auth_schema()
             with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as member_conn:
+                member_conn.row_factory = sqlite3.Row
                 owner_row = member_conn.execute(
-                    "SELECT id FROM members WHERE username=? AND status='active' LIMIT 1",
+                    "SELECT * FROM members WHERE lower(username)=lower(?) AND status='active' LIMIT 1",
                     (owner_username,),
                 ).fetchone()
-            if owner_row is None:
-                return False, f"第 {row_index} 行负责销售账号不存在或未启用：{owner_username}", imported
-            owner_member_id = int(owner_row[0])
+            owner = member_row_to_dict(owner_row) if owner_row is not None else None
+            if not member_can_own_sales_customer(owner):
+                return False, f"第 {row_index} 行负责人账号不存在、未启用或不具备客户归属资格：{owner_username}", imported
+            owner_member_id = int(owner["id"])
         existing = None
         customer_key = normalize_cost_customer_key(customer_name)
         if customer_key:
@@ -7301,7 +7333,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif access_level == "none":
         help_text = "当前公司不属于富临通，仅可匹配型号，不显示通用价格或客户专属价格。"
     elif access_level == "pm":
-        help_text = "PM 使用通用价格；客户专属价仅供负责销售查看。"
+        help_text = "PM 使用通用价格；客户专属价仅供负责销售账号查看。"
     elif access_level == "sales":
         help_text = "专属价客户由管理员分配；自行登记新客户仅使用通用价格。"
     else:
@@ -7395,7 +7427,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     elif access_level == "none":
         st.caption("当前公司不属于富临通：可以正常匹配型号，但所有通用价格和客户专属价格均不显示。")
     elif access_level == "pm":
-        st.caption("PM 使用通用价格；客户专属价仅供负责销售查看。")
+        st.caption("PM 使用通用价格；客户专属价仅供负责销售账号查看。")
     elif access_level == "sales":
         st.caption("只有后台分配给您的客户可使用专属价；其他客户使用通用价。")
     else:
@@ -9634,7 +9666,7 @@ def sales_customer_price_status(row, all_rows=None, scope_summary=None):
 
 def sales_customer_summary_dataframe(rows, scope_summary=None):
     if not rows:
-        return pd.DataFrame(columns=["所属集团", "客户名称/公司全名", "全名状态", "客户代码", "价格状态", "负责销售", "会员登记人", "状态", "备注", "更新时间"])
+        return pd.DataFrame(columns=["所属集团", "客户名称/公司全名", "全名状态", "客户代码", "价格状态", "负责成员", "会员登记人", "状态", "备注", "更新时间"])
     scope_summary = load_active_customer_price_scope_summary() if scope_summary is None else scope_summary
     return pd.DataFrame(
         [
@@ -9644,7 +9676,7 @@ def sales_customer_summary_dataframe(rows, scope_summary=None):
                 "全名状态": "完整" if bool(row.get("_full_name_valid")) else "待补全名",
                 "客户代码": row.get("customer_code", "") or "待补",
                 "价格状态": sales_customer_price_status(row, rows, scope_summary),
-                "负责销售": row.get("owner_username", "") or "未指定",
+                "负责成员": row.get("owner_username", "") or "未指定",
                 "会员登记人": row.get("_registered_by", "") or "-",
                 "状态": "待完善" if bool(row.get("_pending_master")) else ("启用" if int(row.get("active", 0) or 0) == 1 else "停用"),
                 "备注": row.get("note", ""),
@@ -9658,7 +9690,7 @@ def sales_customer_summary_dataframe(rows, scope_summary=None):
 def render_sales_customer_admin_page():
     render_admin_section_header(
         "客户资讯维护",
-        "维护公司抬头、客户代码、集团关系与负责销售。销售只能看到自己负责客户的专属价，未指定负责销售的客户仅使用通用价。",
+        "维护公司抬头、客户代码、集团关系与负责成员。负责人可为销售、PM、其他会员或管理员；销售只能看到自己负责客户的专属价。",
         "客户价格",
     )
     maintained_rows = list_sales_customers(active_only=None)
@@ -9750,7 +9782,7 @@ def render_sales_customer_admin_page():
             placeholder="营业执照或注册文件上的完整公司名称",
         )
         customer_code = cols[2].text_input("客户代码", value=clean_text(selected.get("customer_code", "")), placeholder="例如 F0001")
-        owner_label = cols[3].selectbox("负责销售", list(owner_options), index=list(owner_options).index(selected_owner_label))
+        owner_label = cols[3].selectbox("负责成员/账号", list(owner_options), index=list(owner_options).index(selected_owner_label))
         active = cols[4].checkbox("启用", value=int(selected.get("active", 1) or 0) == 1)
         note = st.text_area("备注", value=clean_text(selected.get("note", "")), height=82)
         submitted = st.form_submit_button("保存客户资讯", use_container_width=True)
@@ -9766,9 +9798,9 @@ def render_sales_customer_admin_page():
         selected_price_status = sales_customer_price_status(selected, rows, price_scope_summary)
         if selected_price_status == "有专属价":
             if int(selected.get("owner_member_id", 0) or 0) > 0:
-                st.success(f"价格状态：{selected_price_status}；仅当前负责销售可读取。")
+                st.success(f"价格状态：{selected_price_status}；仅当前负责成员可读取。")
             else:
-                st.warning(f"价格状态：{selected_price_status}；目前尚未指定负责销售，因此会员端仍使用通用价。")
+                st.warning(f"价格状态：{selected_price_status}；目前尚未指定负责成员，因此会员端仍使用通用价。")
         elif selected_price_status == "待补客户代码":
             st.info("该客户来自会员登记。请补客户代码并确认负责人，保存后才会进入客户专属价流程。")
     if submitted:
@@ -40316,12 +40348,25 @@ def normalize_pdc_series_description_display_fields(df):
     return out
 
 
-def apply_search_cost_visibility(show_df, can_view_cost=None):
+def apply_search_cost_visibility(show_df, can_view_cost=None, member=None):
     if show_df is None:
         return pd.DataFrame()
+    resolved_member = current_member() if member is None else member
     visible = current_member_can_view_cost() if can_view_cost is None else bool(can_view_cost)
     out = show_df.copy()
     if visible:
+        if member_is_sales_account(resolved_member):
+            # Keep the column for a consistent table/export schema, but only
+            # expose values explicitly marked as customer-facing sales prices.
+            price_columns = [
+                column for column in out.columns
+                if clean_text(column) == "成本"
+                or re.fullmatch(r"(?:匹配|自有)成本\d*", clean_text(column))
+            ]
+            for column in price_columns:
+                out[column] = out[column].map(
+                    lambda value: mask_internal_cost_value_for_member(value, resolved_member)
+                )
         return out
     hidden_columns = [column for column in ("成本", "更新时间") if column in out.columns]
     return out.drop(columns=hidden_columns) if hidden_columns else out
@@ -46373,6 +46418,7 @@ def build_bom_own_brand_append_columns(result_df, row_count, include_cost=True):
         result_work = pd.DataFrame()
     else:
         result_work = result_df.reset_index(drop=True).copy()
+    export_member = current_member() if include_cost else None
 
     max_slot = 1
     for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1):
@@ -46407,6 +46453,8 @@ def build_bom_own_brand_append_columns(result_df, row_count, include_cost=True):
                     value = clean_text(result_work.iloc[row_idx].get(source_col, ""))
                 else:
                     value = ""
+                if internal_prefix in {"自有成本"}:
+                    value = clean_text(mask_internal_cost_value_for_member(value, export_member))
                 if value == "" and idx == 1 and row_idx < len(result_work):
                     row = result_work.iloc[row_idx]
                     if internal_prefix == "自有匹配说明":

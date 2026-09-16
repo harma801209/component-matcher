@@ -1571,6 +1571,47 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("MOQ", restricted_df.columns)
         self.assertIn("成本", app["apply_search_cost_visibility"](visible_df, can_view_cost=True).columns)
 
+        sales_prices = pd.DataFrame(
+            [{
+                "品牌": "FOJAN(富捷)",
+                "型号": "FRC0402F1001TS",
+                "成本": "1.70",
+                "匹配成本": "售价2.28",
+                "匹配成本2": "售价：2.35",
+                "更新时间": "2026-08-12",
+            }]
+        )
+        sales_visible = app["apply_search_cost_visibility"](
+            sales_prices, can_view_cost=True, member=sales_member
+        )
+        self.assertEqual(sales_visible.iloc[0]["成本"], "")
+        self.assertEqual(sales_visible.iloc[0]["匹配成本"], "售价2.28")
+        self.assertEqual(sales_visible.iloc[0]["匹配成本2"], "售价：2.35")
+        self.assertTrue(app["is_marked_sales_price"]("售价 2.28"))
+        self.assertFalse(app["is_marked_sales_price"]("2.28"))
+
+        original_current_member = app["current_member"]
+        try:
+            app["current_member"] = lambda: sales_member
+            export_result = pd.DataFrame(
+                [{
+                    "状态": "可推荐",
+                    "自有品牌": "FOJAN(富捷)",
+                    "自有型号": "FRC0402F1001TS",
+                    "自有成本": "售价2.28",
+                    "自有品牌2": "FOJAN(富捷)",
+                    "自有型号2": "FRC0402F1002TS",
+                    "自有成本2": "1.70",
+                }]
+            )
+            export_view = app["build_bom_matched_export_df"](
+                pd.DataFrame([{"型号": "demo"}]), export_result, include_cost=True
+            )
+            self.assertEqual(export_view.iloc[0]["匹配成本"], "售价2.28")
+            self.assertEqual(export_view.iloc[0]["匹配成本2"], "")
+        finally:
+            app["current_member"] = original_current_member
+
         summary = app["member_admin_summary_dataframe"]([app["get_member_by_id"](member["id"])])
         self.assertIn("职务", summary.columns)
         logs = app["list_member_profile_change_logs"](member["id"])
@@ -1848,7 +1889,19 @@ class SystemRegressionTests(unittest.TestCase):
 
             owner_ids = {member["id"] for member in app["list_customer_owner_members_for_admin"]()}
             self.assertIn(owner_id, owner_ids)
-            self.assertNotIn(pm_id, owner_ids)
+            self.assertIn(pm_id, owner_ids)
+            admin_owner = next(
+                member for member in app["list_customer_owner_members_for_admin"]()
+                if app["normalize_member_role"](member.get("role", "")) == "admin"
+            )
+            self.assertIn(int(admin_owner["id"]), owner_ids)
+            ok, message, _ = app["save_sales_customer"](
+                "管理员建立客户有限公司",
+                "ADMIN-001",
+                owner_member_id=admin_owner["id"],
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
             owner = app["get_member_by_id"](owner_id)
             self.assertEqual(
                 app["authorize_cost_customer_context"](owner, "existing", "广州星际悦动有限公司"),
@@ -1867,6 +1920,25 @@ class SystemRegressionTests(unittest.TestCase):
                 "existing", "广州星际悦动有限公司", member=owner
             )
             self.assertEqual(lookup["FLOWITEM"][0]["cost"], "3")
+
+            pm = app["get_member_by_id"](pm_id)
+            ok, message, _ = app["save_sales_customer"](
+                "惠州高盛达科技股份有限公司",
+                "F0002",
+                owner_member_id=pm_id,
+                sync_remote=False,
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(
+                app["get_sales_customer_by_name"]("惠州高盛达科技股份有限公司")["owner_member_id"],
+                pm_id,
+            )
+            self.assertEqual(
+                app["authorize_cost_customer_context"](
+                    pm, "existing", "惠州高盛达科技股份有限公司"
+                ),
+                ("new", ""),
+            )
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["MEMBER_AUTH_DB_PATH"] = original_member_path
