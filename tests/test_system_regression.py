@@ -143,6 +143,20 @@ def fojan_multi_sheet_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_new_series_quote_xlsx_bytes():
+    """A workbook shape used when a new 富捷 series is added before its profile."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "FRR"
+    sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+    sheet.append(["", "", "Ω (ohms)", "5%", "1%", ""])
+    sheet.append(["FRR", "0603 1/10W", "10R-1M", "2.80", "3.40", "5000PCS"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 def fojan_alloy_quote_xlsx_bytes():
     workbook = Workbook()
     sheet = workbook.active
@@ -5977,6 +5991,40 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRH", "0.5"), "7.90")
         self.assertEqual(price("FRH", "0.1"), "19.00")
         self.assertEqual(price("FRQ", "5"), "4.20")
+
+    def test_08aa_new_fojan_series_cost_sheet_is_imported_and_matchable(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-new-series-cost.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            upload = UploadedBytes("fojan-new-series-quote.xlsx", fojan_new_series_quote_xlsx_bytes())
+            items, error = app["build_cost_price_items_from_workbook"](upload)
+            self.assertEqual(error, "")
+            self.assertEqual(len(items), 2)
+            self.assertEqual({json.loads(item["raw_json"])["series"] for item in items}, {"FRR"})
+
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+            lookup = app["load_active_cost_price_lookup"]()
+            matched = app["lookup_active_cost_price_for_row"](
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FRR0603F1002TS",
+                    "器件类型": "厚膜电阻",
+                    "系列": "FRR",
+                    "尺寸（inch）": "0603",
+                    "功率": "1/10W",
+                    "_resistance_ohm": 10000.0,
+                    "容值误差": "1",
+                },
+                lookup=lookup,
+            )
+            self.assertEqual(matched.get("cost"), "3.40")
+            self.assertEqual(matched.get("moq"), "5000PCS")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
 
     def test_08b_fojan_alloy_quote_imports_vertical_milliohm_rules(self):
         app = self.app

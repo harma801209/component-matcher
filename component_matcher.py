@@ -8163,6 +8163,34 @@ def extract_fojan_pricing_series(value):
     return clean_text(match.group(0)).upper() if match is not None else ""
 
 
+def extract_fojan_series_prefix(value):
+    """Extract a 富捷 series prefix from a model such as FRR0805F4702TS.
+
+    The official library contains only the series that are currently stocked.
+    Cost workbooks can legitimately introduce a new 富捷 series before its
+    component-library profile is added, so price-rule import and lookup must
+    not discard that series just because the profile is not known yet.
+    """
+    text = clean_text(value).upper()
+    if text == "":
+        return ""
+    if re.fullmatch(r"F[A-Z]{1,4}", text):
+        return text
+    match = re.match(r"^(F[A-Z]{1,4})(?=\d)", text)
+    return clean_text(match.group(1)).upper() if match is not None else ""
+
+
+def normalize_fojan_cost_series(value):
+    """Normalize both known and newly introduced 富捷 resistor series."""
+    raw = clean_text(value).upper()
+    if raw == "":
+        return ""
+    profile = lookup_official_resistor_series_profile_by_model(raw, "FOJAN(富捷)")
+    if profile:
+        return clean_text(profile.get("系列", raw)).upper()
+    return extract_fojan_series_prefix(raw)
+
+
 def expand_fojan_alloy_pricing_power_options(value):
     text = clean_text(value).replace("Ｗ", "W").replace("ｗ", "W")
     if text == "":
@@ -8397,9 +8425,9 @@ def build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name):
             last_series = series
         series = clean_text(last_series).upper()
         series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
-        if not series_profile:
+        if not series_profile and normalize_fojan_cost_series(series) == "":
             continue
-        series = clean_text(series_profile.get("系列", series)).upper()
+        series = normalize_fojan_cost_series(series)
         type_dimension = clean_text(values[type_col]) if type_col < len(values) else ""
         resistance_range = clean_text(values[range_col]) if range_col < len(values) else ""
         if type_dimension == "" or resistance_range == "":
@@ -8505,9 +8533,9 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             else:
                 series = last_series
             series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
-            if not series_profile:
+            if not series_profile and normalize_fojan_cost_series(series) == "":
                 continue
-            series = clean_text(series_profile.get("系列", series)).upper()
+            series = normalize_fojan_cost_series(series)
             type_dimension = clean_text(values[column_map["type_dimension"]])
             resistance_range = clean_text(values[column_map["range"]])
             package = clean_text(values[column_map["package"]])
@@ -22753,6 +22781,9 @@ def normalize_resistor_pricing_series(row):
         profile = lookup_official_resistor_series_profile_by_model(value, "FOJAN(富捷)")
         if profile:
             return clean_text(profile.get("系列", "")).upper()
+        series_prefix = extract_fojan_series_prefix(value)
+        if series_prefix:
+            return series_prefix
     return ""
 
 
