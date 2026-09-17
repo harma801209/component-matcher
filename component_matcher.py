@@ -48560,7 +48560,7 @@ def render_bom_upload_page():
                 if preview_html:
                     components.html(
                         preview_html,
-                        height=estimate_bom_preview_iframe_height(len(preview_df), compact=is_ocr_preview),
+                        height=estimate_bom_preview_iframe_height(len(bom_df), compact=is_ocr_preview),
                         scrolling=False,
                     )
 
