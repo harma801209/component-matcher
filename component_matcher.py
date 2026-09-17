@@ -46949,8 +46949,8 @@ def bom_dataframe_from_upload(
         pending_group_indexes[representative_index] = group_indexes
     worker_count = max_workers
     if worker_count is None:
-        worker_count = min(6, max(1, len(pending_items)))
-    worker_count = max(1, min(int(worker_count or 1), 6))
+        worker_count = min(8, max(1, len(pending_items)))
+    worker_count = max(1, min(int(worker_count or 1), 8))
     checkpoint_every = max(1, min(10, total_rows // 40 if total_rows >= 40 else 1))
     last_checkpoint_count = len(completed_rows)
 
