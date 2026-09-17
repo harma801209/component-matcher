@@ -200,6 +200,12 @@ FOJAN_SPECIAL_RESISTOR_SERIES = {
         _size_limits(NORMAL_POWER, minimum=0.0, min_0201=10.0),
         "FRR系列车规抗硫化厚膜电阻.pdf",
     ),
+    "FCS": _series(
+        "普通抗硫化厚膜贴片电阻",
+        "抗硫化 | 无卤",
+        _size_limits(NORMAL_POWER, minimum=0.0, min_0201=10.0),
+        "FCS系列普通抗硫化厚膜电阻.pdf",
+    ),
     "FRN": _series(
         "汽车级高品质抗硫化厚膜贴片电阻",
         "车规 | 抗硫化 | 无卤",

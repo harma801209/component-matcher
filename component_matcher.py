@@ -9276,20 +9276,35 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     pricing_resistance_ohm = resistance_ohm
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
         pricing_resistance_ohm = 10.0
-    type_dimension = f"{size} {power}"
     alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in FOJAN_ALLOY_PRICING_SERIES else ""
     alloy_mohm = fojan_alloy_resistance_mohm(pricing_resistance_ohm)
     temperature_coefficient = fojan_temperature_coefficient_from_row(row) if series == "FRT" else ""
-    if (
+    parsed_alloy_model = parse_fojan_alloy_resistor_model(
+        row.get("型号", ""),
+        brand=row.get("品牌", ""),
+        component_type=row.get("器件类型", ""),
+    )
+    extended_alloy_profile_applies = (
         series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES
+        and (
+            series != "FCS"
+            or bool(parsed_alloy_model)
+            or normalize_component_type(row.get("器件类型", "")) == "合金电阻"
+        )
+    )
+    if (
+        extended_alloy_profile_applies
         and not fojan_alloy_extended_profile_supports(series, size, power, alloy_mohm)
     ):
         return exact_candidate
-    for rule in lookup.get("__fojan_resistor_rules__", []):
-        if clean_text(rule.get("series", "")).upper() != series:
-            continue
-        if clean_text(rule.get("type_dimension_norm", "")) != type_dimension:
-            continue
+    applicable_rules = fojan_cost_rule_type_dimension_candidates(
+        row,
+        series,
+        size,
+        power,
+        lookup.get("__fojan_resistor_rules__", []),
+    )
+    for rule in applicable_rules:
         if clean_text(rule.get("tolerance", "")) != tolerance:
             continue
         rule_temperature_coefficient = normalize_fojan_temperature_coefficient(
@@ -16577,10 +16592,10 @@ def fojan_alloy_resistance_mohm(resistance_ohm):
         value = float(resistance_ohm)
     except Exception:
         return None
-    if not math.isfinite(value) or value <= 0:
+    if not math.isfinite(value) or value < 0:
         return None
     mohm = value * 1000.0
-    if mohm <= 0:
+    if mohm < 0:
         return None
     return mohm
 
@@ -16679,6 +16694,15 @@ def fojan_alloy_code_is_in_series_range(series, size, power, mohm, suffix):
             return 1.0 <= mohm <= 100.0
         return False
     if series == "FRM":
+        # The commercial cost sheet explicitly publishes zero-ohm jumpers for
+        # these FRM package/power combinations even though the normal
+        # current-sense value ranges start above zero.
+        if mohm == 0 and suffix == "M":
+            return (
+                (size == "1206" and power == "1W")
+                or (size == "2010" and power in {"1W", "1.5W"})
+                or (size == "2512" and power in {"2W", "3W"})
+            )
         if size == "0805" and power == format_power_display("0.5W"):
             return 1.0 <= mohm <= 2.0 if suffix == "ML" else 3.0 <= mohm <= 50.0 if suffix == "M" else False
         if size == "1206" and power == format_power_display("0.5W"):
@@ -17455,8 +17479,17 @@ def normalize_fojan_resistor_series_display_fields(df):
         canonical_model = normalize_fojan_frc_model_display(row.get("型号", ""), row.get("品牌", ""))
         if canonical_model != "":
             out.at[idx, "型号"] = canonical_model
-        profile = lookup_official_resistor_series_profile_by_model(
-            canonical_model or row.get("型号", ""),
+        model_text = canonical_model or row.get("型号", "")
+        # FCS is an overloaded FOJAN prefix: ordinary anti-sulfur chip
+        # resistors and high-power alloy shunts both use it.  The exact model
+        # grammar is therefore more authoritative than the generic series
+        # profile when normalizing display fields.
+        profile = parse_fojan_catalog_resistor_model(
+            model_text,
+            brand=row.get("品牌", ""),
+            component_type=row.get("器件类型", ""),
+        ) or lookup_official_resistor_series_profile_by_model(
+            model_text,
             row.get("品牌", ""),
         )
         series = clean_text(profile.get("系列", ""))
@@ -22966,13 +22999,26 @@ def normalize_resistor_pricing_series(row):
         return ""
     series_text = clean_text(row.get("系列", "")).upper()
     model_text = clean_model(row.get("型号", "")).upper()
-    alloy_series = extract_fojan_pricing_series(series_text)
-    if alloy_series in FOJAN_ALLOY_PRICING_SERIES:
-        return alloy_series
+
+    # A complete FOJAN order number is the strongest series authority.  BOM
+    # and search-sidecar rows can retain a broad/substitute series label after
+    # an exact model has been pinned; pricing must never follow that stale
+    # label into another series' cost table.
     alloy_model = parse_fojan_alloy_resistor_model(model_text, brand="FOJAN(富捷)", component_type="合金电阻")
     if alloy_model:
         return clean_text(alloy_model.get("系列", "")).upper()
-    for value in (series_text, model_text):
+    if model_text:
+        model_profile = lookup_official_resistor_series_profile_by_model(model_text, "FOJAN(富捷)")
+        if model_profile:
+            return clean_text(model_profile.get("系列", "")).upper()
+        model_prefix = extract_fojan_series_prefix(model_text)
+        if model_prefix:
+            return model_prefix
+
+    alloy_series = extract_fojan_pricing_series(series_text)
+    if alloy_series in FOJAN_ALLOY_PRICING_SERIES:
+        return alloy_series
+    for value in (series_text,):
         profile = lookup_official_resistor_series_profile_by_model(value, "FOJAN(富捷)")
         if profile:
             return clean_text(profile.get("系列", "")).upper()
@@ -22980,6 +23026,63 @@ def normalize_resistor_pricing_series(row):
         if series_prefix:
             return series_prefix
     return ""
+
+
+def fojan_cost_rule_type_dimension_candidates(row, series, size, power, rules):
+    """Return only same-series cost rows applicable to the model's package.
+
+    The cost workbook is authoritative for its commercial Type / Dimension
+    label.  Some labels intentionally differ from the catalogue/BOM display:
+    array resistors use ``064R 0603*4`` and a few power families publish one
+    price dimension per package with an updated rated-power label.  We first
+    require an exact dimension.  A label alias is admitted only when the cost
+    sheet has one and only one dimension for the exact same series and size.
+    """
+    series = clean_text(series).upper()
+    size = clean_size(size)
+    power = format_power_display(power)
+    series_rules = [
+        rule for rule in (rules or [])
+        if clean_text(rule.get("series", "")).upper() == series
+    ]
+    if not series_rules or size == "":
+        return []
+
+    exact_dimension = f"{size} {power}" if power else size
+    exact = [
+        rule for rule in series_rules
+        if clean_text(rule.get("type_dimension_norm", "")) == exact_dimension
+    ]
+    if exact:
+        return exact
+
+    model_text = clean_model(row.get("型号", "") if hasattr(row, "get") else "").upper()
+    if series == "FRA":
+        array_match = re.match(r"^FRA(?P<array>044R|064R)", model_text)
+        if array_match is not None:
+            array_dimension = {
+                "044R": "044R 0402*4",
+                "064R": "064R 0603*4",
+            }[array_match.group("array")]
+            array_rules = [
+                rule for rule in series_rules
+                if clean_text(rule.get("type_dimension_norm", "")).upper() == array_dimension
+            ]
+            if array_rules:
+                return array_rules
+
+    same_size = [
+        rule for rule in series_rules
+        if clean_size(clean_text(rule.get("type_dimension_norm", "")).split(" ", 1)[0]) == size
+    ]
+    distinct_dimensions = {
+        clean_text(rule.get("type_dimension_norm", ""))
+        for rule in same_size
+        if clean_text(rule.get("type_dimension_norm", ""))
+    }
+    if len(distinct_dimensions) == 1:
+        return same_size
+    return []
 
 
 def resistance_range_group_matches(range_group, resistance_ohm):
@@ -23074,12 +23177,16 @@ def lookup_resistor_series_pricing(row, rules=None):
     price_key = "price_1" if tol == "1" else "price_5" if tol == "5" else ""
     if price_key == "":
         return {"成本": "", "更新时间": "", "MOQ": ""}
-    type_dimension = f"{size} {power}"
     pricing_rules = load_resistor_series_pricing_rules() if rules is None else rules
+    applicable_rules = fojan_cost_rule_type_dimension_candidates(
+        row,
+        series,
+        size,
+        power,
+        pricing_rules,
+    )
     if series == "FRC" and price_key == "price_1" and abs(float(resistance_ohm)) <= 1e-12:
-        for rule in pricing_rules:
-            if rule.get("series") != series or rule.get("type_dimension_norm") != type_dimension:
-                continue
+        for rule in applicable_rules:
             price = select_resistor_segment_price(rule.get("range", ""), rule.get("price_1", ""), 10.0)
             if price != "":
                 return {
@@ -23088,11 +23195,7 @@ def lookup_resistor_series_pricing(row, rules=None):
                     "MOQ": rule.get("package", ""),
                 }
         return {"成本": "", "更新时间": "", "MOQ": ""}
-    for rule in pricing_rules:
-        if rule.get("series") != series:
-            continue
-        if rule.get("type_dimension_norm") != type_dimension:
-            continue
+    for rule in applicable_rules:
         price = select_resistor_segment_price(rule.get("range", ""), rule.get(price_key, ""), resistance_ohm)
         if price != "":
             return {"成本": price, "更新时间": RESISTOR_SERIES_PRICING_UPDATED_AT, "MOQ": rule.get("package", "")}
@@ -45010,6 +45113,12 @@ def looks_like_explicit_fojan_model(model_value):
     compact = clean_model(model_value).upper()
     if compact == "":
         return False
+    if parse_fojan_alloy_resistor_model(
+        compact,
+        brand="FOJAN(富捷)",
+        component_type="合金电阻",
+    ) is not None:
+        return True
     prefixes = {
         (clean_text(profile.get("model_prefix", "")) or clean_text(series).split("-", 1)[0]).upper()
         for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items()

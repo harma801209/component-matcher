@@ -195,11 +195,13 @@ def fojan_alloy_quote_xlsx_bytes():
     sheet.append(["", "", "", 0.05, "1~4mR大电极", "71.3", "4000PCS"])
     sheet.append(["", "", "", 0.01, "1-100mR", "120.75", "4000PCS"])
     sheet.append(["", "", "", 0.02, "101~500mR", "112.7", "4000PCS"])
+    sheet.append(["FRM", "2512", "2W / 3W", 0.01, "0mR", "85", "4000PCS"])
     sheet.append(["FPM", "2512", "3W", 0.01, "1~4mR大电极", "147.2", "4000PCS"])
     sheet.append(["", "", "", 0.05, "1~100mR", "78.2", "4000PCS"])
     sheet.append(["FRM", "2010", "1W~1.5W", 0.01, "2~100mR", "135.7", "4000PCS"])
     sheet.append(["FRM", "1206", "1W", 0.01, "1mR大电极", "112.7", "5000PCS"])
     sheet.append(["", "", "", 0.01, "1-100mR", "83.95", "5000PCS"])
+    sheet.append(["", "", "", 0.01, "0mR", "74", "5000PCS"])
     sheet.append(["FMH金属膜合金", "1206", "1W", 0.01, "120mR-910mR", "83.95", "5000PCS"])
     sheet.append(["FCM裸片合金", "2512", "3W~6W", 0.01, "0.2mR~5mR", "200.1", "1000PCS"])
     sheet.append(["FWP 塑封合金", "2725/2728", "4W", 0.01, "0.2~200mR", "300.1", "1000PCS"])
@@ -3959,6 +3961,23 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(spaced_result.get("推荐型号"), "FRQ0402J102 TS")
         self.assertEqual(spaced_result.get("自有型号"), "FRQ0402J102 TS")
 
+        alloy_model = "FRM252WFR010TM"
+        self.assertTrue(self.app["looks_like_explicit_fojan_model"](alloy_model))
+        alloy_candidates = self.app["build_bom_query_candidates"](
+            alloy_model,
+            "10mΩ;±1%;2W;2512;FOJAN;FRM252WFR010TM;合金;无卤",
+            "贴片电阻",
+        )
+        alloy_best = self.app["choose_best_bom_candidate"](pd.DataFrame(), alloy_candidates)
+        self.assertTrue(alloy_best.get("exact_fojan_model_pinned"))
+        self.assertEqual(
+            {
+                self.app["clean_model"](value)
+                for value in alloy_best["matched"]["型号"].astype(str)
+            },
+            {alloy_model},
+        )
+
         pricing_rules = [
             {
                 "series": "FRQ",
@@ -6216,6 +6235,104 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(price("FRH", "0.1"), "19.00")
         self.assertEqual(price("FRQ", "5"), "4.20")
 
+    def test_08aaa_exact_model_series_and_cost_sheet_dimension_are_price_authority(self):
+        app = self.app
+        lookup = {
+            "__fojan_resistor_rules__": [
+                {
+                    "series": "FRC", "type_dimension_norm": "0603 1/10W",
+                    "tolerance": "1", "resistance_range": "10R-1M", "cost": "3.84",
+                },
+                {
+                    "series": "FRQ", "type_dimension_norm": "0603 1/10W",
+                    "tolerance": "1", "resistance_range": "10R-1M", "cost": "4.20",
+                },
+                {
+                    "series": "FRP", "type_dimension_norm": "2010 1.5W",
+                    "tolerance": "5", "resistance_range": "10R-1M", "cost": "52.5",
+                },
+                {
+                    "series": "FRA", "type_dimension_norm": "064R 0603*4",
+                    "tolerance": "5", "resistance_range": "10R-1M", "cost": "14",
+                },
+                {
+                    "series": "FCS", "type_dimension_norm": "0603 1/10W",
+                    "tolerance": "1", "resistance_range": "10R-1M", "cost": "3.65",
+                },
+            ]
+        }
+
+        def price(row):
+            return app["lookup_active_cost_price_for_row"](row, lookup=lookup).get("cost", "")
+
+        # The exact model prefix overrides a stale/broad series column.
+        self.assertEqual(
+            price({
+                "品牌": "FOJAN(富捷)", "型号": "FRQ0603F4701TS", "系列": "FRC",
+                "尺寸（inch）": "0603", "功率": "1/10W",
+                "_resistance_ohm": 4700.0, "容值误差": "1",
+            }),
+            "4.20",
+        )
+        self.assertEqual(
+            price(pd.Series({
+                "品牌": "FOJAN(富捷)", "型号": "FRQ0603F4701TS", "系列": "FRC",
+                "尺寸（inch）": "0603", "功率": "1/10W",
+                "_resistance_ohm": 4700.0, "容值误差": "1",
+            })),
+            "4.20",
+        )
+
+        # Cost-sheet dimension labels are authoritative when that exact
+        # series/package has only one published commercial price dimension.
+        self.assertEqual(
+            price({
+                "品牌": "FOJAN(富捷)", "型号": "FRP2010J220TS", "系列": "FRC",
+                "尺寸（inch）": "2010", "功率": "1W",
+                "_resistance_ohm": 22.0, "容值误差": "5",
+            }),
+            "52.5",
+        )
+        self.assertEqual(
+            price({
+                "品牌": "FOJAN(富捷)", "型号": "FRA064RJ471TS", "系列": "FRC",
+                "尺寸（inch）": "064R", "功率": "1/10W",
+                "_resistance_ohm": 470.0, "容值误差": "5",
+            }),
+            "14",
+        )
+        # FCS is also used by the ordinary anti-sulfur price page; it must not
+        # be rejected merely because a separate FCS alloy-shunt format exists.
+        self.assertEqual(
+            price({
+                "品牌": "FOJAN(富捷)", "型号": "FCS0603F1002TS", "系列": "FCS",
+                "器件类型": "厚膜电阻", "尺寸（inch）": "0603", "功率": "1/10W",
+                "_resistance_ohm": 10000.0, "容值误差": "1",
+            }),
+            "3.65",
+        )
+        ordinary_fcs = app["build_rule_fallback_row_from_model"]("FCS0603F1002TS", "FOJAN(富捷)")
+        self.assertFalse(ordinary_fcs.empty)
+        self.assertEqual(ordinary_fcs.iloc[0]["系列"], "FCS")
+        self.assertEqual(ordinary_fcs.iloc[0]["器件类型"], "厚膜电阻")
+        self.assertEqual(
+            app["lookup_active_cost_price_for_row"](
+                ordinary_fcs.iloc[0].to_dict(), lookup=lookup
+            ).get("cost", ""),
+            "3.65",
+        )
+
+        # No price may be borrowed from another series when the model's own
+        # series has no matching rule.
+        self.assertEqual(
+            price({
+                "品牌": "FOJAN(富捷)", "型号": "FQV1206F2703TS", "系列": "FRC",
+                "尺寸（inch）": "1206", "功率": "1/4W",
+                "_resistance_ohm": 270000.0, "容值误差": "1",
+            }),
+            "",
+        )
+
     def test_08aa_new_fojan_series_cost_sheet_is_imported_and_matchable(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
@@ -6339,6 +6456,9 @@ class SystemRegressionTests(unittest.TestCase):
             frm_standard = price("FRM252WFR010TM", "FRM", "2512", "2W", 0.01, "1")
             self.assertEqual(frm_standard["cost"], "120.75")
 
+            frm_zero = price("FRM253WFR000TM", "FRM", "2512", "3W", 0.0, "1")
+            self.assertEqual(frm_zero["cost"], "85")
+
             frm_high_range = price("FRM252WGR200TM", "FRM", "2512", "2W", 0.2, "2")
             self.assertEqual(frm_high_range["cost"], "112.7")
 
@@ -6355,6 +6475,8 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(frm_1206_large["cost"], "112.7")
             frm_1206_standard = price("FRM121WFR010TM", "FRM", "1206", "1W", 0.01, "1")
             self.assertEqual(frm_1206_standard["cost"], "83.95")
+            frm_1206_zero = price("FRM121WFR000TM", "FRM", "1206", "1W", 0.0, "1")
+            self.assertEqual(frm_1206_zero["cost"], "74")
 
             fmh = price("FMH121WFR120TM", "FMH", "1206", "1W", 0.12, "1")
             self.assertEqual(fmh["cost"], "83.95")
