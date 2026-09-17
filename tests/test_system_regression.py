@@ -157,6 +157,20 @@ def fojan_new_series_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_future_series_quote_xlsx_bytes():
+    """A not-yet-catalogued series must still be priced from its own cost page."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "FXZ"
+    sheet.append(["Series", "Type / Dimension", "Resistance Range", "New Unit Price", "", "Package"])
+    sheet.append(["", "", "Ω (ohms)", "5%", "1%", ""])
+    sheet.append(["FXZ", "0603 1/10W", "10R-1M", "2.80", "3.40", "5000PCS"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 def fojan_seriesless_and_frt_quote_xlsx_bytes():
     """New cost pages place series in the sheet name and may omit Package entirely."""
     workbook = Workbook()
@@ -4981,7 +4995,12 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertIn("客户代码价", price["cost_source"])
             code_specific_row = dict(
                 row,
-                **{"阻值": 1, "_resistance_ohm": 1.0, "容值误差": "±5%"},
+                **{
+                    "型号": "FRC0402J1R0TS",
+                    "阻值": 1,
+                    "_resistance_ohm": 1.0,
+                    "容值误差": "±5%",
+                },
             )
             for customer_name, expected in [
                 ("KA客户一有限公司", "2.1"),
@@ -6216,10 +6235,11 @@ class SystemRegressionTests(unittest.TestCase):
         lookup = app["load_active_cost_price_lookup"]()
 
         def price(series, tolerance):
+            tolerance_code = {"5": "J", "1": "F", "0.5": "D", "0.1": "B"}[tolerance]
             return app["lookup_active_cost_price_for_row"](
                 {
                     "品牌": "FOJAN(富捷)",
-                    "型号": f"{series}0603F1002TS",
+                    "型号": f"{series}0603{tolerance_code}1002TS",
                     "器件类型": "厚膜电阻",
                     "系列": series,
                     "尺寸（inch）": "0603",
@@ -6367,6 +6387,110 @@ class SystemRegressionTests(unittest.TestCase):
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()
 
+    def test_08aaa_future_fojan_series_uses_exact_model_and_same_series_cost_only(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-future-series-cost.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            upload = UploadedBytes("fojan-future-series.xlsx", fojan_future_series_quote_xlsx_bytes())
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+            lookup = app["load_active_cost_price_lookup"]()
+            rules = lookup.get("__fojan_resistor_rules__", [])
+            self.assertEqual({rule.get("series") for rule in rules}, {"FXZ"})
+
+            # The exact model is authoritative even if a candidate row retained
+            # a stale series label and omitted the power/value helper columns.
+            priced = app["lookup_active_cost_price_for_row"](
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FXZ0603F4701TS",
+                    "系列": "FRC",
+                    "器件类型": "厚膜电阻",
+                },
+                lookup=lookup,
+            )
+            self.assertEqual(priced.get("cost"), "3.40")
+            self.assertEqual(priced.get("series"), "FXZ")
+
+            # An exact same-series model outside the published resistance range
+            # must stay blank; it may not borrow a price from another family.
+            out_of_range = app["lookup_active_cost_price_for_row"](
+                {
+                    "品牌": "FOJAN(富捷)",
+                    "型号": "FXZ0603F1005TS",
+                    "系列": "FRC",
+                    "器件类型": "厚膜电阻",
+                },
+                lookup=lookup,
+            )
+            self.assertEqual(out_of_range.get("cost", ""), "")
+
+            result = app["build_bom_upload_result_row"](
+                pd.DataFrame(),
+                0,
+                {
+                    "型号": "FXZ0603F4701 TS",
+                    "规格": "4.7KΩ;±1%;1/10W;0603;FOJAN;FXZ0603F4701 TS;无卤",
+                    "品名": "贴片电阻",
+                },
+                {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+                query_cache={},
+                export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+                cost_lookup=lookup,
+                resistor_pricing_rules=[],
+            )
+            self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FXZ0603F4701TS")
+            self.assertEqual(result.get("自有成本", ""), "3.40")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_08aab_uploaded_alloy_cost_rule_overrides_older_catalog_limits(self):
+        app = self.app
+        rules = [
+            {
+                "cost_rule_type": "fojan_resistor_series",
+                "series": "FWP",
+                "type_dimension": "4527 7W",
+                "type_dimension_norm": "4527 7W",
+                "resistance_range": "5mR-120mR",
+                "tolerance": "1",
+                "cost": "1150",
+                "fojan_alloy_terminal": "standard",
+            },
+            {
+                "cost_rule_type": "fojan_resistor_series",
+                "series": "FPM",
+                "type_dimension": "2512 3W",
+                "type_dimension_norm": "2512 3W",
+                "resistance_range": "0.5mR-0.9mR",
+                "tolerance": "1",
+                "cost": "190",
+                "fojan_alloy_terminal": "large",
+            },
+        ]
+        lookup = {"__fojan_resistor_rules__": rules}
+        fwp = app["lookup_active_cost_price_for_row"](
+            {
+                "品牌": "FOJAN(富捷)", "系列": "FWP", "器件类型": "合金电阻",
+                "尺寸（inch）": "4527", "功率": "7W", "容值误差": "1",
+                "_resistance_ohm": 0.01,
+            },
+            lookup=lookup,
+        )
+        self.assertEqual(fwp.get("cost"), "1150")
+        fpm = app["lookup_active_cost_price_for_row"](
+            {
+                "品牌": "FOJAN(富捷)", "系列": "FPM", "器件类型": "合金电阻",
+                "尺寸（inch）": "2512", "功率": "3W", "容值误差": "1",
+                "_resistance_ohm": 0.0007, "特殊用途": "大电极",
+            },
+            lookup=lookup,
+        )
+        self.assertEqual(fpm.get("cost"), "190")
+
     def test_08ab_seriesless_and_frt_cost_pages_import_and_match_exact_rules(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
@@ -6490,8 +6614,10 @@ class SystemRegressionTests(unittest.TestCase):
             fwk = price("FWK12169WF0M50RK", "FWK", "1216", "9W", 0.0005, "1")
             self.assertEqual(fwk["cost"], "400.2")
 
-            fwk_unsupported = price("FWK12169WFR003RK", "FWK", "1216", "9W", 0.003, "1")
-            self.assertEqual(fwk_unsupported, {})
+            # The uploaded cost sheet explicitly publishes 3mR.  It is valid
+            # even if an older built-in model profile did not list that value.
+            fwk_uploaded_range = price("FWK12169WFR003RK", "FWK", "1216", "9W", 0.003, "1")
+            self.assertEqual(fwk_uploaded_range["cost"], "400.5")
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

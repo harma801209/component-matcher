@@ -9246,6 +9246,10 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     lookup = load_authorized_cost_price_lookup() if lookup is None else lookup
     if not lookup:
         return {}
+    row = normalize_fojan_cost_lookup_row(
+        row,
+        rules=lookup.get("__fojan_resistor_rules__", []),
+    )
     model_clean = clean_model(row.get("型号", ""))
     entries = lookup.get(model_clean, []) if model_clean else []
     exact_candidate = {}
@@ -9277,26 +9281,11 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     if series == "FRC" and tolerance == "1" and abs(float(resistance_ohm)) <= 1e-12:
         pricing_resistance_ohm = 10.0
     alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in FOJAN_ALLOY_PRICING_SERIES else ""
-    alloy_mohm = fojan_alloy_resistance_mohm(pricing_resistance_ohm)
     temperature_coefficient = fojan_temperature_coefficient_from_row(row) if series == "FRT" else ""
-    parsed_alloy_model = parse_fojan_alloy_resistor_model(
-        row.get("型号", ""),
-        brand=row.get("品牌", ""),
-        component_type=row.get("器件类型", ""),
-    )
-    extended_alloy_profile_applies = (
-        series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES
-        and (
-            series != "FCS"
-            or bool(parsed_alloy_model)
-            or normalize_component_type(row.get("器件类型", "")) == "合金电阻"
-        )
-    )
-    if (
-        extended_alloy_profile_applies
-        and not fojan_alloy_extended_profile_supports(series, size, power, alloy_mohm)
-    ):
-        return exact_candidate
+    # The active uploaded cost list is the commercial source of truth.  Older
+    # built-in alloy profiles are useful for generating catalogue models, but
+    # must not veto an explicit same-series size/power/tolerance/resistance row
+    # that the current cost workbook publishes.
     applicable_rules = fojan_cost_rule_type_dimension_candidates(
         row,
         series,
@@ -23028,6 +23017,105 @@ def normalize_resistor_pricing_series(row):
     return ""
 
 
+FOJAN_COST_MODEL_PATTERN = re.compile(
+    r"^(?P<series>F[A-Z]{1,4})"
+    r"(?P<size>0201|0402|0603|0805|1206|1210|1812|2010|2512)"
+    r"(?P<tolerance>[TABCDFGJP])(?P<value>[0-9R]+)"
+    r"(?P<suffix>T[A-Z0-9]*)$"
+)
+
+
+def parse_fojan_cost_pricing_model(model, rules=None):
+    """Parse a standard FOJAN order number against the uploaded cost rules.
+
+    The cost workbook can introduce a series before the maintained component
+    catalogue is updated.  A syntactically complete FOJAN order number still
+    contains the authoritative series, package, tolerance and resistance.  Use
+    it only when the active cost list actually contains that exact series, so a
+    new model can never borrow another series' price.
+    """
+    compact = clean_model(model).upper()
+    match = FOJAN_COST_MODEL_PATTERN.fullmatch(compact)
+    if match is None:
+        return None
+    series = clean_text(match.group("series")).upper()
+    series_rules = [
+        rule for rule in (rules or [])
+        if clean_text(rule.get("series", "")).upper() == series
+    ]
+    if rules is not None and not series_rules:
+        return None
+    tolerance = FOJAN_TOLERANCE_CODE_TO_PERCENT.get(match.group("tolerance"), "")
+    resistance_ohm = parse_resistor_value_code(match.group("value"))
+    if tolerance == "" or resistance_ohm is None:
+        return None
+    size = clean_size(match.group("size"))
+    same_size_dimensions = {
+        clean_text(rule.get("type_dimension_norm", ""))
+        for rule in series_rules
+        if clean_size(clean_text(rule.get("type_dimension_norm", "")).split(" ", 1)[0]) == size
+        and clean_text(rule.get("type_dimension_norm", ""))
+    }
+    power = ""
+    if len(same_size_dimensions) == 1:
+        only_dimension = next(iter(same_size_dimensions))
+        power = format_power_display(only_dimension.split(" ", 1)[1] if " " in only_dimension else "")
+    return {
+        "品牌": "FOJAN(富捷)",
+        "型号": compact,
+        "器件类型": "厚膜电阻",
+        "系列": series,
+        "尺寸（inch）": size,
+        "容值误差": tolerance,
+        "阻值误差": tolerance,
+        "功率": power,
+        "_resistance_ohm": float(resistance_ohm),
+        "_tol": tolerance,
+        "_power": power,
+        "_model_rule_authority": "fojan_active_cost_rule",
+    }
+
+
+def normalize_fojan_cost_lookup_row(row, rules=None):
+    """Fill pricing identity from an exact FOJAN model before rule lookup."""
+    source = row.to_dict() if hasattr(row, "to_dict") else dict(row or {})
+    model = clean_model(source.get("型号", "")).upper()
+    if model == "":
+        return source
+    parsed = (
+        parse_fojan_alloy_resistor_model(model, brand="FOJAN(富捷)", component_type="合金电阻")
+        or parse_fojan_catalog_resistor_model(model, brand="FOJAN(富捷)")
+        or parse_fojan_cost_pricing_model(model, rules=rules)
+    )
+    if not isinstance(parsed, dict) or not parsed:
+        return source
+
+    normalized = dict(source)
+    # These four attributes are encoded by the exact order number and determine
+    # the exact price row.  They must not inherit a stale substitute-series row.
+    for key in ("品牌", "型号", "系列", "尺寸（inch）", "容值误差", "阻值误差"):
+        value = parsed.get(key, "")
+        if clean_text(value) != "":
+            normalized[key] = value
+    if parsed.get("_resistance_ohm", None) is not None:
+        normalized["_resistance_ohm"] = parsed["_resistance_ohm"]
+        normalized["_res_ohm"] = parsed["_resistance_ohm"]
+    parsed_power = format_power_display(parsed.get("功率", "") or parsed.get("_power", ""))
+    current_power = format_power_display(
+        infer_resistor_power_text_from_record(normalized)
+        or normalized.get("功率", "")
+        or normalized.get("_power", "")
+    )
+    if parsed_power and not current_power:
+        normalized["功率"] = parsed_power
+        normalized["_power"] = parsed_power
+    normalized["_tol"] = clean_tol_for_match(parsed.get("容值误差", ""))
+    normalized["_model_rule_authority"] = clean_text(
+        parsed.get("_model_rule_authority", "fojan_active_cost_rule")
+    )
+    return normalized
+
+
 def fojan_cost_rule_type_dimension_candidates(row, series, size, power, rules):
     """Return only same-series cost rows applicable to the model's package.
 
@@ -31818,7 +31906,14 @@ def reconcile_bom_output_status(result_row, export_slots, export_settings=None):
     return result_row
 
 
-def build_bom_export_candidate_frame(matched, query_df=None, spec=None, mode="", exact_model=""):
+def build_bom_export_candidate_frame(
+    matched,
+    query_df=None,
+    spec=None,
+    mode="",
+    exact_model="",
+    cost_lookup=None,
+):
     frames = []
     exact_model = clean_model(exact_model) or (
         clean_model((spec or {}).get("型号", "")) if isinstance(spec, dict) else ""
@@ -31830,6 +31925,14 @@ def build_bom_export_candidate_frame(matched, query_df=None, spec=None, mode="",
         if exact_model and exact_rows.empty:
             exact_map = load_component_rows_by_exact_models_from_search_sidecar([exact_model])
             exact_rows = exact_map.get(exact_model, pd.DataFrame()) if isinstance(exact_map, dict) else pd.DataFrame()
+        if exact_model and exact_rows.empty and isinstance(cost_lookup, dict):
+            cost_rules = cost_lookup.get("__fojan_resistor_rules__", [])
+            parsed_cost_model = parse_fojan_cost_pricing_model(exact_model, rules=cost_rules)
+            if parsed_cost_model:
+                exact_row = dict(spec or {}) if isinstance(spec, dict) else {}
+                exact_row.update(parsed_cost_model)
+                exact_row = normalize_fojan_cost_lookup_row(exact_row, rules=cost_rules)
+                exact_rows = pd.DataFrame([exact_row])
         if not exact_rows.empty:
             if "推荐等级" not in exact_rows.columns:
                 exact_rows["推荐等级"] = "完全匹配"
@@ -45123,7 +45226,12 @@ def looks_like_explicit_fojan_model(model_value):
         (clean_text(profile.get("model_prefix", "")) or clean_text(series).split("-", 1)[0]).upper()
         for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items()
     }
-    return any(compact.startswith(prefix) and len(compact) > len(prefix) + 4 for prefix in prefixes)
+    if any(compact.startswith(prefix) and len(compact) > len(prefix) + 4 for prefix in prefixes):
+        return True
+    # Future ordinary resistor series use the same complete FOJAN order-number
+    # grammar.  Recognize the identity here; pricing remains locked to an exact
+    # same-series rule later, so this cannot borrow another family's price.
+    return FOJAN_COST_MODEL_PATTERN.fullmatch(compact) is not None
 
 
 def extract_explicit_fojan_models_from_bom(*values):
@@ -45601,7 +45709,7 @@ def bom_candidate_has_authoritative_spec(candidate_result):
     return count_query_params(spec) >= max(3, other_passive_min_required_params(spec))
 
 
-def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model):
+def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model, cost_lookup=None):
     """Restrict an explicit FOJAN BOM reference to that exact order number."""
     if not isinstance(candidate_result, dict):
         return False
@@ -45628,6 +45736,14 @@ def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model):
         fallback_rows = build_rule_fallback_row_from_model(exact_key)
         if isinstance(fallback_rows, pd.DataFrame) and not fallback_rows.empty:
             exact_frames.append(fallback_rows)
+    if not exact_frames and isinstance(cost_lookup, dict):
+        cost_rules = cost_lookup.get("__fojan_resistor_rules__", [])
+        parsed_cost_model = parse_fojan_cost_pricing_model(exact_key, rules=cost_rules)
+        if parsed_cost_model:
+            exact_row = dict(candidate_result.get("spec") or {})
+            exact_row.update(parsed_cost_model)
+            exact_row = normalize_fojan_cost_lookup_row(exact_row, rules=cost_rules)
+            exact_frames.append(pd.DataFrame([exact_row]))
     if not exact_frames:
         return False
 
@@ -45662,6 +45778,7 @@ def choose_best_bom_candidate(
     full_df_provider=None,
     exact_part_prefetch_map=None,
     export_settings=None,
+    cost_lookup=None,
 ):
     best = None
     for idx, candidate in enumerate(candidates):
@@ -45692,7 +45809,7 @@ def choose_best_bom_candidate(
         if candidate.get("fojan_model_reference"):
             result["fojan_model_reference"] = True
             exact_model = clean_model(candidate.get("explicit_fojan_model", ""))
-            if pin_bom_result_to_explicit_fojan_model(result, exact_model):
+            if pin_bom_result_to_explicit_fojan_model(result, exact_model, cost_lookup=cost_lookup):
                 best = result
                 break
         if should_replace_best_bom_candidate(best, result):
@@ -45931,6 +46048,7 @@ def build_bom_upload_result_row(
         full_df_provider=full_df_provider,
         exact_part_prefetch_map=exact_part_prefetch_map,
         export_settings=export_settings,
+        cost_lookup=cost_lookup,
     )
     if best is None:
         result_row["失败原因"] = "BOM 解析失败"
@@ -46036,6 +46154,7 @@ def build_bom_upload_result_row(
         spec=spec,
         mode=best.get("mode", ""),
         exact_model=export_exact_model,
+        cost_lookup=cost_lookup,
     )
     export_slots = build_bom_own_brand_export_slots(
         export_candidates,
