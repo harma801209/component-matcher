@@ -157,6 +157,32 @@ def fojan_new_series_quote_xlsx_bytes():
     return output.getvalue()
 
 
+def fojan_seriesless_and_frt_quote_xlsx_bytes():
+    """New cost pages place series in the sheet name and may omit Package entirely."""
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+
+    sheet = workbook.create_sheet("FRR")
+    sheet.append(["客户代码", "通用", "FRR 车规级抗硫化系列", ""])
+    sheet.append(["Date:2026/9/16", "", "", ""])
+    sheet.append(["Type / Dimension", "Resistance Range", "给客户", ""])
+    sheet.append(["", "Ω (ohms)", 0.05, 0.01])
+    sheet.append(["0603 1/10W", "10R-1M", "3.80", "4.20"])
+
+    sheet = workbook.create_sheet("FRT")
+    sheet.append(["客户代码", "通用", "FRT薄膜 高精度低温漂系列", "", ""])
+    sheet.append(["Date:2026/9/16", "", "", "", ""])
+    sheet.append(["Type / Dimension", "Resistance Range", "Accuracy", "PPM（温度系数）", "给客户"])
+    sheet.append(["", "Ω (ohms)", "精度%", "", ""])
+    sheet.append(["0603", "49.9R-33KR", 0.001, "±50PPM", "70.37"])
+    sheet.append(["0603", "49.9R-33KR", 0.001, "±25PPM", "76.54"])
+
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 def fojan_alloy_quote_xlsx_bytes():
     workbook = Workbook()
     sheet = workbook.active
@@ -3919,6 +3945,20 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(self.app["clean_model"](result_row.get("推荐型号", "")), model, model)
             self.assertEqual(self.app["clean_model"](result_row.get("自有型号", "")), model, model)
 
+        spaced_result = self.app["build_bom_upload_result_row"](
+            pd.DataFrame(),
+            0,
+            {
+                "型号": "FRQ0402J102 TS",
+                "规格": "1KΩ;±5%;1/16W;0402;FOJAN;FRQ0402J102 TS;车规级;无卤",
+                "品名": "贴片电阻",
+            },
+            {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+            export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+        )
+        self.assertEqual(spaced_result.get("推荐型号"), "FRQ0402J102 TS")
+        self.assertEqual(spaced_result.get("自有型号"), "FRQ0402J102 TS")
+
         pricing_rules = [
             {
                 "series": "FRQ",
@@ -6206,6 +6246,45 @@ class SystemRegressionTests(unittest.TestCase):
             )
             self.assertEqual(matched.get("cost"), "3.40")
             self.assertEqual(matched.get("moq"), "5000PCS")
+        finally:
+            app["COST_PRICE_DB_PATH"] = original_cost_path
+            app["clear_cost_price_lookup_cache"]()
+
+    def test_08ab_seriesless_and_frt_cost_pages_import_and_match_exact_rules(self):
+        app = self.app
+        original_cost_path = app["COST_PRICE_DB_PATH"]
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "fojan-seriesless-frt-cost.sqlite")
+            app["clear_cost_price_lookup_cache"]()
+            upload = UploadedBytes("fojan-seriesless-frt.xlsx", fojan_seriesless_and_frt_quote_xlsx_bytes())
+            items, error = app["build_cost_price_items_from_workbook"](upload)
+            self.assertEqual(error, "")
+            rules = [json.loads(item["raw_json"]) for item in items]
+            self.assertEqual({rule["series"] for rule in rules}, {"FRR", "FRT"})
+            self.assertEqual({rule.get("temperature_coefficient", "") for rule in rules if rule["series"] == "FRT"}, {"25", "50"})
+
+            ok, message, _ = app["import_cost_price_list_from_upload"](upload, "regression")
+            self.assertTrue(ok, message)
+            lookup = app["load_active_cost_price_lookup"]()
+
+            def price(model, series, tolerance, resistance):
+                return app["lookup_active_cost_price_for_row"](
+                    {
+                        "品牌": "FOJAN(富捷)",
+                        "型号": model,
+                        "器件类型": "薄膜电阻" if series == "FRT" else "厚膜电阻",
+                        "系列": series,
+                        "尺寸（inch）": "0603",
+                        "功率": "1/10W",
+                        "_resistance_ohm": resistance,
+                        "容值误差": tolerance,
+                    },
+                    lookup=lookup,
+                ).get("cost", "")
+
+            self.assertEqual(price("FRR0603F4701TS", "FRR", "1", 4700.0), "4.20")
+            self.assertEqual(price("FRT0603B1302TSX", "FRT", "0.1", 13000.0), "76.54")
+            self.assertEqual(price("FRT0603B1302TSV", "FRT", "0.1", 13000.0), "70.37")
         finally:
             app["COST_PRICE_DB_PATH"] = original_cost_path
             app["clear_cost_price_lookup_cache"]()

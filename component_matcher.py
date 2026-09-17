@@ -8223,6 +8223,148 @@ def normalize_fojan_cost_series(value):
     return extract_fojan_series_prefix(raw)
 
 
+def infer_fojan_cost_sheet_series(raw_df, sheet_name=""):
+    """Infer a one-series price sheet from its tab/title (for example FRR or FRT-KA)."""
+    candidates = [clean_text(sheet_name)]
+    if isinstance(raw_df, pd.DataFrame) and not raw_df.empty:
+        for row_idx in range(min(len(raw_df), 4)):
+            candidates.extend(clean_text(value) for value in raw_df.iloc[row_idx].tolist())
+    for candidate in candidates:
+        upper = clean_text(candidate).upper()
+        for match in re.finditer(r"(?<![A-Z0-9])(F[A-Z]{1,4})(?=[^A-Z0-9]|$)", upper):
+            series = normalize_fojan_cost_series(match.group(1))
+            if series:
+                return series
+    return ""
+
+
+def normalize_fojan_price_type_dimension(value):
+    """Normalize ordinary matrix rows and FRT rows that contain only the case size."""
+    normalized = normalize_resistor_pricing_type_dimension(value)
+    size = clean_size(value)
+    if size and not re.search(r"\d+(?:\.\d+)?\s*(?:/\s*\d+)?\s*W", clean_text(value), flags=re.I):
+        power = format_power_display(RESISTOR_POWER_BY_SIZE.get(size, ""))
+        if power:
+            return f"{size} {power}"
+    return normalized
+
+
+def normalize_fojan_temperature_coefficient(value):
+    text = clean_text(value).upper().replace("ＰＰＭ", "PPM")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*PPM", text)
+    if match is None:
+        try:
+            numeric = float(text)
+        except Exception:
+            return ""
+    else:
+        numeric = float(match.group(1))
+    if numeric <= 0:
+        return ""
+    return f"{numeric:.8f}".rstrip("0").rstrip(".")
+
+
+def fojan_temperature_coefficient_from_row(row):
+    row = row if isinstance(row, dict) else row.to_dict() if hasattr(row, "to_dict") else {}
+    for key in ("温度系数", "TCR", "PPM", "temperature_coefficient"):
+        normalized = normalize_fojan_temperature_coefficient(row.get(key, ""))
+        if normalized:
+            return normalized
+    model = clean_model(row.get("型号", "")).upper()
+    suffix_match = re.search(r"TS([XV])$", model)
+    if suffix_match is not None:
+        return {"X": "25", "V": "50"}.get(suffix_match.group(1), "")
+    return ""
+
+
+def build_fojan_frt_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope=None):
+    """Parse FRT sheets where tolerance and TCR are row fields instead of price subheaders."""
+    if infer_fojan_cost_sheet_series(raw_df, sheet_name) != "FRT":
+        return []
+    sheet_scope = sheet_scope or parse_cost_price_sheet_customer_scope(raw_df)
+    header_index = None
+    columns = {}
+    price_groups = []
+    for idx in range(min(len(raw_df), 20)):
+        values = raw_df.iloc[idx].tolist()
+        normalized = [normalize_cost_price_header(value) for value in values]
+        type_col = next((i for i, value in enumerate(normalized) if "typedimension" in value), None)
+        range_col = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
+        tolerance_col = next((i for i, value in enumerate(normalized) if value in {"accuracy", "精度", "tolerance", "tol"}), None)
+        tcr_col = next((i for i, value in enumerate(normalized) if "ppm" in value or "温度系数" in value), None)
+        if None in {type_col, range_col, tolerance_col, tcr_col}:
+            continue
+        for col_idx, value in enumerate(values):
+            code = extract_ka_customer_code_header(value)
+            if code:
+                price_groups.append((col_idx, code))
+        if not price_groups:
+            price_col = next(
+                (
+                    i for i, value in enumerate(normalized)
+                    if i > tcr_col and any(token in value for token in ("unitprice", "给客户", "成本", "价格", "报价"))
+                ),
+                None,
+            )
+            if price_col is not None:
+                price_groups.append((price_col, ""))
+        if price_groups:
+            header_index = idx
+            columns = {"type": type_col, "range": range_col, "tolerance": tolerance_col, "tcr": tcr_col}
+            break
+    if header_index is None:
+        return []
+
+    items = []
+    for row_idx in range(header_index + 2, len(raw_df)):
+        values = raw_df.iloc[row_idx].tolist()
+        type_dimension = normalize_fojan_price_type_dimension(values[columns["type"]])
+        resistance_range = clean_text(values[columns["range"]])
+        tolerance = normalize_cost_price_tolerance_header(values[columns["tolerance"]])
+        tcr = normalize_fojan_temperature_coefficient(values[columns["tcr"]])
+        if not all((type_dimension, resistance_range, tolerance, tcr)):
+            continue
+        for price_col, customer_code in price_groups:
+            price = clean_text(values[price_col]) if price_col < len(values) else ""
+            if price == "":
+                continue
+            if customer_code:
+                code_key = normalize_sales_customer_code_key(customer_code)
+                if not code_key:
+                    continue
+                scope = {
+                    "price_scope_kind": "customer_codes",
+                    "price_scope_text": customer_code,
+                    "price_customer_codes": [customer_code],
+                    "price_customer_code_keys": [code_key],
+                }
+            else:
+                scope = dict(sheet_scope)
+            rule_data = {
+                "cost_rule_type": "fojan_resistor_series",
+                "series": "FRT",
+                "type_dimension": type_dimension,
+                "resistance_range": resistance_range,
+                "tolerance": tolerance,
+                "temperature_coefficient": tcr,
+                "package": "",
+                **scope,
+            }
+            items.append({
+                "sheet_name": clean_text(sheet_name),
+                "row_index": row_idx + 1,
+                "brand": "FOJAN(富捷)",
+                "model": "",
+                "model_clean": "",
+                "spec_text": f"FRT {type_dimension} {resistance_range} {tolerance}% {tcr}PPM",
+                "cost": price,
+                "moq": "",
+                "lead_time": "",
+                "raw_json": json.dumps(rule_data, ensure_ascii=False, sort_keys=True),
+            })
+    return items
+
+
 def expand_fojan_alloy_pricing_power_options(value):
     text = clean_text(value).replace("Ｗ", "W").replace("ｗ", "W")
     if text == "":
@@ -8401,6 +8543,10 @@ def build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name):
     """Parse a KA sheet whose price columns are grouped by customer code."""
     if not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
         return []
+    frt_items = build_fojan_frt_cost_price_items_from_sheet(raw_df, sheet_name)
+    if frt_items:
+        return frt_items
+    inferred_series = infer_fojan_cost_sheet_series(raw_df, sheet_name)
     header_index = None
     series_col = type_col = range_col = None
     grouped_columns = []
@@ -8410,7 +8556,7 @@ def build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name):
         candidate_series = next((i for i, value in enumerate(normalized) if value == "series"), None)
         candidate_type = next((i for i, value in enumerate(normalized) if "typedimension" in value), None)
         candidate_range = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
-        if None in {candidate_series, candidate_type, candidate_range}:
+        if candidate_type is None or candidate_range is None or (candidate_series is None and inferred_series == ""):
             continue
         subheaders = raw_df.iloc[idx + 1].tolist()
         current_code = ""
@@ -8452,10 +8598,10 @@ def build_fojan_ka_cost_price_items_from_sheet(raw_df, sheet_name):
     last_series = ""
     for row_idx in range(header_index + 2, len(raw_df)):
         values = raw_df.iloc[row_idx].tolist()
-        series = clean_text(values[series_col]) if series_col < len(values) else ""
+        series = clean_text(values[series_col]) if series_col is not None and series_col < len(values) else ""
         if series:
             last_series = series
-        series = clean_text(last_series).upper()
+        series = clean_text(last_series or inferred_series).upper()
         series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
         if not series_profile and normalize_fojan_cost_series(series) == "":
             continue
@@ -8523,10 +8669,15 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             items.extend(ka_items)
             continue
         sheet_scope = parse_cost_price_sheet_customer_scope(raw_df)
+        frt_items = build_fojan_frt_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope=sheet_scope)
+        if frt_items:
+            items.extend(frt_items)
+            continue
         alloy_items = build_fojan_alloy_cost_price_items_from_sheet(raw_df, sheet_name, sheet_scope)
         if alloy_items:
             items.extend(alloy_items)
             continue
+        inferred_series = infer_fojan_cost_sheet_series(raw_df, sheet_name)
         header_index = None
         column_map = {}
         for idx in range(min(len(raw_df), 20)):
@@ -8536,7 +8687,7 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
             type_col = next((i for i, value in enumerate(normalized) if "typedimension" in value), None)
             range_col = next((i for i, value in enumerate(normalized) if "resistancerange" in value), None)
             package_col = next((i for i, value in enumerate(normalized) if value == "package"), None)
-            if None in {series_col, type_col, range_col, package_col} or idx + 1 >= len(raw_df):
+            if type_col is None or range_col is None or (series_col is None and inferred_series == "") or idx + 1 >= len(raw_df):
                 continue
             subheaders = [normalize_cost_price_tolerance_header(value) for value in raw_df.iloc[idx + 1].tolist()]
             price_columns = {}
@@ -8559,18 +8710,20 @@ def build_fojan_cost_price_items_from_workbook(uploaded_file):
         last_series = ""
         for row_idx in range(header_index + 2, len(raw_df)):
             values = raw_df.iloc[row_idx].tolist()
-            series = clean_text(values[column_map["series"]]).upper()
+            series_col = column_map.get("series")
+            series = clean_text(values[series_col]).upper() if series_col is not None and series_col < len(values) else ""
             if series:
                 last_series = series
             else:
-                series = last_series
+                series = last_series or inferred_series
             series_profile = lookup_official_resistor_series_profile_by_model(series, "FOJAN(富捷)")
             if not series_profile and normalize_fojan_cost_series(series) == "":
                 continue
             series = normalize_fojan_cost_series(series)
-            type_dimension = clean_text(values[column_map["type_dimension"]])
+            type_dimension = normalize_fojan_price_type_dimension(values[column_map["type_dimension"]])
             resistance_range = clean_text(values[column_map["range"]])
-            package = clean_text(values[column_map["package"]])
+            package_col = column_map.get("package")
+            package = clean_text(values[package_col]) if package_col is not None and package_col < len(values) else ""
             if type_dimension == "" or resistance_range == "":
                 continue
             for tolerance, price_col in column_map.get("price_columns", {}).items():
@@ -9126,6 +9279,7 @@ def lookup_active_cost_price_for_row(row, lookup=None):
     type_dimension = f"{size} {power}"
     alloy_terminal = fojan_alloy_pricing_terminal_from_row(row) if series in FOJAN_ALLOY_PRICING_SERIES else ""
     alloy_mohm = fojan_alloy_resistance_mohm(pricing_resistance_ohm)
+    temperature_coefficient = fojan_temperature_coefficient_from_row(row) if series == "FRT" else ""
     if (
         series in FOJAN_EXTENDED_ALLOY_MODEL_PROFILES
         and not fojan_alloy_extended_profile_supports(series, size, power, alloy_mohm)
@@ -9138,6 +9292,12 @@ def lookup_active_cost_price_for_row(row, lookup=None):
             continue
         if clean_text(rule.get("tolerance", "")) != tolerance:
             continue
+        rule_temperature_coefficient = normalize_fojan_temperature_coefficient(
+            rule.get("temperature_coefficient", "")
+        )
+        if rule_temperature_coefficient:
+            if not temperature_coefficient or rule_temperature_coefficient != temperature_coefficient:
+                continue
         rule_terminal = clean_text(rule.get("fojan_alloy_terminal", ""))
         if rule_terminal in {"large", "standard"} and alloy_terminal in {"large", "standard"} and rule_terminal != alloy_terminal:
             continue
@@ -22553,6 +22713,9 @@ def parse_resistance_token_to_ohm(token):
     if explicit_ohm is not None:
         return explicit_ohm
     t = raw.upper()
+    # Price matrices frequently spell kilo/mega-ohm endpoints as KR/MR
+    # (for example 33KR and 1MR). Treat the trailing R as the ohm marker.
+    t = re.sub(r"(?<=\d)([KM])R$", r"\1", t)
     if t.endswith("Ω"):
         bare = t[:-1]
         if re.fullmatch(r"\d+(?:\.\d+)?(?:[RKM])", bare) or re.fullmatch(r"\d+[RKM]\d+", bare):
@@ -44880,6 +45043,39 @@ def extract_explicit_fojan_models_from_bom(*values):
     return models
 
 
+def extract_explicit_fojan_model_display_map(*values):
+    """Keep the customer's harmless model spacing for display/export only."""
+    displays = {}
+    for value in values:
+        text = clean_text(value)
+        if text == "":
+            continue
+        parts = re.split(r"[;；,，|/\r\n\t]+", text)
+        parts.extend(extract_model_like_tokens(text))
+        for part in parts:
+            display = re.sub(r"\s+", " ", clean_text(part)).strip(" .,:：;；()（）[]【】")
+            compact = re.sub(r"[^A-Za-z0-9]", "", display).upper()
+            if not looks_like_explicit_fojan_model(compact):
+                continue
+            displays.setdefault(compact, display)
+    return displays
+
+
+def restore_explicit_fojan_model_display(output_row, display_map):
+    """Restore only exact explicit FOJAN identities; matching still uses compact keys."""
+    if not isinstance(output_row, dict) or not display_map:
+        return output_row
+    fields = ["推荐型号"] + [
+        bom_own_brand_internal_column("自有型号", idx)
+        for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
+    ]
+    for field in fields:
+        compact = clean_model(output_row.get(field, "")).upper()
+        if compact in display_map:
+            output_row[field] = display_map[compact]
+    return output_row
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
@@ -45607,6 +45803,12 @@ def build_bom_upload_result_row(
         return result_row
 
     extra_values = collect_bom_extra_spec_values(record, column_mapping)
+    explicit_fojan_display_map = extract_explicit_fojan_model_display_map(
+        model_value,
+        spec_value,
+        name_value,
+        *extra_values,
+    )
     candidates = build_bom_query_candidates(model_value, spec_value, name_value, extra_values=extra_values)
     if not candidates:
         result_row["失败原因"] = "指定的 BOM 列为空"
@@ -45733,7 +45935,9 @@ def build_bom_upload_result_row(
         cost_lookup=cost_lookup,
         resistor_pricing_rules=resistor_pricing_rules,
     )
+    restore_explicit_fojan_model_display(export_slots, explicit_fojan_display_map)
     result_row.update(export_slots)
+    restore_explicit_fojan_model_display(result_row, explicit_fojan_display_map)
     reconcile_bom_output_status(result_row, export_slots, export_settings=export_settings)
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
