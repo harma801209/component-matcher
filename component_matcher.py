@@ -37856,66 +37856,92 @@ def build_fojan_catalog_model(series, profile, size, resistance_ohm, tolerance, 
     return f"{model_prefix}{size_code}{tolerance_code}{value_code}{suffix_text}"
 
 
-def parse_fojan_catalog_resistor_model(model, brand="", component_type=""):
-    compact = clean_model(model).upper()
-    brand_text = clean_brand(brand)
-    if compact == "" or (brand_text != "" and not ("FOJAN" in brand_text.upper() or "富捷" in brand_text)):
-        return None
+@lru_cache(maxsize=1)
+def compiled_fojan_catalog_resistor_patterns():
+    """Build the immutable FOJAN order-number parser table once per process."""
     ordered_profiles = sorted(
         FOJAN_SPECIAL_RESISTOR_CATALOG.items(),
         key=lambda item: max(len(clean_model(suffix)) for suffix in item[1].get("suffixes", ("TS",))),
         reverse=True,
     )
+    entries = []
     for series, profile in ordered_profiles:
         model_prefix = clean_text(profile.get("model_prefix", "")) or series
         model_size_by_size = profile.get("model_size_by_size", {})
         for display_size, size_rule in profile.get("sizes", {}).items():
             model_size = model_size_by_size.get(display_size, display_size)
             for suffix in profile.get("suffixes", ("TS",)):
-                pattern = re.compile(
-                    rf"^{re.escape(model_prefix)}{re.escape(model_size)}(?P<tol>[TABCDFGJP])(?P<value>[0-9R]+){re.escape(suffix)}$"
+                entries.append(
+                    (
+                        series,
+                        profile,
+                        display_size,
+                        size_rule,
+                        re.compile(
+                            rf"^{re.escape(model_prefix)}{re.escape(model_size)}(?P<tol>[TABCDFGJP])(?P<value>[0-9R]+){re.escape(suffix)}$"
+                        ),
+                    )
                 )
-                match = pattern.fullmatch(compact)
-                if match is None:
-                    continue
-                tolerance = FOJAN_TOLERANCE_CODE_TO_PERCENT.get(match.group("tol"), "")
-                resistance_ohm = parse_resistor_value_code(match.group("value"))
-                if resistance_ohm is None or not fojan_catalog_profile_allows(
-                    profile,
-                    display_size,
-                    resistance_ohm,
-                    tolerance,
-                ):
-                    continue
-                value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
-                return {
-                    "品牌": brand_text or "FOJAN(富捷)",
-                    "型号": compact,
-                    "器件类型": profile.get("component_type", "厚膜电阻"),
-                    "材质（介质）": clean_text(profile.get("material", "")),
-                    "系列": clean_text(profile.get("series_display", "")) or series,
-                    "系列说明": profile.get("description", ""),
-                    "特殊用途": profile.get("special_use", ""),
-                    "尺寸（inch）": display_size,
-                    "容值": value_text,
-                    "容值单位": unit_text,
-                    "容值_pf": float("nan"),
-                    "容值误差": tolerance,
-                    "阻值@25C": f"{float(resistance_ohm):g}",
-                    "阻值单位": "Ω",
-                    "阻值误差": tolerance,
-                    "功率": format_power_display(size_rule.get("power", "")),
-                    "耐压（V）": clean_voltage(size_rule.get("voltage", "")),
-                    "工作温度": "-55~155℃",
-                    "安装方式": "贴片",
-                    "封装代码": display_size,
-                    "数据来源": f"富捷官方规格书：{profile.get('source', '')}",
-                    "_resistance_ohm": float(resistance_ohm),
-                    "_power": format_power_display(size_rule.get("power", "")),
-                    "_model_rule_authority": "fojan_official_special_resistor_catalog",
-                    "_param_count": 6,
-                }
+    return tuple(entries)
+
+
+@lru_cache(maxsize=32768)
+def parse_fojan_catalog_resistor_model_cached(compact, brand_text, component_type_text=""):
+    for series, profile, display_size, size_rule, pattern in compiled_fojan_catalog_resistor_patterns():
+        match = pattern.fullmatch(compact)
+        if match is None:
+            continue
+        tolerance = FOJAN_TOLERANCE_CODE_TO_PERCENT.get(match.group("tol"), "")
+        resistance_ohm = parse_resistor_value_code(match.group("value"))
+        if resistance_ohm is None or not fojan_catalog_profile_allows(
+            profile,
+            display_size,
+            resistance_ohm,
+            tolerance,
+        ):
+            continue
+        value_text, unit_text = ohm_to_library_value_unit(resistance_ohm)
+        return {
+            "品牌": brand_text or "FOJAN(富捷)",
+            "型号": compact,
+            "器件类型": profile.get("component_type", "厚膜电阻"),
+            "材质（介质）": clean_text(profile.get("material", "")),
+            "系列": clean_text(profile.get("series_display", "")) or series,
+            "系列说明": profile.get("description", ""),
+            "特殊用途": profile.get("special_use", ""),
+            "尺寸（inch）": display_size,
+            "容值": value_text,
+            "容值单位": unit_text,
+            "容值_pf": float("nan"),
+            "容值误差": tolerance,
+            "阻值@25C": f"{float(resistance_ohm):g}",
+            "阻值单位": "Ω",
+            "阻值误差": tolerance,
+            "功率": format_power_display(size_rule.get("power", "")),
+            "耐压（V）": clean_voltage(size_rule.get("voltage", "")),
+            "工作温度": "-55~155℃",
+            "安装方式": "贴片",
+            "封装代码": display_size,
+            "数据来源": f"富捷官方规格书：{profile.get('source', '')}",
+            "_resistance_ohm": float(resistance_ohm),
+            "_power": format_power_display(size_rule.get("power", "")),
+            "_model_rule_authority": "fojan_official_special_resistor_catalog",
+            "_param_count": 6,
+        }
     return None
+
+
+def parse_fojan_catalog_resistor_model(model, brand="", component_type=""):
+    compact = clean_model(model).upper()
+    brand_text = clean_brand(brand)
+    if compact == "" or (brand_text != "" and not ("FOJAN" in brand_text.upper() or "富捷" in brand_text)):
+        return None
+    parsed = parse_fojan_catalog_resistor_model_cached(
+        compact,
+        brand_text,
+        normalize_component_type(component_type),
+    )
+    return dict(parsed) if isinstance(parsed, dict) else None
 
 
 def fojan_high_ohmic_series_required(spec):
@@ -39984,7 +40010,7 @@ def get_model_reverse_lookup(df, cache_signature=None):
     return lookup
 
 
-def lookup_model_reverse_row(df, model, cache_signature=None):
+def lookup_model_reverse_row(df, model, cache_signature=None, model_lookup_cache=None):
     m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
@@ -39995,8 +40021,12 @@ def lookup_model_reverse_row(df, model, cache_signature=None):
             if isinstance(row, pd.DataFrame):
                 row = row.iloc[0]
             return row
+    if isinstance(model_lookup_cache, dict) and m in model_lookup_cache:
+        return model_lookup_cache[m]
     db_rows = load_component_rows_by_clean_model(m)
     if db_rows.empty:
+        if isinstance(model_lookup_cache, dict):
+            model_lookup_cache[m] = None
         return None
     lookup = get_model_reverse_lookup(db_rows, cache_signature=f"model:{m}")
     if lookup.empty or m not in lookup.index:
@@ -40004,16 +40034,23 @@ def lookup_model_reverse_row(df, model, cache_signature=None):
     row = lookup.loc[m]
     if isinstance(row, pd.DataFrame):
         row = row.iloc[0]
+    if isinstance(model_lookup_cache, dict):
+        model_lookup_cache[m] = row
     return row
 
 
-def reverse_spec(df, model, cache_signature=None):
+def reverse_spec(df, model, cache_signature=None, model_lookup_cache=None):
     m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
     if cache_signature is None:
         cache_signature = f"{get_data_cache_signature()}|reverse-model:{m}"
-    row = lookup_model_reverse_row(df, m, cache_signature=cache_signature)
+    row = lookup_model_reverse_row(
+        df,
+        m,
+        cache_signature=cache_signature,
+        model_lookup_cache=model_lookup_cache,
+    )
     row_brand = clean_brand(row.get("品牌", "")) if row is not None else ""
     row_type = normalize_component_type(row.get("器件类型", "")) if row is not None else ""
     parsed_rule = parse_model_rule(m, brand=row_brand, component_type=row_type)
@@ -43175,7 +43212,9 @@ def apply_match_levels_and_sort(df, spec):
         errors="ignore",
     )
 
-def detect_query_mode_and_spec(df, line):
+def detect_query_mode_and_spec(df, line, model_lookup_cache=None):
+    if not isinstance(model_lookup_cache, dict):
+        model_lookup_cache = {}
     semiconductor_hint = detect_unsupported_semiconductor_type(line)
     if semiconductor_hint != "":
         exact_df = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
@@ -43187,14 +43226,14 @@ def detect_query_mode_and_spec(df, line):
             except Exception:
                 exact_df = pd.DataFrame()
         if isinstance(exact_df, pd.DataFrame) and not exact_df.empty:
-            spec = reverse_spec(exact_df, line)
+            spec = reverse_spec(exact_df, line, model_lookup_cache=model_lookup_cache)
             if spec is not None and infer_spec_component_type(spec) in SEMICONDUCTOR_COMPONENT_TYPES:
                 return "料号", spec
         if compact_model_like:
             prefix_df = load_semiconductor_rows_by_model_prefix(line)
             if isinstance(prefix_df, pd.DataFrame) and not prefix_df.empty:
                 prefix_model = clean_text(prefix_df.iloc[0].get("型号", ""))
-                spec = reverse_spec(prefix_df, prefix_model)
+                spec = reverse_spec(prefix_df, prefix_model, model_lookup_cache=model_lookup_cache)
                 if spec is not None and infer_spec_component_type(spec) in SEMICONDUCTOR_COMPONENT_TYPES:
                     spec["_partial_part"] = True
                     spec["_partial_query"] = clean_text(line)
@@ -43235,7 +43274,11 @@ def detect_query_mode_and_spec(df, line):
             and matched_token != ""
             and clean_model(matched_token) != clean_model(line)
         ):
-            compound_spec = reverse_spec(compound_rows, matched_token)
+            compound_spec = reverse_spec(
+                compound_rows,
+                matched_token,
+                model_lookup_cache=model_lookup_cache,
+            )
             if compound_spec is not None:
                 compound_spec["_compound_query"] = clean_text(line)
                 compound_spec["_compound_model_token"] = matched_token
@@ -43243,9 +43286,9 @@ def detect_query_mode_and_spec(df, line):
 
     if looks_like_compact_part_query(line):
         if isinstance(df, pd.DataFrame) and not df.empty:
-            exact_row = lookup_model_reverse_row(df, line)
+            exact_row = lookup_model_reverse_row(df, line, model_lookup_cache=model_lookup_cache)
             if exact_row is not None:
-                exact_spec = reverse_spec(df, line)
+                exact_spec = reverse_spec(df, line, model_lookup_cache=model_lookup_cache)
                 if exact_spec is not None:
                     return "料号", exact_spec
         parsed_part = parse_model_rule(line)
@@ -43274,8 +43317,8 @@ def detect_query_mode_and_spec(df, line):
             return "规格", spec
 
     if looks_like_compact_part_query(line):
-        exact_row = lookup_model_reverse_row(df, line)
-        spec = reverse_spec(df, line)
+        exact_row = lookup_model_reverse_row(df, line, model_lookup_cache=model_lookup_cache)
+        spec = reverse_spec(df, line, model_lookup_cache=model_lookup_cache)
         if spec is not None and (exact_row is not None or count_core_params(spec) >= 3):
             return "料号", spec
 
@@ -43288,8 +43331,8 @@ def detect_query_mode_and_spec(df, line):
         return normalized_other_passive_mode(other_spec), other_spec
 
     if looks_like_compact_part_query(line):
-        exact_row = lookup_model_reverse_row(df, line)
-        spec = reverse_spec(df, line)
+        exact_row = lookup_model_reverse_row(df, line, model_lookup_cache=model_lookup_cache)
+        spec = reverse_spec(df, line, model_lookup_cache=model_lookup_cache)
         if spec is not None and (exact_row is not None or count_core_params(spec) >= 3):
             return "料号", spec
 
@@ -43300,8 +43343,8 @@ def detect_query_mode_and_spec(df, line):
     if looks_like_spec_query(line):
         spec = parse_spec_query(line)
         if spec is None:
-            exact_row = lookup_model_reverse_row(df, line)
-            exact_spec = reverse_spec(df, line)
+            exact_row = lookup_model_reverse_row(df, line, model_lookup_cache=model_lookup_cache)
+            exact_spec = reverse_spec(df, line, model_lookup_cache=model_lookup_cache)
             if exact_row is not None and exact_spec is not None:
                 return "料号", exact_spec
             return "无法识别", None
@@ -43311,7 +43354,7 @@ def detect_query_mode_and_spec(df, line):
             return "规格不足", spec
         return "规格", spec
 
-    spec = reverse_spec(df, line)
+    spec = reverse_spec(df, line, model_lookup_cache=model_lookup_cache)
     if spec is not None:
         return "料号", spec
 
@@ -44982,9 +45025,14 @@ def evaluate_bom_candidate(
     cached = query_cache.get(cache_key) if isinstance(query_cache, dict) else None
     if cached is None:
         full_df = df
+        model_lookup_cache = {}
         exact_part_rows = resolve_prefetched_exact_part_rows(query_text, exact_part_rows=exact_part_rows)
         detect_df = exact_part_rows if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty else None
-        mode, spec = detect_query_mode_and_spec(detect_df, query_text)
+        mode, spec = detect_query_mode_and_spec(
+            detect_df,
+            query_text,
+            model_lookup_cache=model_lookup_cache,
+        )
         query_df = None
         source_text = clean_text(source_label)
         model_token_rows = pd.DataFrame()
@@ -44995,7 +45043,11 @@ def evaluate_bom_candidate(
         if mode == "无法识别" and source_text == "型号列":
             if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty:
                 query_df = exact_part_rows
-                mode, spec = detect_query_mode_and_spec(query_df, query_text)
+                mode, spec = detect_query_mode_and_spec(
+                    query_df,
+                    query_text,
+                    model_lookup_cache=model_lookup_cache,
+                )
         if (
             mode == "无法识别"
             and query_df is None
@@ -45003,7 +45055,11 @@ def evaluate_bom_candidate(
             and not model_token_rows.empty
         ):
             query_df = model_token_rows
-            mode, spec = detect_query_mode_and_spec(query_df, matched_model_token or query_text)
+            mode, spec = detect_query_mode_and_spec(
+                query_df,
+                matched_model_token or query_text,
+                model_lookup_cache=model_lookup_cache,
+            )
         spec = merge_query_text_hints_into_spec(spec, query_text)
         if (
             mode != "无法识别"
@@ -45035,7 +45091,11 @@ def evaluate_bom_candidate(
                 full_df = full_df_provider()
             query_df = full_df if allow_heavy_fallback else None
             if query_df is not None and (mode == "无法识别" or spec is None):
-                mode, spec = detect_query_mode_and_spec(query_df, query_text)
+                mode, spec = detect_query_mode_and_spec(
+                    query_df,
+                    query_text,
+                    model_lookup_cache=model_lookup_cache,
+                )
                 spec = merge_query_text_hints_into_spec(spec, query_text)
         result = {
             "mode": mode,
@@ -48299,18 +48359,75 @@ def render_bom_upload_page():
                                 lambda column: column.str.lower().str.contains(re.escape(keyword), na=False)
                             ).any(axis=1)
                             bom_view_df = bom_view_df[text_mask]
-                        st.caption(f"复核视图显示 {len(bom_view_df)}/{len(bom_display_df)} 行；下载文件仍包含完整结果。")
+                        filtered_bom_row_count = len(bom_view_df)
+                        review_page_cols = st.columns([0.24, 0.76], gap="small")
+                        review_page_size = review_page_cols[0].selectbox(
+                            "每页显示",
+                            [50, 100, 200, "全部"],
+                            index=0,
+                            key=f"bom_review_page_size_{workbook_signature}_{selected_sheet_name}",
+                        )
+                        numeric_page_size = (
+                            max(1, filtered_bom_row_count)
+                            if review_page_size == "全部"
+                            else max(1, int(review_page_size))
+                        )
+                        review_page_count = max(
+                            1,
+                            int(math.ceil(filtered_bom_row_count / numeric_page_size))
+                            if filtered_bom_row_count
+                            else 1,
+                        )
+                        review_page_key = (
+                            f"bom_review_page_number_{workbook_signature}_{selected_sheet_name}_{review_page_size}"
+                        )
+                        try:
+                            stored_review_page = int(st.session_state.get(review_page_key, 1) or 1)
+                        except Exception:
+                            stored_review_page = 1
+                        stored_review_page = min(max(1, stored_review_page), review_page_count)
+                        st.session_state[review_page_key] = stored_review_page
+                        review_page_number = int(
+                            review_page_cols[1].number_input(
+                                "页码",
+                                min_value=1,
+                                max_value=review_page_count,
+                                step=1,
+                                key=review_page_key,
+                                disabled=review_page_count <= 1,
+                            )
+                        )
+                        review_page_start = (review_page_number - 1) * numeric_page_size
+                        review_page_end = min(
+                            filtered_bom_row_count,
+                            review_page_start + numeric_page_size,
+                        )
+                        bom_page_df = bom_view_df.iloc[review_page_start:review_page_end].copy()
+                        displayed_start = review_page_start + 1 if filtered_bom_row_count else 0
+                        st.caption(
+                            f"复核视图显示第 {displayed_start}-{review_page_end} 行 / 筛选后 {filtered_bom_row_count} 行"
+                            f"（原表共 {len(bom_display_df)} 行）；下载文件仍包含完整结果。"
+                        )
 
                         status_counts = count_bom_recommendation_statuses(bom_result_df)
                         component_distribution_text = build_bom_component_distribution_text(bom_result_df)
 
+                        page_indexes = list(bom_page_df.index)
+                        if (
+                            page_indexes
+                            and set(page_indexes).issubset(set(bom_df.index))
+                            and set(page_indexes).issubset(set(bom_result_df.index))
+                        ):
+                            page_bom_df = bom_df.loc[page_indexes].reset_index(drop=True)
+                            page_result_df = bom_result_df.loc[page_indexes].reset_index(drop=True)
+                        else:
+                            page_bom_df = bom_df.iloc[0:0].copy()
+                            page_result_df = bom_result_df.iloc[0:0].copy()
                         full_display_bom_result_df = build_bom_matched_export_df(
-                            bom_df,
-                            bom_result_df,
+                            page_bom_df,
+                            page_result_df,
                             include_cost=bom_export_settings.get("include_cost", False),
                         )
-                        if len(full_display_bom_result_df) == len(bom_display_df):
-                            full_display_bom_result_df = full_display_bom_result_df.loc[bom_view_df.index]
                         display_bom_result_df = format_display_df(full_display_bom_result_df)
                         upload_file_name = clean_text(getattr(uploaded_file, "name", "bom")) or "bom"
                         legacy_xls_export = is_legacy_xls_file_name(upload_file_name)

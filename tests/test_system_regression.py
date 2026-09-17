@@ -5774,6 +5774,71 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["build_bom_upload_result_row"] = original_builder
 
+    def test_06da_fojan_catalog_parser_reuses_compiled_rules_without_sharing_mutations(self):
+        app = self.app
+        compiled = app["compiled_fojan_catalog_resistor_patterns"]
+        cached_parser = app["parse_fojan_catalog_resistor_model_cached"]
+        parser = app["parse_fojan_catalog_resistor_model"]
+        compiled.cache_clear()
+        cached_parser.cache_clear()
+
+        first_patterns = compiled()
+        second_patterns = compiled()
+        self.assertIs(first_patterns, second_patterns)
+        self.assertGreater(len(first_patterns), 0)
+        self.assertEqual(compiled.cache_info().misses, 1)
+        self.assertGreaterEqual(compiled.cache_info().hits, 1)
+
+        first = parser("FRQ0603F4701TS", brand="FOJAN(富捷)")
+        first["系列"] = "MUTATED"
+        second = parser("FRQ0603F4701TS", brand="FOJAN(富捷)")
+        self.assertEqual(second["系列"], "FRQ")
+        self.assertEqual(second["尺寸（inch）"], "0603")
+        self.assertAlmostEqual(float(second["_resistance_ohm"]), 4700.0)
+        self.assertGreaterEqual(cached_parser.cache_info().hits, 1)
+
+    def test_06db_candidate_model_lookup_cache_preserves_rules_and_reuses_database_miss(self):
+        app = self.app
+        original_loader = app["load_component_rows_by_clean_model"]
+        calls = {"exact": 0}
+
+        def empty_exact_lookup(*_args, **_kwargs):
+            calls["exact"] += 1
+            return pd.DataFrame()
+
+        try:
+            app["load_component_rows_by_clean_model"] = empty_exact_lookup
+            lookup_cache = {}
+            mode, spec = app["detect_query_mode_and_spec"](
+                None,
+                "CUSTOM001",
+                model_lookup_cache=lookup_cache,
+            )
+            self.assertEqual(mode, "无法识别")
+            self.assertIsNone(spec)
+            self.assertEqual(calls["exact"], 1)
+
+            repeated_mode, repeated_spec = app["detect_query_mode_and_spec"](
+                None,
+                "CUSTOM001",
+                model_lookup_cache=lookup_cache,
+            )
+            self.assertEqual(repeated_mode, mode)
+            self.assertIsNone(repeated_spec)
+            self.assertEqual(calls["exact"], 1)
+
+            mode, spec = app["detect_query_mode_and_spec"](
+                None,
+                "FRQ0603F4701TS",
+                model_lookup_cache=lookup_cache,
+            )
+            self.assertEqual(mode, "料号")
+            self.assertEqual(spec["系列"], "FRQ")
+            self.assertAlmostEqual(float(spec["_resistance_ohm"]), 4700.0)
+        finally:
+            app["load_component_rows_by_clean_model"] = original_loader
+        self.assertEqual(calls, {"exact": 1})
+
     def test_06e_user_reported_golden_queries_remain_parseable(self):
         golden_path = os.path.join(self.base_dir, "tests", "golden_user_cases.json")
         with open(golden_path, "r", encoding="utf-8") as handle:
