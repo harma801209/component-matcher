@@ -43770,6 +43770,8 @@ class SessionCachedUploadedFile:
         self.name = clean_text((file_cache or {}).get("name", ""))
         self.type = clean_text((file_cache or {}).get("type", ""))
         self.size = int((file_cache or {}).get("size", 0) or 0)
+        self.file_id = clean_text((file_cache or {}).get("file_id", ""))
+        self.sha256 = clean_text((file_cache or {}).get("sha256", ""))
         self._raw_bytes = bytes((file_cache or {}).get("bytes", b"") or b"")
         if self.size <= 0:
             self.size = len(self._raw_bytes)
@@ -43804,20 +43806,38 @@ def get_uploaded_file_bytes(uploaded_file):
         return b""
 
 
-def cache_uploaded_bom_file(uploaded_file):
+def cache_uploaded_bom_file(uploaded_file, session_state=None):
     if uploaded_file is None:
         return None
+    state = st.session_state if session_state is None else session_state
+    file_name = clean_text(getattr(uploaded_file, "name", "")) or "uploaded_bom"
+    file_type = clean_text(getattr(uploaded_file, "type", ""))
+    file_size = int(getattr(uploaded_file, "size", 0) or 0)
+    file_id = clean_text(getattr(uploaded_file, "file_id", ""))
+    existing_cache = state.get(BOM_PENDING_UPLOAD_CACHE_KEY)
+    if (
+        file_id
+        and isinstance(existing_cache, dict)
+        and clean_text(existing_cache.get("file_id", "")) == file_id
+        and clean_text(existing_cache.get("name", "")) == file_name
+        and clean_text(existing_cache.get("type", "")) == file_type
+        and int(existing_cache.get("size", 0) or 0) == file_size
+        and isinstance(existing_cache.get("bytes"), (bytes, bytearray))
+        and existing_cache.get("bytes")
+    ):
+        return SessionCachedUploadedFile(existing_cache)
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
     if not raw_bytes:
         return None
     file_cache = {
-        "name": clean_text(getattr(uploaded_file, "name", "")) or "uploaded_bom",
-        "type": clean_text(getattr(uploaded_file, "type", "")),
-        "size": int(getattr(uploaded_file, "size", 0) or len(raw_bytes)),
+        "name": file_name,
+        "type": file_type,
+        "size": file_size or len(raw_bytes),
+        "file_id": file_id,
         "sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "bytes": raw_bytes,
     }
-    st.session_state[BOM_PENDING_UPLOAD_CACHE_KEY] = file_cache
+    state[BOM_PENDING_UPLOAD_CACHE_KEY] = file_cache
     return SessionCachedUploadedFile(file_cache)
 
 
@@ -48114,12 +48134,15 @@ def resolve_search_query_dataframe_and_spec(
 def build_uploaded_file_signature(uploaded_file):
     if uploaded_file is None:
         return ""
-    raw_bytes = get_uploaded_file_bytes(uploaded_file)
+    sha256_value = clean_text(getattr(uploaded_file, "sha256", ""))
+    if not sha256_value:
+        raw_bytes = get_uploaded_file_bytes(uploaded_file)
+        sha256_value = hashlib.sha256(raw_bytes).hexdigest() if raw_bytes else ""
     return json.dumps(
         {
             "name": clean_text(getattr(uploaded_file, "name", "")),
             "size": int(getattr(uploaded_file, "size", 0) or 0),
-            "sha256": hashlib.sha256(raw_bytes).hexdigest() if raw_bytes else "",
+            "sha256": sha256_value,
         },
         sort_keys=True,
         ensure_ascii=True,
@@ -48136,6 +48159,40 @@ def build_bom_run_signature(uploaded_file, selected_mapping, export_settings=Non
         sort_keys=True,
         ensure_ascii=True,
     )
+
+
+def render_cached_bom_preview_table(
+    show_df,
+    workbook_signature,
+    sheet_name,
+    compact=False,
+    session_state=None,
+):
+    """Reuse the static preview HTML while BOM controls trigger reruns."""
+    state = st.session_state if session_state is None else session_state
+    cache_key = (
+        clean_text(workbook_signature),
+        clean_text(sheet_name),
+        bool(compact),
+    )
+    cached = state.get("_bom_preview_html_cache", {})
+    if isinstance(cached, dict) and cache_key in cached:
+        return cached[cache_key]
+
+    preview_df = show_df.copy()
+    preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
+    preview_html = render_static_preview_table(
+        preview_df,
+        wrapper_class=(
+            "bom-preview-table-wrap bom-preview-table-wrap-compact"
+            if compact
+            else "bom-preview-table-wrap"
+        ),
+    )
+    # Keep only the current preview to bound per-session memory for multi-sheet
+    # workbooks; changing the upload or sheet naturally renders a fresh table.
+    state["_bom_preview_html_cache"] = {cache_key: preview_html}
+    return preview_html
 
 
 def render_bom_upload_page():
@@ -48486,16 +48543,14 @@ def render_bom_upload_page():
                     st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
                 else:
                     st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
-                preview_df = bom_df.copy()
-                preview_df = preview_df.astype(object).where(pd.notna(preview_df), "")
-                is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [clean_text(col) for col in preview_df.columns]
-                preview_html = render_static_preview_table(
-                    preview_df,
-                    wrapper_class=(
-                        "bom-preview-table-wrap bom-preview-table-wrap-compact"
-                        if is_ocr_preview
-                        else "bom-preview-table-wrap"
-                    ),
+                is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [
+                    clean_text(col) for col in bom_df.columns
+                ]
+                preview_html = render_cached_bom_preview_table(
+                    bom_df,
+                    workbook_signature,
+                    selected_sheet_name,
+                    compact=is_ocr_preview,
                 )
                 if preview_html:
                     components.html(
@@ -48989,6 +49044,19 @@ def render_bom_upload_page():
             st.error(f"BOM 处理失败：{e}")
 
 
+def _render_bom_upload_page_fragment_body():
+    render_bom_upload_page()
+    render_inline_footer()
+
+
+if hasattr(st, "fragment"):
+    render_bom_upload_page_fragment = st.fragment(_render_bom_upload_page_fragment_body)
+else:
+    # Compatibility for older local Streamlit runtimes. Current hosted builds
+    # use fragments so BOM control changes do not rerun app-wide initialization.
+    render_bom_upload_page_fragment = _render_bom_upload_page_fragment_body
+
+
 if __name__ == "__main__" and "--rebuild-search-index" in sys.argv:
     rebuild_search_index_from_database_fast()
     raise SystemExit(0)
@@ -49104,8 +49172,7 @@ if is_member_page_requested():
     render_member_center_page()
     st.stop()
 if is_bom_page_requested():
-    render_bom_upload_page()
-    render_inline_footer()
+    render_bom_upload_page_fragment()
     startup_trace("after_footer")
     st.stop()
 
