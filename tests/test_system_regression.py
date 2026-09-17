@@ -290,6 +290,57 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_bom_parse_cache_reuses_content_without_stale_data(self):
+        app = self.app
+        state = {"_member_auth_token": "member-one"}
+        reads = []
+        def read(data):
+            return app["read_uploaded_bom_workbook_for_session"](
+                UploadedBytes("same.csv", data),
+                on_read=lambda: reads.append(True), session_state=state,
+            )
+        first = read(b"model,value\nAAA,100\n")
+        first["sheet_frames"][0]["df"].iloc[0, 0] = "MUTATED"
+        state["brand"] = "FOJAN"
+        state["customer"] = "F0001"
+        second = read(b"model,value\nAAA,100\n")
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(second["sheet_frames"][0]["df"].iloc[0, 0], "AAA")
+        changed = read(b"model,value\nBBB,200\n")
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(changed["sheet_frames"][0]["df"].iloc[0, 0], "BBB")
+        state["_member_auth_token"] = "member-two"
+        read(b"model,value\nBBB,200\n")
+        self.assertEqual(len(reads), 3)
+        read(b"")
+        read(b"")
+        self.assertEqual(len(reads), 5)
+        app["read_uploaded_bom_workbook_for_session"](None, session_state=state)
+        self.assertNotIn("_bom_parsed_upload_cache", state)
+
+    def test_search_readiness_requires_core_index_but_not_optional_enrichment_files(self):
+        app = self.app
+        original_paths = {
+            "BASE_DIR": app["BASE_DIR"],
+            "SEARCH_DB_PATH": app["SEARCH_DB_PATH"],
+            "MLCC_LCSC_DIMENSION_CACHE_PATH": app["MLCC_LCSC_DIMENSION_CACHE_PATH"],
+        }
+        try:
+            db_path = os.path.join(self.temp_dir, "core-search.sqlite")
+            with sqlite3.connect(db_path) as conn:
+                conn.execute('CREATE TABLE components_search_core ("型号" TEXT)')
+                conn.execute('INSERT INTO components_search_core VALUES (?)', ("TEST123",))
+            app["SEARCH_DB_PATH"] = db_path
+            app["BASE_DIR"] = self.temp_dir
+            app["MLCC_LCSC_DIMENSION_CACHE_PATH"] = os.path.join(self.temp_dir, "missing-dimensions.json")
+            self.assertTrue(app["search_sidecar_assets_available"]())
+            self.assertEqual(app["get_public_runtime_bundle_paths"](), [db_path])
+            app["SEARCH_DB_PATH"] = os.path.join(self.temp_dir, "missing-core.sqlite")
+            self.assertFalse(app["search_sidecar_assets_available"]())
+        finally:
+            for key, value in original_paths.items():
+                app[key] = value
+
     def test_00_runtime_database_paths_are_isolated(self):
         temp_root = os.path.normcase(os.path.abspath(self.temp_dir))
         for key in ("MEMBER_AUTH_DB_PATH", "COST_PRICE_DB_PATH", "NO_MATCH_REPORT_DB_PATH"):

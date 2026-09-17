@@ -28,7 +28,7 @@ import ssl
 import warnings
 import traceback
 import textwrap
-from copy import copy
+from copy import copy, deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -10842,7 +10842,10 @@ def ensure_streamlit_cloud_data_bundle(required_paths=None):
 
 
 def search_sidecar_assets_available():
-    return all(bundle_target_is_valid(path) for path in get_search_asset_bundle_paths())
+    # The SQLite search index is the only mandatory asset for model/spec
+    # queries.  Dimension/Findchips JSON files enrich some result cards but a
+    # missing optional cache must never disable the entire search page.
+    return bundle_target_is_valid(SEARCH_DB_PATH)
 
 
 def get_search_asset_bundle_paths():
@@ -10854,7 +10857,9 @@ def get_search_asset_bundle_paths():
 
 
 def get_public_runtime_bundle_paths():
-    return get_search_asset_bundle_paths()
+    # Restore the query index first. Optional enrichment caches are not a
+    # prerequisite for searches and must not hold the app in a failed state.
+    return [SEARCH_DB_PATH]
 
 
 def maybe_start_cloud_search_asset_warmup():
@@ -44901,6 +44906,33 @@ def summarize_bom_read_error(exc, file_name=""):
     return "BOM 文件读取失败，请确认文件没有损坏。"
 
 
+def read_uploaded_bom_workbook_for_session(uploaded_file, on_read=None, session_state=None):
+    """Reuse only raw workbook parsing within the current member session.
+
+    Price/customer/brand choices are deliberately not cached here. Content
+    hashing invalidates same-name replacements; defensive copies keep mapping
+    and export operations from changing the next rerun's source data.
+    """
+    state = st.session_state if session_state is None else session_state
+    cache_key = "_bom_parsed_upload_cache"
+    if uploaded_file is None:
+        state.pop(cache_key, None)
+        return read_uploaded_bom_workbook(None)
+    signature = build_uploaded_file_signature(uploaded_file)
+    owner = clean_text(state.get("_member_auth_token", ""))
+    cached = state.get(cache_key)
+    if isinstance(cached, dict) and cached.get("signature") == signature and cached.get("owner") == owner:
+        return deepcopy(cached["workbook"])
+    state.pop(cache_key, None)
+    if on_read is not None:
+        on_read()
+    workbook = read_uploaded_bom_workbook(uploaded_file)
+    # Failed/partial reads must be retryable, including transient OCR failures.
+    if workbook.get("sheet_frames") and not workbook.get("read_error") and not workbook.get("read_warning"):
+        state[cache_key] = {"signature": signature, "owner": owner, "workbook": deepcopy(workbook)}
+    return workbook
+
+
 def read_uploaded_bom_workbook(uploaded_file):
     if uploaded_file is None:
         return {
@@ -48125,24 +48157,27 @@ def render_bom_upload_page():
         progress_placeholder = st.empty()
         active_bom_job = None
         try:
-            render_bom_progress_card(
-                progress_placeholder,
-                {
-                    "title": "BOM 文件读取中",
-                    "subtitle": "正在解析上传的 Excel / CSV / 图片文件",
-                    "current_text": getattr(uploaded_file, "name", "正在读取上传文件"),
-                    "processed_rows": 0,
-                    "total_rows": 0,
-                    "percent": 3.0,
-                    "done": False,
-                    "elapsed_seconds": 0.0,
-                    "chips": [
-                        {"label": "阶段", "value": "读取文件", "tone": "warn"},
-                        {"label": "状态", "value": "等待中", "tone": "warn"},
-                    ],
-                },
+            def show_bom_file_read_progress():
+                render_bom_progress_card(
+                    progress_placeholder,
+                    {
+                        "title": "BOM 文件读取中",
+                        "subtitle": "正在解析上传的 Excel / CSV / 图片文件",
+                        "current_text": getattr(uploaded_file, "name", "正在读取上传文件"),
+                        "processed_rows": 0,
+                        "total_rows": 0,
+                        "percent": 3.0,
+                        "done": False,
+                        "elapsed_seconds": 0.0,
+                        "chips": [
+                            {"label": "阶段", "value": "读取文件", "tone": "warn"},
+                            {"label": "状态", "value": "等待中", "tone": "warn"},
+                        ],
+                    },
+                )
+            bom_workbook = read_uploaded_bom_workbook_for_session(
+                uploaded_file, on_read=show_bom_file_read_progress,
             )
-            bom_workbook = read_uploaded_bom_workbook(uploaded_file)
             bom_sheet_frames = bom_workbook.get("sheet_frames", [])
             security_limits = get_runtime_security_limits()
             bom_total_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)

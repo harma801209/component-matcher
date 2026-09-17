@@ -1664,6 +1664,20 @@
 - Safety: no price is borrowed across series, sizes, tolerances, or resistance bands. Missing series pages and out-of-range values remain blank instead of using the nearest or a different series' price.
 - Regression: a misleading FRC row containing `FRQ0603F4701TS` returns the FRQ price, FRP 2010 and FRA064R return their own price-page values, ordinary `FCS0603F1002TS` reaches the FCS anti-sulfur page, valid FRM zero-ohm models reach only their published FRM price rows, pandas batch rows price without failure, and a price-less FQV model cannot fall back to FRC.
 
+## 2026-09-17 - BOM brand controls repeatedly parsed the uploaded workbook
+
+- Symptom: changing the BOM output mode or selecting FOJAN left the page faded for several seconds before matching was started.
+- Root cause: every page rerun called the Excel/CSV/image reader again, even for the same uploaded bytes, and displayed the file-reading progress card again.
+- Fix: keep one parsed source workbook per login session, keyed by filename, size and SHA-256 content. Reuse defensive copies on brand/customer changes and show the file-reading card only on a cache miss. Failed or partial reads remain retryable; price lookup and matching results are not cached by this helper.
+- Verification: the user's 416-row workbook took 11.5318 seconds to parse initially and 0.0030–0.0044 seconds on three cache hits, with identical source frames. Regression checks cover same-name changed content, caller mutation, login changes, repeated failures and clearing the upload.
+
+## 2026-09-17 - Optional search enrichment caches could disable all searches
+
+- Symptom: the public search page could report that no usable database was available before executing a query, even when the core model search index was present.
+- Root cause: readiness treated the core SQLite index and two optional enrichment JSON caches as one all-or-nothing asset set. A missing or unreadable enrichment cache therefore marked the whole search system unavailable.
+- Fix: gate public query readiness and bundle restoration on the core SQLite search index. Keep the dimension and supplier caches optional so their absence cannot block model/spec searches.
+- Regression: with a valid core SQLite index and both optional cache files absent, readiness passes; removing the core index correctly fails readiness.
+
 ## 2026-09-17 - Newly uploaded series and valid alloy price bands could remain unreachable
 
 - Symptom: an uploaded cost workbook could contain a valid same-series price row while an explicit FOJAN BOM model still exported with a blank cost. This raised concern that FRR and other less frequently tested series were not being checked comprehensively.
