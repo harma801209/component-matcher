@@ -278,6 +278,7 @@ PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
 QUERY_RESULT_CACHE_VERSION = 138
+BOM_MATCH_OUTPUT_VERSION = 2
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -47186,6 +47187,9 @@ def copy_excel_cell_style(src_cell, dst_cell):
 def build_bom_workbook_run_signature(uploaded_file, sheet_mappings, export_settings=None):
     return json.dumps(
         {
+            # Force old in-session/persisted outputs to be recalculated after
+            # a matching or pricing change, even when the uploaded BOM is the same.
+            "matching_logic_version": BOM_MATCH_OUTPUT_VERSION,
             "file": build_uploaded_file_signature(uploaded_file),
             "sheet_mappings": sheet_mappings or {},
             "export_settings": normalize_bom_export_settings(export_settings),
@@ -48152,6 +48156,7 @@ def build_uploaded_file_signature(uploaded_file):
 def build_bom_run_signature(uploaded_file, selected_mapping, export_settings=None):
     return json.dumps(
         {
+            "matching_logic_version": BOM_MATCH_OUTPUT_VERSION,
             "file": build_uploaded_file_signature(uploaded_file),
             "mapping": selected_mapping or {},
             "export_settings": normalize_bom_export_settings(export_settings),
