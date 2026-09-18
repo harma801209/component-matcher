@@ -23083,6 +23083,14 @@ FOJAN_COST_MODEL_PATTERN = re.compile(
     r"(?P<tolerance>[TABCDFGJP])(?P<value>[0-9R]+)"
     r"(?P<suffix>T[A-Z0-9]*)$"
 )
+# Wider than the priced FOJAN resistor grammar on purpose: this validates a
+# source-reference shape (including new/unpriced series such as QUS), not
+# pricing eligibility. It is only accepted as a FOJAN reference when the BOM
+# also explicitly names FOJAN/富捷.
+FOJAN_REFERENCE_MODEL_PATTERN = re.compile(
+    r"^[A-Z]{2,6}(?:0201|0402|0603|0805|1206|1210|1812|2010|2512|06|08|12|20|25)"
+    r"[A-Z0-9]{4,}$"
+)
 
 
 def parse_fojan_cost_pricing_model(model, rules=None):
@@ -31966,6 +31974,49 @@ def reconcile_bom_output_status(result_row, export_slots, export_settings=None):
     return result_row
 
 
+def bom_export_includes_fojan(export_settings=None):
+    settings = normalize_bom_export_settings(export_settings)
+    if settings["mode"] != BOM_EXPORT_MODE_CUSTOM:
+        return True
+    return any(
+        brand_alias_matches(brand, ["FOJAN", "富捷"])
+        for brand in settings.get("brands", [])
+    )
+
+
+def preserve_unpriced_explicit_fojan_reference(result_row, display_map, export_settings=None):
+    """Show an explicit BOM model without implying that it has a known price."""
+    if not isinstance(result_row, dict) or not display_map or not bom_export_includes_fojan(export_settings):
+        return result_row
+    exact_model = next(iter(display_map), "")
+    display_model = clean_text(display_map.get(exact_model, ""))
+    if exact_model == "" or display_model == "":
+        return result_row
+
+    model_fields = [
+        bom_own_brand_internal_column("自有型号", idx)
+        for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
+    ]
+    if any(clean_model(result_row.get(field, "")).upper() == exact_model for field in model_fields):
+        return result_row
+
+    # Clear any broad own-brand substitute before retaining the BOM's exact
+    # reference. The price/MOQ/timestamp remain blank unless an exact cost row
+    # was resolved above.
+    for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1):
+        for prefix in BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES:
+            result_row[bom_own_brand_internal_column(prefix, idx)] = ""
+    result_row[bom_own_brand_internal_column("自有品牌", 1)] = "FOJAN(富捷)"
+    result_row[bom_own_brand_internal_column("自有型号", 1)] = display_model
+    note = "BOM已指定该富捷型号；当前未确认到同型号成本，价格留空，未套用其他系列价格。"
+    result_row[bom_own_brand_internal_column("自有匹配说明", 1)] = note
+    result_row[bom_own_brand_internal_column("自有匹配备注", 1)] = note
+    current_note = clean_text(result_row.get("差异说明", ""))
+    if note not in current_note:
+        result_row["差异说明"] = f"{current_note}；{note}" if current_note else note
+    return result_row
+
+
 def build_bom_export_candidate_frame(
     matched,
     query_df=None,
@@ -31973,6 +32024,7 @@ def build_bom_export_candidate_frame(
     mode="",
     exact_model="",
     cost_lookup=None,
+    strict_exact_model=False,
 ):
     frames = []
     exact_model = clean_model(exact_model) or (
@@ -31993,6 +32045,20 @@ def build_bom_export_candidate_frame(
                 exact_row.update(parsed_cost_model)
                 exact_row = normalize_fojan_cost_lookup_row(exact_row, rules=cost_rules)
                 exact_rows = pd.DataFrame([exact_row])
+        # An explicit manufacturer model is authoritative for its own-brand
+        # price slot. If it cannot be found, do not silently fall back to a
+        # broad specification candidate from another FOJAN series.
+        if exact_model and strict_exact_model:
+            if exact_rows.empty:
+                return pd.DataFrame()
+            if "推荐等级" not in exact_rows.columns:
+                exact_rows["推荐等级"] = "完全匹配"
+            else:
+                exact_rows["推荐等级"] = exact_rows["推荐等级"].where(
+                    exact_rows["推荐等级"].astype(str).map(clean_text).ne(""),
+                    "完全匹配",
+                )
+            return exact_rows.copy()
         if not exact_rows.empty:
             if "推荐等级" not in exact_rows.columns:
                 exact_rows["推荐等级"] = "完全匹配"
@@ -45391,6 +45457,14 @@ def extract_explicit_fojan_models_from_bom(*values):
     """
     models = []
     seen = set()
+    # Some 富捷 families are not in the maintained parser catalog (and may
+    # intentionally have no price list yet). When FOJAN is explicitly named in
+    # the BOM, still preserve a complete order-number-shaped token as the
+    # source reference instead of dropping it from the result.
+    has_fojan_marker = any(
+        re.search(r"(?:\bFOJAN\b|富捷)", clean_text(value), flags=re.I)
+        for value in values
+    )
     for value in values:
         text = clean_text(value)
         if text == "":
@@ -45399,7 +45473,12 @@ def extract_explicit_fojan_models_from_bom(*values):
         parts.extend(extract_model_like_tokens(text))
         for part in parts:
             compact = re.sub(r"[^A-Za-z0-9]", "", clean_text(part)).upper()
-            if compact in seen or not looks_like_explicit_fojan_model(compact):
+            is_known_model = looks_like_explicit_fojan_model(compact)
+            is_marked_reference = (
+                has_fojan_marker
+                and FOJAN_REFERENCE_MODEL_PATTERN.fullmatch(compact) is not None
+            )
+            if compact in seen or not (is_known_model or is_marked_reference):
                 continue
             seen.add(compact)
             models.append(compact)
@@ -45409,6 +45488,10 @@ def extract_explicit_fojan_models_from_bom(*values):
 def extract_explicit_fojan_model_display_map(*values):
     """Keep the customer's harmless model spacing for display/export only."""
     displays = {}
+    has_fojan_marker = any(
+        re.search(r"(?:\bFOJAN\b|富捷)", clean_text(value), flags=re.I)
+        for value in values
+    )
     for value in values:
         text = clean_text(value)
         if text == "":
@@ -45418,7 +45501,12 @@ def extract_explicit_fojan_model_display_map(*values):
         for part in parts:
             display = re.sub(r"\s+", " ", clean_text(part)).strip(" .,:：;；()（）[]【】")
             compact = re.sub(r"[^A-Za-z0-9]", "", display).upper()
-            if not looks_like_explicit_fojan_model(compact):
+            is_known_model = looks_like_explicit_fojan_model(compact)
+            is_marked_reference = (
+                has_fojan_marker
+                and FOJAN_REFERENCE_MODEL_PATTERN.fullmatch(compact) is not None
+            )
+            if not (is_known_model or is_marked_reference):
                 continue
             displays.setdefault(compact, display)
     return displays
@@ -45860,7 +45948,10 @@ def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model, cost_l
     if not isinstance(candidate_result, dict):
         return False
     exact_key = clean_model(exact_model)
-    if exact_key == "" or not looks_like_explicit_fojan_model(exact_key):
+    if exact_key == "" or not (
+        looks_like_explicit_fojan_model(exact_key)
+        or FOJAN_REFERENCE_MODEL_PATTERN.fullmatch(exact_key) is not None
+    ):
         return False
 
     exact_frames = []
@@ -46286,8 +46377,11 @@ def build_bom_upload_result_row(
         result_row["备注3"] = clean_text(detail_match.get("备注3", ""))
 
     best_source = clean_text(best.get("source", ""))
+    explicit_fojan_model = next(iter(explicit_fojan_display_map), "")
+    strict_explicit_fojan_export = bool(explicit_fojan_model) and bom_export_includes_fojan(export_settings)
     export_exact_model = (
-        clean_text(best.get("explicit_fojan_model", ""))
+        (explicit_fojan_model if strict_explicit_fojan_export else "")
+        or clean_text(best.get("explicit_fojan_model", ""))
         or (
             model_value
             if clean_text(best.get("mode", "")) == "料号" and best_source.startswith("型号列")
@@ -46301,6 +46395,7 @@ def build_bom_upload_result_row(
         mode=best.get("mode", ""),
         exact_model=export_exact_model,
         cost_lookup=cost_lookup,
+        strict_exact_model=strict_explicit_fojan_export,
     )
     export_slots = build_bom_own_brand_export_slots(
         export_candidates,
@@ -46313,6 +46408,11 @@ def build_bom_upload_result_row(
     result_row.update(export_slots)
     restore_explicit_fojan_model_display(result_row, explicit_fojan_display_map)
     reconcile_bom_output_status(result_row, export_slots, export_settings=export_settings)
+    preserve_unpriced_explicit_fojan_reference(
+        result_row,
+        explicit_fojan_display_map,
+        export_settings=export_settings,
+    )
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(

@@ -4086,6 +4086,64 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(self.app["clean_model"](locked_price_row.get("自有型号", "")), "FRQ0603F4701TS")
         self.assertEqual(locked_price_row.get("自有成本", ""), "4.20")
 
+    def test_03ah_explicit_fojan_reference_is_never_blank_or_substituted(self):
+        app = self.app
+        cases = (
+            (
+                "FQV1206J126 TS",
+                "12MΩ;±5%;3/4W;1206;FOJAN;FQV1206J126 TS;无卤",
+                "FQV1206J126TS",
+            ),
+            (
+                "QUS1206J10 TS",
+                "10Ω;±5%;1/4W;1206;FOJAN;QUS1206J10 TS;无卤",
+                "QUS1206J10TS",
+            ),
+            (
+                "FRM121WFR300TM",
+                "300mΩ;±1%;1W;1206;FOJAN;FRM121WFR300TM;合金;无卤",
+                "FRM121WFR300TM",
+            ),
+        )
+        for display_model, spec, compact_model in cases:
+            with self.subTest(model=display_model):
+                self.assertIn(
+                    compact_model,
+                    app["extract_explicit_fojan_models_from_bom"](spec),
+                )
+                result = app["build_bom_upload_result_row"](
+                    pd.DataFrame(),
+                    0,
+                    {"型号": "", "规格": spec, "品名": "贴片电阻"},
+                    {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+                    export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+                )
+                self.assertEqual(result.get("自有品牌"), "FOJAN(富捷)")
+                self.assertEqual(result.get("自有型号"), display_model)
+                self.assertEqual(result.get("自有成本", ""), "")
+                self.assertIn("未套用其他系列价格", result.get("自有匹配说明", ""))
+
+        broad_substitute = pd.DataFrame(
+            [{"品牌": "FOJAN(富捷)", "型号": "FRC1206J100TS", "推荐等级": "完全匹配"}]
+        )
+        locked_candidates = app["build_bom_export_candidate_frame"](
+            broad_substitute,
+            exact_model="FQV1206J126TS",
+            cost_lookup={
+                "__fojan_resistor_rules__": [
+                    {
+                        "series": "FRC",
+                        "type_dimension_norm": "1206 1/4W",
+                        "range": "10R-1M",
+                        "price_5": "1.23",
+                        "package": "5000PCS",
+                    }
+                ]
+            },
+            strict_exact_model=True,
+        )
+        self.assertTrue(locked_candidates.empty)
+
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
         parsed_models = [
