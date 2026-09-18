@@ -13142,7 +13142,11 @@ SPEC_EMBEDDED_MATERIALS = [
 RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s/\\|;,:()\-]|$)"
 RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
-EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?)\s*(mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])", flags=re.I)
+EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(
+    r"(?<![A-Z0-9])([+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s*"
+    r"(mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])",
+    flags=re.I,
+)
 MILLIOHM_NOTATION_PATTERN = re.compile(r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:mΩ|mR|mr|毫欧)(?![A-Z0-9])")
 RESISTOR_COMPACT_CONTEXT_PATTERN = re.compile(r"(?<![A-Z0-9])((?:R\d+(?:\.\d+)?|\d+(?:\.\d+)?(?:mR|[RKM])(?:\d+)?))(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 TWO_DIM_SIZE_PATTERN = re.compile(r"(?:[DΦLW]?\s*)?(\d+(?:\.\d+)?)\s*[*X×]\s*(?:[HLDWΦ]?\s*)?(\d+(?:\.\d+)?)", flags=re.I)

@@ -1700,3 +1700,10 @@
 - Root cause: the previous UI adjustment expanded the iframe to the full result height, shifting vertical navigation to the page. A 50-row review default could also leave later results outside the current preview page.
 - Fix: default the review selector to `全部`, retain a compact iframe/bubble height, and keep the BOM result wrapper vertically scrollable so all rows in the selected result set are reachable inside the bubble. The 50/100/200 page-size options remain available when a smaller result page is preferred.
 - Verification: the 416-row BOM iframe remains at a compact 692-pixel outer height while the table wrapper keeps its internal overflow scrolling; regression coverage confirms rows beyond the first ten remain in the rendered table and the all-rows iframe sizing. Matching/export data and price calculations are unchanged.
+
+## 2026-09-18 - Scientific-notation resistance fields caused false FRR conflicts
+
+- Symptom: BOM rows for `FRR1206F1005TS` (10MΩ) and `FRR1206F3004TS` (3MΩ) resolved to the correct model and price but were marked `参数冲突`, with explanations claiming the requirements were 7Ω and 6Ω.
+- Root cause: the reverse lookup combined stored resistor fields as `1e+07 Ω` and `3e+06 Ω`. The explicit-resistance parser did not accept scientific notation, so its fallback matched only the exponent tails `07 Ω` and `06 Ω`.
+- Fix: accept signed scientific notation in explicit resistance measurements before recommendation comparisons. The stored values now resolve to 10,000,000Ω and 3,000,000Ω, matching the official FRR model encoding.
+- Regression: both reported BOM rows now keep their exact FRR model and 15.64 price, return `可推荐`, and show `关键规格完全一致` without a false resistance conflict.

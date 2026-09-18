@@ -4144,6 +4144,63 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertTrue(locked_candidates.empty)
 
+    def test_03ai_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
+        app = self.app
+        cases = (
+            (
+                "FRR1206F1005TS",
+                "10MΩ;200V;±1%;1/4W;1206;FOJAN;FRR1206F1005TS;抗硫化 无卤",
+                "1e+07",
+                10_000_000.0,
+            ),
+            (
+                "FRR1206F3004TS",
+                "3MΩ;200V;±1%;1/4W;1206;FOJAN;FRR1206F3004TS;抗硫化 无卤",
+                "3e+06",
+                3_000_000.0,
+            ),
+        )
+        pricing_rules = [
+            {
+                "series": "FRR",
+                "type_dimension_norm": "1206 1/4W",
+                "range": "10R-10M",
+                "price_1": "15.64",
+                "package": "5000PCS",
+            }
+        ]
+        for model, spec_line, stored_text, expected_ohm in cases:
+            with self.subTest(model=model):
+                self.assertAlmostEqual(
+                    app["find_resistance_in_text"](f"{stored_text} Ω"),
+                    expected_ohm,
+                )
+                parsed_model = app["parse_model_rule"](model)
+                exact_row = {
+                    **parsed_model,
+                    "阻值@25C": stored_text,
+                    "阻值单位": "Ω",
+                    "_resistance_ohm": expected_ohm,
+                }
+                exact_frame = app["prepare_search_dataframe"](pd.DataFrame([exact_row]))
+                reversed_spec = app["reverse_spec"](exact_frame, model)
+                self.assertAlmostEqual(float(reversed_spec["_resistance_ohm"]), expected_ohm)
+
+                result = app["build_bom_upload_result_row"](
+                    pd.DataFrame(),
+                    0,
+                    {"型号": "", "规格": spec_line, "品名": "贴片电阻"},
+                    {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+                    exact_part_prefetch_map={model: exact_frame},
+                    export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+                    resistor_pricing_rules=pricing_rules,
+                )
+                self.assertEqual(app["clean_model"](result.get("自有型号", "")), model)
+                self.assertEqual(result.get("自有成本", ""), "15.64")
+                self.assertNotEqual(result.get("状态"), "参数冲突")
+                self.assertNotIn("阻值不一致", result.get("自有匹配说明", ""))
+                self.assertNotIn("阻值不一致", result.get("差异说明", ""))
+
     def test_03a_walsin_array_maps_to_fojan_fra(self):
         app = self.app
         parsed_models = [
