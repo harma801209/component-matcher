@@ -1714,3 +1714,9 @@
 - Root cause: the uploaded workbook contains styled empty rows through Excel row 1,048,576. The format-preserving exporter loaded and resaved that entire worksheet with openpyxl after matching, taking about 49 seconds even though the actual BOM has only 416 data rows. Streamlit's running-state overlay faded the page during that synchronous work.
 - Fix: append result cells directly to the used worksheet rows inside the XLSX package, preserve every untouched workbook entry and the original sheet XML outside the edited cells, and retain the established openpyxl path only as a compatibility fallback for unusual packages.
 - Verification: the reported 2.7 MB workbook export dropped from 49.38 seconds to 1.72 seconds. The resulting workbook opens successfully and retains its original worksheet while adding the complete matching columns. Regression coverage also forces the slow fallback to fail, proving normal `.xlsx` exports use the direct format-preserving path.
+
+## 2026-09-18 - Explicit FOJAN models could disappear when a series had no current price
+
+- Symptom: complete FOJAN order numbers in a BOM or direct search, including FQH/FQP/FQV/QUS and FRM references, could become `无匹配` and leave the matched-model column blank when the model was not present in the static catalogue or did not have an applicable price band.
+- Root cause: the generated-model fallback treated catalogue validation and price eligibility as the same decision. It discarded an otherwise decodable exact model whenever the static parser rejected a newly introduced/out-of-range variant or its price lookup was blank.
+- Fix: keep a complete explicit FOJAN reference as an exact identity in both BOM and direct search, decode its own series/package/power/tolerance/resistance fields, and evaluate pricing only afterward. An absent series page or resistance band leaves only the price blank; it cannot erase the model or borrow another series price.

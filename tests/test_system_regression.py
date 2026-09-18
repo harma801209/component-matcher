@@ -4144,7 +4144,71 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertTrue(locked_candidates.empty)
 
-    def test_03ai_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
+    def test_03ai_explicit_unpriced_fojan_models_remain_searchable_and_price_only_own_series(self):
+        app = self.app
+        cases = (
+            ("FQH0805B1802TS", "FQH", "0805", "1/8W", "0.1", 18_000.0),
+            ("FRM253WFR120TM", "FRM", "2512", "3W", "1", 0.12),
+            ("FQP0402F5111TS", "FQP", "0402", "1/16W", "1", 5_110.0),
+            ("FQV1206J126 TS", "FQV", "1206", "1/4W", "5", 12_000_000.0),
+            ("FRM121WFR300TM", "FRM", "1206", "1W", "1", 0.3),
+            ("QUS1206J1R0 TS", "QUS", "1206", "1/4W", "5", 1.0),
+        )
+        for model, series, size, power, tolerance, resistance in cases:
+            with self.subTest(model=model):
+                resolved = app["resolve_search_query_dataframe_and_spec"](
+                    model,
+                    get_full_search_df=lambda: pd.DataFrame(),
+                )
+                self.assertEqual(resolved["resolution_path"], "explicit_fojan_reference_model")
+                self.assertFalse(resolved["query_df"].empty)
+                self.assertEqual(app["clean_model"](resolved["query_df"].iloc[0]["型号"]), app["clean_model"](model))
+                self.assertEqual(resolved["query_df"].iloc[0]["系列"], series)
+                self.assertEqual(resolved["query_df"].iloc[0]["尺寸（inch）"], size)
+                self.assertEqual(resolved["query_df"].iloc[0]["功率"], power)
+                self.assertEqual(app["clean_tol_for_match"](resolved["query_df"].iloc[0]["容值误差"]), tolerance)
+                self.assertAlmostEqual(float(resolved["query_df"].iloc[0]["_res_ohm"]), resistance)
+                matched = app["cached_run_query_match"](
+                    resolved["query_df"],
+                    resolved["mode"],
+                    resolved["spec"],
+                    query_text=model,
+                )
+                self.assertEqual(
+                    {app["clean_model"](value) for value in matched["型号"].astype(str)},
+                    {app["clean_model"](model)},
+                )
+
+        own_series_rules = [
+            {
+                "series": "FRM",
+                "type_dimension_norm": "2512 3W",
+                "range": "101mR-200mR",
+                "price_1": "132.25",
+                "package": "5000PCS",
+            },
+            {
+                "series": "FRC",
+                "type_dimension_norm": "2512 3W",
+                "range": "101mR-200mR",
+                "price_1": "9.99",
+                "package": "5000PCS",
+            },
+        ]
+        frm_in_range = app["build_rule_fallback_row_from_model"](
+            "FRM253WFR120TM",
+            brand="FOJAN(富捷)",
+            allow_unpriced_explicit_model=True,
+        ).iloc[0].to_dict()
+        self.assertEqual(app["lookup_resistor_series_pricing"](frm_in_range, own_series_rules)["成本"], "132.25")
+        frm_out_of_range = app["build_rule_fallback_row_from_model"](
+            "FRM121WFR300TM",
+            brand="FOJAN(富捷)",
+            allow_unpriced_explicit_model=True,
+        ).iloc[0].to_dict()
+        self.assertEqual(app["lookup_resistor_series_pricing"](frm_out_of_range, own_series_rules)["成本"], "")
+
+    def test_03aj_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
         app = self.app
         cases = (
             (

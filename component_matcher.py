@@ -31914,6 +31914,12 @@ def build_bom_own_brand_export_slots(
                 confirmation_detail = build_match_confirmation_detail(candidate_row, spec)
             except Exception:
                 confirmation_detail = ""
+        if (
+            candidate_row is not None
+            and bool(candidate_row.get("_explicit_fojan_reference", False))
+            and clean_text(item.get("成本", "")) == ""
+        ):
+            candidate_reason = "BOM已指定该富捷型号；当前无同系列适用成本，价格留空，未套用其他系列价格。"
         candidate_remark = merge_match_confirmation_into_remark1(
             candidate_row.get("备注1", "") if candidate_row is not None else "",
             confirmation_detail,
@@ -39013,9 +39019,83 @@ def infer_rule_fallback_brand_from_model(model, brand=""):
     return ""
 
 
-def build_rule_fallback_row_from_model(model, brand=""):
+def explicit_fojan_reference_series(model):
+    """Return the encoded series for an explicit FOJAN reference model.
+
+    This intentionally recognizes source references before catalogue/pricing
+    eligibility. A BOM can name a new or currently unpriced FOJAN series and
+    must retain that exact model instead of silently becoming an unrelated
+    substitute (or a blank match).
+    """
+    compact = clean_model(model).upper()
+    if FOJAN_REFERENCE_MODEL_PATTERN.fullmatch(compact) is None:
+        return ""
+    series = extract_fojan_series_prefix(compact)
+    if series:
+        return series
+    # QUS is an established source-reference prefix but does not start with F.
+    if compact.startswith("QUS"):
+        return "QUS"
+    return ""
+
+
+def apply_explicit_fojan_reference_fields(parsed, model):
+    """Complete identity fields for an exact FOJAN BOM/search reference.
+
+    Standard catalogue parsers remain deliberately strict. This helper is only
+    used after an explicit full order number has been supplied, so its job is
+    identity preservation, not approval of a substitute or a price.
+    """
+    compact = clean_model(model).upper()
+    out = dict(parsed or {})
+    series = explicit_fojan_reference_series(compact)
+    if series:
+        out["系列"] = series
+    out["品牌"] = "FOJAN(富捷)"
+    out["型号"] = compact
+    out["_explicit_fojan_reference"] = True
+    out["_model_rule_authority"] = "fojan_explicit_reference_model"
+
+    # FRM is a low-ohm alloy series. Commercial lists can legitimately add a
+    # package/power/resistance band before the static catalogue is updated.
+    # Decode its order number without treating a missing price band as an
+    # invalid model. Pricing is still checked independently and strictly.
+    alloy_match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
+    if alloy_match is not None and clean_text(alloy_match.group("series")).upper() == "FRM":
+        size = FOJAN_ALLOY_SIZE_CODE_TO_INCH.get(alloy_match.group("size_code"), "")
+        power = FOJAN_ALLOY_POWER_CODE_TO_DISPLAY.get(alloy_match.group("power"), "")
+        tolerance = FOJAN_ALLOY_TOLERANCE_CODE_MAP.get(alloy_match.group("tol"), "")
+        resistance = fojan_alloy_parse_value_code(alloy_match.group("res"))
+        out.update(
+            {
+                "器件类型": "合金电阻",
+                "系列": "FRM",
+                "系列说明": "合金低阻贴片电阻",
+                "特殊用途": "电流检测 | 分流器 | 低阻 | 合金",
+                "尺寸（inch）": size,
+                "功率": power,
+                "容值误差": tolerance,
+                "阻值误差": tolerance,
+                "_resistance_ohm": resistance,
+                "_tol": tolerance,
+                "_power": power,
+                "_param_count": 4,
+            }
+        )
+    return out
+
+
+def build_rule_fallback_row_from_model(model, brand="", allow_unpriced_explicit_model=False):
     compact_model = clean_model(model).upper()
-    if compact_model.startswith(("FRC", "FRL")) and parse_valid_fojan_resistor_model(compact_model) is None:
+    explicit_fojan_reference = bool(
+        allow_unpriced_explicit_model
+        and FOJAN_REFERENCE_MODEL_PATTERN.fullmatch(compact_model) is not None
+    )
+    if (
+        compact_model.startswith(("FRC", "FRL"))
+        and parse_valid_fojan_resistor_model(compact_model) is None
+        and not explicit_fojan_reference
+    ):
         return pd.DataFrame()
     resolved_brand = infer_rule_fallback_brand_from_model(model, brand=brand)
     if (
@@ -39023,11 +39103,14 @@ def build_rule_fallback_row_from_model(model, brand=""):
         and parse_valid_fojan_resistor_model(model) is None
         and parse_fojan_catalog_resistor_model(model, brand=resolved_brand) is None
         and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
+        and not explicit_fojan_reference
     ):
         return pd.DataFrame()
     parsed = parse_model_rule(model, brand=resolved_brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
         return pd.DataFrame()
+    if resolved_brand == "FOJAN(富捷)" and explicit_fojan_reference:
+        parsed = apply_explicit_fojan_reference_fields(parsed, compact_model)
     fallback_defaults = {
         "品牌": resolved_brand,
         "型号": clean_model(model),
@@ -39081,6 +39164,7 @@ def build_rule_fallback_row_from_model(model, brand=""):
         and not fallback.empty
         and parse_fojan_catalog_resistor_model(model, brand=resolved_brand) is None
         and parse_fojan_alloy_resistor_model(model, brand=resolved_brand, component_type="合金电阻") is None
+        and not explicit_fojan_reference
     ):
         price = lookup_resistor_series_pricing(fallback.iloc[0].to_dict())
         if clean_text(price.get("成本", "")) == "":
@@ -45976,7 +46060,11 @@ def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model, cost_l
         if isinstance(sidecar_rows, pd.DataFrame) and not sidecar_rows.empty:
             exact_frames.append(sidecar_rows)
     if not exact_frames:
-        fallback_rows = build_rule_fallback_row_from_model(exact_key)
+        fallback_rows = build_rule_fallback_row_from_model(
+            exact_key,
+            brand="FOJAN(富捷)",
+            allow_unpriced_explicit_model=True,
+        )
         if isinstance(fallback_rows, pd.DataFrame) and not fallback_rows.empty:
             exact_frames.append(fallback_rows)
     if not exact_frames and isinstance(cost_lookup, dict):
@@ -48512,6 +48600,36 @@ def resolve_search_query_dataframe_and_spec(
                     "used_full_df": False,
                     "candidate_rows": candidate_rows,
                 }
+        explicit_fojan_rows = build_rule_fallback_row_from_model(
+            clean_model(line),
+            brand="FOJAN(富捷)",
+            allow_unpriced_explicit_model=True,
+        )
+        if isinstance(explicit_fojan_rows, pd.DataFrame) and not explicit_fojan_rows.empty:
+            exact_spec = explicit_fojan_rows.iloc[0].to_dict()
+            exact_spec = merge_query_text_hints_into_spec(exact_spec, line)
+            exact_spec = clear_query_brand_filter_for_part_lookup(exact_spec)
+            exact_spec = relax_resistor_part_lookup_source_metadata(exact_spec, line)
+            exact_spec = apply_search_brand_scope_to_spec(
+                exact_spec, line, brand_mode, selected_brands
+            )
+            candidate_rows = len(explicit_fojan_rows)
+            emit(
+                2,
+                "已锁定富捷原始料号",
+                "完整富捷型号已识别；仅会查询该型号所属系列的价格",
+                "富捷型号规则",
+                "success",
+                candidate_rows=candidate_rows,
+            )
+            return {
+                "query_df": explicit_fojan_rows,
+                "mode": "料号",
+                "spec": exact_spec,
+                "resolution_path": "explicit_fojan_reference_model",
+                "used_full_df": False,
+                "candidate_rows": candidate_rows,
+            }
         if mode == "无法识别" and spec is None:
             emit(
                 2,
