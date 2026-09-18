@@ -1693,3 +1693,10 @@
 - Fix: cache candidate-row frames only for the lifetime of the current BOM source row. The key preserves the exact candidate pairs, search table and MLCC-specific loading behavior; the cache is discarded before the next source row.
 - Accuracy safety: no candidate, parser, series, parameter, ranking, customer-price, or cost rule changed. Cached frames are copied on both insertion and retrieval.
 - Verification: on the user's BOM, the first five rows dropped from 25.221 seconds / 25 full candidate-frame reads to 12.960 seconds / 5 reads (1.95x faster). Every output column was identical before and after, and all five rows remained `可推荐` with one match each.
+
+## 2026-09-18 - BOM review iframe hid rows behind an inner scrollbar
+
+- Symptom: the BOM result preview exposed only about ten rows at a time and required scrolling inside the embedded table, rather than scrolling down the page to review the full result.
+- Root cause: the result iframe's height estimator capped at ten rows, and its table-height script deliberately limited BOM results to ten visible rows. The review selector also defaulted to a 50-row page.
+- Fix: default the review selector to `全部`, size the result iframe for every row in that selection, and let the BOM result table grow to all of its rows so the document page provides the vertical scrolling. The 50/100/200 page-size options remain available to limit the preview when desired.
+- Verification: 416 result rows now estimate to an iframe taller than 20,000 pixels, and a regression assertion confirms BOM result tables use all rows as their visible height target. Matching/export data and price calculations are unchanged.

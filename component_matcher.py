@@ -41360,13 +41360,12 @@ def estimate_result_table_iframe_height(row_count, show_official_status=True, co
 
 def estimate_bom_result_iframe_height(row_count):
     row_count = max(0, int(row_count or 0))
-    visible_rows = min(max(row_count, 1), 10)
+    visible_rows = max(row_count, 1)
     base = 92
     per_row = 60
     min_height = 320
-    max_height = 700
     height = base + visible_rows * per_row
-    return max(min_height, min(max_height, height))
+    return max(min_height, height)
 
 
 def estimate_bom_preview_iframe_height(row_count, compact=False):
@@ -41993,7 +41992,7 @@ html, body {{
             }}
             var visibleRowLimit = 8;
             if (wrapper.classList.contains('bom-result-table-wrap')) {{
-                visibleRowLimit = 10;
+                visibleRowLimit = rows.length;
             }} else if (wrapper.classList.contains('bom-preview-table-wrap-compact')) {{
                 visibleRowLimit = 4;
             }} else if (wrapper.classList.contains('bom-preview-table-wrap')) {{
@@ -48995,8 +48994,8 @@ def render_bom_upload_page():
                         review_page_size = review_page_cols[0].selectbox(
                             "每页显示",
                             [50, 100, 200, "全部"],
-                            index=0,
-                            key=f"bom_review_page_size_{workbook_signature}_{selected_sheet_name}",
+                            index=3,
+                            key=f"bom_review_page_size_v2_{workbook_signature}_{selected_sheet_name}",
                         )
                         numeric_page_size = (
                             max(1, filtered_bom_row_count)

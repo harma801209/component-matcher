@@ -2770,6 +2770,9 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(preview_estimate(100), 460)
         self.assertEqual(preview_estimate(100, compact=True), 280)
 
+        bom_result_estimate = app["estimate_bom_result_iframe_height"]
+        self.assertGreater(bom_result_estimate(416), 20000)
+
         iframe_html = app["build_result_table_iframe_html"](
             '<div class="result-section-card"><div class="result-table-wrap">'
             '<table class="result-table"><tbody><tr><td>row</td></tr></tbody></table>'
@@ -2778,6 +2781,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("measureFrameContentHeight", iframe_html)
         self.assertIn("alignScrollableTableHeight", iframe_html)
         self.assertIn("visibleRowLimit = 8", iframe_html)
+        self.assertIn("visibleRowLimit = rows.length", iframe_html)
         self.assertIn("horizontalScrollbarReserve", iframe_html)
         self.assertIn("wrapper.offsetHeight - wrapper.clientHeight", iframe_html)
         self.assertIn("frameBottomReserve = 16", iframe_html)
