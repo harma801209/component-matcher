@@ -1707,3 +1707,10 @@
 - Root cause: the reverse lookup combined stored resistor fields as `1e+07 Ω` and `3e+06 Ω`. The explicit-resistance parser did not accept scientific notation, so its fallback matched only the exponent tails `07 Ω` and `06 Ω`.
 - Fix: accept signed scientific notation in explicit resistance measurements before recommendation comparisons. The stored values now resolve to 10,000,000Ω and 3,000,000Ω, matching the official FRR model encoding.
 - Regression: both reported BOM rows now keep their exact FRR model and 15.64 price, return `可推荐`, and show `关键规格完全一致` without a false resistance conflict.
+
+## 2026-09-18 - Completed BOM matches stalled at 96% and left the result page faded
+
+- Symptom: after all 416 BOM rows were matched, the page remained at `正在生成下载文件` / 96% for a noticeable period. The result table could already appear underneath but stayed pale and the save control remained disabled until the Streamlit run finally ended.
+- Root cause: the uploaded workbook contains styled empty rows through Excel row 1,048,576. The format-preserving exporter loaded and resaved that entire worksheet with openpyxl after matching, taking about 49 seconds even though the actual BOM has only 416 data rows. Streamlit's running-state overlay faded the page during that synchronous work.
+- Fix: append result cells directly to the used worksheet rows inside the XLSX package, preserve every untouched workbook entry and the original sheet XML outside the edited cells, and retain the established openpyxl path only as a compatibility fallback for unusual packages.
+- Verification: the reported 2.7 MB workbook export dropped from 49.38 seconds to 1.72 seconds. The resulting workbook opens successfully and retains its original worksheet while adding the complete matching columns. Regression coverage also forces the slow fallback to fail, proving normal `.xlsx` exports use the direct format-preserving path.

@@ -5859,6 +5859,51 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(legacy_result_sheet.freeze_panes, "A2")
         legacy_result_workbook.close()
 
+    def test_06bb_bom_xlsx_export_uses_direct_package_edit_before_slow_fallback(self):
+        app = self.app
+        raw_bytes = formatted_bom_xlsx_bytes()
+        source_df = pd.DataFrame(
+            [{"型号": "RC0402FR-071KL", "规格": "0402 1KΩ ±1% 1/16W", "数量": "12000"}]
+        )
+        result_df = pd.DataFrame(
+            [{"状态": "可推荐", "自有品牌": "富捷", "自有型号": "FRC0402F1001TS"}]
+        )
+        original_loader = app["load_workbook"]
+        app["load_workbook"] = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("format-preserving export unexpectedly used the slow workbook fallback")
+        )
+        try:
+            export_bytes = app["bom_to_excel_bytes"](
+                result_df,
+                source_df,
+                source_workbook={
+                    "kind": "excel",
+                    "file_name": "格式BOM.xlsx",
+                    "file_bytes": raw_bytes,
+                },
+                sheet_results=[
+                    {
+                        "sheet_name": "格式BOM",
+                        "source_df": source_df,
+                        "result_df": result_df,
+                    }
+                ],
+            )
+        finally:
+            app["load_workbook"] = original_loader
+
+        exported_workbook = load_workbook(BytesIO(export_bytes), data_only=False)
+        exported_sheet = exported_workbook["格式BOM"]
+        headers = [
+            exported_sheet.cell(row=1, column=column_idx).value
+            for column_idx in range(1, exported_sheet.max_column + 1)
+        ]
+        self.assertEqual(
+            exported_sheet.cell(row=2, column=headers.index("匹配型号") + 1).value,
+            "FRC0402F1001TS",
+        )
+        exported_workbook.close()
+
     def test_06c_bom_matching_reuses_bounded_cache_and_rich_candidates(self):
         app = self.app
         candidates = app["build_bom_query_candidates"](

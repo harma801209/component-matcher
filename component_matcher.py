@@ -13,12 +13,14 @@ import time
 import base64
 import gzip
 import html
+import posixpath
 import secrets
 import sys
 import streamlit.components.v1 as components
 import re
 import unicodedata
 import zipfile
+import xml.etree.ElementTree as ET
 import shutil
 from io import BytesIO, StringIO
 import urllib.parse
@@ -47484,6 +47486,233 @@ def append_export_columns_to_worksheet(ws, source_df, append_columns):
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
 
+XLSX_MAIN_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+XLSX_DOCUMENT_REL_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+XLSX_PACKAGE_REL_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+
+def xlsx_column_index(column_letters):
+    value = 0
+    for char in clean_text(column_letters).upper():
+        if not ("A" <= char <= "Z"):
+            break
+        value = value * 26 + (ord(char) - ord("A") + 1)
+    return value
+
+
+def xlsx_xml_text(value):
+    text = clean_text(value)
+    text = re.sub(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]", "", text)
+    return html.escape(text, quote=False)
+
+
+def build_xlsx_inline_string_cell_xml(cell_ref, value, style_id=""):
+    style_attr = f' s="{style_id}"' if clean_text(style_id) else ""
+    return (
+        f'<c r="{cell_ref}"{style_attr} t="inlineStr">'
+        f'<is><t xml:space="preserve">{xlsx_xml_text(value)}</t></is></c>'
+    )
+
+
+def append_export_columns_to_worksheet_xml(sheet_xml, source_df, append_columns):
+    """Append BOM result columns without rebuilding a potentially huge XLSX sheet.
+
+    Some customer workbooks contain styled empty rows through Excel row 1,048,576.
+    Loading and saving those files with openpyxl takes tens of seconds even when the
+    BOM itself only has a few hundred rows. This routine edits only the used rows in
+    the worksheet XML and leaves the remaining workbook package byte-for-byte intact.
+    """
+    if not sheet_xml or not append_columns:
+        return sheet_xml
+
+    source_work = source_df.copy() if isinstance(source_df, pd.DataFrame) else pd.DataFrame()
+    source_columns = list(source_work.columns)
+    row_count = len(source_work)
+    xml_text = sheet_xml.decode("utf-8")
+
+    header_match = re.search(r'<row\b[^>]*\br="1"[^>]*?(?:/>|>.*?</row>)', xml_text, flags=re.S)
+    header_xml = header_match.group(0) if header_match else ""
+    header_columns = [
+        xlsx_column_index(match)
+        for match in re.findall(r'<c\b[^>]*\br="([A-Z]+)1"', header_xml)
+    ]
+    base_col = max([1, len(source_columns)] + header_columns)
+    source_column_index = {
+        clean_text(column_name): index + 1
+        for index, column_name in enumerate(source_columns)
+        if clean_text(column_name)
+    }
+
+    appended_items = []
+    existing_column_updates = {}
+    append_offset = 0
+    for item in append_columns:
+        column_name = clean_text(item.get("header", ""))
+        if not column_name:
+            continue
+        values = list(item.get("values", []) or [])
+        existing_col = source_column_index.get(column_name) if column_name == "备注1" else None
+        if existing_col is not None:
+            updates = {}
+            for value_index in range(row_count):
+                existing = source_work.iloc[value_index].get(column_name, "")
+                detail = values[value_index] if value_index < len(values) else ""
+                updates[value_index + 2] = merge_match_confirmation_into_remark1(existing, detail)
+            existing_column_updates[existing_col] = updates
+            continue
+        append_offset += 1
+        target_col = base_col + append_offset
+        appended_items.append((target_col, column_name, values))
+
+    if not appended_items and not existing_column_updates:
+        return sheet_xml
+
+    last_used_excel_row = row_count + 1
+    next_row_token = f'r="{last_used_excel_row + 1}"'
+    next_row_pos = xml_text.find(next_row_token)
+    if next_row_pos >= 0:
+        prefix_end = xml_text.rfind("<row", 0, next_row_pos)
+        if prefix_end < 0:
+            prefix_end = len(xml_text)
+    else:
+        sheet_data_end = xml_text.find("</sheetData>")
+        prefix_end = sheet_data_end if sheet_data_end >= 0 else len(xml_text)
+    used_prefix = xml_text[:prefix_end]
+    untouched_suffix = xml_text[prefix_end:]
+
+    row_pattern = re.compile(
+        r'<row\b(?P<attrs>[^>]*?\br="(?P<row>\d+)"[^>]*?)(?:(?P<self>/>)|>(?P<body>.*?)</row>)',
+        flags=re.S,
+    )
+
+    def replace_row(match):
+        excel_row = int(match.group("row"))
+        if excel_row < 1 or excel_row > last_used_excel_row:
+            return match.group(0)
+        attrs = match.group("attrs") or ""
+        body = match.group("body") or ""
+        style_matches = re.findall(r'<c\b[^>]*\bs="([^"]+)"', body)
+        template_style = style_matches[-1] if style_matches else ""
+
+        for existing_col, updates in existing_column_updates.items():
+            if excel_row == 1:
+                continue
+            cell_ref = f"{get_column_letter(existing_col)}{excel_row}"
+            value = updates.get(excel_row, "")
+            cell_pattern = re.compile(
+                rf'<c\b(?P<attrs>[^>]*\br="{re.escape(cell_ref)}"[^>]*?)(?:/>|>(?P<body>.*?)</c>)',
+                flags=re.S,
+            )
+            existing_match = cell_pattern.search(body)
+            existing_style = template_style
+            if existing_match:
+                style_match = re.search(r'\bs="([^"]+)"', existing_match.group("attrs") or "")
+                if style_match:
+                    existing_style = style_match.group(1)
+                replacement = build_xlsx_inline_string_cell_xml(cell_ref, value, existing_style)
+                body = body[:existing_match.start()] + replacement + body[existing_match.end():]
+            else:
+                body += build_xlsx_inline_string_cell_xml(cell_ref, value, existing_style)
+
+        for target_col, column_name, values in appended_items:
+            cell_ref = f"{get_column_letter(target_col)}{excel_row}"
+            value = column_name if excel_row == 1 else (
+                values[excel_row - 2] if excel_row - 2 < len(values) else ""
+            )
+            body += build_xlsx_inline_string_cell_xml(cell_ref, value, template_style)
+        return f"<row{attrs}>{body}</row>"
+
+    used_prefix = row_pattern.sub(replace_row, used_prefix)
+
+    if appended_items:
+        width_nodes = []
+        for target_col, column_name, values in appended_items:
+            width_hint = max(
+                [len(clean_text(column_name))]
+                + [len(clean_text(value)) for value in values[:50]]
+                + [12]
+            )
+            width = min(max(width_hint * 1.2, 16), 40)
+            width_nodes.append(
+                f'<col min="{target_col}" max="{target_col}" width="{width:g}" customWidth="1"/>'
+            )
+        width_xml = "".join(width_nodes)
+        if "</cols>" in used_prefix:
+            used_prefix = used_prefix.replace("</cols>", width_xml + "</cols>", 1)
+        elif "<sheetData" in used_prefix:
+            used_prefix = used_prefix.replace("<sheetData", f"<cols>{width_xml}</cols><sheetData", 1)
+
+        last_export_col = get_column_letter(appended_items[-1][0])
+        dimension_pattern = re.compile(r'(<dimension\b[^>]*\bref=")([^"]+)(")')
+
+        def replace_dimension(match):
+            old_ref = match.group(2)
+            end_row_match = re.search(r'(\d+)$', old_ref)
+            end_row = end_row_match.group(1) if end_row_match else str(last_used_excel_row)
+            start_ref = old_ref.split(":", 1)[0] if ":" in old_ref else "A1"
+            return f'{match.group(1)}{start_ref}:{last_export_col}{end_row}{match.group(3)}'
+
+        used_prefix = dimension_pattern.sub(replace_dimension, used_prefix, count=1)
+
+    return (used_prefix + untouched_suffix).encode("utf-8")
+
+
+def xlsx_sheet_paths_by_name(raw_bytes):
+    with zipfile.ZipFile(BytesIO(raw_bytes), "r") as workbook_zip:
+        workbook_root = ET.fromstring(workbook_zip.read("xl/workbook.xml"))
+        relationships_root = ET.fromstring(workbook_zip.read("xl/_rels/workbook.xml.rels"))
+    relation_targets = {
+        item.attrib.get("Id", ""): item.attrib.get("Target", "")
+        for item in relationships_root.findall(f"{{{XLSX_PACKAGE_REL_NAMESPACE}}}Relationship")
+    }
+    result = {}
+    sheets = workbook_root.find(f"{{{XLSX_MAIN_NAMESPACE}}}sheets")
+    for sheet in list(sheets) if sheets is not None else []:
+        sheet_name = clean_text(sheet.attrib.get("name", ""))
+        relation_id = sheet.attrib.get(f"{{{XLSX_DOCUMENT_REL_NAMESPACE}}}id", "")
+        target = clean_text(relation_targets.get(relation_id, "")).replace("\\", "/")
+        if not sheet_name or not target:
+            continue
+        if target.startswith("/"):
+            sheet_path = target.lstrip("/")
+        else:
+            sheet_path = posixpath.normpath(posixpath.join("xl", target))
+        result[sheet_name] = sheet_path
+    return result
+
+
+def append_export_columns_to_xlsx_bytes(raw_bytes, sheet_results, include_cost=True):
+    sheet_paths = xlsx_sheet_paths_by_name(raw_bytes)
+    payload_by_path = {}
+    for payload in sheet_results or []:
+        sheet_name = clean_text(payload.get("sheet_name", ""))
+        sheet_path = sheet_paths.get(sheet_name)
+        if not sheet_path:
+            continue
+        source_df = sanitize_dataframe_for_excel_export(payload.get("source_df"))
+        result_df = sanitize_dataframe_for_excel_export(payload.get("result_df"))
+        append_columns = build_bom_own_brand_append_columns(
+            result_df,
+            len(source_df),
+            include_cost=include_cost,
+        )
+        payload_by_path[sheet_path] = (source_df, append_columns)
+    if not payload_by_path:
+        raise ValueError("上传工作簿中找不到可写入的 BOM 分页")
+
+    output = BytesIO()
+    with zipfile.ZipFile(BytesIO(raw_bytes), "r") as source_zip:
+        with zipfile.ZipFile(output, "w") as output_zip:
+            for zip_info in source_zip.infolist():
+                data = source_zip.read(zip_info.filename)
+                payload = payload_by_path.get(zip_info.filename)
+                if payload is not None:
+                    data = append_export_columns_to_worksheet_xml(data, payload[0], payload[1])
+                output_zip.writestr(zip_info, data)
+    output.seek(0)
+    return output.getvalue()
+
+
 def build_bom_workbook_sheet_results(
     bom_workbook,
     sheet_mappings=None,
@@ -47686,6 +47915,16 @@ def bom_to_excel_bytes(result_df, source_df=None, source_workbook=None, sheet_re
         raw_bytes = source_workbook.get("file_bytes", b"")
         source_kind = clean_text(source_workbook.get("kind", ""))
         if raw_bytes:
+            try:
+                return append_export_columns_to_xlsx_bytes(
+                    raw_bytes,
+                    sheet_results,
+                    include_cost=include_cost,
+                )
+            except Exception:
+                # Keep the established openpyxl path as a compatibility fallback
+                # for unusual OOXML packages that cannot be edited directly.
+                pass
             try:
                 wb = load_workbook(
                     BytesIO(raw_bytes),
