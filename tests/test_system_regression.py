@@ -5903,6 +5903,49 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["build_bom_upload_result_row"] = original_builder
 
+    def test_06de_bom_reuses_identical_candidate_frames_only_within_each_row(self):
+        app = self.app
+        original_loader = app["_load_component_rows_by_brand_model_pairs_uncached"]
+        original_builder = app["build_bom_upload_result_row"]
+        loader_calls = []
+
+        def fake_loader(pairs, preferred_component_type=""):
+            loader_calls.append((tuple(pairs), preferred_component_type))
+            return pd.DataFrame([{"型号": "MODEL-1", "品牌": "BRAND-1"}])
+
+        def fake_builder(_df, row_index, record, _mapping, **_kwargs):
+            load = app["load_component_rows_by_brand_model_pairs"]
+            first = load([("BRAND-1", "MODEL-1")], preferred_component_type="贴片电阻")
+            first.loc[0, "型号"] = "MUTATED"
+            cached = load([("BRAND-1", "MODEL-1")], preferred_component_type="厚膜电阻")
+            self.assertEqual(cached.loc[0, "型号"], "MODEL-1")
+            load([("BRAND-1", "MODEL-1")], preferred_component_type="MLCC")
+            return {
+                "BOM行号": row_index + 2,
+                "BOM型号": record["型号"],
+                "状态": "可推荐",
+                "首选推荐等级": "完全匹配",
+            }
+
+        try:
+            app["_load_component_rows_by_brand_model_pairs_uncached"] = fake_loader
+            app["build_bom_upload_result_row"] = fake_builder
+            source = pd.DataFrame([{"型号": "BOM-1"}, {"型号": "BOM-2"}])
+            result = app["bom_dataframe_from_upload"](
+                None,
+                source,
+                {"model": "型号", "spec": None, "name": None, "quantity": None},
+                max_workers=1,
+            )
+        finally:
+            app["_load_component_rows_by_brand_model_pairs_uncached"] = original_loader
+            app["build_bom_upload_result_row"] = original_builder
+
+        # Resistor aliases sharing one sidecar table reuse the result, while
+        # the MLCC table remains separate; the cache clears between BOM rows.
+        self.assertEqual(len(loader_calls), 4)
+        self.assertEqual(result["BOM型号"].tolist(), source["型号"].tolist())
+
     def test_06da_fojan_catalog_parser_reuses_compiled_rules_without_sharing_mutations(self):
         app = self.app
         compiled = app["compiled_fojan_catalog_resistor_patterns"]

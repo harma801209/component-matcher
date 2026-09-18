@@ -37342,7 +37342,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
     return record
 
 
-def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=""):
+def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferred_component_type=""):
     pairs = [
         (clean_text(brand), clean_text(model))
         for brand, model in (candidate_pairs or [])
@@ -37387,6 +37387,45 @@ def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_componen
     if combined.empty:
         return combined
     return prepare_search_dataframe(combined)
+
+
+_BOM_SEARCH_ROW_CACHE = threading.local()
+
+
+def load_component_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=""):
+    """Reuse identical candidate rows only within the current BOM source row."""
+    row_cache = getattr(_BOM_SEARCH_ROW_CACHE, "pair_frames", None)
+    if not isinstance(row_cache, dict):
+        return _load_component_rows_by_brand_model_pairs_uncached(
+            candidate_pairs,
+            preferred_component_type=preferred_component_type,
+        )
+
+    pairs = list(candidate_pairs or [])
+    cache_key = (
+        search_index_table_for_component_type(preferred_component_type),
+        normalize_component_type(preferred_component_type) == "MLCC",
+        tuple(
+            (clean_text(brand), clean_text(model))
+            for brand, model in pairs
+        ),
+    )
+    cached = row_cache.get(cache_key)
+    if isinstance(cached, pd.DataFrame):
+        return cached.copy()
+
+    loaded = _load_component_rows_by_brand_model_pairs_uncached(
+        pairs,
+        preferred_component_type=preferred_component_type,
+    )
+    if isinstance(loaded, pd.DataFrame):
+        row_cache[cache_key] = loaded.copy()
+        # A single BOM row can generate several alternate text candidates.
+        # Keep a small per-row cache so identical candidate sets are reused
+        # without retaining data across rows or growing with workbook size.
+        while len(row_cache) > 16:
+            row_cache.pop(next(iter(row_cache)))
+    return loaded
 
 
 def load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs, preferred_component_type=""):
@@ -46973,18 +47012,29 @@ def bom_dataframe_from_upload(
         if worker_cache is None:
             worker_cache = {}
             thread_state.query_cache = worker_cache
-        result_row = build_bom_upload_result_row(
-            None,
-            idx,
-            record,
-            column_mapping,
-            query_cache=worker_cache,
-            full_df_provider=full_df_provider,
-            export_settings=export_settings,
-            exact_part_prefetch_map=exact_part_prefetch_map,
-            cost_lookup=cost_lookup,
-            resistor_pricing_rules=resistor_pricing_rules,
-        )
+        previous_pair_frame_cache = getattr(_BOM_SEARCH_ROW_CACHE, "pair_frames", None)
+        _BOM_SEARCH_ROW_CACHE.pair_frames = {}
+        try:
+            result_row = build_bom_upload_result_row(
+                None,
+                idx,
+                record,
+                column_mapping,
+                query_cache=worker_cache,
+                full_df_provider=full_df_provider,
+                export_settings=export_settings,
+                exact_part_prefetch_map=exact_part_prefetch_map,
+                cost_lookup=cost_lookup,
+                resistor_pricing_rules=resistor_pricing_rules,
+            )
+        finally:
+            if previous_pair_frame_cache is None:
+                try:
+                    delattr(_BOM_SEARCH_ROW_CACHE, "pair_frames")
+                except AttributeError:
+                    pass
+            else:
+                _BOM_SEARCH_ROW_CACHE.pair_frames = previous_pair_frame_cache
         if BOM_MATCH_DEBUG:
             bom_match_debug_log(
                 f"row_done={idx + 2}",

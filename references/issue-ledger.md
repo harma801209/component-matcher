@@ -1685,3 +1685,11 @@
 - Fix: parse complete FOJAN order numbers against the active uploaded cost rules, use the encoded series/package/tolerance/resistance as the pricing identity, and allow a uniquely published same-series package dimension to supply a missing power label. Treat the active cost workbook as the commercial authority instead of allowing an older alloy profile to reject its explicit rows.
 - Safety: the exact model remains locked to its own series. A price is returned only when that series has an applicable size, power, tolerance, terminal/TCR condition, and resistance range; absent series and out-of-range values remain blank and cannot borrow another series' price.
 - Verification: reverse evaluation of the current 16-sheet workbook reached all 732 imported pricing rules. The actual 416-row BOM contains 72 FRR rows and all 72 price successfully. Regression coverage also introduces an unknown future series and confirms its in-range model prices from its own page while its out-of-range model remains blank.
+
+## 2026-09-18 - One BOM line repeatedly loaded the same search candidates
+
+- Symptom: matching hundreds of rows still took several minutes even though the database and workbook were already loaded.
+- Root cause: alternate text candidates from the same BOM row often resolved to the same brand/model candidate set, but repeatedly read and prepared the same full search rows from the local sidecar database.
+- Fix: cache candidate-row frames only for the lifetime of the current BOM source row. The key preserves the exact candidate pairs, search table and MLCC-specific loading behavior; the cache is discarded before the next source row.
+- Accuracy safety: no candidate, parser, series, parameter, ranking, customer-price, or cost rule changed. Cached frames are copied on both insertion and retrieval.
+- Verification: on the user's BOM, the first five rows dropped from 25.221 seconds / 25 full candidate-frame reads to 12.960 seconds / 5 reads (1.95x faster). Every output column was identical before and after, and all five rows remained `可推荐` with one match each.
