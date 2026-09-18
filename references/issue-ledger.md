@@ -1694,9 +1694,9 @@
 - Accuracy safety: no candidate, parser, series, parameter, ranking, customer-price, or cost rule changed. Cached frames are copied on both insertion and retrieval.
 - Verification: on the user's BOM, the first five rows dropped from 25.221 seconds / 25 full candidate-frame reads to 12.960 seconds / 5 reads (1.95x faster). Every output column was identical before and after, and all five rows remained `可推荐` with one match each.
 
-## 2026-09-18 - BOM review iframe hid rows behind an inner scrollbar
+## 2026-09-18 - BOM preview must scroll through all rows inside the result bubble
 
-- Symptom: the BOM result preview exposed only about ten rows at a time and required scrolling inside the embedded table, rather than scrolling down the page to review the full result.
-- Root cause: the result iframe's height estimator capped at ten rows, and its table-height script deliberately limited BOM results to ten visible rows. The review selector also defaulted to a 50-row page.
-- Fix: default the review selector to `全部`, size the result iframe for every row in that selection, and let the BOM result table grow to all of its rows so the document page provides the vertical scrolling. The 50/100/200 page-size options remain available to limit the preview when desired.
-- Verification: 416 result rows now estimate to an iframe taller than 20,000 pixels, and a regression assertion confirms BOM result tables use all rows as their visible height target. Matching/export data and price calculations are unchanged.
+- Symptom: the BOM preview should keep a compact result bubble whose own vertical scrollbar can reach every matched row; moving all vertical scrolling to the web page was not the requested behavior.
+- Root cause: the previous UI adjustment expanded the iframe to the full result height, shifting vertical navigation to the page. A 50-row review default could also leave later results outside the current preview page.
+- Fix: default the review selector to `全部`, retain a compact iframe/bubble height, and keep the BOM result wrapper vertically scrollable so all rows in the selected result set are reachable inside the bubble. The 50/100/200 page-size options remain available when a smaller result page is preferred.
+- Verification: the 416-row BOM iframe remains at a compact 692-pixel outer height while the table wrapper keeps its internal overflow scrolling; regression coverage confirms rows beyond the first ten remain in the rendered table and the all-rows iframe sizing. Matching/export data and price calculations are unchanged.

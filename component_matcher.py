@@ -41360,12 +41360,13 @@ def estimate_result_table_iframe_height(row_count, show_official_status=True, co
 
 def estimate_bom_result_iframe_height(row_count):
     row_count = max(0, int(row_count or 0))
-    visible_rows = max(row_count, 1)
+    visible_rows = min(max(row_count, 1), 10)
     base = 92
     per_row = 60
     min_height = 320
+    max_height = 700
     height = base + visible_rows * per_row
-    return max(min_height, height)
+    return max(min_height, min(max_height, height))
 
 
 def estimate_bom_preview_iframe_height(row_count, compact=False):
@@ -41992,7 +41993,7 @@ html, body {{
             }}
             var visibleRowLimit = 8;
             if (wrapper.classList.contains('bom-result-table-wrap')) {{
-                visibleRowLimit = rows.length;
+                visibleRowLimit = 10;
             }} else if (wrapper.classList.contains('bom-preview-table-wrap-compact')) {{
                 visibleRowLimit = 4;
             }} else if (wrapper.classList.contains('bom-preview-table-wrap')) {{

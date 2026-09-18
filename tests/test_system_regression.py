@@ -2771,7 +2771,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(preview_estimate(100, compact=True), 280)
 
         bom_result_estimate = app["estimate_bom_result_iframe_height"]
-        self.assertGreater(bom_result_estimate(416), 20000)
+        self.assertEqual(bom_result_estimate(416), 692)
 
         iframe_html = app["build_result_table_iframe_html"](
             '<div class="result-section-card"><div class="result-table-wrap">'
@@ -2781,15 +2781,25 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("measureFrameContentHeight", iframe_html)
         self.assertIn("alignScrollableTableHeight", iframe_html)
         self.assertIn("visibleRowLimit = 8", iframe_html)
-        self.assertIn("visibleRowLimit = rows.length", iframe_html)
+        self.assertIn("visibleRowLimit = 10", iframe_html)
         self.assertIn("horizontalScrollbarReserve", iframe_html)
         self.assertIn("wrapper.offsetHeight - wrapper.clientHeight", iframe_html)
         self.assertIn("frameBottomReserve = 16", iframe_html)
         self.assertIn("overflow: hidden", iframe_html)
         self.assertIn("max-height: 440px", iframe_html)
+        self.assertIn(".bom-result-table-wrap", iframe_html)
+        self.assertIn("max-height: 560px", iframe_html)
+        self.assertIn("overflow: auto", iframe_html)
         self.assertIn(".bom-preview-table-wrap", iframe_html)
         self.assertIn(".bom-preview-table-wrap-compact", iframe_html)
         self.assertNotIn("52vh", iframe_html)
+
+        all_rows_html = app["render_clickable_result_table"](
+            pd.DataFrame({"BOM型号": [f"ROW-{index}" for index in range(1, 13)]}),
+            show_official_status=False,
+            wrapper_class="bom-result-table-wrap",
+        )
+        self.assertIn("ROW-12", all_rows_html)
         self.assertNotIn("document.documentElement.scrollHeight", iframe_html)
 
         preview_html = app["render_static_preview_table"](
