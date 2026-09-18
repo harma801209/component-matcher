@@ -211,6 +211,25 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
             self.worker,
         )
 
+    def test_runtime_snapshot_api_supports_gzip_and_prewrite_retention(self):
+        runtime_start = self.worker.index("async function handleRuntimeStoreSnapshot(request, env) {")
+        runtime_end = self.worker.index("async function ensureMemberSearchCopySchema", runtime_start)
+        runtime_handler = self.worker[runtime_start:runtime_end]
+        self.assertIn("payload_encoding TEXT NOT NULL DEFAULT 'identity'", runtime_handler)
+        self.assertIn("decodeRuntimeStoreSnapshotPayload(storedPayloadBytes, payloadEncoding)", runtime_handler)
+        self.assertIn("contentLength > 2_750_000", runtime_handler)
+        self.assertIn("storedPayloadBytes.byteLength > 2_000_000", runtime_handler)
+        self.assertIn("payload_encoding, uncompressed_size", runtime_handler)
+        self.assertLess(
+            runtime_handler.index("await pruneSnapshotHistoryBeforeRuntimeWrite(env)"),
+            runtime_handler.index("CREATE TABLE IF NOT EXISTS runtime_store_snapshots"),
+        )
+        self.assertLess(
+            runtime_handler.index('await pruneSnapshotHistoryTable(env, "runtime_store_snapshot_history", storeKey)'),
+            runtime_handler.index("UPDATE runtime_store_snapshots"),
+        )
+        self.assertIn('storageFull ? "storage_full" : "snapshot_write_failed"', self.worker)
+
     def test_member_auth_controls_do_not_use_nested_forms(self):
         function_start = self.matcher.index("def render_member_auth_panel(")
         function_end = self.matcher.index("\ndef render_member_center_page", function_start)

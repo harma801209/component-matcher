@@ -6981,7 +6981,14 @@ class SystemRegressionTests(unittest.TestCase):
     def test_12_runtime_databases_survive_instance_reset(self):
         app = self.app
         snapshots = {
-            key: {"version": 0, "sha256": "", "payload_base64": "", "updated_at": ""}
+            key: {
+                "version": 0,
+                "sha256": "",
+                "payload_base64": "",
+                "payload_encoding": "identity",
+                "uncompressed_size": 0,
+                "updated_at": "",
+            }
             for key in ("cost-price", "no-match")
         }
         api_secret = "runtime-regression-secret"
@@ -7024,10 +7031,19 @@ class SystemRegressionTests(unittest.TestCase):
                         "version": snapshot["version"] + 1,
                         "sha256": body["sha256"],
                         "payload_base64": body["payload_base64"],
+                        "payload_encoding": body.get("payload_encoding", "identity"),
+                        "uncompressed_size": body.get("uncompressed_size", 0),
                         "updated_at": "2026-07-03T00:00:00Z",
                     }
                 )
-                self._send(200, {"ok": True, "store": store, "version": snapshot["version"], "sha256": snapshot["sha256"]})
+                self._send(200, {
+                    "ok": True,
+                    "store": store,
+                    "version": snapshot["version"],
+                    "sha256": snapshot["sha256"],
+                    "payload_encoding": snapshot["payload_encoding"],
+                    "uncompressed_size": snapshot["uncompressed_size"],
+                })
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), RuntimeSnapshotHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -7067,6 +7083,10 @@ class SystemRegressionTests(unittest.TestCase):
             app["reset_runtime_store_remote_refresh_cache"]("cost-price")
             self.assertIsNotNone(app["get_active_cost_price_list"]())
             self.assertGreater(snapshots["cost-price"]["version"], 0)
+            self.assertEqual(snapshots["cost-price"]["payload_encoding"], "gzip")
+            restored_payload = gzip.decompress(base64.b64decode(snapshots["cost-price"]["payload_base64"]))
+            self.assertTrue(restored_payload.startswith(b"SQLite format 3\x00"))
+            self.assertEqual(len(restored_payload), snapshots["cost-price"]["uncompressed_size"])
             app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, "runtime-cost-restored.sqlite")
             app["reset_runtime_store_remote_refresh_cache"]("cost-price")
             restored_cost = app["get_active_cost_price_list"]()

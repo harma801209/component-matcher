@@ -1426,7 +1426,7 @@ def load_runtime_store_remote_state(store_key):
         return {}
 
 
-def save_runtime_store_remote_state(store_key, version, sha256_value):
+def save_runtime_store_remote_state(store_key, version, sha256_value, last_error=""):
     state_path = runtime_store_state_path(store_key)
     os.makedirs(os.path.dirname(state_path), exist_ok=True)
     temp_path = state_path + ".tmp"
@@ -1436,6 +1436,7 @@ def save_runtime_store_remote_state(store_key, version, sha256_value):
                 "store": store_key,
                 "version": int(version or 0),
                 "sha256": clean_text(sha256_value),
+                "last_error": clean_text(last_error)[:120],
                 "checked_at_epoch": time.time(),
                 "synced_at": current_timestamp_text(),
             },
@@ -1481,11 +1482,14 @@ def runtime_store_remote_request(store_key, method="GET", payload=None):
             details = {}
         if exc.code == 409:
             return {"conflict": True, "version": int(details.get("version") or 0)}
-        logging.warning("runtime store remote request failed for %s: HTTP %s", store_key, exc.code)
-        return None
+        remote_error = clean_text(details.get("error", ""))
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", remote_error):
+            remote_error = f"remote_http_{exc.code}"
+        logging.warning("runtime store remote request failed for %s: HTTP %s (%s)", store_key, exc.code, remote_error)
+        return {"remote_error": remote_error, "http_status": int(exc.code)}
     except Exception as exc:
         logging.warning("runtime store remote request failed for %s: %s", store_key, type(exc).__name__)
-        return None
+        return {"remote_error": f"network_{type(exc).__name__}", "http_status": 0}
 
 
 def pull_runtime_store_remote_snapshot(store_key):
@@ -1497,16 +1501,33 @@ def pull_runtime_store_remote_snapshot(store_key):
         remote = runtime_store_remote_request(store_key, "GET")
         if not remote:
             return "disabled_or_unavailable"
+        if remote.get("remote_error"):
+            return f"remote_error:{remote['remote_error']}"
         remote_version = int(remote.get("version") or 0)
         payload_b64 = clean_text(remote.get("payload_base64", ""))
         remote_sha = clean_text(remote.get("sha256", ""))
         if remote_version <= 0 or payload_b64 == "":
             save_runtime_store_remote_state(store_key, 0, "")
             return "empty"
+        payload_encoding = clean_text(remote.get("payload_encoding", "identity")).lower() or "identity"
         try:
-            payload = base64.b64decode(payload_b64.encode("ascii"), validate=True)
+            stored_payload = base64.b64decode(payload_b64.encode("ascii"), validate=True)
+            if payload_encoding == "gzip":
+                payload = gzip.decompress(stored_payload)
+            elif payload_encoding == "identity":
+                payload = stored_payload
+            else:
+                return "invalid_encoding"
         except Exception:
             return "invalid_payload"
+        if len(payload) > 64 * 1024 * 1024:
+            return "payload_too_large"
+        try:
+            remote_payload_size = int(remote.get("uncompressed_size") or 0)
+        except Exception:
+            remote_payload_size = 0
+        if remote_payload_size > 0 and remote_payload_size != len(payload):
+            return "size_mismatch"
         calculated_sha = hashlib.sha256(payload).hexdigest()
         if not hmac.compare_digest(calculated_sha, remote_sha):
             return "checksum_mismatch"
@@ -1562,16 +1583,41 @@ def flush_runtime_store_remote_snapshot(store_key):
         state = load_runtime_store_remote_state(store_key)
         if clean_text(state.get("sha256", "")) == payload_sha and int(state.get("version") or 0) > 0:
             return True
+        compressed_payload = gzip.compress(payload, compresslevel=6, mtime=0)
+        if len(compressed_payload) < len(payload):
+            remote_payload = compressed_payload
+            payload_encoding = "gzip"
+        else:
+            remote_payload = payload
+            payload_encoding = "identity"
         result = runtime_store_remote_request(
             store_key,
             "PUT",
             {
                 "expected_version": int(state.get("version") or 0),
                 "sha256": payload_sha,
-                "payload_base64": base64.b64encode(payload).decode("ascii"),
+                "payload_base64": base64.b64encode(remote_payload).decode("ascii"),
+                "payload_encoding": payload_encoding,
+                "uncompressed_size": len(payload),
             },
         )
+        if result and result.get("remote_error"):
+            error_text = f"HTTP {result.get('http_status')}: {result['remote_error']}" if result.get("http_status") else result["remote_error"]
+            save_runtime_store_remote_state(
+                store_key,
+                state.get("version", 0),
+                state.get("sha256", ""),
+                last_error=error_text,
+            )
+            return False
         if not result or result.get("conflict"):
+            error_text = "远端版本冲突" if result and result.get("conflict") else "远端暂不可用"
+            save_runtime_store_remote_state(
+                store_key,
+                state.get("version", 0),
+                state.get("sha256", ""),
+                last_error=error_text,
+            )
             return False
         version = int(result.get("version") or 0)
         if version <= 0:
@@ -8087,7 +8133,11 @@ def save_manual_cost_price_item(
     clear_cost_price_lookup_cache()
     synced = flush_runtime_store_remote_snapshot("cost-price")
     _, _, remote_enabled = get_runtime_store_remote_config()
-    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
+    remote_state = load_runtime_store_remote_state("cost-price")
+    remote_error = clean_text(remote_state.get("last_error", ""))
+    suffix = "" if synced or not remote_enabled else (
+        f"；本机已启用，远端备份失败（{remote_error or '原因未返回'}），请稍后重试"
+    )
     return True, (
         f"已{action}{cost_customer_context_label(customer_type, customer_name)}单笔成本："
         f"{brand} / {model}{suffix}。"
@@ -8953,8 +9003,12 @@ def import_cost_price_list_from_upload(
     clear_cost_price_lookup_cache()
     synced = flush_runtime_store_remote_snapshot("cost-price")
     _, _, remote_enabled = get_runtime_store_remote_config()
-    suffix = "" if synced or not remote_enabled else "；远端备份失败，请稍后重试"
     imported_sheets = {clean_text(item.get("sheet_name", "")) for item in items if clean_text(item.get("sheet_name", ""))}
+    remote_state = load_runtime_store_remote_state("cost-price")
+    remote_error = clean_text(remote_state.get("last_error", ""))
+    suffix = "" if synced or not remote_enabled else (
+        f"；本机已启用，远端备份失败（{remote_error or '原因未返回'}），请稍后重试"
+    )
     sheet_summary = f"，覆盖 {len(imported_sheets)} 个分页" if imported_sheets else ""
     if customer_type == COST_CUSTOMER_TYPE_EXISTING:
         scope_summary = f"旧版整表专属客户“{customer_name}”"

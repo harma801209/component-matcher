@@ -36,7 +36,17 @@ async function proxyRequest(request, env) {
   }
 
   if (dispatchPath === "/api/runtime-store/snapshot") {
-    return handleRuntimeStoreSnapshot(request, env);
+    try {
+      return await handleRuntimeStoreSnapshot(request, env);
+    } catch (error) {
+      const message = String(error?.message || "").toLowerCase();
+      const storageFull = /sqlite_full|database or disk is full|storage limit|quota/.test(message);
+      console.error("runtime_store_snapshot_failed", storageFull ? "storage_full" : "snapshot_write_failed");
+      return memberStoreJson(
+        { error: storageFull ? "storage_full" : "snapshot_write_failed" },
+        storageFull ? 507 : 500,
+      );
+    }
   }
 
   if (dispatchPath === "/api/member-search-copy") {
@@ -346,6 +356,53 @@ async function handleMemberStoreSnapshot(request, env) {
   });
 }
 
+async function snapshotHistoryTableExists(env, tableName) {
+  const row = await env.MEMBER_DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+  ).bind(tableName).first();
+  return Boolean(row?.name);
+}
+
+async function pruneSnapshotHistoryTable(env, tableName, storeKey = "") {
+  if (!(await snapshotHistoryTableExists(env, tableName))) return;
+  const isRuntimeHistory = tableName === "runtime_store_snapshot_history";
+  const latest = isRuntimeHistory
+    ? await env.MEMBER_DB.prepare(
+      "SELECT MAX(version) AS latest_version FROM runtime_store_snapshot_history WHERE store_key = ?",
+    ).bind(storeKey).first()
+    : await env.MEMBER_DB.prepare(
+      "SELECT MAX(version) AS latest_version FROM member_auth_snapshot_history",
+    ).first();
+  const latestVersion = Number(latest?.latest_version || 0);
+  if (latestVersion <= 0) return;
+  const firstRetainedVersion = Math.max(1, latestVersion - 19);
+  if (isRuntimeHistory) {
+    await env.MEMBER_DB.prepare(
+      "DELETE FROM runtime_store_snapshot_history WHERE store_key = ? AND version < ?",
+    ).bind(storeKey, firstRetainedVersion).run();
+  } else {
+    await env.MEMBER_DB.prepare(
+      "DELETE FROM member_auth_snapshot_history WHERE version < ?",
+    ).bind(firstRetainedVersion).run();
+  }
+}
+
+async function pruneSnapshotHistoryBeforeRuntimeWrite(env) {
+  await pruneSnapshotHistoryTable(env, "member_auth_snapshot_history");
+  for (const storeKey of ["cost-price", "no-match"]) {
+    await pruneSnapshotHistoryTable(env, "runtime_store_snapshot_history", storeKey);
+  }
+}
+
+async function decodeRuntimeStoreSnapshotPayload(storedBytes, payloadEncoding) {
+  if (payloadEncoding === "identity") return storedBytes;
+  if (payloadEncoding !== "gzip") throw new Error("invalid_encoding");
+  const decompressed = await new Response(
+    new Blob([storedBytes]).stream().pipeThrough(new DecompressionStream("gzip")),
+  ).arrayBuffer();
+  return new Uint8Array(decompressed);
+}
+
 async function handleRuntimeStoreSnapshot(request, env) {
   if (!env?.MEMBER_DB || !env?.MEMBER_STORE_API_SECRET) {
     return memberStoreJson({ error: "runtime_store_unavailable" }, 503);
@@ -360,12 +417,19 @@ async function handleRuntimeStoreSnapshot(request, env) {
     return memberStoreJson({ error: "invalid_store" }, 400);
   }
 
+  // Earlier Worker builds could leave hundreds of full snapshots in D1. Prune
+  // only versions older than the existing 20-version retention policy before
+  // schema changes or writes, so a database near its quota can recover space.
+  await pruneSnapshotHistoryBeforeRuntimeWrite(env);
+
   await env.MEMBER_DB.prepare(
     `CREATE TABLE IF NOT EXISTS runtime_store_snapshots (
       store_key TEXT PRIMARY KEY,
       version INTEGER NOT NULL,
       sha256 TEXT NOT NULL,
       payload_base64 TEXT NOT NULL,
+      payload_encoding TEXT NOT NULL DEFAULT 'identity',
+      uncompressed_size INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     )`,
   ).run();
@@ -375,13 +439,34 @@ async function handleRuntimeStoreSnapshot(request, env) {
       version INTEGER NOT NULL,
       sha256 TEXT NOT NULL,
       payload_base64 TEXT NOT NULL,
+      payload_encoding TEXT NOT NULL DEFAULT 'identity',
+      uncompressed_size INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (store_key, version)
     )`,
   ).run();
+  for (const tableName of ["runtime_store_snapshots", "runtime_store_snapshot_history"]) {
+    const tableInfo = await env.MEMBER_DB.prepare(`PRAGMA table_info(${tableName})`).all();
+    const columnNames = new Set(
+      (Array.isArray(tableInfo?.results) ? tableInfo.results : [])
+        .map((row) => String(row?.name || "")),
+    );
+    if (!columnNames.has("payload_encoding")) {
+      await env.MEMBER_DB.prepare(
+        `ALTER TABLE ${tableName} ADD COLUMN payload_encoding TEXT NOT NULL DEFAULT 'identity'`,
+      ).run();
+    }
+    if (!columnNames.has("uncompressed_size")) {
+      await env.MEMBER_DB.prepare(
+        `ALTER TABLE ${tableName} ADD COLUMN uncompressed_size INTEGER NOT NULL DEFAULT 0`,
+      ).run();
+    }
+  }
   await env.MEMBER_DB.prepare(
-    `INSERT OR IGNORE INTO runtime_store_snapshot_history (store_key, version, sha256, payload_base64, updated_at)
-     SELECT store_key, version, sha256, payload_base64, updated_at
+    `INSERT OR IGNORE INTO runtime_store_snapshot_history (
+       store_key, version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at
+     )
+     SELECT store_key, version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at
      FROM runtime_store_snapshots WHERE store_key = ?`,
   ).bind(storeKey).run();
 
@@ -389,22 +474,29 @@ async function handleRuntimeStoreSnapshot(request, env) {
     const requestedVersion = Number(new URL(request.url).searchParams.get("version") || 0);
     const row = requestedVersion > 0
       ? await env.MEMBER_DB.prepare(
-        "SELECT version, sha256, payload_base64, updated_at FROM runtime_store_snapshot_history WHERE store_key = ? AND version = ? LIMIT 1",
+        "SELECT version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at FROM runtime_store_snapshot_history WHERE store_key = ? AND version = ? LIMIT 1",
       ).bind(storeKey, requestedVersion).first()
       : await env.MEMBER_DB.prepare(
-        "SELECT version, sha256, payload_base64, updated_at FROM runtime_store_snapshots WHERE store_key = ? LIMIT 1",
+        "SELECT version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at FROM runtime_store_snapshots WHERE store_key = ? LIMIT 1",
       ).bind(storeKey).first();
     if (requestedVersion > 0 && !row) {
       return memberStoreJson({ error: "snapshot_not_found", store: storeKey, version: requestedVersion }, 404);
     }
-    return memberStoreJson({ store: storeKey, ...(row || { version: 0, sha256: "", payload_base64: "", updated_at: "" }) });
+    return memberStoreJson({ store: storeKey, ...(row || {
+      version: 0,
+      sha256: "",
+      payload_base64: "",
+      payload_encoding: "identity",
+      uncompressed_size: 0,
+      updated_at: "",
+    }) });
   }
 
   if (request.method !== "PUT") {
     return memberStoreJson({ error: "method_not_allowed" }, 405, { allow: "GET, PUT" });
   }
   const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > 7_000_000) {
+  if (contentLength > 2_750_000) {
     return memberStoreJson({ error: "payload_too_large" }, 413);
   }
   let body;
@@ -414,19 +506,42 @@ async function handleRuntimeStoreSnapshot(request, env) {
     return memberStoreJson({ error: "invalid_json" }, 400);
   }
   const payloadBase64 = typeof body?.payload_base64 === "string" ? body.payload_base64 : "";
+  const payloadEncoding = String(body?.payload_encoding || "identity").toLowerCase();
   const suppliedSha = typeof body?.sha256 === "string" ? body.sha256.toLowerCase() : "";
   const expectedVersion = Number.isInteger(body?.expected_version) ? body.expected_version : Number(body?.expected_version || 0);
-  if (!payloadBase64 || !/^[a-f0-9]{64}$/.test(suppliedSha) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0) {
+  const suppliedUncompressedSize = Number(body?.uncompressed_size || 0);
+  if (
+    !payloadBase64
+    || !new Set(["identity", "gzip"]).has(payloadEncoding)
+    || !/^[a-f0-9]{64}$/.test(suppliedSha)
+    || !Number.isSafeInteger(expectedVersion)
+    || expectedVersion < 0
+    || !Number.isSafeInteger(suppliedUncompressedSize)
+    || suppliedUncompressedSize < 0
+    || suppliedUncompressedSize > 64 * 1024 * 1024
+  ) {
     return memberStoreJson({ error: "invalid_payload" }, 400);
   }
-  let payloadBytes;
+  let storedPayloadBytes;
   try {
-    payloadBytes = Uint8Array.from(atob(payloadBase64), (character) => character.charCodeAt(0));
+    storedPayloadBytes = Uint8Array.from(atob(payloadBase64), (character) => character.charCodeAt(0));
   } catch {
     return memberStoreJson({ error: "invalid_base64" }, 400);
   }
-  if (payloadBytes.byteLength > 5_000_000) {
+  if (storedPayloadBytes.byteLength > 2_000_000) {
     return memberStoreJson({ error: "payload_too_large" }, 413);
+  }
+  let payloadBytes;
+  try {
+    payloadBytes = await decodeRuntimeStoreSnapshotPayload(storedPayloadBytes, payloadEncoding);
+  } catch {
+    return memberStoreJson({ error: "invalid_compressed_payload" }, 400);
+  }
+  if (payloadBytes.byteLength > 64 * 1024 * 1024) {
+    return memberStoreJson({ error: "payload_too_large" }, 413);
+  }
+  if (suppliedUncompressedSize > 0 && suppliedUncompressedSize !== payloadBytes.byteLength) {
+    return memberStoreJson({ error: "size_mismatch" }, 400);
   }
   const calculatedSha = await memberStoreSha256(payloadBytes);
   if (!(await memberStoreSecretMatches(calculatedSha, suppliedSha))) {
@@ -440,17 +555,23 @@ async function handleRuntimeStoreSnapshot(request, env) {
   if (currentVersion !== expectedVersion) {
     return memberStoreJson({ error: "version_conflict", store: storeKey, version: currentVersion }, 409);
   }
+  // Keep the authoritative current snapshot plus its latest 20 recoverable versions.
+  await pruneSnapshotHistoryTable(env, "runtime_store_snapshot_history", storeKey);
   const nextVersion = currentVersion + 1;
   const updatedAt = new Date().toISOString();
   let writeResult;
   if (currentVersion === 0) {
     writeResult = await env.MEMBER_DB.prepare(
-      "INSERT OR IGNORE INTO runtime_store_snapshots (store_key, version, sha256, payload_base64, updated_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(storeKey, nextVersion, suppliedSha, payloadBase64, updatedAt).run();
+      `INSERT OR IGNORE INTO runtime_store_snapshots (
+         store_key, version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(storeKey, nextVersion, suppliedSha, payloadBase64, payloadEncoding, payloadBytes.byteLength, updatedAt).run();
   } else {
     writeResult = await env.MEMBER_DB.prepare(
-      "UPDATE runtime_store_snapshots SET version = ?, sha256 = ?, payload_base64 = ?, updated_at = ? WHERE store_key = ? AND version = ?",
-    ).bind(nextVersion, suppliedSha, payloadBase64, updatedAt, storeKey, currentVersion).run();
+      `UPDATE runtime_store_snapshots
+       SET version = ?, sha256 = ?, payload_base64 = ?, payload_encoding = ?, uncompressed_size = ?, updated_at = ?
+       WHERE store_key = ? AND version = ?`,
+    ).bind(nextVersion, suppliedSha, payloadBase64, payloadEncoding, payloadBytes.byteLength, updatedAt, storeKey, currentVersion).run();
   }
   if (Number(writeResult?.meta?.changes || 0) !== 1) {
     const latest = await env.MEMBER_DB.prepare(
@@ -459,12 +580,22 @@ async function handleRuntimeStoreSnapshot(request, env) {
     return memberStoreJson({ error: "version_conflict", store: storeKey, version: Number(latest?.version || 0) }, 409);
   }
   await env.MEMBER_DB.prepare(
-    "INSERT OR REPLACE INTO runtime_store_snapshot_history (store_key, version, sha256, payload_base64, updated_at) VALUES (?, ?, ?, ?, ?)",
-  ).bind(storeKey, nextVersion, suppliedSha, payloadBase64, updatedAt).run();
+    `INSERT OR REPLACE INTO runtime_store_snapshot_history (
+       store_key, version, sha256, payload_base64, payload_encoding, uncompressed_size, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(storeKey, nextVersion, suppliedSha, payloadBase64, payloadEncoding, payloadBytes.byteLength, updatedAt).run();
   await env.MEMBER_DB.prepare(
     "DELETE FROM runtime_store_snapshot_history WHERE store_key = ? AND version < ?",
   ).bind(storeKey, Math.max(1, nextVersion - 19)).run();
-  return memberStoreJson({ ok: true, store: storeKey, version: nextVersion, sha256: suppliedSha, updated_at: updatedAt });
+  return memberStoreJson({
+    ok: true,
+    store: storeKey,
+    version: nextVersion,
+    sha256: suppliedSha,
+    payload_encoding: payloadEncoding,
+    uncompressed_size: payloadBytes.byteLength,
+    updated_at: updatedAt,
+  });
 }
 
 async function ensureMemberSearchCopySchema(env) {
