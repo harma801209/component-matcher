@@ -13021,6 +13021,122 @@ def load_component_rows_by_query_model_tokens(query_text):
     return pd.DataFrame(), tokens, ""
 
 
+def one_character_model_difference(input_model, candidate_model):
+    """Describe a one-character part-number difference, without correcting it."""
+    source = clean_model(input_model)
+    candidate = clean_model(candidate_model)
+    if source == "" or candidate == "" or source == candidate or abs(len(source) - len(candidate)) > 1:
+        return ""
+    if len(source) == len(candidate):
+        difference_count = sum(left != right for left, right in zip(source, candidate))
+        return "疑似 1 码写错" if difference_count == 1 else ""
+    if len(candidate) == len(source) + 1:
+        for index in range(len(candidate)):
+            if candidate[:index] + candidate[index + 1:] == source:
+                return "疑似少 1 码"
+        return ""
+    for index in range(len(source)):
+        if source[:index] + source[index + 1:] == candidate:
+            return "疑似多 1 码"
+    return ""
+
+
+def find_model_input_correction_hints(query_text, limit=3):
+    """Offer only close database part-number candidates after a failed lookup.
+
+    This is deliberately a review hint, never an automatic replacement.  The
+    compact model index keeps the query bounded even when the search catalogue
+    is large, and only one-character differences are reported.
+    """
+    hints = []
+    seen_pairs = set()
+    for token in extract_model_like_tokens(query_text):
+        known_issue = fojan_model_format_issue(token)
+        if known_issue:
+            corrected = re.search(r"：(?P<model>[A-Z0-9]+)。$", known_issue)
+            candidate_model = corrected.group("model") if corrected else ""
+            key = ("FOJAN(富捷)", candidate_model)
+            if candidate_model and key not in seen_pairs:
+                hints.append({
+                    "输入型号": token,
+                    "品牌": "FOJAN(富捷)",
+                    "建议核对型号": candidate_model,
+                    "提示": known_issue,
+                })
+                seen_pairs.add(key)
+        if len(token) < 6 or len(token) > 80:
+            continue
+        conn = None
+        try:
+            conn = sqlite3.connect(SEARCH_DB_PATH, timeout=2)
+            columns = {
+                clean_text(row[1])
+                for row in conn.execute(
+                    f'PRAGMA table_info("{COMPONENTS_SEARCH_CORE_TABLE}")'
+                ).fetchall()
+                if len(row) > 1
+            }
+            if not {"品牌", "型号", "_model_clean"}.issubset(columns):
+                continue
+            # A prefix narrows this to a small indexed neighbourhood.  It is a
+            # hint after a failed search, not a fuzzy-search fallback.
+            prefix_length = min(5, max(3, len(token) - 2))
+            prefix = token[:prefix_length]
+            rows = conn.execute(
+                f'SELECT DISTINCT "品牌", "型号", "_model_clean" '
+                f'FROM {COMPONENTS_SEARCH_CORE_TABLE} '
+                'WHERE "_model_clean" LIKE ? AND LENGTH("_model_clean") BETWEEN ? AND ? '
+                'LIMIT 120',
+                (f"{prefix}%", len(token) - 1, len(token) + 1),
+            ).fetchall()
+            if any(clean_model(model_clean or model) == token for _, model, model_clean in rows):
+                # The UI calls this only after a failed lookup, but keeping the
+                # helper safe on its own prevents an exact model from receiving
+                # an irrelevant near-model warning.
+                continue
+            for brand, model, model_clean in rows:
+                difference = one_character_model_difference(token, model_clean or model)
+                if difference == "":
+                    continue
+                key = (clean_text(brand), clean_model(model))
+                if key in seen_pairs:
+                    continue
+                hints.append({
+                    "输入型号": token,
+                    "品牌": clean_text(brand),
+                    "建议核对型号": clean_text(model),
+                    "提示": difference,
+                })
+                seen_pairs.add(key)
+        except Exception:
+            # Search hints are optional. A missing sidecar or an unusual older
+            # index must never block the normal no-match response.
+            pass
+        finally:
+            if conn is not None:
+                conn.close()
+    hints.sort(key=lambda item: (
+        0 if "少" in clean_text(item.get("提示", "")) else 1,
+        clean_text(item.get("品牌", "")),
+        clean_text(item.get("建议核对型号", "")),
+    ))
+    return hints[: max(1, int(limit or 1))]
+
+
+def render_model_input_correction_hints(query_text):
+    hints = find_model_input_correction_hints(query_text)
+    if not hints:
+        return False
+    st.warning("未找到完全相同的型号。以下仅供核对，系统不会自动替换型号或套用价格。")
+    for hint in hints:
+        st.caption(
+            f"{clean_text(hint.get('提示', ''))}："
+            f"{clean_text(hint.get('品牌', ''))} · "
+            f"{clean_text(hint.get('建议核对型号', ''))}"
+        )
+    return True
+
+
 def should_try_model_token_lookup_before_fast_query(line, mode, spec, exact_part_rows=None):
     if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty:
         return False
@@ -50323,6 +50439,7 @@ if search_requested:
                     extra_chips=base_chips,
                 )
                 st.warning("无法识别输入内容")
+                render_model_input_correction_hints(line)
                 render_no_match_report_button(
                     query_text=line,
                     mode=mode,
@@ -50658,6 +50775,7 @@ if search_requested:
                     else:
                         st.warning("未找到符合规格的品牌料号（含推荐等级），请确认数据库里已有这些规格资料")
                         report_reason = "未找到符合规格的品牌料号"
+                render_model_input_correction_hints(line)
                 render_no_match_report_button(
                     query_text=line,
                     mode=mode,

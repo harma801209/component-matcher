@@ -1734,3 +1734,10 @@
 - Root cause: the order number omitted the mandatory `F` tolerance code. Automatically assuming 1% would risk quoting an unintended tolerance, despite the otherwise similar published band.
 - Fix: keep FOJAN model parsing strict and never auto-price an incomplete reference. Detect this known FCM pattern and show an actionable correction: `型号疑似缺少精度码 F（1%），请核对完整型号：FCM25123WF0M30TM。`
 - Regression: the incomplete input is rejected and produces the correction hint; the completed `FCM25123WF0M30TM` parses as FCM / 2512 / 3W / 0.3mR / 1% and returns only the 402.5 same-series price.
+
+## 2026-09-23 - Failed model searches need safe typo and missing-character hints
+
+- Symptom: a customer can enter an otherwise valid-looking order number with a missing or incorrect character and receive only a generic no-result message, regardless of brand or component family.
+- Fix: after an exact search has failed, inspect the compact part-number index for same-prefix models differing by exactly one character. The result labels the candidate as `疑似少 1 码`, `疑似多 1 码`, or `疑似 1 码写错`; known structural cases can provide a more precise correction. The system displays at most three candidates for manual review and never replaces the submitted model or uses a suggested model's price automatically.
+- Safety: an input that already exists in the index never receives a near-model warning merely because another part number is similar. Index errors or older index formats silently fall back to the normal no-result response.
+- Regression: isolated FOJAN and Murata index entries provide missing-character suggestions, while an exact FOJAN model with a one-character-neighbour still returns no correction hint.

@@ -341,6 +341,43 @@ class SystemRegressionTests(unittest.TestCase):
             for key, value in original_paths.items():
                 app[key] = value
 
+    def test_failed_model_search_offers_one_character_review_hint_without_replacement(self):
+        app = self.app
+        original_path = app["SEARCH_DB_PATH"]
+        try:
+            db_path = os.path.join(self.temp_dir, "model-input-hints.sqlite")
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    'CREATE TABLE components_search_core ('
+                    '"品牌" TEXT, "型号" TEXT, "_model_clean" TEXT)'
+                )
+                conn.executemany(
+                    'INSERT INTO components_search_core VALUES (?, ?, ?)',
+                    [
+                        ("FOJAN(富捷)", "FRC0402F2003TS", "FRC0402F2003TS"),
+                        ("村田Murata", "GRM188R71H104KA93D", "GRM188R71H104KA93D"),
+                        ("其他品牌", "FRC0402F2002TS", "FRC0402F2002TS"),
+                    ],
+                )
+            app["SEARCH_DB_PATH"] = db_path
+
+            hints = app["find_model_input_correction_hints"]("FRC0402F203TS")
+            self.assertEqual(len(hints), 1)
+            self.assertEqual(hints[0]["品牌"], "FOJAN(富捷)")
+            self.assertEqual(hints[0]["建议核对型号"], "FRC0402F2003TS")
+            self.assertEqual(hints[0]["提示"], "疑似少 1 码")
+            self.assertEqual(
+                app["find_model_input_correction_hints"]("FRC0402F2003TS"),
+                [],
+            )
+
+            murata_hints = app["find_model_input_correction_hints"]("GRM188R71H104KA93")
+            self.assertEqual(murata_hints[0]["品牌"], "村田Murata")
+            self.assertEqual(murata_hints[0]["建议核对型号"], "GRM188R71H104KA93D")
+            self.assertEqual(murata_hints[0]["提示"], "疑似少 1 码")
+        finally:
+            app["SEARCH_DB_PATH"] = original_path
+
     def test_00_runtime_database_paths_are_isolated(self):
         temp_root = os.path.normcase(os.path.abspath(self.temp_dir))
         for key in ("MEMBER_AUTH_DB_PATH", "COST_PRICE_DB_PATH", "NO_MATCH_REPORT_DB_PATH"):
