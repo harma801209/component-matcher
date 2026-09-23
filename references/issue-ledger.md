@@ -1720,3 +1720,17 @@
 - Symptom: complete FOJAN order numbers in a BOM or direct search, including FQH/FQP/FQV/QUS and FRM references, could become `无匹配` and leave the matched-model column blank when the model was not present in the static catalogue or did not have an applicable price band.
 - Root cause: the generated-model fallback treated catalogue validation and price eligibility as the same decision. It discarded an otherwise decodable exact model whenever the static parser rejected a newly introduced/out-of-range variant or its price lookup was blank.
 - Fix: keep a complete explicit FOJAN reference as an exact identity in both BOM and direct search, decode its own series/package/power/tolerance/resistance fields, and evaluate pricing only afterward. An absent series page or resistance band leaves only the price blank; it cannot erase the model or borrow another series price.
+
+## 2026-09-20 - FOJAN models embedded in a free-text specification could be swallowed by the whole cell
+
+- Symptom: a BOM specification such as `FOJAN/SMD FRC0402F2003TS 0402 200KΩ ±1% 1/16W` could export the whole `SMD ...` phrase as the matched model and leave the exact FOJAN model/cost unresolved, even when the next column repeated the correct model.
+- Root cause: the broad source-reference pattern allowed a whole free-text segment beginning with `SMD` to be treated as a future FOJAN series. Generic specification candidates were also evaluated before a verified model embedded in the specification.
+- Fix: accept source-reference order numbers only for FOJAN `F...` families (and QUS), verify that a specification-embedded FOJAN model agrees with the stated package/power/tolerance/resistance, and evaluate that verified model first. If the adjacent model differs, the verified specification model wins; if the specification has no model, the agreeing adjacent model is used.
+- Regression: verifies all four BOM layouts: specifications only, specification plus model, specification plus conflicting adjacent model, and parameter-only specification plus adjacent model. The reported `FRC0402F2003TS` now remains the matched model and receives only the FRC 0402 1/16W same-series price.
+
+## 2026-09-23 - Incomplete FCM 2512 3W order numbers need an actionable correction hint
+
+- Symptom: `FCM25123W0M30TM` was left without a price. The active FCM price sheet does have a valid 2512, 3W~6W, 1%, 0.2mR~5mR band at 402.5, but this submitted model was missing a character.
+- Root cause: the order number omitted the mandatory `F` tolerance code. Automatically assuming 1% would risk quoting an unintended tolerance, despite the otherwise similar published band.
+- Fix: keep FOJAN model parsing strict and never auto-price an incomplete reference. Detect this known FCM pattern and show an actionable correction: `型号疑似缺少精度码 F（1%），请核对完整型号：FCM25123WF0M30TM。`
+- Regression: the incomplete input is rejected and produces the correction hint; the completed `FCM25123WF0M30TM` parses as FCM / 2512 / 3W / 0.3mR / 1% and returns only the 402.5 same-series price.

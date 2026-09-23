@@ -16616,6 +16616,24 @@ FOJAN_EXTENDED_ALLOY_MODEL_PATTERNS = {
 }
 
 
+def fojan_model_format_issue(model):
+    """Explain a known incomplete FOJAN order-number form without auto-fixing it."""
+    compact = clean_model(model).upper()
+    missing_fcm_tolerance = re.fullmatch(
+        r"(?P<series>FCM)(?P<size_code>2512|3920|5930)(?P<power>[1-9]\d?W)"
+        r"(?P<res>R\d{3,4}|\d+M\d{2,3})(?P<pack>[TRB])(?P<term>[MSKF])(?P<special>H1|L|4)?",
+        compact,
+    )
+    if missing_fcm_tolerance is not None:
+        groups = missing_fcm_tolerance.groupdict()
+        expected = (
+            f"{groups['series']}{groups['size_code']}{groups['power']}F"
+            f"{groups['res']}{groups['pack']}{groups['term']}{groups['special'] or ''}"
+        )
+        return f"型号疑似缺少精度码 F（1%），请核对完整型号：{expected}。"
+    return ""
+
+
 def detect_fojan_alloy_series_hint(text):
     upper = clean_text(text).upper()
     if upper == "":
@@ -17182,6 +17200,10 @@ def parse_generic_resistor_model(model, brand="", component_type=""):
 
 
 def parse_resistor_model_rule(model, brand="", component_type=""):
+    # Do not let the permissive generic grammar turn a known incomplete
+    # FOJAN order number into a fictitious resistor identity.
+    if fojan_model_format_issue(model):
+        return None
     for parser in (
         parse_hkr_rca_resistor_model,
         parse_murata_mhr_resistor_model,
@@ -23094,7 +23116,7 @@ FOJAN_COST_MODEL_PATTERN = re.compile(
 # pricing eligibility. It is only accepted as a FOJAN reference when the BOM
 # also explicitly names FOJAN/富捷.
 FOJAN_REFERENCE_MODEL_PATTERN = re.compile(
-    r"^[A-Z]{2,6}(?:0201|0402|0603|0805|1206|1210|1812|2010|2512|06|08|12|20|25)"
+    r"^(?:F[A-Z]{1,4}|QUS)(?:0201|0402|0603|0805|1206|1210|1812|2010|2512|06|08|12|20|25)"
     r"[A-Z0-9]{4,}$"
 )
 
@@ -32005,11 +32027,30 @@ def preserve_unpriced_explicit_fojan_reference(result_row, display_map, export_s
     if exact_model == "" or display_model == "":
         return result_row
 
+    format_issue = fojan_model_format_issue(exact_model)
+    note = (
+        format_issue
+        if format_issue
+        else "BOM已指定该富捷型号；当前未确认到同型号成本，价格留空，未套用其他系列价格。"
+    )
+
     model_fields = [
         bom_own_brand_internal_column("自有型号", idx)
         for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)
     ]
-    if any(clean_model(result_row.get(field, "")).upper() == exact_model for field in model_fields):
+    matching_slots = [
+        idx
+        for idx, field in enumerate(model_fields, start=1)
+        if clean_model(result_row.get(field, "")).upper() == exact_model
+    ]
+    if matching_slots:
+        if format_issue:
+            for idx in matching_slots:
+                result_row[bom_own_brand_internal_column("自有匹配说明", idx)] = note
+                result_row[bom_own_brand_internal_column("自有匹配备注", idx)] = note
+            current_note = clean_text(result_row.get("差异说明", ""))
+            if note not in current_note:
+                result_row["差异说明"] = f"{current_note}；{note}" if current_note else note
         return result_row
 
     # Clear any broad own-brand substitute before retaining the BOM's exact
@@ -32020,7 +32061,6 @@ def preserve_unpriced_explicit_fojan_reference(result_row, display_map, export_s
             result_row[bom_own_brand_internal_column(prefix, idx)] = ""
     result_row[bom_own_brand_internal_column("自有品牌", 1)] = "FOJAN(富捷)"
     result_row[bom_own_brand_internal_column("自有型号", 1)] = display_model
-    note = "BOM已指定该富捷型号；当前未确认到同型号成本，价格留空，未套用其他系列价格。"
     result_row[bom_own_brand_internal_column("自有匹配说明", 1)] = note
     result_row[bom_own_brand_internal_column("自有匹配备注", 1)] = note
     current_note = clean_text(result_row.get("差异说明", ""))
@@ -45617,6 +45657,57 @@ def restore_explicit_fojan_model_display(output_row, display_map):
     return output_row
 
 
+def explicit_fojan_model_agrees_with_specification(model, specification_text):
+    """Check that a BOM's written FOJAN model does not contradict its specs.
+
+    This is deliberately a contradiction check, not a second source of model
+    generation.  If a written specification omits a parameter, the complete
+    FOJAN order number may still be used.  If both sides state a parameter,
+    however, they must agree before the model is promoted above general
+    specification matching.
+    """
+    model_frame = build_rule_fallback_row_from_model(
+        model,
+        brand="FOJAN(富捷)",
+        allow_unpriced_explicit_model=True,
+    )
+    if not isinstance(model_frame, pd.DataFrame) or model_frame.empty:
+        return False
+    model_row = model_frame.iloc[0].to_dict()
+    written_spec = parse_resistor_spec_query(specification_text)
+    if not isinstance(written_spec, dict) or not written_spec:
+        return True
+
+    written_size = clean_size(written_spec.get("尺寸（inch）", ""))
+    model_size = clean_size(model_row.get("尺寸（inch）", ""))
+    if written_size and model_size and written_size != model_size:
+        return False
+
+    written_tolerance = clean_tol_for_match(written_spec.get("容值误差", ""))
+    model_tolerance = clean_tol_for_match(model_row.get("容值误差", ""))
+    if written_tolerance and model_tolerance and written_tolerance != model_tolerance:
+        return False
+
+    written_power = parse_power_to_watts(written_spec.get("_power", ""))
+    model_power = parse_power_to_watts(model_row.get("_power", "") or model_row.get("功率", ""))
+    if written_power is not None and model_power is not None and not math.isclose(
+        float(written_power), float(model_power), rel_tol=1e-9, abs_tol=1e-12
+    ):
+        return False
+
+    written_resistance = written_spec.get("_resistance_ohm")
+    model_resistance = model_row.get("_resistance_ohm")
+    if written_resistance is not None and model_resistance is not None:
+        try:
+            if not math.isclose(
+                float(written_resistance), float(model_resistance), rel_tol=1e-9, abs_tol=1e-12
+            ):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def build_bom_query_candidates(model_value, spec_value, name_value, extra_values=None):
     candidates = []
     seen = set()
@@ -45626,13 +45717,22 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
         and (clean_text(spec_value) != "" or clean_text(name_value) != "")
     )
 
-    explicit_fojan_models = extract_explicit_fojan_models_from_bom(
-        model_value,
-        spec_value,
+    # A complete FOJAN order number written inside the specification is the
+    # customer's strongest identity reference.  Scan it before the adjacent
+    # model/auxiliary columns and before generic specification matching.
+    spec_explicit_fojan_models = extract_explicit_fojan_models_from_bom(spec_value)
+    model_explicit_fojan_models = extract_explicit_fojan_models_from_bom(model_value)
+    following_explicit_fojan_models = extract_explicit_fojan_models_from_bom(
         name_value,
         *extra_values,
     )
-    model_explicit_fojan_models = extract_explicit_fojan_models_from_bom(model_value)
+    explicit_fojan_models = list(
+        dict.fromkeys(
+            spec_explicit_fojan_models
+            + model_explicit_fojan_models
+            + following_explicit_fojan_models
+        )
+    )
     explicit_fojan_model = model_explicit_fojan_models[0] if model_explicit_fojan_models else ""
 
     def add_candidate(text, source, *, fojan_model_reference=False, exact_fojan_model=""):
@@ -45645,9 +45745,30 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
             candidates.append(candidate)
             seen.add(query)
 
-    # The customer's written target specification is authoritative. A supplied
-    # manufacturer model is only a secondary reference because that model may
-    # itself be a higher-voltage or otherwise upgraded substitute.
+    # Case 2/3: the specification itself contains a complete FOJAN model.
+    # Promote it only when its encoded fields agree with the surrounding
+    # specification.  If an adjacent model disagrees, this one still wins.
+    # Case 4 (no model in specification) is handled next with the adjacent
+    # model, again only when it agrees with the written parameters.
+    prioritized_fojan_models = []
+    for exact_model in spec_explicit_fojan_models:
+        if explicit_fojan_model_agrees_with_specification(exact_model, spec_value):
+            prioritized_fojan_models.append((exact_model, "规格内富捷型号（已核对规格）"))
+    if not prioritized_fojan_models:
+        for exact_model in model_explicit_fojan_models + following_explicit_fojan_models:
+            if explicit_fojan_model_agrees_with_specification(exact_model, spec_value):
+                prioritized_fojan_models.append((exact_model, "相邻栏富捷型号（已核对规格）"))
+
+    for exact_model, source in prioritized_fojan_models:
+        add_candidate(
+            exact_model,
+            source,
+            fojan_model_reference=True,
+            exact_fojan_model=exact_model,
+        )
+
+    # Case 1: no usable explicit FOJAN model was found, so normal written
+    # specification matching remains the authority.
     add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
     if extra_values:
         add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
@@ -45661,6 +45782,8 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
             exact_fojan_model=explicit_fojan_model,
         )
     for exact_model in explicit_fojan_models:
+        if any(exact_model == model for model, _ in prioritized_fojan_models):
+            continue
         add_candidate(
             exact_model,
             "规格内明确富捷型号",
@@ -46361,8 +46484,8 @@ def build_bom_upload_result_row(
 
     extra_values = collect_bom_extra_spec_values(record, column_mapping)
     explicit_fojan_display_map = extract_explicit_fojan_model_display_map(
-        model_value,
         spec_value,
+        model_value,
         name_value,
         *extra_values,
     )

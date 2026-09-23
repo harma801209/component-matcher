@@ -4208,6 +4208,59 @@ class SystemRegressionTests(unittest.TestCase):
         ).iloc[0].to_dict()
         self.assertEqual(app["lookup_resistor_series_pricing"](frm_out_of_range, own_series_rules)["成本"], "")
 
+    def test_03aia_fojan_model_embedded_in_specification_has_priority_over_adjacent_column(self):
+        app = self.app
+        specification = "FOJAN/SMD FRC0402F2003TS 0402 200kΩ ±1% 1/16W LF"
+        adjacent_same = "FRC0402F2003TS"
+        adjacent_different = "FRC0402F2202TS"
+
+        # Cases 2 and 3: a verified model inside the specification is first,
+        # including when the next column supplies a different FOJAN model.
+        for adjacent in (adjacent_same, adjacent_different):
+            candidates = app["build_bom_query_candidates"](
+                "", specification, "贴片电阻", extra_values=[adjacent]
+            )
+            self.assertTrue(candidates)
+            self.assertEqual(candidates[0]["source"], "规格内富捷型号（已核对规格）")
+            self.assertEqual(candidates[0]["explicit_fojan_model"], "FRC0402F2003TS")
+
+        # Case 4: with only written parameters in the specification, a
+        # matching FOJAN model from the adjacent column becomes the identity.
+        parameter_only = "FOJAN/SMD 0402 200kΩ ±1% 1/16W LF"
+        adjacent_candidates = app["build_bom_query_candidates"](
+            "", parameter_only, "贴片电阻", extra_values=[adjacent_same]
+        )
+        self.assertEqual(adjacent_candidates[0]["source"], "相邻栏富捷型号（已核对规格）")
+        self.assertEqual(adjacent_candidates[0]["explicit_fojan_model"], "FRC0402F2003TS")
+
+        # A contradicting embedded model is not promoted over the written
+        # specification; this protects against a bad copy/paste in the BOM.
+        mismatch = "FOJAN/SMD FRC0402F2003TS 0402 100kΩ ±1% 1/16W LF"
+        mismatch_candidates = app["build_bom_query_candidates"](
+            "", mismatch, "贴片电阻", extra_values=[adjacent_same]
+        )
+        self.assertNotEqual(mismatch_candidates[0].get("explicit_fojan_model", ""), "FRC0402F2003TS")
+
+        result = app["build_bom_upload_result_row"](
+            pd.DataFrame(),
+            0,
+            {"型号": "", "规格型号": specification, "物料名称": "贴片电阻", "Unnamed: 4": adjacent_different},
+            {"model": "型号", "spec": "规格型号", "name": "物料名称", "quantity": None},
+            export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+            resistor_pricing_rules=[
+                {
+                    "series": "FRC",
+                    "type_dimension_norm": "0402 1/16W",
+                    "range": "10R-1M",
+                    "price_1": "1.70",
+                    "package": "10000PCS",
+                }
+            ],
+        )
+        self.assertEqual(result.get("解析来源"), "规格内富捷型号（已核对规格）")
+        self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FRC0402F2003TS")
+        self.assertEqual(result.get("自有成本", ""), "1.70")
+
     def test_03aj_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
         app = self.app
         cases = (
@@ -7621,6 +7674,53 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(parsed_fcm["容值"], "0.5")
         self.assertEqual(parsed_fcm["容值单位"], "mΩ")
         self.assertEqual(parsed_fcm["功率"], "5W")
+
+        # A missing F tolerance code must never be silently auto-corrected and
+        # priced. It has a deterministic correction hint; the completed model
+        # remains eligible for its own same-series price band.
+        self.assertIsNone(app["parse_resistor_model_rule"](
+            "FCM25123W0M30TM",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        ))
+        self.assertEqual(
+            app["fojan_model_format_issue"]("FCM25123W0M30TM"),
+            "型号疑似缺少精度码 F（1%），请核对完整型号：FCM25123WF0M30TM。",
+        )
+        incomplete_bom_row = app["preserve_unpriced_explicit_fojan_reference"](
+            {},
+            {"FCM25123W0M30TM": "FCM25123W0M30TM"},
+        )
+        self.assertEqual(
+            incomplete_bom_row[app["bom_own_brand_internal_column"]("自有匹配说明", 1)],
+            "型号疑似缺少精度码 F（1%），请核对完整型号：FCM25123WF0M30TM。",
+        )
+        parsed_fcm_complete = app["parse_resistor_model_rule"](
+            "FCM25123WF0M30TM",
+            brand="FOJAN(富捷)",
+            component_type="合金电阻",
+        )
+        self.assertEqual(parsed_fcm_complete["系列"], "FCM")
+        self.assertEqual(parsed_fcm_complete["尺寸（inch）"], "2512")
+        self.assertEqual(parsed_fcm_complete["容值"], "0.3")
+        self.assertEqual(parsed_fcm_complete["容值单位"], "mΩ")
+        self.assertEqual(parsed_fcm_complete["容值误差"], "1")
+        self.assertEqual(parsed_fcm_complete["功率"], "3W")
+        self.assertEqual(
+            app["lookup_resistor_series_pricing"](
+                parsed_fcm_complete,
+                [
+                    {
+                        "series": "FCM",
+                        "type_dimension_norm": "2512 3W",
+                        "range": "0.2mR-5mR",
+                        "price_1": "402.5",
+                        "package": "",
+                    }
+                ],
+            )["成本"],
+            "402.5",
+        )
 
         parsed_fwp = app["parse_resistor_model_rule"](
             "FWP27284WFR010TK",
