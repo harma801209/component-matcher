@@ -4163,3 +4163,8 @@ ows = 65, elapsed_s = 66.64, and ull_load_calls = 0, proving the automatic BOM 
 - Lightweight candidate loading now decodes only recognized brands when the sidecar voltage is blank and mirrors the recovered value into `_volt_num`; unknown/free-text rows stay excluded, and Murata's stricter code-specific fallback is preserved.
 - Regression coverage verifies representative 10V–3kV models and sidecar numeric backfill. Query-cache version advanced to 138 and public stamp to `2026-09-09T08:47:39+08:00`.
 - Complete 77-test release safety gate passed with protected runtime data unchanged. The unrelated domestic timing expansion remains uncommitted and is excluded from this release.
+## 2026-09-28 - 电阻全角功率分隔符匹配修复
+
+- 修复 `1／10W`、`1\10W` 被误读为 `10W` 的问题；现在会标准化为严格的 `1/10W` 再做尺寸、阻值、精度、功率比对。
+- 实测 `220Ω;±5%;1／10W;0603;75V` 走快速索引并返回 `FOJAN(富捷) / FRC0603J221 TS / 完全匹配`。
+- 发布安全门通过：35 项检查完成，会员、成本清单与无匹配记录等受保护运行数据未变化。

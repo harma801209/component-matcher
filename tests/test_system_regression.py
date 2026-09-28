@@ -3113,6 +3113,23 @@ class SystemRegressionTests(unittest.TestCase):
             app["normalize_resistor_value_tolerance_separator"]("1206,3.3R,1%"),
             "1206,3.3R,1%",
         )
+        fractional_power_separator_specs = [
+            "220Ω;±5%;1／10W;0603;75V",
+            r"220Ω;±5%;1\10W;0603;75V",
+        ]
+        for query in fractional_power_separator_specs:
+            self.assertEqual(app["find_power_in_text"](query), "1/10W", query)
+            parsed = app["parse_resistor_spec_query"](query)
+            self.assertIsNotNone(parsed, query)
+            self.assertEqual(parsed["器件类型"], "贴片电阻", query)
+            self.assertEqual(parsed["尺寸（inch）"], "0603", query)
+            self.assertEqual(parsed["_power"], "1/10W", query)
+            self.assertAlmostEqual(float(parsed["_resistance_ohm"]), 220.0, msg=query)
+            mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+            self.assertEqual(mode, "贴片电阻", query)
+            self.assertEqual(detected["器件类型"], "贴片电阻", query)
+            self.assertEqual(detected["_power"], "1/10W", query)
+            self.assertIsNone(detected.get("容值_pf"), query)
 
         for query in ["2010 100K士1%", "2010 100K土1%", "2010 100K士1％", "2010 100K±1%"]:
             parsed = app["parse_resistor_spec_query"](query)
@@ -4021,7 +4038,7 @@ class SystemRegressionTests(unittest.TestCase):
         spec_line = "13KΩ;75V;±0.1%;1/10W;0603;FOJAN;FRT0603B1302TSX;无卤"
         candidates = self.app["build_bom_query_candidates"](model, spec_line, "贴片电阻")
         best = self.app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
-        self.assertEqual(best["source"], "型号列")
+        self.assertEqual(best["source"], "规格内富捷型号（已核对规格）")
         self.assertNotEqual(best["status"], "无匹配")
         self.assertIn(model, set(best["matched"]["型号"].astype(str)))
 
@@ -4046,7 +4063,7 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertIsNotNone(parsed, model)
             candidates = self.app["build_bom_query_candidates"](model, spec_line, "贴片电阻")
             best = self.app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
-            self.assertEqual(best["source"], "型号列", model)
+            self.assertEqual(best["source"], "规格内富捷型号（已核对规格）", model)
             self.assertIn(model, {self.app["clean_model"](value) for value in best["matched"]["型号"].astype(str)}, model)
             recommendation = best.get("recommendation") or {}
             recommendation_row = recommendation.get("row")

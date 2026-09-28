@@ -23980,7 +23980,11 @@ def find_power_in_text(text):
     raw = clean_text(text)
     if raw == "":
         return ""
-    normalized = raw.replace("毫瓦", "mW").replace("瓦", "W")
+    # BOM data copied from Excel/WPS frequently uses full-width slashes or
+    # backslashes in fractional ratings (for example, 1／10W or 1\10W).
+    # Normalize them before looking for a fraction so the fallback `\d+W`
+    # pattern cannot silently turn 1／10W into 10W.
+    normalized = raw.replace("毫瓦", "mW").replace("瓦", "W").replace("／", "/").replace("\\", "/")
     broken_fraction_match = re.search(
         r"(?<![A-Z0-9.])1\s*[/;；]\s*(2|4|8|10|16|20|32)\s*W(?![A-Z0-9])",
         normalized,
