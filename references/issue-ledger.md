@@ -1780,3 +1780,10 @@
 - Fix: include presentation-file metadata in the existing runtime cache key and reload the stateless theme module under the existing cache lock only when the runtime cache is rebuilt. Cache hits keep the same lightweight behavior; no business records or schema are changed.
 - Regression: a temporary presentation-module hot update must refresh its marker and rebuild the definition namespace, while an unchanged theme must retain the cached namespace.
 - Compatibility: component-definition rebuilds also reload the presentation module so an already-running cloud process with the prior entrypoint loader receives the new UI without touching runtime databases.
+
+## 2026-10-09 - Formal search controls had invisible white borders
+
+- Symptom: the customer dropdown and multiline input on the formal search page lacked the trial's pale-blue outline, despite matching control sizes.
+- Root cause: live inspection showed the cloud dropdown uses a combobox group without the old data-baseweb select marker, and its textarea root no longer has the old textarea marker. Existing rules styled the inner borderless textarea but missed the outer roots, whose 1px borders remained white on white backgrounds.
+- Fix: scope stable widget-root and combobox-group selectors to the workbench search panel, retain the legacy selector for compatibility, and explicitly set 1px #b8c9df borders with 7px corners. Focus-within uses #1555e8 without changing control dimensions or other forms.
+- Verification: actual cloud DOM preview checks cover normal and focused outlines, multiline editing, dropdown opening/Escape, enabled search and 390px width. Business rules and runtime databases are unchanged.

@@ -2213,6 +2213,10 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("width:150px", CSS)
         self.assertIn("color-scheme:light", TABLE_CSS)
         self.assertIn("overflow:auto", TABLE_CSS)
+        self.assertIn('.st-key-workbench-search-panel [data-testid="stSelectbox"] [role="group"]:has([role="combobox"])', CSS)
+        self.assertIn('.st-key-workbench-search-panel [data-testid="stTextAreaRootElement"]', CSS)
+        self.assertIn('border:1px solid #b8c9df!important;border-radius:7px!important', CSS)
+        self.assertIn(':focus-within {border-color:#1555e8!important;}', CSS)
 
     def test_02b_workbench_theme_hot_update_refreshes_runtime_cache(self):
         import ast

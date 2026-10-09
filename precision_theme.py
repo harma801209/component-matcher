@@ -73,6 +73,13 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 [data-testid="stCaptionContainer"] p {color:#4d6384!important;}
 [data-baseweb="select"]>div,[data-baseweb="input"]>div,[data-baseweb="textarea"],textarea {background:#fff!important;color:#172b4d!important;border-color:#b8c9df!important;border-radius:7px!important;}
 [data-testid="stTextArea"] textarea {font-family:"Segoe UI","Microsoft YaHei",sans-serif;font-size:15px!important;line-height:1.6!important;padding:12px!important;}
+/* Keep the two search controls consistent across old and new widget markup. */
+.st-key-workbench-search-panel [data-testid="stSelectbox"] [role="group"]:has([role="combobox"]),
+.st-key-workbench-search-panel [data-testid="stSelectbox"] [data-baseweb="select"]>div,
+.st-key-workbench-search-panel [data-testid="stTextAreaRootElement"] {border:1px solid #b8c9df!important;border-radius:7px!important;background:#fff!important;box-sizing:border-box!important;}
+.st-key-workbench-search-panel [data-testid="stSelectbox"] [role="group"]:has([role="combobox"]):focus-within,
+.st-key-workbench-search-panel [data-testid="stSelectbox"] [data-baseweb="select"]>div:focus-within,
+.st-key-workbench-search-panel [data-testid="stTextAreaRootElement"]:focus-within {border-color:#1555e8!important;}
 [data-testid="stButton"] button,[data-testid="stDownloadButton"] button,[data-testid="stFormSubmitButton"] button {background:#fff!important;color:#244469!important;border:1px solid #b8c9df!important;border-radius:7px!important;min-height:44px!important;font-weight:600!important;}
 [data-testid="stButton"] button:hover,[data-testid="stDownloadButton"] button:hover {background:#edf4ff!important;border-color:#1555e8!important;}
 [data-testid="stButton"] button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"] {background:#1555e8!important;color:#fff!important;border-color:#1555e8!important;}
