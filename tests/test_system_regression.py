@@ -2222,6 +2222,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('--wb-header-height:50.4px;', CSS)
         self.assertIn('height:var(--wb-header-height);min-height:var(--wb-header-height);box-sizing:border-box;', CSS)
         self.assertIn('.wb-header {height:auto;min-height:64px;', CSS)
+        self.assertIn('@media(min-width:761px) {.wb-nav a:first-child {height:var(--wb-header-height);box-sizing:border-box;}', CSS)
+        self.assertIn('background:#fff;border-bottom:0;margin:-2rem', CSS)
         self.assertIn("color-scheme:light", TABLE_CSS)
         self.assertIn("overflow:auto", TABLE_CSS)
         self.assertIn('.st-key-workbench-search-panel [data-testid="stSelectbox"] [role="group"]:has([role="combobox"])', CSS)
