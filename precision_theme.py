@@ -59,7 +59,8 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-account .wb-user {margin-left:0;}
 .wb-login-button {display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:7px 15px;background:#1555e8;color:#fff!important;border:1px solid #1555e8;border-radius:7px;font-size:14px;font-weight:600;}
 .wb-login-button:hover {background:#1046c4;border-color:#1046c4;}
-.wb-user-link:hover {color:#1555e8;text-decoration:underline;}
+.wb-user-link {display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:6px 14px;border:1px solid #cbdcf6;border-radius:999px;background:#e8efff;color:#1555e8!important;font-weight:600;line-height:1.5;box-sizing:border-box;}
+.wb-user-link:hover {background:#dce8ff;border-color:#abc4ed;text-decoration:none;}
 .wb-title {font-size:25px;font-weight:750;color:#172b4d;margin:0 0 6px;}
 .wb-subtitle {color:#4d6384;font-size:14px;line-height:1.55;margin:0 0 14px;}
 .wb-test-note {font-size:13px;color:#4d6384;margin:0 0 18px;}
@@ -80,6 +81,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .st-key-workbench-search-panel [data-testid="stSelectbox"] [role="group"]:has([role="combobox"]):focus-within,
 .st-key-workbench-search-panel [data-testid="stSelectbox"] [data-baseweb="select"]>div:focus-within,
 .st-key-workbench-search-panel [data-testid="stTextAreaRootElement"]:focus-within {border-color:#1555e8!important;}
+.st-key-workbench-search-panel [data-testid="stSelectbox"] [role="combobox"] {font-family:"Source Sans",sans-serif!important;font-size:16px!important;font-weight:400!important;line-height:1.4!important;}
 [data-testid="stButton"] button,[data-testid="stDownloadButton"] button,[data-testid="stFormSubmitButton"] button {background:#fff!important;color:#244469!important;border:1px solid #b8c9df!important;border-radius:7px!important;min-height:44px!important;font-weight:600!important;}
 [data-testid="stButton"] button:hover,[data-testid="stDownloadButton"] button:hover {background:#edf4ff!important;border-color:#1555e8!important;}
 [data-testid="stButton"] button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"] {background:#1555e8!important;color:#fff!important;border-color:#1555e8!important;}

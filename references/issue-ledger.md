@@ -1787,3 +1787,10 @@
 - Root cause: live inspection showed the cloud dropdown uses a combobox group without the old data-baseweb select marker, and its textarea root no longer has the old textarea marker. Existing rules styled the inner borderless textarea but missed the outer roots, whose 1px borders remained white on white backgrounds.
 - Fix: scope stable widget-root and combobox-group selectors to the workbench search panel, retain the legacy selector for compatibility, and explicitly set 1px #b8c9df borders with 7px corners. Focus-within uses #1555e8 without changing control dimensions or other forms.
 - Verification: actual cloud DOM preview checks cover normal and focused outlines, multiline editing, dropdown opening/Escape, enabled search and 390px width. Business rules and runtime databases are unchanged.
+
+## 2026-10-09 - Formal customer text differed from trial and account capsule was absent
+
+- Diagnosis: live comparison found matching heading and textarea typography, but the trial customer value used Source Sans / 16px while the formal native combobox used Segoe UI / 14px. The logged-in account was a plain profile link with transparent background and no border or padding.
+- Fix: explicitly match only the search-panel combobox to Source Sans / 16px / normal weight / 1.4 line height. Style the existing account link as a pale-blue rounded capsule with a thin border, maintaining its profile navigation, hover and keyboard-focus behavior.
+- Scope: no matching logic, input values, account records, customer records or prices changed. Tablet/mobile headers can wrap the capsule while keeping the title and account readable.
+- Verification: the cloud-DOM preview confirms exact customer font metrics, the capsule background/border/radius, customer-menu opening/Escape, profile navigation and 900/390px bounds. 109 isolated safety checks pass with protected runtime fingerprints unchanged.

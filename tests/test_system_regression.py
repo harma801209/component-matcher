@@ -2217,6 +2217,9 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('.st-key-workbench-search-panel [data-testid="stTextAreaRootElement"]', CSS)
         self.assertIn('border:1px solid #b8c9df!important;border-radius:7px!important', CSS)
         self.assertIn(':focus-within {border-color:#1555e8!important;}', CSS)
+        self.assertIn('[role="combobox"] {font-family:"Source Sans",sans-serif!important;font-size:16px!important;font-weight:400!important;line-height:1.4!important;}', CSS)
+        self.assertIn('.wb-user-link {display:inline-flex', CSS)
+        self.assertIn('border:1px solid #cbdcf6;border-radius:999px;background:#e8efff', CSS)
 
     def test_02b_workbench_theme_hot_update_refreshes_runtime_cache(self):
         import ast
