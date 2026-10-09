@@ -279,7 +279,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 138
+QUERY_RESULT_CACHE_VERSION = 139
 BOM_MATCH_OUTPUT_VERSION = 2
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
@@ -305,7 +305,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-09T09:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-09T10:45:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -15428,7 +15428,11 @@ def cap_to_pf(value, unit):
     return num
 
 def pf_to_value_unit(pf):
-    if pf is None:
+    try:
+        pf = float(pf)
+    except (TypeError, ValueError):
+        return "", ""
+    if not math.isfinite(pf) or pf < 0:
         return "", ""
     if pf >= 1000000:
         value = pf / 1000000
@@ -17400,17 +17404,27 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         if parsed_value != "" and (override_conflicts or current_value == ""):
             merged[col] = parsed_value
 
-    parsed_pf = parsed_rule.get("容值_pf", None)
-    if parsed_pf is not None and (override_conflicts or merged.get("容值_pf", None) is None):
+    # NaN is a missing field, not a capacitance. Resistor catalog rules use
+    # it for their inapplicable capacitance field; never let it overwrite ohms.
+    value_type = normalize_component_type(merged.get("器件类型", ""))
+    parsed_pf = safe_numeric_value(parsed_rule.get("容值_pf", None))
+    current_pf = safe_numeric_value(merged.get("容值_pf", None))
+    if (
+        value_type in CAPACITOR_COMPONENT_TYPES
+        and parsed_pf is not None and math.isfinite(parsed_pf) and parsed_pf >= 0
+        and (override_conflicts or current_pf is None or not math.isfinite(current_pf))
+    ):
         merged["容值_pf"] = parsed_pf
         value, unit = pf_to_value_unit(parsed_pf)
         merged["容值"] = value
         merged["容值单位"] = unit
 
-    parsed_resistance = parsed_rule.get("_resistance_ohm", None)
-    current_resistance = merged.get("_resistance_ohm", None)
-    if parsed_resistance is not None and (
-        override_conflicts or current_resistance is None or clean_text(current_resistance) == ""
+    parsed_resistance = safe_numeric_value(parsed_rule.get("_resistance_ohm", None))
+    current_resistance = safe_numeric_value(merged.get("_resistance_ohm", None))
+    if (
+        value_type in RESISTOR_COMPONENT_TYPES
+        and parsed_resistance is not None and math.isfinite(parsed_resistance) and parsed_resistance >= 0
+        and (override_conflicts or current_resistance is None or not math.isfinite(current_resistance))
     ):
         merged["_resistance_ohm"] = parsed_resistance
         value, unit = ohm_to_library_value_unit(parsed_resistance)

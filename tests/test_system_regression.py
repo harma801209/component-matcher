@@ -341,6 +341,45 @@ class SystemRegressionTests(unittest.TestCase):
             for key, value in original_paths.items():
                 app[key] = value
 
+    def test_resistor_sidecar_nan_capacitance_does_not_replace_resistance(self):
+        app = self.app
+        for model, resistance, tolerance, size, power in [
+            ("FRQ0402J102 TS", 1000.0, "5", "0402", 0.0625),
+            ("FRR0603F1001TS", 1000.0, "1", "0603", 0.1),
+            ("FRT0603B1002TSX", 10000.0, "0.1", "0603", 0.1),
+        ]:
+            core = {"品牌": "FOJAN(富捷)", "型号": model, "_component_type": "厚膜电阻"}
+            detail = {**core, "_res_ohm": resistance, "_size": size,
+                      "_tol": tolerance, "_power_watt": power}
+            row = app["build_lightweight_component_row_from_search_sidecar"](core, detail)
+            self.assertAlmostEqual(float(row["_res_ohm"]), resistance, msg=model)
+            self.assertEqual(row["容值单位"], "KΩ", model)
+            self.assertAlmostEqual(float(row["容值"]), resistance / 1000.0, msg=model)
+            self.assertTrue(pd.isna(row["容值_pf"]), model)
+            prepared = app["prepare_search_dataframe"](pd.DataFrame([row]))
+            shown = app["select_component_display_columns"](prepared, "贴片电阻")
+            self.assertEqual(shown.iloc[0]["容值单位"], "KΩ", model)
+            self.assertAlmostEqual(float(shown.iloc[0]["容值"]), resistance / 1000.0, msg=model)
+
+    def test_nonfinite_values_are_missing_and_valid_capacitance_still_merges(self):
+        app = self.app
+        for missing in (None, float("nan"), pd.NA, "nan", "bad", float("inf"), "-inf", -1):
+            self.assertEqual(app["pf_to_value_unit"](missing), ("", ""), repr(missing))
+            resistor = {"器件类型": "厚膜电阻", "容值": "1", "容值单位": "KΩ", "_resistance_ohm": 1000.0}
+            merged = app["merge_parsed_rule_into_record"](resistor, {"容值_pf": missing})
+            self.assertEqual((merged["容值"], merged["容值单位"]), ("1", "KΩ"))
+        for pf, expected in [(10, ("10", "PF")), (10000, ("10", "NF")), (1000000, ("1", "UF"))]:
+            capacitor = {"器件类型": "MLCC", "容值_pf": float("nan"), "容值": "", "容值单位": ""}
+            merged = app["merge_parsed_rule_into_record"](capacitor, {"器件类型": "MLCC", "容值_pf": pf})
+            self.assertEqual((merged["容值"], merged["容值单位"]), expected)
+            self.assertEqual(merged["容值_pf"], float(pf))
+        zero = app["merge_parsed_rule_into_record"](
+            {"器件类型": "厚膜电阻", "_resistance_ohm": float("nan")},
+            {"器件类型": "厚膜电阻", "_resistance_ohm": 0.0},
+        )
+        self.assertEqual(zero["_resistance_ohm"], 0.0)
+        self.assertEqual(zero["容值单位"], "Ω")
+
     def test_failed_model_search_offers_one_character_review_hint_without_replacement(self):
         app = self.app
         original_path = app["SEARCH_DB_PATH"]

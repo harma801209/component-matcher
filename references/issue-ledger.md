@@ -1753,3 +1753,9 @@
 - Root cause: the generic power reader recognized only an ASCII slash, then its fallback matched the trailing `10W` after a full-width slash or backslash.
 - Fix: normalize full-width slashes and backslashes before parsing fractional power values. This preserves the strict exact-power rule: `1/10W` is still not treated as `10W`.
 - Regression: both `1／10W` and `1\10W` now parse and route solely as `贴片电阻 / 0603 / 220Ω / ±5% / 1/10W`, without capacitor fields.
+## 2026-10-09 - Missing capacitance overwrote resistor values with PF
+
+- Symptom: FRQ0402J102 TS appeared with a blank resistance and PF unit in resistor search results, despite a correct 1000-ohm search-index entry.
+- Root cause: the shared record merger treated NaN in the inapplicable capacitance field as a valid value, converted it to PF, and overwrote the resistor display value.
+- Fix: only merge finite nonnegative capacitance into capacitor families and finite nonnegative resistance into resistor families. Missing and invalid numeric values cannot replace the correct display value. Query-cache version 139 invalidates affected cached results.
+- Verification: 106 isolated regression tests pass, including FRQ/FRR/FRT resistor sidecar-to-display paths, zero-ohm handling, invalid values, and valid pF/nF/uF capacitance. Protected runtime-data fingerprints remain unchanged.
