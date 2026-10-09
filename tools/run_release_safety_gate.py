@@ -107,6 +107,7 @@ def main() -> int:
                 "bom_job_store.py",
                 "component_quality.py",
                 "streamlit_app.py",
+                "product_training.py",
                 "sync_local_and_public.py",
             ],
             env,
@@ -118,6 +119,8 @@ def main() -> int:
                 "unittest",
                 "tests.test_bom_resilience",
                 "tests.test_system_regression",
+                "tests.test_product_training",
+                "tests.test_member_auth_bridge",
             ],
             env,
         )

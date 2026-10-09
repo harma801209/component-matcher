@@ -126,12 +126,13 @@ def navigation_icon(name):
         "list_alt": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 7h7M10 12h7M10 17h7M7 7h.01M7 12h.01M7 17h.01"/>',
         "person": '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 21v-2a7.5 5.5 0 0 1 15 0v2Z"/>',
         "settings": '<path d="m9 3-.7 2.3-2 .9-2.3-.5-1.5 2.6 1.7 1.8-.2 2.2-1.5 1.8L4 16.7l2.3-.5 2 .9.7 2.3h3l.7-2.3 2-.9 2.3.5 1.5-2.6-1.5-1.8-.2-2.2 1.7-1.8L17 5.7l-2.3.5-2-.9L12 3Z"/><circle cx="10.5" cy="11.2" r="3"/>',
+        "training": '<path d="M12 5v15M3 4c3-1 6-1 9 1 3-2 6-2 9-1v15c-3-1-6-1-9 1-3-2-6-2-9-1Z"/>',
     }
     return '<svg class="wb-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + shapes[name] + '</svg>'
 
 
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False):
-    icons = {"search": "search", "bom": "list_alt", "member": "person", "admin": "settings"}
+    icons = {"search": "search", "bom": "list_alt", "training": "training", "member": "person", "admin": "settings"}
     nav = "".join(
         f'<a href="{html.escape(href, quote=True)}" target="_self" class="{"active" if key == active else ""}"'
         f'{" aria-current=\"page\"" if key == active else ""}>'
@@ -148,6 +149,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
     titles = {
         "search": ("元器件搜索", "支持完整型号与规格参数，每行一条。系统按原有规则匹配同规格品牌型号与对应价格。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),
+        "training": ("产品培训", "通过3D结构探索、参数实验与原理演示，学习电阻、电容、电感和二极管。"),
         "member": ("会员中心", "管理账号资料、客户与使用记录。"),
         "admin": ("管理后台", "维护会员、客户、成本清单与匹配规则。"),
     }

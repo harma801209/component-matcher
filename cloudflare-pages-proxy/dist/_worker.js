@@ -1126,7 +1126,7 @@ function buildEmbedShellResponse(request, incomingUrl) {
         const savedToken = tokenPattern.test(outerToken) ? outerToken : loadToken();
         if (savedToken) frameUrl.searchParams.set("member_token", savedToken);
         frameUrl.searchParams.set(bridgeChannelParam, authBridgeChannel);
-        for (const name of ["admin", "member", "bom"]) {
+        for (const name of ["admin", "member", "bom", "training"]) {
           const value = outerUrl.searchParams.get(name);
           if (value !== null) frameUrl.searchParams.set(name, value);
         }
@@ -1143,12 +1143,12 @@ function buildEmbedShellResponse(request, incomingUrl) {
             let pageMode = "search";
             if (payload.action === "set-page-mode") {
               pageMode = String(payload.mode || "search");
-              if (!["search", "admin", "member", "bom"].includes(pageMode)) return;
+              if (!["search", "admin", "member", "bom", "training"].includes(pageMode)) return;
             } else if (payload.action !== "clear-page-modes") {
               return;
             }
             const routeUrl = new URL(window.location.href);
-            for (const name of ["admin", "member", "bom"]) {
+            for (const name of ["admin", "member", "bom", "training"]) {
               routeUrl.searchParams.delete(name);
             }
             routeUrl.searchParams.delete("admin_module");

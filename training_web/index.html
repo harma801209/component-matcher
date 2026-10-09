@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>产品培训 · 3D互动课堂</title><style>__TRAINING_CSS__</style></head>
+<body>
+<main id="training-app">
+  <div class="intro"><div><span class="eyebrow">PRODUCT ACADEMY</span><h1>从看懂结构，到理解选型</h1><p>选择一类器件，转动模型、点选部位，再用参数实验把知识串起来。</p></div><span class="lesson-count">4 类器件 · 交互课堂</span></div>
+  <nav id="courses" aria-label="培训产品类别"></nav>
+  <div class="workspace">
+    <section class="model-card" aria-label="3D结构探索">
+      <div class="section-head"><div><span class="eyebrow">01 / 结构探索</span><h2 id="model-title"></h2></div><span class="tag">3D 教学模型</span></div>
+      <div class="viewport"><canvas id="model-canvas" tabindex="0" aria-label="可交互3D模型，拖动旋转，滚轮缩放；键盘方向键旋转，加减键缩放，0复位"></canvas><div class="view-hint">拖拽旋转 · 滚轮 / 双指缩放 · 点击部位</div><span id="state-badge" class="state-badge">结构示意</span></div>
+      <div class="model-tools"><label class="explode-control" for="explode">拆解 <input id="explode" type="range" min="0" max="1" step="0.05" value="0"><output id="explode-value">0%</output></label><button id="rotate" type="button" aria-pressed="false">自动旋转</button><button id="animate" type="button" aria-pressed="true">原理动画</button><button id="reset-view" type="button">视角复位</button></div>
+      <div id="parts" class="parts" aria-label="选择模型部位"></div>
+      <div id="part-detail" class="part-detail" aria-live="polite"></div>
+      <p class="model-note">模型、层厚和动画速度为教学示意，不代表具体料号的内部比例、加工过程或真实响应速度。拆解视图不表示器件可以实际拆卸。</p>
+    </section>
+    <section class="knowledge-card" aria-label="产品知识">
+      <div class="tabs" role="tablist" aria-label="知识主题">
+        <button type="button" role="tab" id="tab-spec" data-tab="spec" aria-controls="panel-spec" aria-selected="true">规格参数</button>
+        <button type="button" role="tab" id="tab-performance" data-tab="performance" aria-controls="panel-performance" aria-selected="false" tabindex="-1">电气性能</button>
+        <button type="button" role="tab" id="tab-principle" data-tab="principle" aria-controls="panel-principle" aria-selected="false" tabindex="-1">工作原理</button>
+        <button type="button" role="tab" id="tab-quiz" data-tab="quiz" aria-controls="panel-quiz" aria-selected="false" tabindex="-1">小测验</button>
+      </div>
+      <div class="panel" id="panel-spec" role="tabpanel" aria-labelledby="tab-spec"></div>
+      <div class="panel" id="panel-performance" role="tabpanel" aria-labelledby="tab-performance" hidden></div>
+      <div class="panel" id="panel-principle" role="tabpanel" aria-labelledby="tab-principle" hidden></div>
+      <div class="panel" id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz" hidden></div>
+    </section>
+  </div>
+  <section class="takeaways"><span class="eyebrow">选型提醒</span><div id="takeaways"></div></section>
+  <section class="references"><div class="section-head"><div><span class="eyebrow">参考资料</span><h2>从课堂回到真实产品</h2></div><span class="tag">厂家技术资料</span></div><p id="example"></p><div id="sources"></div><p class="source-note">资料核对日期：2026-10-09。课堂计算采用明确列出的简化模型，不替代具体料号数据手册、仿真模型或实际测试；额定值、降额条件与适用范围请以厂家最新版资料为准。</p></section>
+  <noscript>请启用 JavaScript 以使用3D模型和参数实验；产品原理可查阅相应厂家的公开技术资料。</noscript>
+</main>
+<script>__TRAINING_JS__</script>
+</body></html>

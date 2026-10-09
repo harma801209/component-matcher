@@ -81,15 +81,18 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         selector_start = self.matcher.index("def render_sales_cost_customer_selector(")
         selector_end = self.matcher.index("\ndef cost_price_item_change_key", selector_start)
         selector_function = self.matcher[selector_start:selector_end]
-        self.assertNotIn("list_sales_customers", selector_function)
-        self.assertIn("list_member_sales_customers", selector_function)
-        self.assertIn('if is_admin else "新客户"', selector_function)
+        # The current customer master permits the admin's enabled customers,
+        # while non-admin choices and prices are both authorization-scoped.
+        self.assertIn("customer_rows = list_sales_customers(active_only=True)", selector_function)
+        self.assertIn("customer_rows = list_selectable_sales_customers(member_id)", selector_function)
+        self.assertIn('new_customer_option = "新客户"', selector_function)
+        self.assertIn("authorize_cost_customer_context(", selector_function)
         self.assertIn("selector_options = [new_customer_option] + customer_names", selector_function)
         self.assertIn('selector_{selector_owner_key}_v3', selector_function)
         self.assertIn("price_source = \"通用价格\"", selector_function)
         self.assertNotIn("后台尚未允许此账号读取该客户专属报价", selector_function)
         self.assertIn("save_member_sales_customer", selector_function)
-        self.assertIn("price_access_enabled", selector_function)
+        self.assertIn("member_cost_access_level(member)", selector_function)
         self.assertIn("注册/营业执照公司全称", selector_function)
 
     def test_old_single_customer_field_is_not_rendered(self):
@@ -104,7 +107,9 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         admin_function = self.matcher[admin_start:admin_end]
         self.assertNotIn('edit_customer_name = st.text_input', admin_function)
         self.assertIn("list_member_sales_customers", admin_function)
-        self.assertIn("set_member_sales_customer_price_access", admin_function)
+        self.assertNotIn("set_member_sales_customer_price_access(", admin_function)
+        self.assertIn("authorize_cost_customer_context(member,", admin_function)
+        self.assertIn("专属价权限统一在", admin_function)
 
     def test_admin_job_title_is_a_fixed_dropdown(self):
         admin_start = self.matcher.index("def render_member_admin_management_page(")
@@ -135,7 +140,7 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn('source: "fruition-route"', self.matcher)
         self.assertIn('action: "clear-page-modes"', self.matcher)
         self.assertIn('if (payload.source === "fruition-route")', self.worker)
-        self.assertIn('for (const name of ["admin", "member", "bom"])', self.worker)
+        self.assertIn('for (const name of ["admin", "member", "bom", "training"])', self.worker)
         self.assertIn('history.replaceState(null, "", routeUrl.pathname + routeUrl.search + routeUrl.hash);', self.worker)
 
     def test_formal_shell_persists_active_page_mode_across_browser_refresh(self):
@@ -144,7 +149,8 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn("mode: activePageMode", self.matcher)
         self.assertIn('if (payload.action === "set-page-mode")', self.worker)
         self.assertIn('if (pageMode !== "search") routeUrl.searchParams.set(pageMode, "1");', self.worker)
-        self.assertIn('for (const name of ["admin", "member", "bom"])', self.worker)
+        self.assertIn('for (const name of ["admin", "member", "bom", "training"])', self.worker)
+        self.assertIn('["search", "admin", "member", "bom", "training"].includes(pageMode)', self.worker)
 
     def test_formal_shell_persists_active_admin_module_across_browser_refresh(self):
         self.assertIn('ADMIN_BACKEND_MODULE_QUERY_PARAM = "admin_module"', self.matcher)
