@@ -43,7 +43,7 @@ CSS = """
 [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child),[data-testid="stElementContainer"]:has(> iframe[height="0"]) {display:none!important;}
 body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;}
 .block-container,[data-testid="stMainBlockContainer"] {max-width:none!important;width:calc(100% - 150px)!important;margin-left:150px!important;padding:1rem 1.5rem 2rem!important;}
-.wb-sidebar {position:fixed;left:0;top:0;bottom:0;width:150px;background:#193253;z-index:1000;padding-top:80px;border-right:1px solid #294463;}
+.wb-sidebar {position:fixed;left:0;top:0;bottom:0;width:150px;background:#193253;z-index:1000;padding-top:0;border-right:1px solid #294463;}
 .wb-nav {display:flex;flex-direction:column;gap:8px;}
 .wb-nav a {display:flex;align-items:center;gap:8px;padding:14px 10px;color:#d4dfef;text-decoration:none;white-space:nowrap;font-size:15px;font-weight:600;border-left:3px solid transparent;}
 .wb-nav a:hover {background:#25466f;color:#fff;}
