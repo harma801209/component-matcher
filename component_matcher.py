@@ -53,6 +53,11 @@ from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 from fojan_resistor_catalog import get_fojan_special_resistor_series
 import member_auth_runtime as member_auth_runtime_state
+import importlib as _workbench_importlib
+import precision_theme as _workbench_theme
+# Existing cloud script caches may still use the previous entrypoint loader.
+# Refresh the stateless theme whenever component definitions are rebuilt too.
+_workbench_importlib.reload(_workbench_theme)
 from precision_theme import CSS as WORKBENCH_CSS, TABLE_CSS as WORKBENCH_TABLE_CSS, render_header as render_workbench_header
 from bom_job_store import (
     create_or_update_job as _create_or_update_bom_job,
@@ -306,7 +311,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-09T15:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-09T15:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"

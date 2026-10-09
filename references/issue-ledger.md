@@ -1779,3 +1779,4 @@
 - Root cause: the app cached component definitions by component source and release stamp, but Python also cached the imported presentation module. Re-executing component definitions did not reload that module.
 - Fix: include presentation-file metadata in the existing runtime cache key and reload the stateless theme module under the existing cache lock only when the runtime cache is rebuilt. Cache hits keep the same lightweight behavior; no business records or schema are changed.
 - Regression: a temporary presentation-module hot update must refresh its marker and rebuild the definition namespace, while an unchanged theme must retain the cached namespace.
+- Compatibility: component-definition rebuilds also reload the presentation module so an already-running cloud process with the prior entrypoint loader receives the new UI without touching runtime databases.
