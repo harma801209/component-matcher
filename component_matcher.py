@@ -53,6 +53,7 @@ from manufacturer_packaging_rules import lookup_manufacturer_packaging
 from resistor_series_rules import build_resistor_series_description, infer_resistor_series_profile, lookup_official_resistor_series_profile_by_model
 from fojan_resistor_catalog import get_fojan_special_resistor_series
 import member_auth_runtime as member_auth_runtime_state
+from precision_theme import CSS as WORKBENCH_CSS, TABLE_CSS as WORKBENCH_TABLE_CSS, render_header as render_workbench_header
 from bom_job_store import (
     create_or_update_job as _create_or_update_bom_job,
     get_job as _get_bom_job,
@@ -279,7 +280,7 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 139
+QUERY_RESULT_CACHE_VERSION = 140
 BOM_MATCH_OUTPUT_VERSION = 2
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
@@ -305,7 +306,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-09T10:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-09T15:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -5072,6 +5073,14 @@ def complete_member_login(member):
             "bom": "",
             ADMIN_BACKEND_MODULE_QUERY_PARAM: "",
         }
+        return_page = clean_text(get_query_param_value("login_return"))
+        if return_page:
+            # A local return mode is a navigation hint, never an access grant.
+            if return_page == "admin" and normalize_member_role(member.get("role", "")) == "admin":
+                route_updates["admin"] = "1"
+            elif return_page == "bom":
+                route_updates["bom"] = "1"
+            route_updates["login_return"] = ""
     set_current_member(member, query_updates=route_updates)
     if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
         st.session_state[BOM_POST_LOGIN_RESUME_STAGE_KEY] = BOM_POST_LOGIN_STAGE_LOGIN_COMPLETE
@@ -7404,7 +7413,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
             st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
             st.success("当前客户：通用成本　·　价格来源：通用价格")
-            st.caption("管理员可直接搜索料号；如需查看客户专属价格，请从下拉选单选择客户资讯中已启用的客户。")
+            st.caption("可直接搜索料号；选择已启用客户后查看专属价。")
             return COST_CUSTOMER_TYPE_NEW, "", True
         if access_level == "none":
             st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = ""
@@ -12356,6 +12365,8 @@ div.stButton > button {
 }
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown(WORKBENCH_CSS, unsafe_allow_html=True)
 
 BOM_NONE_OPTION = "（不使用）"
 BOM_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
@@ -42051,6 +42062,7 @@ html, body {{
     background: rgba(117, 117, 117, 0.35);
 }}
 </style>
+{WORKBENCH_TABLE_CSS}
 <div class="result-section-card">
 {table_fragment}
 </div>
@@ -49956,35 +49968,22 @@ initialize_member_auth_remote_storage()
 if process_member_logout_request():
     st.rerun()
 render_member_auth_browser_persistence_bridge()
-render_no_match_admin_entry_button()
-render_member_entry_button()
-render_bom_entry_button()
-render_member_logout_button()
-
 logo_b64 = image_to_base64(LOGO_PATH)
-startup_trace(f"logo_base64:{'yes' if logo_b64 else 'no'}")
-if logo_b64:
-    st.markdown(
-        f'''
-        <div style="text-align:center; padding-top:18px; margin-bottom:10px;">
-            <img src="data:image/png;base64,{logo_b64}" style="width:210px; display:block; margin:0 auto;" />
-        </div>
-        ''',
-        unsafe_allow_html=True
-    )
-    startup_trace("after_logo_markdown")
-
-st.markdown('<div class="main-title">富临通元器件匹配系统</div>', unsafe_allow_html=True)
-if is_no_match_admin_page_requested():
-    startup_trace("after_admin_header_markdown")
-elif is_bom_page_requested():
-    st.markdown('<div class="sub-title">上传 BOM 文件并批量匹配元器件型号</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title-2">支持 Excel、CSV 和图片；上传后可预览、调整列映射并下载匹配结果。</div>', unsafe_allow_html=True)
-    startup_trace("after_bom_intro_markdown")
-else:
-    st.markdown('<div class="sub-title">输入料号自动匹配所有同规格品牌型号</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title-2">（输入多个或单个料号或规格参数，例如 FP31X333K631EEG、1206 X7R 333K 630V 或 0402 10K 1% 1/16W；规格参数至少需包含尺寸和关键参数，电容看容值/耐压，电阻看阻值/功率，并满足三个关键参数后才能进行匹配）</div>', unsafe_allow_html=True)
-    startup_trace("after_intro_markdown")
+workbench_active = "admin" if is_no_match_admin_page_requested() else "member" if is_member_page_requested() else "bom" if is_bom_page_requested() else "search"
+workbench_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
+workbench_links = []
+for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("member", "会员中心"), ("admin", "管理后台")]:
+    nav_updates = {"admin": "1" if nav_key == "admin" else "0", "member": "1" if nav_key == "member" else "0", "bom": "1" if nav_key == "bom" else "0", "login_return": "", ADMIN_BACKEND_MODULE_QUERY_PARAM: ""}
+    if workbench_token:
+        nav_updates[MEMBER_AUTH_QUERY_PARAM] = workbench_token
+    workbench_links.append((nav_key, nav_label, build_app_href(**nav_updates)))
+workbench_return = workbench_active if workbench_active != "member" else clean_text(get_query_param_value("login_return"))
+workbench_login_href = build_app_href(
+    member="1", admin="0", bom="0",
+    login_return=workbench_return if workbench_return in {"search", "bom", "admin"} else "search",
+    **{ADMIN_BACKEND_MODULE_QUERY_PARAM: ""},
+)
+render_workbench_header(st, logo_b64, workbench_active, workbench_links, current_member(), login_href=workbench_login_href, is_trial=os.getenv("COMPONENT_MATCHER_UI_TRIAL") == "1")
 
 last_report_message = st.session_state.pop("_no_match_report_last_message", None)
 if isinstance(last_report_message, dict) and clean_text(last_report_message.get("message", "")) != "":
@@ -50006,12 +50005,6 @@ if is_bom_page_requested():
 pending_search_after_login = resumable_member_search_query()
 pending_brand_mode, pending_search_brands = resumable_member_search_brand_settings()
 pending_customer_type, pending_customer_name = resumable_member_search_customer_context()
-st.markdown('<div class="section-title">当前客户</div>', unsafe_allow_html=True)
-search_customer_type, search_customer_name, search_customer_ready = render_sales_cost_customer_selector(
-    key_prefix="sales_search",
-    restored_type=pending_customer_type,
-    restored_name=pending_customer_name,
-)
 search_brand_mode_key = "search_brand_mode"
 search_selected_brands_key = "search_selected_brands"
 if pending_search_after_login and pending_brand_mode in {SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM}:
@@ -50023,47 +50016,58 @@ if clean_text(st.session_state.get(search_brand_mode_key, "")) not in {
 }:
     st.session_state[search_brand_mode_key] = SEARCH_BRAND_MODE_AUTO
 
-if hasattr(st, "segmented_control"):
-    search_brand_mode = st.segmented_control(
-        "匹配品牌范围",
-        [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
-        key=search_brand_mode_key,
-        selection_mode="single",
-        width="stretch",
-    )
-else:
-    search_brand_mode = st.radio(
-        "匹配品牌范围",
-        [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
-        key=search_brand_mode_key,
-        horizontal=True,
-    )
-selected_search_brands = []
-if search_brand_mode == SEARCH_BRAND_MODE_CUSTOM:
-    selected_search_brands = st.multiselect(
-        "选择匹配品牌",
-        bom_export_brand_options(),
-        key=search_selected_brands_key,
-        max_selections=SEARCH_BRAND_MAX_SELECTIONS,
-        placeholder="选择 1-5 个品牌",
-    )
-
-search_text_area_kwargs = {
-    "label": "查询输入",
-    "placeholder": "请输入料号，可多行输入",
-    "label_visibility": "collapsed",
-    "key": "search_query_input",
-}
-if "search_query_input" not in st.session_state:
-    search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
-query_input = st.text_area(**search_text_area_kwargs)
-search_clicked = st.button(
-    "搜索",
-    disabled=(
-        not search_customer_ready
-        or (search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands)
-    ),
-)
+with st.container(key="workbench-search-panel"):
+    customer_column, brand_column = st.columns([1.15, 2], gap="large")
+    with customer_column:
+        search_customer_type, search_customer_name, search_customer_ready = render_sales_cost_customer_selector(
+            key_prefix="sales_search",
+            restored_type=pending_customer_type,
+            restored_name=pending_customer_name,
+        )
+    with brand_column:
+        if hasattr(st, "segmented_control"):
+            search_brand_mode = st.segmented_control(
+                "匹配品牌范围",
+                [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
+                key=search_brand_mode_key,
+                selection_mode="single",
+                width="stretch",
+            )
+        else:
+            search_brand_mode = st.radio(
+                "匹配品牌范围",
+                [SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM],
+                key=search_brand_mode_key,
+                horizontal=True,
+            )
+        selected_search_brands = []
+        if search_brand_mode == SEARCH_BRAND_MODE_CUSTOM:
+            selected_search_brands = st.multiselect(
+                "选择匹配品牌",
+                bom_export_brand_options(),
+                key=search_selected_brands_key,
+                max_selections=SEARCH_BRAND_MAX_SELECTIONS,
+                placeholder="选择 1-5 个品牌",
+            )
+    with st.container():
+        search_text_area_kwargs = {
+            "label": "请输入料号，可多行输入",
+            "placeholder": "例如 FRC0603J221 TS\n0603 220Ω ±5% 1/10W 75V",
+            "key": "search_query_input",
+            "height": 112,
+        }
+        if "search_query_input" not in st.session_state:
+            search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
+        query_input = st.text_area(**search_text_area_kwargs)
+    with st.container():
+        search_clicked = st.button(
+            "开始匹配",
+            type="primary",
+            disabled=(
+                not search_customer_ready
+                or (search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands)
+            ),
+        )
 restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
 if restore_search_after_report and not query_input.strip():
     query_input = clean_text(st.session_state.get("_last_search_query_input", ""))

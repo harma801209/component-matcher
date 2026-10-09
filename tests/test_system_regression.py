@@ -2169,6 +2169,47 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_functions)
 
+    def test_02b_workbench_login_return_is_local_and_requires_admin_role(self):
+        app = self.app
+        names = ["set_current_member", "is_member_page_requested", "is_bom_page_requested", "get_query_param_value", "st"]
+        saved = {name: app[name] for name in names}
+        calls = []
+        try:
+            app["st"] = type("FakeStreamlit", (), {"session_state": {}})()
+            app["is_member_page_requested"] = lambda: True
+            app["is_bom_page_requested"] = lambda: False
+            app["set_current_member"] = lambda member, query_updates=None: calls.append(query_updates)
+            for target, role, expected in [("admin", "admin", "admin"), ("admin", "member", "search"), ("bom", "member", "bom"), ("search", "admin", "search"), ("https://example.com", "admin", "search")]:
+                app["get_query_param_value"] = lambda name, target=target: target if name == "login_return" else ""
+                app["complete_member_login"]({"id": 7, "role": role})
+                self.assertEqual(calls[-1]["admin"], "1" if expected == "admin" else "")
+                self.assertEqual(calls[-1]["bom"], "1" if expected == "bom" else "")
+                self.assertEqual(calls[-1]["member"], "")
+                self.assertEqual(calls[-1]["login_return"], "")
+        finally:
+            app.update(saved)
+
+    def test_02b_workbench_header_login_member_link_and_trial_badge(self):
+        from precision_theme import render_header, CSS, TABLE_CSS
+        rendered = []
+        fake_st = type("FakeStreamlit", (), {"markdown": lambda _, value, **kwargs: rendered.append(value)})()
+        links = [("search", "元器件搜索", "?"), ("member", "会员中心", "?member=1&member_token=test-token")]
+        render_header(fake_st, "", "admin", links, None, login_href="?member=1&login_return=admin")
+        self.assertIn('class="wb-login-button"', rendered[-1])
+        self.assertIn('aria-label="会员登录"', rendered[-1])
+        self.assertIn('href="?member=1&amp;login_return=admin"', rendered[-1])
+        self.assertNotIn("未登录", rendered[-1])
+        self.assertNotIn("测试版", rendered[-1])
+        render_header(fake_st, "", "admin", links, {"display_name": "<管理员>"})
+        self.assertIn("&lt;管理员&gt;", rendered[-1])
+        self.assertIn('class="wb-user wb-user-link"', rendered[-1])
+        self.assertNotIn('class="wb-login-button"', rendered[-1])
+        render_header(fake_st, "", "search", links, None, is_trial=True)
+        self.assertIn("测试版", rendered[-1])
+        self.assertIn("width:150px", CSS)
+        self.assertIn("color-scheme:light", TABLE_CSS)
+        self.assertIn("overflow:auto", TABLE_CSS)
+
     def test_02ba_page_modes_are_mutually_exclusive(self):
         app = self.app
         original_get_query_param_value = app["get_query_param_value"]

@@ -11,3 +11,11 @@ maxUploadSize = 100
 serverAddress = "fruition-componentmatche.streamlit.app"
 serverPort = 443
 gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#1555e8"
+backgroundColor = "#f4f7fc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#172b4d"
+font = "sans serif"

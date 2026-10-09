@@ -1759,3 +1759,10 @@
 - Root cause: the shared record merger treated NaN in the inapplicable capacitance field as a valid value, converted it to PF, and overwrote the resistor display value.
 - Fix: only merge finite nonnegative capacitance into capacitor families and finite nonnegative resistance into resistor families. Missing and invalid numeric values cannot replace the correct display value. Query-cache version 139 invalidates affected cached results.
 - Verification: 106 isolated regression tests pass, including FRQ/FRR/FRT resistor sidecar-to-display paths, zero-ohm handling, invalid values, and valid pF/nF/uF capacitance. Protected runtime-data fingerprints remain unchanged.
+
+## 2026-10-09 - Publish the approved precision-blue workbench
+
+- Scope: promote the user-approved compact light UI, navy navigation rail, white header, grouped search form, readable internally scrollable result tables and actionable member-login/account entry to the formal app. The formal header omits the local trial badge.
+- Login: allow only local search/BOM/admin return modes, and return to the backend only for an authenticated administrator. Existing permission checks, authentication storage and remote synchronization remain unchanged.
+- Data boundary: do not publish trial entrypoints, trial databases, local-only server settings or remote-sync disabling guards. Pre-publication live baseline is 7 members (6 active, 1 disabled), 8 customer records, 2227 rows in the active cost workbook and 13 historical cost lists.
+- Verification: 108 isolated regression checks pass, including login return modes, escaped account links, formal/trial badge separation, existing member/cost backup restoration and the resistor-unit regression. Protected runtime-data fingerprints remain unchanged.
