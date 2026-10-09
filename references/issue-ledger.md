@@ -1741,6 +1741,12 @@
 - Fix: after an exact search has failed, inspect the compact part-number index for same-prefix models differing by exactly one character. The result labels the candidate as `疑似少 1 码`, `疑似多 1 码`, or `疑似 1 码写错`; known structural cases can provide a more precise correction. The system displays at most three candidates for manual review and never replaces the submitted model or uses a suggested model's price automatically.
 - Safety: an input that already exists in the index never receives a near-model warning merely because another part number is similar. Index errors or older index formats silently fall back to the normal no-result response.
 - Regression: isolated FOJAN and Murata index entries provide missing-character suggestions, while an exact FOJAN model with a one-character-neighbour still returns no correction hint.
+## 2026-10-09 - Invalid search input showed an internal database fallback warning
+
+- Symptom: searching `1111111111` displayed an unavailable full-library fallback warning instead of asking the user to check the input.
+- Root cause: the empty-fallback branch ran before the unrecognized/insufficient-input branches, so an input problem was reported as a database readiness problem.
+- Fix: unrecognized, incomplete and unsupported input now reaches its existing input-specific handler. Unrecognized and insufficient input show `请确认搜索内容是否正确`; incomplete specifications retain a short hint to supply at least three parameters. Recognized queries with unavailable fallback data retain their data warning, and later lines continue processing.
+
 ## 2026-09-28 - Full-width fractional resistor power was read as a high-power requirement
 
 - Symptom: a `0603 / 220Ω / ±5% / 1／10W` resistor search displayed `10W`, excluded valid 1/10W candidates, and reported no matching model.

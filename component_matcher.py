@@ -305,7 +305,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-09-09T08:47:39+08:00"
+PUBLIC_CODE_STAMP = "2026-10-09T09:20:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -50399,7 +50399,14 @@ if search_requested:
             if candidate_rows > 0:
                 base_chips.append({"label": "候选数", "value": f"{candidate_rows:,}"})
 
-            if resolution_path == "full_dataframe" and (query_df is None or query_df.empty):
+            # An unrecognized/incomplete input needs an input hint even when
+            # the optional full-library fallback was not loaded.
+            if (
+                resolution_path == "full_dataframe"
+                and (query_df is None or query_df.empty)
+                and mode not in {"无法识别", "规格不足", "暂不支持"}
+                and spec is not None
+            ):
                 render_search_progress(
                     line_index - 1,
                     stage_step=2,
@@ -50442,7 +50449,7 @@ if search_requested:
                     note="请检查料号是否完整，或补充规格参数后再试",
                     extra_chips=base_chips,
                 )
-                st.warning("无法识别输入内容")
+                st.warning("请确认搜索内容是否正确")
                 render_model_input_correction_hints(line)
                 render_no_match_report_button(
                     query_text=line,
@@ -50471,7 +50478,8 @@ if search_requested:
                     note="当前输入少于最小匹配条件，请补充至少三个关键参数",
                     extra_chips=base_chips,
                 )
-                st.warning("请最少输入三个规格参数")
+                st.warning("请确认搜索内容是否正确")
+                st.caption("请补充至少三个规格参数后再试。")
                 render_no_match_report_button(
                     query_text=line,
                     mode=mode,
