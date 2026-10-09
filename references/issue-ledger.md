@@ -1772,3 +1772,10 @@
 - Symptom: the promoted UI rendered navigation glyph names such as search/list_alt/person/settings as English text on the public host, overflowing the compact rail. The local trial had the referenced font asset but the cloud Streamlit build did not.
 - Fix: render the same navigation concepts using self-contained inline SVG with inherited colors, fixed 22px geometry and hidden decorative accessibility semantics. No font downloads, deployment-version-specific paths, permissions or business rules are involved.
 - Regression: the header must contain SVG navigation icons and must not refer to the hashed MaterialSymbols asset. The approved compact rail and login links are preserved.
+
+## 2026-10-09 - Cloud hot updates retained an imported workbench theme
+
+- Symptom: after the SVG fix was pushed, live DOM inspection still showed the old font-based spans and the previous font CSS.
+- Root cause: the app cached component definitions by component source and release stamp, but Python also cached the imported presentation module. Re-executing component definitions did not reload that module.
+- Fix: include presentation-file metadata in the existing runtime cache key and reload the stateless theme module under the existing cache lock only when the runtime cache is rebuilt. Cache hits keep the same lightweight behavior; no business records or schema are changed.
+- Regression: a temporary presentation-module hot update must refresh its marker and rebuild the definition namespace, while an unchanged theme must retain the cached namespace.

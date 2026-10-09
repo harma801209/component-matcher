@@ -1,6 +1,7 @@
 """Streamlit Community Cloud entrypoint."""
 
 import os
+import importlib
 import threading
 import traceback
 
@@ -15,7 +16,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Update this stamp when publishing public-facing changes so Streamlit Cloud
 # rechecks the checkout. This does not change runtime behavior.
 # The sync script may refresh this automatically when the public bundle is rebuilt.
-PUBLIC_RELEASE_STAMP = "2026-10-09T15:10:00+08:00"
+PUBLIC_RELEASE_STAMP = "2026-10-09T15:20:00+08:00"
 
 # The public entrypoint must never spend startup time rebuilding data.
 # Keep auto-update disabled unless a manual dev run opts back in explicitly.
@@ -42,11 +43,15 @@ def _source_segment_with_original_lines(source, start, end):
 def load_component_matcher_runtime():
     source_path = os.path.join(BASE_DIR, "component_matcher.py")
     source_stat = os.stat(source_path)
+    theme_path = os.path.join(BASE_DIR, "precision_theme.py")
+    theme_stat = os.stat(theme_path)
     cache_key = (
         source_path,
         PUBLIC_RELEASE_STAMP,
         source_stat.st_mtime_ns,
         source_stat.st_size,
+        theme_stat.st_mtime_ns,
+        theme_stat.st_size,
     )
     with member_auth_runtime_state.APP_CODE_LOCK:
         cache = member_auth_runtime_state.APP_CODE_CACHE
@@ -59,6 +64,9 @@ def load_component_matcher_runtime():
             return cache, source_path
         with open(source_path, "r", encoding="utf-8") as source_file:
             source = source_file.read()
+        # A Cloud hot update can preserve imported modules between app runs.
+        # Reload this stateless presentation module only on a runtime-cache miss.
+        importlib.reload(importlib.import_module("precision_theme"))
 
         page_shell_start = source.index("\nst.set_page_config(") + 1
         page_shell_end = source.index("\nBOM_NONE_OPTION =", page_shell_start) + 1

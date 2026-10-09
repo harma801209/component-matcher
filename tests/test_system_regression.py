@@ -2212,6 +2212,42 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn("color-scheme:light", TABLE_CSS)
         self.assertIn("overflow:auto", TABLE_CSS)
 
+    def test_02b_workbench_theme_hot_update_refreshes_runtime_cache(self):
+        import ast
+        import importlib
+        import sys
+        from pathlib import Path
+        from types import SimpleNamespace
+        source_path = Path(self.base_dir) / "streamlit_app.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in {"_source_segment_with_original_lines", "load_component_matcher_runtime"}]
+        saved_theme = sys.modules.get("precision_theme")
+        with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
+            root = Path(folder)
+            theme = root / "precision_theme.py"
+            theme.write_text('PUBLIC_STYLE_MARKER = "before"\n', encoding="utf-8")
+            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
+            runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
+            namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
+            sys.path.insert(0, folder)
+            sys.modules.pop("precision_theme", None)
+            try:
+                exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
+                cached, _ = namespace["load_component_matcher_runtime"]()
+                self.assertEqual(cached["base_namespace"]["PUBLIC_STYLE_MARKER"], "before")
+                initial_namespace = cached["base_namespace"]
+                namespace["load_component_matcher_runtime"]()
+                self.assertIs(cached["base_namespace"], initial_namespace)
+                theme.write_text('PUBLIC_STYLE_MARKER = "after-hot-update"\n', encoding="utf-8")
+                cached, _ = namespace["load_component_matcher_runtime"]()
+                self.assertEqual(cached["base_namespace"]["PUBLIC_STYLE_MARKER"], "after-hot-update")
+                self.assertIsNot(cached["base_namespace"], initial_namespace)
+            finally:
+                sys.path.pop(0)
+                sys.modules.pop("precision_theme", None)
+                if saved_theme is not None:
+                    sys.modules["precision_theme"] = saved_theme
+
     def test_02ba_page_modes_are_mutually_exclusive(self):
         app = self.app
         original_get_query_param_value = app["get_query_param_value"]
