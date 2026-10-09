@@ -2200,6 +2200,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('href="?member=1&amp;login_return=admin"', rendered[-1])
         self.assertNotIn("未登录", rendered[-1])
         self.assertNotIn("测试版", rendered[-1])
+        self.assertIn('class="wb-brand">富临通元器件匹配系统</span>', rendered[-1])
+        self.assertNotIn("精密蓝工作台", rendered[-1])
         self.assertIn('<svg class="wb-nav-icon"', rendered[-1])
         self.assertNotIn("MaterialSymbols", CSS)
         render_header(fake_st, "", "admin", links, {"display_name": "<管理员>"})

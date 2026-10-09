@@ -147,7 +147,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
     st.markdown(
         f'<aside class="wb-sidebar"><nav class="wb-nav" aria-label="主导航">{nav}</nav></aside>'
         f'<div class="wb-header"><img class="wb-logo" src="data:image/png;base64,{logo_b64}" alt="Fruition 富临通">'
-        f'<span class="wb-brand">精密蓝工作台</span>{badge}<div class="wb-account">{account}</div></div>'
+        f'<span class="wb-brand">富临通元器件匹配系统</span>{badge}<div class="wb-account">{account}</div></div>'
         f'<div class="wb-page-heading"><div class="wb-title">{title}</div><div class="wb-subtitle">{description}</div></div>',
         unsafe_allow_html=True,
     )
