@@ -38,7 +38,6 @@ input {background:#fff!important;color:#172b4d!important;}
 
 CSS = """
 <style>
-@font-face {font-family:"Workbench Material";font-style:normal;font-weight:100 700;src:url("/static/media/MaterialSymbols-Rounded.BSbTZIlv.woff2") format("woff2");}
 :root {color-scheme:light;--wb-bg:#f4f7fc;--wb-panel:#fff;--wb-line:#d9e3ef;--wb-text:#172b4d;--wb-muted:#4d6384;--wb-blue:#1555e8;}
 .stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"] {background:var(--wb-bg)!important;color:var(--wb-text)!important;}
 [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child),[data-testid="stElementContainer"]:has(> iframe[height="0"]) {display:none!important;}
@@ -49,7 +48,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-nav a {display:flex;align-items:center;gap:8px;padding:14px 10px;color:#d4dfef;text-decoration:none;white-space:nowrap;font-size:15px;font-weight:600;border-left:3px solid transparent;}
 .wb-nav a:hover {background:#25466f;color:#fff;}
 .wb-nav a.active {background:#1555e8;color:#fff;border-left-color:#75a9ff;font-weight:700;}
-.wb-nav-icon {font-family:"Workbench Material";font-size:22px;line-height:1;font-weight:400;font-feature-settings:"liga";font-variation-settings:"FILL" 0,"wght" 400,"GRAD" 0,"opsz" 24;}
+.wb-nav-icon {width:22px;height:22px;flex:none;display:block;}
 .wb-header {display:flex;align-items:center;gap:14px;min-height:64px;background:#fff;border-bottom:1px solid var(--wb-line);margin:-2rem -1.5rem 20px;padding:8px 20px;}
 .wb-logo {width:112px;height:46px;object-fit:contain;}
 .wb-brand {font-size:19px;font-weight:750;color:#172b4d;border-left:1px solid #cdd9e8;padding-left:16px;white-space:nowrap;}
@@ -111,12 +110,23 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 """
 
 
+def navigation_icon(name):
+    # Inline SVG keeps navigation readable across Streamlit versions and embeds.
+    shapes = {
+        "search": '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>',
+        "list_alt": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 7h7M10 12h7M10 17h7M7 7h.01M7 12h.01M7 17h.01"/>',
+        "person": '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 21v-2a7.5 5.5 0 0 1 15 0v2Z"/>',
+        "settings": '<path d="m9 3-.7 2.3-2 .9-2.3-.5-1.5 2.6 1.7 1.8-.2 2.2-1.5 1.8L4 16.7l2.3-.5 2 .9.7 2.3h3l.7-2.3 2-.9 2.3.5 1.5-2.6-1.5-1.8-.2-2.2 1.7-1.8L17 5.7l-2.3.5-2-.9L12 3Z"/><circle cx="10.5" cy="11.2" r="3"/>',
+    }
+    return '<svg class="wb-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + shapes[name] + '</svg>'
+
+
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False):
     icons = {"search": "search", "bom": "list_alt", "member": "person", "admin": "settings"}
     nav = "".join(
         f'<a href="{html.escape(href, quote=True)}" target="_self" class="{"active" if key == active else ""}"'
         f'{" aria-current=\"page\"" if key == active else ""}>'
-        f'<span class="wb-nav-icon" aria-hidden="true">{icons[key]}</span>{html.escape(label)}</a>'
+        f'{navigation_icon(icons[key])}{html.escape(label)}</a>'
         for key, label, href in links
     )
     member_href = next((href for key, _, href in links if key == "member"), "?member=1")
@@ -125,7 +135,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
         account = f'<a class="wb-user wb-user-link" href="{html.escape(member_href, quote=True)}" target="_self" title="查看会员资料">{user}</a>'
     else:
         href = html.escape(login_href or member_href, quote=True)
-        account = f'<a class="wb-login-button" href="{href}" target="_self" role="button" aria-label="会员登录"><span class="wb-nav-icon" aria-hidden="true">person</span>会员登录</a>'
+        account = f'<a class="wb-login-button" href="{href}" target="_self" role="button" aria-label="会员登录">{navigation_icon("person")}会员登录</a>'
     titles = {
         "search": ("元器件搜索", "支持完整型号与规格参数，每行一条。系统按原有规则匹配同规格品牌型号与对应价格。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),

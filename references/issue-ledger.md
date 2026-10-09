@@ -1766,3 +1766,9 @@
 - Login: allow only local search/BOM/admin return modes, and return to the backend only for an authenticated administrator. Existing permission checks, authentication storage and remote synchronization remain unchanged.
 - Data boundary: do not publish trial entrypoints, trial databases, local-only server settings or remote-sync disabling guards. Pre-publication live baseline is 7 members (6 active, 1 disabled), 8 customer records, 2227 rows in the active cost workbook and 13 historical cost lists.
 - Verification: 108 isolated regression checks pass, including login return modes, escaped account links, formal/trial badge separation, existing member/cost backup restoration and the resistor-unit regression. Protected runtime-data fingerprints remain unchanged.
+
+## 2026-10-09 - Public navigation cannot depend on a local Streamlit font hash
+
+- Symptom: the promoted UI rendered navigation glyph names such as search/list_alt/person/settings as English text on the public host, overflowing the compact rail. The local trial had the referenced font asset but the cloud Streamlit build did not.
+- Fix: render the same navigation concepts using self-contained inline SVG with inherited colors, fixed 22px geometry and hidden decorative accessibility semantics. No font downloads, deployment-version-specific paths, permissions or business rules are involved.
+- Regression: the header must contain SVG navigation icons and must not refer to the hashed MaterialSymbols asset. The approved compact rail and login links are preserved.
