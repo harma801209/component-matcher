@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-10T22:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-10T23:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -9482,6 +9482,52 @@ def render_no_alt_match_report_row(
             key_prefix="no_alt_report",
             instance_key=instance_key,
         )
+
+
+def render_no_alt_match_card(
+    header_html,
+    table_fragment,
+    query_text,
+    mode="",
+    spec=None,
+    part_info_df=None,
+    reason="已找到原厂料号资料，暂未找到其他品牌替代结果",
+    resolution_path="",
+    candidate_rows=0,
+    matched_rows=0,
+    instance_key="",
+    copy_bridge_channel="",
+):
+    # A real Streamlit container keeps the native callback button inside the
+    # same visual/result boundary as its source table. Never replace it with
+    # an iframe link or copy a report payload to browser-controlled markup.
+    identity = json.dumps([clean_text(query_text), str(instance_key)], ensure_ascii=False)
+    card_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    row_count = len(part_info_df) if part_info_df is not None else 0
+    table_height = 94 + (max(1, min(row_count, 2)) - 1) * 38
+    with st.container(key=f"search_no_alt_card_{card_id}", border=True):
+        st.markdown(header_html, unsafe_allow_html=True)
+        table_html = build_result_table_iframe_html(
+            table_fragment, copy_bridge_channel=copy_bridge_channel,
+        ) + (
+            '<style>html,body{padding:0!important;}'
+            '.result-section-card{border:0!important;border-radius:0!important;'
+            'box-shadow:none!important;}'
+            f'.result-table-wrap{{max-height:{table_height}px!important;overflow:auto;}}'
+            '</style>'
+        )
+        components.html(
+            table_html,
+            height=table_height,
+            scrolling=False,
+        )
+        with st.container(key=f"search_no_alt_footer_{card_id}"):
+            render_no_alt_match_report_row(
+                query_text=query_text, mode=mode, spec=spec,
+                part_info_df=part_info_df, reason=reason,
+                resolution_path=resolution_path, candidate_rows=candidate_rows,
+                matched_rows=matched_rows, instance_key=instance_key,
+            )
 
 
 def no_match_report_summary_dataframe(reports):
@@ -50689,21 +50735,10 @@ if search_requested:
                         note="已定位到原厂料号资料，但暂未找到其他品牌匹配结果",
                         extra_chips=base_chips + [{"label": "命中数", "value": "0", "tone": "warn"}],
                     )
-                    match_card_html = (
-                        f'{match_card_header_html}'
-                        f'{part_info_fragment}'
-                        '<div class="match-card-footer"></div>'
-                    )
-                    components.html(
-                        build_result_table_iframe_html(
-                            match_card_html,
-                            copy_bridge_channel=search_copy_bridge_channel,
-                        ),
-                        height=estimate_match_card_iframe_height(len(part_info_df), 0) + 12,
-                        scrolling=False,
-                    )
                     if part_info_df is not None and not part_info_df.empty:
-                        render_no_alt_match_report_row(
+                        render_no_alt_match_card(
+                            header_html=match_card_header_html,
+                            table_fragment=part_info_fragment,
                             query_text=line,
                             mode=mode,
                             spec=spec,
@@ -50713,8 +50748,8 @@ if search_requested:
                             candidate_rows=candidate_rows,
                             matched_rows=0,
                             instance_key=line_index,
+                            copy_bridge_channel=search_copy_bridge_channel,
                         )
-                        st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
                         complete_line_search_audit(
                             "仅原厂资料",
                             "已展示原厂料号资料，暂未找到其他品牌替代结果。",

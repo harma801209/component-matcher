@@ -567,6 +567,69 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(len(captured_keys), 2)
         self.assertNotEqual(captured_keys[0], captured_keys[1])
 
+    def test_source_only_result_groups_native_report_with_its_own_model(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from precision_theme import CSS
+
+        app = self.app
+        previous_st, previous_components = app["st"], app["components"]
+        scope, records = [], []
+
+        @contextmanager
+        def container(**kwargs):
+            scope.append(kwargs["key"])
+            records.append(("container", tuple(scope), kwargs))
+            try:
+                yield
+            finally:
+                scope.pop()
+
+        @contextmanager
+        def column():
+            yield
+
+        app["st"] = SimpleNamespace(
+            container=container,
+            columns=lambda *args, **kwargs: [column(), column()],
+            markdown=lambda value, **kwargs: records.append(("markdown", tuple(scope), value)),
+            button=lambda label, **kwargs: records.append(("button", tuple(scope), kwargs)),
+        )
+        app["components"] = SimpleNamespace(
+            html=lambda value, **kwargs: records.append(("table", tuple(scope), (value, kwargs))),
+        )
+        try:
+            for index, model in enumerate(["FRQ0603F33R0TS", "FRQ0603F1002TS", "FRQ0603F33R0TS"], 1):
+                frame = pd.DataFrame([{"品牌": "FOJAN(富捷)", "型号": model}])
+                app["render_no_alt_match_card"](
+                    header_html="<div>匹配料号资料 " + model + "</div>",
+                    table_fragment="<table>" + model + "</table>",
+                    query_text=model, mode="料号", spec={"系列": "FRQ"},
+                    part_info_df=frame, instance_key=index, copy_bridge_channel="test-channel",
+                )
+        finally:
+            app["st"], app["components"] = previous_st, previous_components
+
+        buttons = [r for r in records if r[0] == "button"]
+        tables = [r for r in records if r[0] == "table"]
+        self.assertEqual(len(buttons), 3)
+        self.assertEqual(len({b[2]["key"] for b in buttons}), 3)
+        self.assertEqual(len({b[1][0] for b in buttons}), 3)
+        for table, button in zip(tables, buttons):
+            self.assertEqual(table[1][0], button[1][0])
+            self.assertTrue(button[1][1].startswith("search_no_alt_footer_"))
+            self.assertIs(button[2]["on_click"], app["submit_no_match_report_payload"])
+            payload = button[2]["args"][0]
+            self.assertEqual(payload["query_text"], payload["part_model"])
+            self.assertEqual(payload["part_brand"], "FOJAN(富捷)")
+            self.assertEqual(payload["matched_rows"], 0)
+            self.assertIn(payload["query_text"], table[2][0])
+            self.assertIn("test-channel", table[2][0])
+            self.assertNotIn('<div class="match-card-footer">', table[2][0])
+            self.assertLess(table[2][1]["height"], 150)
+        self.assertIn("st-key-search_no_alt_card_", CSS)
+        self.assertIn("st-key-search_no_alt_footer_", CSS)
+
     def test_00b_member_remote_state_survives_streamlit_runpy_reruns(self):
         import member_auth_runtime
 

@@ -108,6 +108,14 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .bom-progress-chip.warn {background:#fff5dc!important;color:#825313!important;}
 .bom-progress-chip.fail {background:#fff0f1!important;color:#942b3b!important;}
 .native-no-alt-match-alert {background:#edf4ff!important;color:#204d94!important;border-color:#c2d4f2!important;}
+/* Source details, no-alternative status and its native report action are one card. */
+[class*="st-key-search_no_alt_card_"] {background:#fff!important;border-color:#d4dfed!important;border-radius:10px!important;gap:8px!important;overflow:hidden;}
+[class*="st-key-search_no_alt_card_"] [data-testid="stMarkdownContainer"]>div {flex-wrap:wrap;}
+[class*="st-key-search_no_alt_card_"] [data-testid="stMarkdownContainer"]:has(>div) {margin-bottom:0!important;}
+[class*="st-key-search_no_alt_footer_"] {background:#edf4ff!important;border-top:1px solid #d4dfed;padding:12px 14px!important;border-radius:7px;}
+[class*="st-key-search_no_alt_footer_"] [data-testid="stHorizontalBlock"] {align-items:center;}
+[class*="st-key-search_no_alt_footer_"] .native-no-alt-match-alert {background:transparent!important;border:0!important;border-radius:0;padding:0;min-height:0;font-size:15px;font-weight:600;line-height:1.5;}
+[class*="st-key-search_no_alt_footer_"] [data-testid="stButton"] button {font-size:14px!important;}
 .admin-login-fixed,.member-login-fixed,.bom-entry-fixed,.member-logout-fixed {display:none!important;}
 [data-testid="stDataFrame"] {border:1px solid #d4dfed;border-radius:8px;}
 *:focus-visible {outline:3px solid #1555e8!important;outline-offset:3px;}
