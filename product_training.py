@@ -9,7 +9,7 @@ def build_training_html():
     template = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     css = (WEB_ROOT / "training.css").read_text(encoding="utf-8")
     scripts = "\n".join((WEB_ROOT / name).read_text(encoding="utf-8") for name in (
-        "training_math.js", "training.js",
+        "training_math.js", "training_practice.js", "training.js", "training_tools.js",
     ))
     return template.replace("__TRAINING_CSS__", css).replace("__TRAINING_JS__", scripts.replace("</script", "<\\/script"))
 

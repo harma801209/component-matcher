@@ -47,7 +47,7 @@ class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
@@ -72,3 +72,59 @@ class ProductTrainingTests(unittest.TestCase):
     def test_invalid_parameters_are_rejected_not_reported_as_real_results(self):
         script = "const m=require(process.argv[1]);for(const call of [()=>m.resistor({r:0,v:5,rating:.125}),()=>m.capacitor({c:1e-7,f:0,v:5}),()=>m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:0}),()=>m.diode({v:Infinity,is:1e-9,n:2,vt:.02585})]){let failed=false;try{call();}catch(e){failed=e instanceof RangeError;}if(!failed)process.exit(1);}"
         subprocess.run([shutil.which("node"), "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_teaching_decoder_preserves_units_and_uncertainty(self):
+        script = r"""
+const p=require(process.argv[1]),assert=require('node:assert/strict');
+const fields=x=>p.decode(x).fields.map(f=>f.value).join('|');
+assert.match(fields('FRC0603J221 TS'),/220 Ω/);
+assert.match(fields('FRC1206F1005TS'),/10 MΩ/);
+assert.match(fields('FRL1206FR470TS'),/470 mΩ/);
+assert.match(fields('FRM253WFR120TM'),/120 mΩ/);
+assert.match(fields('FCM25123WF0M30TM'),/0.3 mΩ/);
+assert.equal(p.decode('FCM25123W0M30TM').status,'suspected');
+assert.match(p.decode('FCM25123W0M30TM').message,/缺少精度码/);
+assert.equal(p.decode('FRC0603J221T').status,'suspected');
+assert.equal(p.decode('FRC1206F100TS').status,'suspected');
+assert.equal(p.decode('FRC0603J22-1TS').fields.length,0);
+assert.equal(p.decode('FRC0402F22R6TS').status,'decoded');
+assert.equal(p.decode('FRC0603J221 TS extra').fields.length,0);
+assert.match(fields('RC0603FR-0710KL'),/10 kΩ/);
+assert.match(fields('GRM188R71H104KA93D'),/100 nF/);
+assert.match(p.decode('GRM188R71H104KA93').message,/基础型号/);
+assert.match(p.decode('1N4148').message,/不能确定厂家/);
+assert.equal(p.decode('FQV1206J126 TS').status,'unsupported');
+assert.equal(p.decode('SOME-NEW-MODEL').status,'unsupported');
+assert.equal(p.decode('<img src=x>').status,'input');
+assert.equal(p.decode('0603 220Ω 5%').status,'input');
+assert.equal(p.decode('x'.repeat(97)).status,'input');
+assert.equal(p.decode('FRC0603J221TS\nFRL1206FR470TS').status,'input');
+assert.equal(p.decode('').status,'input');
+assert(p.oneEdit('ABC','ABCD'));assert(p.oneEdit('ABC','AXC'));assert(!p.oneEdit('ABC','ABC'));assert(!p.oneEdit('ABC','AXD'));
+"""
+        subprocess.run([shutil.which("node"), "-e", script, str(WEB_ROOT / "training_practice.js")], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_scenarios_and_untrusted_progress_records(self):
+        script = r"""
+const p=require(process.argv[1]),assert=require('node:assert/strict');
+assert.equal(p.scenarios.length,8);assert.equal(new Set(p.scenarios.map(q=>q.id)).size,8);
+for(const q of p.scenarios){assert.equal(q.options.length,3);assert.equal(q.why.length,3);for(let i=0;i<3;i++)assert.equal(p.grade(q,i),i===q.answer);assert.throws(()=>p.grade(q,-1),RangeError);assert.throws(()=>p.grade(q,NaN),RangeError);}
+assert.equal(p.scenarios.find(q=>q.id==='l-loss').answer,0);
+const data=JSON.parse('{"r-power":{"choice":0,"correct":false,"attempts":1},"fake":{"choice":0,"correct":true,"attempts":1},"r-unit":{"choice":99,"correct":true,"attempts":1},"__proto__":{"polluted":true}}');
+assert.deepEqual(Object.keys(p.validRecords(data)),['r-power']);assert.equal({}.polluted,undefined);
+for(const d of [null,[],1,'bad',{'r-power':{choice:0,correct:'true',attempts:1}},{'r-power':{choice:0,correct:true,attempts:10001}}])assert.deepEqual(p.validRecords(d),{});
+"""
+        subprocess.run([shutil.which("node"), "-e", script, str(WEB_ROOT / "training_practice.js")], check=True, capture_output=True)
+
+    def test_practice_panels_are_separate_and_data_is_browser_only(self):
+        page = build_training_html()
+        for term in ['型号拆解', '选型实战', '错题本', '同一浏览器的不同账号共用', '不自动修正', '暂未覆盖', '确认清除']:
+            self.assertIn(term, page)
+        self.assertIn(".knowledge-card [role=\"tabpanel\"]", page)
+        self.assertIn("fruition_training_practice_v1", page)
+        tools = (WEB_ROOT / 'training_tools.js').read_text(encoding='utf-8')
+        self.assertNotIn('innerHTML', tools)
+        self.assertNotIn('fetch(', tools)
+        self.assertNotIn('member_token', tools)

@@ -27,6 +27,31 @@
       <div class="panel" id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz" hidden></div>
     </section>
   </div>
+  <section class="practice-card" aria-label="培训实战工具">
+    <div class="section-head"><div><span class="eyebrow">02 / 学以致用</span><h2>从读型号，到做选型</h2></div><span class="tag">教学练习 · 不改业务数据</span></div>
+    <div class="tabs" role="tablist" aria-label="实战工具">
+      <button type="button" role="tab" id="tool-decode" data-tool="decode" aria-controls="tool-panel-decode" aria-selected="true">型号拆解</button>
+      <button type="button" role="tab" id="tool-scenario" data-tool="scenario" aria-controls="tool-panel-scenario" aria-selected="false" tabindex="-1">选型实战</button>
+      <button type="button" role="tab" id="tool-mistakes" data-tool="mistakes" aria-controls="tool-panel-mistakes" aria-selected="false" tabindex="-1">错题本 <span id="mistake-count">0</span></button>
+    </div>
+    <div id="tool-panel-decode" class="tool-panel" role="tabpanel" aria-labelledby="tool-decode">
+      <p class="lead">富捷 FRC / FRL / FRM / FCM 支持格式分段；国巨、村田及二极管先提供已核对的具体型号示例。其他型号会提示暂未覆盖，不会猜测参数。</p>
+      <form id="decode-form"><label for="decode-input">输入一个完整型号</label><div class="decode-row"><input id="decode-input" type="text" maxlength="96" autocomplete="off" spellcheck="false" placeholder="例如 FRC0603J221 TS"><button class="primary" type="submit">拆解型号</button></div></form>
+      <div id="decode-examples" class="example-buttons" aria-label="型号示例"></div>
+      <div id="decode-result" aria-live="polite"></div>
+      <p class="storage-note">此工具解释编码，不查询库存或成本、不确认该完整料号可生产，也不自动修正或替代型号。额定功率、耐压、TCR等未明确编码的参数须查相应规格书。</p>
+    </div>
+    <div id="tool-panel-scenario" class="tool-panel" role="tabpanel" aria-labelledby="tool-scenario" hidden>
+      <label for="scenario-select">选择练习场景</label><select id="scenario-select"></select>
+      <div id="scenario-question"></div>
+    </div>
+    <div id="tool-panel-mistakes" class="tool-panel" role="tabpanel" aria-labelledby="tool-mistakes" hidden>
+      <div class="practice-summary"><h3>错题复习</h3><span id="practice-progress"></span></div>
+      <p class="lead">答错的课堂小测验和选型题会收录在这里。查看解析后再答一次；答对后从错题本移除。</p>
+      <div id="mistake-list"></div><button id="clear-practice" type="button">清除本浏览器练习记录</button><div id="clear-confirm" hidden><p>将清除本浏览器的答题进度和错题记录，不能撤销。是否继续？</p><button id="confirm-clear" type="button">确认清除</button><button id="cancel-clear" type="button">取消</button></div>
+    </div>
+    <p id="practice-storage" class="storage-note" role="status"></p>
+  </section>
   <section class="takeaways"><span class="eyebrow">选型提醒</span><div id="takeaways"></div></section>
   <section class="references"><div class="section-head"><div><span class="eyebrow">参考资料</span><h2>从课堂回到真实产品</h2></div><span class="tag">厂家技术资料</span></div><p id="example"></p><div id="sources"></div><p class="source-note">资料核对日期：2026-10-09。课堂计算采用明确列出的简化模型，不替代具体料号数据手册、仿真模型或实际测试；额定值、降额条件与适用范围请以厂家最新版资料为准。</p></section>
   <noscript>请启用 JavaScript 以使用3D模型和参数实验；产品原理可查阅相应厂家的公开技术资料。</noscript>
