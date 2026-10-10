@@ -30,6 +30,12 @@ import ssl
 import warnings
 import traceback
 import textwrap
+from jianghai_parameters import (
+    enrich_frame as enrich_jianghai_frame,
+    enrich_record as enrich_jianghai_record,
+    install_search_overlay as install_jianghai_search_overlay,
+    annotate_pending_display as annotate_jianghai_pending_display,
+)
 from copy import copy, deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -311,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-10T18:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-10T22:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -26485,12 +26491,18 @@ def get_component_display_schema(spec_or_type):
             ("耐压（V）", "耐压（V）"),
             ("工作温度", "工作温度"),
             ("寿命（h）", "寿命(h)"),
+            ("寿命类型", "寿命类型"),
+            ("寿命条件", "寿命测试条件"),
             ("直径（mm）", "直径(mm)"),
             ("高度（mm）", "高度(mm)"),
             ("尺寸(mm)", "外形(mm)"),
             ("极性", "极性"),
             ("ESR", "ESR"),
             ("纹波电流", "纹波电流"),
+            ("ESR条件", "ESR测试条件"),
+            ("纹波电流条件", "纹波电流测试条件"),
+            ("参数来源", "参数来源"),
+            ("参数核验状态", "参数核验状态"),
             ("安装方式", "安装方式"),
             ("特殊用途", "特殊用途"),
             ("脚距", "脚距"),
@@ -35277,6 +35289,7 @@ def open_search_db_connection(timeout_sec=30):
         return None
     conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec))
     conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
+    install_jianghai_search_overlay(conn)
     return conn
 
 
@@ -36612,6 +36625,7 @@ def build_search_text_series(frame, columns):
 def prepare_search_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
+    df = enrich_jianghai_frame(df)
     df = remove_incomplete_pdc_mlcc_models(df)
     if df.empty:
         return df
@@ -36984,7 +36998,7 @@ def prepare_search_dataframe(df):
                         work.loc[normalized_idx, "_value_num"] = pd.to_numeric(normalized_values["_normalized_value"], errors="coerce")
                     if "_unit_upper" in work.columns:
                         work.loc[normalized_idx, "_unit_upper"] = normalized_values["_normalized_unit"].apply(lambda value: normalize_search_sidecar_value(value).upper() if normalize_search_sidecar_value(value) is not None else None)
-    return work
+    return enrich_jianghai_frame(work)
 
 
 def compatible_component_types_for_search(target_type):
@@ -37612,7 +37626,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
             if clean_text(part) != ""
         )
     )
-    return record
+    return enrich_jianghai_record(record)
 
 
 def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferred_component_type=""):
@@ -41229,7 +41243,7 @@ def apply_search_cost_visibility(show_df, can_view_cost=None, member=None):
 
 
 def format_display_df(show_df):
-    show_df = show_df.copy()
+    show_df = enrich_jianghai_frame(show_df.copy())
     show_df = normalize_resistor_model_display_fields(show_df)
     show_df = normalize_joyin_ntc_series_display_fields(show_df)
     show_df = normalize_pdc_series_description_display_fields(show_df)
@@ -41295,7 +41309,7 @@ def format_display_df(show_df):
             show_df[current_col] = show_df[current_col].apply(format_current_display)
     if "推荐等级" in show_df.columns:
         show_df["推荐等级"] = show_df["推荐等级"].astype(str).replace("nan", "").replace("None", "")
-    return apply_brand_display_aliases(show_df)
+    return apply_brand_display_aliases(annotate_jianghai_pending_display(show_df))
 
 
 def annotate_match_display_gaps(show_df, spec):

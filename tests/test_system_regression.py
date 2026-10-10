@@ -290,6 +290,26 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_jianghai_verified_parameters_reach_fast_hydration_and_display(self):
+        app = self.app
+        detail = {"品牌": "江海Jianghai", "型号": "ECS1ABZ183M250030",
+                  "_component_type": "铝电解电容", "_pf": 18000000000,
+                  "_volt_num": 250, "_life_hours_num": None, "_temp_low": None,
+                  "_temp_high": None, "_tol": "20"}
+        row = app["build_lightweight_component_row_from_search_sidecar"](detail, detail)
+        self.assertEqual(row["_volt_num"], 10)
+        self.assertEqual(row["_life_hours_num"], 2000)
+        self.assertEqual(row["ESR"], "30mΩ")
+        frame = app["prepare_search_dataframe"](pd.DataFrame([row]))
+        self.assertEqual(frame.iloc[0]["_temp_low"], -40)
+        shown = app["format_display_df"](frame)
+        self.assertEqual(shown.iloc[0]["耐压（V）"], "10V")
+        self.assertIn("Load Life", shown.iloc[0]["寿命类型"])
+        self.assertIn("120Hz", shown.iloc[0]["备注1"])
+        schema = dict(app["get_component_display_schema"]("铝电解电容"))
+        self.assertIn("寿命条件", schema)
+        self.assertIn("ESR条件", schema)
+
     def test_bom_parse_cache_reuses_content_without_stale_data(self):
         app = self.app
         state = {"_member_auth_token": "member-one"}
