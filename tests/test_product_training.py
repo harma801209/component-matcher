@@ -47,7 +47,7 @@ class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
@@ -128,3 +128,27 @@ for(const d of [null,[],1,'bad',{'r-power':{choice:0,correct:'true',attempts:1}}
         self.assertNotIn('innerHTML', tools)
         self.assertNotIn('fetch(', tools)
         self.assertNotIn('member_token', tools)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_circuit_current_conservation_and_continuous_energy_states(self):
+        script = r"""
+const m=require(process.argv[1]),a=require('node:assert/strict'),eq=(x,y)=>a(Math.abs(x-y)<1e-10);
+let r=m.evaluate('resistor',0);eq(r.i,0);r=m.evaluate('resistor',1);eq(r.i,3/220);eq(r.p,r.i*r.i*220);a(m.evaluate('resistor',2).i<r.i);
+let c0=m.evaluate('capacitor',0),c1=m.evaluate('capacitor',1,0),c2=m.evaluate('capacitor',1,1),c3=m.evaluate('capacitor',2,0);
+eq(c0.v,c1.v);eq(c1.icap,-.095);eq(c2.v,c3.v);a(c3.icap>0);
+for(let s=0;s<3;s++)for(const t of [0,.2,.8,1]){const c=m.evaluate('capacitor',s,t);eq(c.source,c.load+c.icap);a(c.energy>=0);}
+a(m.evaluate('capacitor',1,0,{cap:false}).v<c1.v);eq(m.evaluate('capacitor',1,0,{cap:false}).icap,0);
+let l1=m.evaluate('inductor',1,0),l2=m.evaluate('inductor',1,1),l3=m.evaluate('inductor',2,0),l4=m.evaluate('inductor',2,1);
+eq(l1.i,0);eq(l2.i,l3.i);a(l3.vl<0);a(l4.energy<l3.energy);a(l4.i>0);a(l4.freewheel);a(!l4.closed);
+eq(m.evaluate('diode',0).i,0);eq(m.evaluate('diode',1).output,4.3);eq(m.evaluate('diode',2).output,0);eq(m.evaluate('diode',2).i,0);
+for(const call of [()=>m.evaluate('unknown',0),()=>m.evaluate('diode',3),()=>m.evaluate('capacitor',1,NaN),()=>m.evaluate('resistor',1,-.1)])a.throws(call,RangeError);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_circuit_math.js')], check=True, capture_output=True)
+
+    def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
+        page=build_training_html()
+        for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','不是完整Buck','不是固定导通门槛']:
+            self.assertIn(word,page)
+        self.assertLess(page.index('id="circuit-card"'),page.index('class="workspace"'))
+        self.assertIn('training-course-change',page)
+        self.assertNotIn('<script src=',page)
