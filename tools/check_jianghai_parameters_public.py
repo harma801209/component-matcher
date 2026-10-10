@@ -1,7 +1,8 @@
-"""Read-only guest acceptance of source conditions on the formal UI."""
+"""Acceptance of source conditions; credentials supplied only by the runner."""
 import platform
 platform._wmi = None
 import json
+import os
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -22,11 +23,26 @@ with sync_playwright() as p:
             if app:break
             page.wait_for_timeout(300)
         assert app, 'Formal iframe missing'
+        account=os.environ.get('COMPONENT_QA_ACCOUNT','')
+        password=os.environ.get('COMPONENT_QA_PASSWORD','')
+        if not account or not password:
+            raise RuntimeError('Provide approved QA credentials through COMPONENT_QA_ACCOUNT and COMPONENT_QA_PASSWORD')
+        app.locator('.wb-login-button').click()
+        app.get_by_role('button',name='登录',exact=True).wait_for(timeout=90000)
+        app.get_by_role('textbox',name='账号',exact=True).first.fill(account)
+        app.get_by_role('textbox',name='密码',exact=True).first.fill(password)
+        app.get_by_role('button',name='登录',exact=True).click()
+        app.locator('.wb-user-link').wait_for(timeout=90000)
+        app.locator('.wb-nav').get_by_role('link',name='元器件搜索',exact=True).click()
         app.get_by_role('button',name='开始匹配',exact=True).wait_for(timeout=90000)
         app.get_by_text('指定品牌',exact=True).first.click()
         picker=app.get_by_role('combobox',name='选择匹配品牌')
         picker.click()
+        # The long brand menu is virtualized; filter rather than waiting for an
+        # off-screen option that has not been mounted in the browser yet.
+        picker.fill('江海')
         app.get_by_role('option').filter(has_text='江海').first.click()
+        picker.press('Escape')
         app.locator('textarea').first.fill('ECS1ABZ183M250030\nECR0JBK330M\nECS2HBZ101M')
         app.get_by_role('button',name='开始匹配',exact=True).click()
         deadline=time.monotonic()+150
@@ -45,16 +61,19 @@ with sync_playwright() as p:
             if len(observed)==3 and app.locator('.search-progress-summary-status').filter(has_text='已完成').count():break
             page.wait_for_timeout(700)
         assert len(observed)==3, {'found':list(observed), 'body':app.locator('body').inner_text()[-2000:]}
+        def field(row,*names):
+            return next((row[name] for name in names if name in row),'')
         low=observed['ECS1ABZ183M250030']
-        assert low.get('耐压（V）')=='10V',low
+        assert field(low,'耐压（V）','额定电压（V）')=='10V',low
         assert '2000' in low.get('寿命(h)',low.get('寿命（h）','')),low
         assert low.get('ESR')=='30mΩ',low
-        assert '120Hz' in low.get('ESR测试条件',''),low
-        assert '85' in low.get('纹波电流测试条件',''),low
-        assert '6.3' in observed['ECR0JBK330M'].get('耐压（V）',''),observed
+        assert '120Hz' in field(low,'ESR测试条件','ESR条件'),low
+        assert '85' in field(low,'纹波电流测试条件','纹波电流条件'),low
+        assert '6.3' in field(observed['ECR0JBK330M'],'耐压（V）','额定电压（V）'),observed
         assert '-40' in observed['ECR0JBK330M'].get('工作温度',''),observed
-        assert '500' in observed['ECS2HBZ101M'].get('耐压（V）',''),observed
+        assert '500' in field(observed['ECS2HBZ101M'],'耐压（V）','额定电压（V）'),observed
         assert '-25' in observed['ECS2HBZ101M'].get('工作温度',''),observed
+        assert all(not str(key).startswith('_') for row in observed.values() for key in row), 'Internal index fields leaked into the UI'
         assert not errors,errors
         page.screenshot(path=str(OUT/'formal-jianghai-parameters.png'),full_page=True)
         print(json.dumps({'status':'passed','models':observed,'browser_errors':errors},ensure_ascii=False))

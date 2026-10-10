@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-10T22:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-10T22:10:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -41243,7 +41243,13 @@ def apply_search_cost_visibility(show_df, can_view_cost=None, member=None):
 
 
 def format_display_df(show_df):
+    original_columns = set(show_df.columns)
     show_df = enrich_jianghai_frame(show_df.copy())
+    # Source/condition values are displayable; normalized SQL/calculation keys
+    # must not be reintroduced after the UI has selected its visible columns.
+    added_internal = [col for col in show_df.columns if str(col).startswith("_") and col not in original_columns]
+    if added_internal:
+        show_df = show_df.drop(columns=added_internal)
     show_df = normalize_resistor_model_display_fields(show_df)
     show_df = normalize_joyin_ntc_series_display_fields(show_df)
     show_df = normalize_pdc_series_description_display_fields(show_df)
