@@ -23,7 +23,7 @@
   </section>
   <div class="workspace">
     <section class="model-card" aria-label="3D结构探索">
-      <div class="section-head"><div><span class="eyebrow">01 / 结构探索</span><h2 id="model-title"></h2></div><span class="tag">3D 教学模型</span></div>
+      <div class="section-head"><div><span class="eyebrow">01 / 结构探索</span><h2 id="model-title"></h2></div><div class="model-heading-tools"><span class="tag">3D 教学模型</span><button id="show-cross-section" type="button">剖面与材料</button></div></div>
       <div class="viewport"><canvas id="model-canvas" tabindex="0" aria-label="可交互3D模型，拖动旋转，滚轮缩放；键盘方向键旋转，加减键缩放，0复位"></canvas><div class="view-hint">拖拽旋转 · 滚轮 / 双指缩放 · 点击部位</div><span id="state-badge" class="state-badge">结构示意</span></div>
       <div class="model-tools"><label class="explode-control" for="explode">拆解 <input id="explode" type="range" min="0" max="1" step="0.05" value="0"><output id="explode-value">0%</output></label><button id="rotate" type="button" aria-pressed="false">自动旋转</button><button id="animate" type="button" aria-pressed="false">内部示意动画</button><button id="reset-view" type="button">视角复位</button></div>
       <div id="parts" class="parts" aria-label="选择模型部位"></div>
@@ -43,6 +43,13 @@
       <div class="panel" id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz" hidden></div>
     </section>
   </div>
+  <section id="cross-section-card" class="cross-section-card" aria-label="内部剖面与材料">
+    <div class="section-head"><div><span class="eyebrow">看图辨层 / 材料组成</span><h2 id="cross-section-title" tabindex="-1">内部剖面与材料</h2></div><span id="cross-section-type" class="tag"></span></div>
+    <p class="cross-section-intro">点图上的编号或右侧材料条目，查看这一层的成分与作用。</p>
+    <div class="cross-section-layout"><div><div id="cross-section-drawing"></div><p id="cross-section-caption" class="cross-section-caption"></p></div><div><div id="cross-section-layers" class="cross-section-layers" aria-label="选择材料层"></div><div id="cross-section-detail" class="cross-section-detail" aria-live="polite"></div></div></div>
+    <p id="cross-section-limits" class="cross-section-limits"></p>
+    <details class="cross-section-sources"><summary>材料资料来源与适用范围</summary><div id="cross-section-sources"></div><p>只列公开资料可确认的典型材料，不提供未经证实的配比、掺杂浓度或尺寸。具体料号以原厂规格书、材料声明为准。</p></details>
+  </section>
   <section class="practice-card" aria-label="培训实战工具">
     <div class="section-head"><div><span class="eyebrow">02 / 学以致用</span><h2>从读型号，到做选型</h2></div><span class="tag">教学练习 · 不改业务数据</span></div>
     <div class="tabs" role="tablist" aria-label="实战工具">

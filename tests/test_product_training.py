@@ -47,7 +47,7 @@ class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_materials.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
@@ -208,6 +208,40 @@ eq(m.currentFlows('inductor',m.evaluate('inductor',2)).supply,0);
         script = (WEB_ROOT / 'training_circuit.js').read_text(encoding='utf-8')
         self.assertNotIn(".textContent='播放分步演示'", script)
         self.assertNotIn(".textContent='暂停演示'", script)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_material_lessons_have_source_scoped_components_not_fixed_recipes(self):
+        script = r"""
+const m=require(process.argv[1]),a=require('node:assert/strict');
+for(const course of ['resistor','capacitor','inductor','diode']){
+ const d=m.lesson(course);a(Object.isFrozen(d));a(Object.isFrozen(d.layers));
+ a(d.layers.length>=4);a.equal(new Set(d.layers.map(p=>p.id)).size,d.layers.length);
+ a(d.scope);a(d.caption);a(d.sources.length>=2);
+ for(const p of d.layers){for(const key of ['name','brief','composition','role','scope'])a(p[key]);a(p.refs.length);for(const ref of p.refs)a(d.sources[ref][1].startsWith('https://'));}
+}
+a.throws(()=>m.lesson('other'),RangeError);
+a.throws(()=>m.lesson('__proto__'),RangeError);
+a(m.lesson('resistor').layers.find(p=>p.id==='film').composition.includes('RuO₂'));
+a(m.lesson('capacitor').scope.includes('C0G'));
+a(m.lesson('capacitor').layers.find(p=>p.id==='dielectric').composition.includes('BaTiO₃'));
+a(m.lesson('inductor').scope.includes('一体成型'));
+a(m.lesson('diode').layers.find(p=>p.id==='junction').composition.includes('不是夹入'));
+a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('没有提供'));
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_materials.js')], check=True, capture_output=True)
+
+    def test_cross_sections_are_additive_and_do_not_persist_business_data(self):
+        page = build_training_html()
+        self.assertIn('id="show-cross-section"', page)
+        self.assertIn('id="cross-section-card"', page)
+        self.assertIn('id="model-canvas"', page)
+        self.assertLess(page.index('class="workspace"'), page.index('id="cross-section-card"'))
+        self.assertLess(page.index('id="cross-section-card"'), page.index('class="practice-card"'))
+        script = (WEB_ROOT / 'training_materials.js').read_text(encoding='utf-8')
+        for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+            self.assertNotIn(term, script)
+        for term in ['training-course-change', 'aria-pressed', 'noopener noreferrer', '未披露', '配比']:
+            self.assertIn(term, script)
 
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
