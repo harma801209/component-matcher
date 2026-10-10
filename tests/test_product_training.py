@@ -145,6 +145,29 @@ for(const call of [()=>m.evaluate('unknown',0),()=>m.evaluate('diode',3),()=>m.e
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_circuit_math.js')], check=True, capture_output=True)
 
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_capacitor_visual_contributions_complete_the_load_loop(self):
+        script = r"""
+const m=require(process.argv[1]),a=require('node:assert/strict'),eq=(x,y)=>a(Math.abs(x-y)<1e-10);
+for(const cap of [true,false])for(let step=0;step<3;step++)for(const u of [0,.01,.2,.8,1]){
+ const r=m.evaluate('capacitor',step,u,{cap}),f=m.currentFlows('capacitor',r);
+ eq(f.load+f['cap-load'],r.load);eq(f.source,f.return);
+ eq(f.source-r.icap,r.load);eq(f['cap-up'],r.icap);eq(f['cap-down'],r.icap);
+ a(f.load>=0);a(f['cap-load']>=0);
+ if(cap&&step===1){a(f['cap-load']>0);eq(f.load,r.source);eq(f['cap-load'],-r.icap);}
+ else{eq(f['cap-load'],0);eq(f.load,r.load);}
+ if(cap&&step===2){a(f['cap-up']>0);a(f.source>f.load);}
+ if(!cap||step===0){eq(f['cap-up'],0);eq(f['cap-down'],0);}
+}
+const r=m.evaluate('capacitor',1),f=m.currentFlows('capacitor',r);
+eq(f.load,.005);eq(f['cap-load'],.095);eq(f.load+f['cap-load'],.1);
+eq(m.currentFlows('resistor',m.evaluate('resistor',0)).main,0);
+eq(m.currentFlows('diode',m.evaluate('diode',2)).main,0);
+a(m.currentFlows('inductor',m.evaluate('inductor',2)).freewheel>0);
+eq(m.currentFlows('inductor',m.evaluate('inductor',2)).supply,0);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_circuit_math.js')], check=True, capture_output=True)
+
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
         for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','不是完整Buck','不是固定导通门槛']:

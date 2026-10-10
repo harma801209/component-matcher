@@ -17,6 +17,12 @@ Internal mesh animation is initially off and explicitly named internal illustrat
   across the dielectric gap. Removing the capacitor demonstrates the ideal RC
   model's immediate resistive supply droop, not a measured real-PCB transient.
   Real trace inductance, ESR/ESL, bias effects and IC behavior are not simulated.
+  During discharge the blue supply contribution and orange capacitor contribution
+  both pass through the IC and return via GND. Slightly offset color lanes represent
+  the same shared conductors, not additional physical PCB traces. Their currents
+  sum to the load current (initially 5 mA + 95 mA = 100 mA). During recharge orange
+  flows only in the capacitor branch; it does not supply the IC. Steady state and
+  removal of C1 disable all orange paths. No lane bridges the dielectric gap.
 - Inductor: 5 V, switch, 1 mH, 10 ohm load and an ideal freewheel diode. Charging
   and release both use the exact RL exponential with preserved boundary current.
   In release, the source path is inactive; the closed path is L -> R -> ground ->

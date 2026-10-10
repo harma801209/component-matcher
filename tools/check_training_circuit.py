@@ -49,10 +49,48 @@ with sync_playwright() as p:
                 assert abs(f.evaluate('TrainingCircuit.current().result.i')-.003)<1e-12
             elif course=='capacitor':
                 r=f.evaluate('TrainingCircuit.current().result');assert r['icap']<0
-                assert float(f.locator('#flow-cap-up').get_attribute('data-current'))<0
-                # No animated path is drawn through the capacitor dielectric gap.
-                assert f.locator('#flow-cap-up').get_attribute('d')=='M310 95V150'
-                assert f.locator('#flow-cap-down').get_attribute('d')=='M310 170V220'
+                for view in ['pcb','schematic']:
+                    press(f.locator('#circuit-'+view))
+                    for step,progress in [(0,0),(1,0),(1,.4),(1,1),(2,0),(2,.5),(2,1)]:
+                        f.evaluate('([s,u])=>TrainingCircuit.selectStep(s,u)',[step,progress])
+                        # The two colored contributions sum to the IC load, not two full loads.
+                        f.evaluate('''()=>{
+                            const r=TrainingCircuit.current().result;
+                            const current=id=>Number(document.getElementById('flow-'+id).dataset.current);
+                            if(Math.abs(current('load')+current('cap-load')-r.load)>1e-10)throw Error('IC current balance');
+                            if(Math.abs(current('source')-current('return'))>1e-10)throw Error('Supply return');
+                            const orange=document.getElementById('flow-cap-load');
+                            if(orange.style.opacity!==(r.icap<0?'1':'0'))throw Error('Orange IC phase');
+                            if(r.icap<0){
+                                if(current('cap-up')>=0||current('cap-down')>=0||current('cap-load')<=0)throw Error('Discharge direction');
+                                const points=[];
+                                for(const id of ['load','cap-load']){
+                                    const path=document.getElementById('flow-'+id),arrow=document.getElementById('arrow-'+id);
+                                    if(path.style.opacity!=='1'||arrow.style.opacity!=='1')throw Error('Missing IC flow');
+                                    const p=path.getPointAtLength(path.getTotalLength()*Number(path.dataset.arrowPosition));
+                                    if(p.x<409||p.x>491||p.y<125||p.y>195)throw Error('Arrow must pass inside IC');
+                                    const matrix=arrow.transform.baseVal.consolidate().matrix;
+                                    if(matrix.b<.99)throw Error('IC arrow must point towards GND');
+                                    points.push(p);
+                                    const start=path.getPointAtLength(0),end=path.getPointAtLength(path.getTotalLength());
+                                    if(start.x!==310||start.y!==95||end.x!==310||end.y!==220)throw Error('Load loop endpoints');
+                                }
+                                if(Math.abs(points[0].x-points[1].x)<20)throw Error('Color lanes overlap');
+                            }
+                            if(r.icap>0&&(current('cap-up')<=0||current('cap-down')<=0))throw Error('Recharge direction');
+                        }''')
+                    # No animated path is drawn through the capacitor dielectric gap.
+                    assert f.locator('#flow-cap-up').get_attribute('d')=='M310 95V150'
+                    assert f.locator('#flow-cap-down').get_attribute('d')=='M310 170V220'
+                    f.evaluate('TrainingCircuit.selectStep(1,0)')
+                    f.locator('#circuit-card').screenshot(path=str(out/f'{"formal" if args.public else "local"}-capacitor-discharge-{view}.png'))
+                    press(f.locator('#circuit-remove-cap'))
+                    for step in [0,1,2]:
+                        f.evaluate('s=>TrainingCircuit.selectStep(s,.3)',step)
+                        for path in ['cap-up','cap-down','cap-load']:
+                            assert f.locator('#flow-'+path).evaluate('e=>e.style.opacity')=='0'
+                    press(f.locator('#circuit-remove-cap'))
+                f.evaluate('TrainingCircuit.selectStep(1,0)')
                 press(f.locator('#circuit-remove-cap'))
                 assert f.evaluate('TrainingCircuit.current().result.v')<r['v']
                 assert f.locator('#flow-cap-up').evaluate('e=>e.style.opacity')=='0'

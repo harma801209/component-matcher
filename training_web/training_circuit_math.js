@@ -23,5 +23,14 @@
   const input=step===0?0:step===1?5:-5,vf=.7,r=1000,output=input>vf?input-vf:0,i=output/r;
   return {input,vf,r,output,i,conducting:i>0,reverse:input<0};
  }
- const api=Object.freeze({evaluate});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingCircuitMath=api;
+ // Shared conductors carry the sum of contributions, not a second full load current.
+ function currentFlows(course,r){
+  if(course==='resistor'||course==='diode')return {main:r.i};
+  if(course==='capacitor'){
+   const discharge=Math.max(0,-r.icap);
+   return {source:r.source,load:r.load-discharge,'cap-load':discharge,return:r.source,'cap-up':r.icap,'cap-down':r.icap};
+  }
+  return {supply:r.closed?r.i:0,freewheel:r.freewheel?r.i:0};
+ }
+ const api=Object.freeze({evaluate,currentFlows});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingCircuitMath=api;
 })(typeof window==='undefined'?globalThis:window);
