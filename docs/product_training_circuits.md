@@ -42,6 +42,10 @@ connections, not manufacturable layouts.
 ## Controls / safety
 
 Three selectable stages, play/pause, next, restart, and two display views.
+The three media controls use icon-only 44px buttons, with native hover titles and
+accessible names. Play switches to pause while running, including automatic stage
+transitions; completion, course changes and reset restore play. Next is disabled at
+the last stage. SVG icons are inline/decorative, with no icon-font/network dependency.
 Playback ends rather than looping; it is off initially, pauses elapsed time when
 offscreen or hidden, and does not mutate quiz/storage or business data. Course
 changes reset circuit stages/options and stop playback through a separate event.

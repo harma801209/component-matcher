@@ -31,6 +31,24 @@ with sync_playwright() as p:
         assert f is not None
         f.wait_for_function('typeof TrainingCircuit!=="undefined"')
         def press(loc):loc.focus();loc.press('Enter')
+        def icon_controls(playing=False):
+            controls=f.locator('.circuit-controls .circuit-icon-button')
+            assert controls.count()==3
+            for button in controls.all():
+                assert button.inner_text().strip()==''
+                assert button.get_attribute('aria-label')
+                assert button.get_attribute('title')
+                assert button.locator('svg:visible').count()==1
+                assert button.evaluate('e=>e.offsetWidth>=44&&e.offsetHeight>=44')
+                assert button.locator('svg[aria-hidden="true"][focusable="false"]').count()>=1
+            play=f.locator('#circuit-play')
+            label='暂停演示' if playing else '播放分步演示'
+            assert play.get_attribute('aria-label')==play.get_attribute('title')==label
+            assert play.get_attribute('aria-pressed')==str(playing).lower()
+            assert play.locator('.control-pause').is_visible()==playing
+            assert play.locator('.control-play').is_visible()!=playing
+            assert f.locator('#circuit-next').is_disabled()==(f.evaluate('TrainingCircuit.current().step')==2)
+        icon_controls()
         for course in ['resistor','capacitor','inductor','diode']:
             press(f.locator('button[data-course="'+course+'"]'))
             assert f.evaluate('TrainingCircuit.current().course')==course
@@ -40,6 +58,7 @@ with sync_playwright() as p:
                 press(f.locator('[data-circuit-step="'+str(s)+'"]'))
                 assert f.evaluate('TrainingCircuit.current().step')==s
                 assert f.locator('#circuit-headline').inner_text()
+                icon_controls()
             press(f.locator('#circuit-next'));assert f.evaluate('TrainingCircuit.current().step')==1
             press(f.locator('#circuit-schematic'));assert f.locator('#circuit-svg').get_attribute('class')=='schematic'
             press(f.locator('#circuit-pcb'));assert f.locator('#circuit-svg').get_attribute('class')=='pcb'
@@ -112,24 +131,35 @@ with sync_playwright() as p:
             assert f.locator('#circuit-card').is_visible()
             assert f.locator('#tool-panel-decode').is_visible()
         press(f.locator('button[data-course="capacitor"]'))
-        press(f.locator('#circuit-play'))
+        f.locator('#circuit-play').focus();f.locator('#circuit-play').press('Space')
+        icon_controls(playing=True)
         f.locator('#circuit-card').scroll_into_view_if_needed()
         f.wait_for_function('TrainingCircuit.current().step===1',timeout=7000)
+        icon_controls(playing=True)
         press(f.locator('#circuit-play'))
         state=f.evaluate('TrainingCircuit.current()');assert not state['playing']
+        icon_controls()
+        f.locator('.circuit-controls').screenshot(path=str(out/f'{"formal" if args.public else "local"}-icon-controls.png'))
         page.wait_for_timeout(300)
         assert f.evaluate('TrainingCircuit.current().u')==state['u']
         press(f.locator('#circuit-play'))
         f.locator('#circuit-card').scroll_into_view_if_needed()
         f.wait_for_function('TrainingCircuit.current().step===2&&!TrainingCircuit.current().playing',timeout=14000)
         assert f.evaluate('TrainingCircuit.current().u')==1
+        icon_controls()
+        assert f.locator('#circuit-next').get_attribute('title')=='已是最后一步'
+        press(f.locator('#circuit-play'))
+        assert f.evaluate('TrainingCircuit.current().step')==0
+        icon_controls(playing=True)
         press(f.locator('#circuit-reset'));assert f.evaluate('TrainingCircuit.current().step')==0
+        icon_controls()
         for width in [900,390]:
             page.set_viewport_size({'width':width,'height':1100})
             f.locator('#circuit-card').scroll_into_view_if_needed()
             size=f.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
             assert size['scroll']<=size['client']+1,size
+            icon_controls()
             page.screenshot(path=str(out/f'{"formal" if args.public else "local"}-{width}.png'),full_page=True)
         assert not errors,errors
-        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'play_pause_finish':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
+        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'play_pause_finish':True,'icon_controls':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
     finally:context.close();browser.close()

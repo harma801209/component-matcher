@@ -168,6 +168,47 @@ eq(m.currentFlows('inductor',m.evaluate('inductor',2)).supply,0);
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_circuit_math.js')], check=True, capture_output=True)
 
+    def test_circuit_media_controls_are_icon_only_with_accessible_names(self):
+        from html.parser import HTMLParser
+
+        class Controls(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.buttons, self.current = {}, None
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'button' and attrs.get('id') in ('circuit-play', 'circuit-next', 'circuit-reset'):
+                    self.current = attrs['id']
+                    self.buttons[self.current] = {'attrs': attrs, 'icons': [], 'text': ''}
+                elif tag == 'svg' and self.current:
+                    self.buttons[self.current]['icons'].append(attrs)
+
+            def handle_endtag(self, tag):
+                if tag == 'button':
+                    self.current = None
+
+            def handle_data(self, value):
+                if self.current:
+                    self.buttons[self.current]['text'] += value
+
+        parser = Controls()
+        parser.feed(build_training_html())
+        for name, label in [('circuit-play', '播放分步演示'), ('circuit-next', '下一步'), ('circuit-reset', '重新开始')]:
+            button = parser.buttons[name]
+            self.assertEqual(button['text'].strip(), '')
+            self.assertEqual(button['attrs']['aria-label'], label)
+            self.assertEqual(button['attrs']['title'], label)
+            self.assertIn('circuit-icon-button', button['attrs']['class'])
+            self.assertTrue(button['icons'])
+            for icon in button['icons']:
+                self.assertEqual(icon['aria-hidden'], 'true')
+                self.assertEqual(icon['focusable'], 'false')
+        self.assertEqual(len(parser.buttons['circuit-play']['icons']), 2)
+        script = (WEB_ROOT / 'training_circuit.js').read_text(encoding='utf-8')
+        self.assertNotIn(".textContent='播放分步演示'", script)
+        self.assertNotIn(".textContent='暂停演示'", script)
+
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
         for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','不是完整Buck','不是固定导通门槛']:

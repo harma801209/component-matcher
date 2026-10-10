@@ -10,3 +10,11 @@
 @media(max-width:860px){.circuit-layout{grid-template-columns:1fr}.circuit-explanation{padding-top:0}.circuit-explanation>p{min-height:0}.circuit-explanation h3{font-size:16px}.circuit-card .section-head{flex-wrap:wrap}.circuit-views button{font-size:12px}.circuit-steps{gap:5px}.circuit-steps button{padding:7px;font-size:11px}}
 @media(max-width:420px){.circuit-layout{padding:0 12px 12px;gap:9px}.circuit-card .section-head h2{font-size:15px}.circuit-controls,.circuit-steps{padding-left:12px;padding-right:12px}.circuit-controls span{flex-basis:100%}.circuit-steps button{min-height:52px}.circuit-metrics strong{font-size:17px}}
 .circuit-card #circuit-svg .wire{stroke:#b4c1cc}
+.circuit-controls .circuit-icon-button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border-radius:8px;flex:none}
+.circuit-controls .control-icon{display:block;width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+#circuit-play .control-pause{display:none}
+#circuit-play[aria-pressed=true] .control-play{display:none}
+#circuit-play[aria-pressed=true] .control-pause{display:block}
+.circuit-controls .circuit-icon-button:hover:not(:disabled){border-color:#83a8ec;background:#edf4ff}
+.circuit-controls .circuit-icon-button.primary:hover{background:#1046c4;color:white}
+.circuit-controls .circuit-icon-button:disabled{opacity:.4;cursor:not-allowed}
