@@ -39,6 +39,7 @@ with sync_playwright() as p:
         def press(n):n.focus();n.press('Enter')
         for course in ['resistor','capacitor','inductor','diode']:
             press(f.locator('button[data-course="'+course+'"]'))
+            f.locator('#cross-section-card').evaluate('e=>e.open=true')
             assert f.evaluate('TrainingMaterials.current().course')==course
             assert f.locator('#cross-section-card').get_attribute('data-course')==course
             data=f.evaluate('TrainingMaterials.lesson(TrainingMaterials.current().course)')
@@ -64,7 +65,8 @@ with sync_playwright() as p:
             assert f.evaluate('TrainingMaterials.current().selected')==data['layers'][-1]['id']
             assert not f.evaluate('TrainingMaterials.select("<bad>")')
             press(f.locator('#show-cross-section'))
-            assert f.locator('#cross-section-title').evaluate('e=>e===document.activeElement')
+            assert f.locator('#model-canvas').evaluate('e=>e===document.activeElement')
+            assert f.evaluate('TrainingLesson.current().modelMode')=='materials'
             assert f.locator('#cross-section-card').is_visible()
             press(f.locator('#tab-performance'))
             assert f.locator('#metrics').is_visible()
@@ -85,6 +87,7 @@ with sync_playwright() as p:
             page.set_viewport_size({'width':width,'height':1000})
             for course in ['resistor','capacitor','inductor','diode']:
                 press(f.locator('button[data-course="'+course+'"]'))
+                f.locator('#cross-section-card').evaluate('e=>e.open=true')
                 f.locator('#cross-section-card').scroll_into_view_if_needed()
                 size=f.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
                 assert size['scroll']<=size['client']+1,size

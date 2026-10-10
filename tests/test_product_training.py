@@ -9,6 +9,32 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_material_volume_parts_and_anchors_share_the_source_lesson(self):
+        script = r"""
+const g=require(process.argv[1]),d=require(process.argv[2]),a=require('node:assert/strict');
+const box=(f,p,size,color,id)=>f.push({id,color,p:[p,p.map((v,i)=>v+size[i]),p.map((v,i)=>v-size[i])]});
+const tube=(f,p,q,r,color,id)=>f.push({id,color,p:[p,q,p.map(v=>v+r)]});
+for(const course of ['resistor','capacitor','inductor','diode'])for(const e of [0,.5,1]){
+ const result=g.build(course,e,{box,tube}),ids=d.lesson(course).layers.map(p=>p.id);
+ a.deepEqual(result.anchors.map(p=>p.id),ids);a.deepEqual([...new Set(result.faces.map(f=>f.id))].sort(),[...ids].sort());
+ for(const p of result.anchors){a(p.name);a(p.material);a.equal(p.point.length,3);a(p.point.every(Number.isFinite));}
+ for(const f of result.faces){a(f.color.every(Number.isFinite));for(const p of f.p)a(p.every(Number.isFinite));}
+ if(course==='diode'){a.equal(result.anchors.find(p=>p.id==='p').point[0],-.46);a.equal(result.anchors.find(p=>p.id==='n').point[0],.46);}
+}
+a.throws(()=>g.build('other',0,{box,tube}),RangeError);a.throws(()=>g.build('resistor',NaN,{box,tube}),RangeError);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js'), str(WEB_ROOT / 'training_material_data.js')], check=True, capture_output=True)
+
+    def test_material_mode_uses_same_canvas_and_collapsed_reference(self):
+        page = build_training_html()
+        self.assertEqual(page.count('<canvas'), 1)
+        self.assertIn('id="model-exterior"', page)
+        self.assertIn('内部材料结构', page)
+        self.assertIn('<details id="cross-section-card"', page)
+        self.assertIn('data-model-material', page)
+        self.assertIn('TrainingMaterialGeometry.build', page)
+
     def test_learner_page_omits_admin_copy_and_keeps_explanations(self):
         page = build_training_html()
         for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用', '系统已核对', '不模拟', '未经披露', '计算条件与补充说明', '学习记录说明', '不随会员账号同步']:
@@ -77,7 +103,7 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_materials.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_material_data.js", "training_material_geometry.js", "training_materials.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
@@ -276,7 +302,7 @@ a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('原厂�
         self.assertIn('id="model-canvas"', page)
         self.assertLess(page.index('class="workspace"'), page.index('id="cross-section-card"'))
         self.assertLess(page.index('id="cross-section-card"'), page.index('class="practice-card"'))
-        script = (WEB_ROOT / 'training_materials.js').read_text(encoding='utf-8')
+        script = (WEB_ROOT / 'training_materials.js').read_text(encoding='utf-8') + (WEB_ROOT / 'training_material_data.js').read_text(encoding='utf-8')
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
             self.assertNotIn(term, script)
         for term in ['training-course-change', 'aria-pressed', 'noopener noreferrer', '材料声明', '配比']:
