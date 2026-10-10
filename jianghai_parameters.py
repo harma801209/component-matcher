@@ -182,6 +182,14 @@ def annotate_pending_display(frame):
         entry = by_model.get(model_key(frame.at[idx,'型号']))
         if entry is None:
             continue
+        # The legacy current formatter uppercases mA to MA. Preserve the
+        # manufacturer's verified SI prefix, without changing other brands or
+        # guessing the unit on an unverified legacy electrical value.
+        ripple = entry['values'].get('纹波电流')
+        if ripple and '纹波电流' in frame.columns:
+            if out is frame:
+                out = frame.copy()
+            out.at[idx,'纹波电流'] = ripple
         for field in ('寿命（h）','工作温度','ESR','纹波电流'):
             if field not in frame.columns or str(frame.at[idx,field]).strip().lower() not in ('','nan','none','null'):
                 continue

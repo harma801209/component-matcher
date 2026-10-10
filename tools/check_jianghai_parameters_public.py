@@ -71,6 +71,7 @@ with sync_playwright() as p:
         assert '85' in field(low,'纹波电流测试条件','纹波电流条件'),low
         assert '6.3' in field(observed['ECR0JBK330M'],'耐压（V）','额定电压（V）'),observed
         assert '-40' in observed['ECR0JBK330M'].get('工作温度',''),observed
+        assert observed['ECR0JBK330M'].get('纹波电流')=='105mA',observed
         assert '500' in field(observed['ECS2HBZ101M'],'耐压（V）','额定电压（V）'),observed
         assert '-25' in observed['ECS2HBZ101M'].get('工作温度',''),observed
         assert all(not str(key).startswith('_') for row in observed.values() for key in row), 'Internal index fields leaked into the UI'

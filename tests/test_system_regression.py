@@ -310,6 +310,8 @@ class SystemRegressionTests(unittest.TestCase):
         displayed = app["format_display_df"](selected)
         self.assertFalse(any(str(col).startswith("_") for col in displayed.columns))
         self.assertEqual(displayed.iloc[0]["耐压（V）"], "10V")
+        milli = app["format_display_df"](pd.DataFrame([{"品牌":"江海Jianghai","型号":"ECR0JBK330M","纹波电流":""}]))
+        self.assertEqual(milli.iloc[0]["纹波电流"], "105mA")
         schema = dict(app["get_component_display_schema"]("铝电解电容"))
         self.assertIn("寿命条件", schema)
         self.assertIn("ESR条件", schema)
