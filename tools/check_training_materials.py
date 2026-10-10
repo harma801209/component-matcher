@@ -48,6 +48,8 @@ with sync_playwright() as p:
                 press(f.locator('#cross-section-layers button[data-material="'+part['id']+'"]'))
                 assert f.evaluate('TrainingMaterials.current().selected')==part['id']
                 assert f.locator('#cross-section-detail h3').inner_text()==part['name']
+                assert f.locator('#cross-section-detail details').get_attribute('open') is None
+                press(f.locator('#cross-section-detail summary'))
                 text=f.locator('#cross-section-detail').inner_text()
                 assert part['composition'] in text and part['role'] in text and part['scope'] in text
                 assert f.locator('#cross-section-drawing .selected').count()==1
@@ -71,8 +73,10 @@ with sync_playwright() as p:
             assert f.locator('#circuit-card').is_visible()
             assert f.locator('#tool-panel-decode').is_visible()
             f.locator('#cross-section-card').screenshot(path=str(out/f'{"formal" if args.public else "local"}-{course}.png'))
+            disclosure=f.locator('#cross-section-sources').locator('xpath=..')
+            if disclosure.get_attribute('open') is None:
+                press(disclosure.locator('summary'))
             assert data['scope'] in f.locator('#cross-section-limits').inner_text()
-            press(f.locator('#cross-section-sources').locator('xpath=..').locator('summary'))
             assert f.locator('#cross-section-sources a').count()==len(data['sources'])
             for link in f.locator('#cross-section-sources a').all():
                 assert link.get_attribute('href').startswith('https://')

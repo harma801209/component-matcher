@@ -39,6 +39,11 @@
   $('circuit-drawing').innerHTML='<svg id="circuit-svg" class="'+view+'" viewBox="0 0 560 275" role="img" aria-label="'+content[course].title+'"><rect class="board" x="12" y="15" width="536" height="250" rx="12"/>'+shapes+'<g class="current-paths">'+flows+'</g></svg>';
   flowNodes=[...document.querySelectorAll('#circuit-svg .flow-track')].map(path=>({id:path.id.slice(5),path,arrow:$('arrow-'+path.id.slice(5)),length:path.getTotalLength()}));
  }
+ function renderEffects(r){
+  const lesson=window.TrainingEffects.describe(course,step,r);
+  for(const [id,value] of [['effect-change',lesson.change],['effect-why',lesson.why],['effect-sales',lesson.sales],['effect-note',lesson.note]])if($(id).textContent!==value)$(id).textContent=value;
+  $('effect-comparison').replaceChildren(...lesson.comparison.map(([label,value,unit])=>{const n=node('div');n.dataset.value=String(value);n.dataset.unit=unit;n.append(node('span',label),node('strong',unit==='V'?value.toFixed(3)+' V':format(value,unit)));return n;}));
+ }
  function renderState(clock=0){
   const r=evaluate(),flows=M.currentFlows(course,r);
   for(const f of flowNodes){const current=flows[f.id]||0,on=Math.abs(current)>1e-7,sign=current<0?-1:1;f.path.style.opacity=on?'1':'0';f.arrow.style.opacity=on?'1':'0';f.path.dataset.current=String(current);const distance=playing?(clock*.07*sign%f.length+f.length)%f.length:f.length*Number(f.path.dataset.arrowPosition);const p=f.path.getPointAtLength(distance),q=f.path.getPointAtLength(Math.min(f.length,distance+1));f.arrow.setAttribute('transform','translate('+p.x+' '+p.y+') rotate('+(Math.atan2(q.y-p.y,q.x-p.x)*180/Math.PI+(sign<0?180:0))+')');}
@@ -49,6 +54,7 @@
   const metrics=course==='resistor'?[['支路电流',format(r.i,'A')],['电阻功耗',format(r.p,'W')]]:course==='capacitor'?[['芯片供电',r.v.toFixed(3)+' V'],[r.icap<0?'电容补电':'电容回充',format(Math.abs(r.icap),'A')]]:course==='inductor'?[['电感电流',format(r.i,'A')],['磁场储能',format(r.energy,'J')]]:[['负载电压',r.output.toFixed(1)+' V'],['支路电流',format(r.i,'A')]];
   $('circuit-metrics').replaceChildren(...metrics.map(([label,value])=>{const n=node('div');n.append(node('span',label),node('strong',value));return n;}));
   $('circuit-time').textContent=(playing?'慢放演示中 · ':step===2&&u===1?'演示结束 · ':'手动查看 · ')+(course==='capacitor'||course==='inductor'?'本阶段真实时间 '+format(r.t,'s'):'参数为课堂示例');
+  renderEffects(r);
   $('circuit-card').dataset.course=course;$('circuit-card').dataset.step=String(step);$('circuit-card').dataset.progress=u.toFixed(3);
  }
  function selectStep(next,progress=0){stop();step=next;u=progress;elapsed=u*4500;const c=content[course];$('circuit-stage').textContent='第 '+(step+1)+' / 3 步';$('circuit-headline').textContent=c.head[step];$('circuit-story').textContent=c.story[step];$('circuit-status').textContent=c.head[step];document.querySelectorAll('[data-circuit-step]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.circuitStep)===step)));$('circuit-next').disabled=step===2;$('circuit-next').title=step===2?'已是最后一步':'下一步';renderState();}

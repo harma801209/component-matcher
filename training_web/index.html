@@ -7,7 +7,7 @@
   <nav id="courses" aria-label="培训产品类别"></nav>
   <section id="circuit-card" class="circuit-card" aria-label="PCB电路工作演示">
     <div class="section-head"><div><span class="eyebrow">先看应用 / PCB电路工作演示</span><h2 id="circuit-title"></h2></div><div class="circuit-views" role="group" aria-label="电路显示方式"><button id="circuit-pcb" type="button" aria-pressed="true">PCB示意</button><button id="circuit-schematic" type="button" aria-pressed="false">电路图</button></div></div>
-    <div class="circuit-layout"><div><div id="circuit-drawing"></div><div class="circuit-legend"><span class="legend-source">蓝色：电源供电</span><span class="legend-energy">橙色：储能释放 / 回充</span><span>灰色：当前无电流</span></div><p class="circuit-caption">箭头表示约定电流方向；PCB为单层连接示意，不是可直接生产的布板图。动画慢放，不代表真实时间或电子移动速度。</p></div><div class="circuit-explanation"><span id="circuit-stage" class="eyebrow"></span><h3 id="circuit-headline"></h3><p id="circuit-story"></p><div id="circuit-metrics" class="circuit-metrics"></div><div class="circuit-takeaway"><strong>记住这一句</strong><p id="circuit-takeaway"></p></div><div id="circuit-options"></div></div></div>
+    <div class="circuit-layout"><div><div id="circuit-drawing"></div><div class="circuit-legend"><span class="legend-source">蓝色：电源供电</span><span class="legend-energy">橙色：储能释放 / 回充</span><span>灰色：当前无电流</span></div><p class="circuit-caption">沿箭头看约定电流方向，再看下面“电路发生什么变化”。动画为慢放示意。</p></div><div class="circuit-explanation"><span id="circuit-stage" class="eyebrow"></span><h3 id="circuit-headline"></h3><p id="circuit-story"></p><div id="circuit-metrics" class="circuit-metrics"></div><div class="circuit-takeaway"><strong>记住这一句</strong><p id="circuit-takeaway"></p></div><div id="circuit-options"></div></div></div>
     <div id="circuit-steps" class="circuit-steps" aria-label="选择电路演示步骤"></div>
     <div class="circuit-controls">
       <button id="circuit-play" class="primary circuit-icon-button" type="button" aria-pressed="false" aria-label="播放分步演示" title="播放分步演示">
@@ -18,7 +18,12 @@
       <button id="circuit-reset" class="circuit-icon-button" type="button" aria-label="重新开始" title="重新开始"><svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 10A8 8 0 1 1 4.5 16M4 4V10H10"/></svg></button>
       <span id="circuit-time"></span>
     </div>
-    <details class="circuit-assumptions"><summary>教学条件与参考资料</summary><p id="circuit-assumptions"></p><div id="circuit-sources"></div></details>
+    <section class="circuit-effects" aria-label="器件如何影响电路">
+      <article><h3>电路发生什么变化？</h3><p id="effect-change"></p><div id="effect-comparison" class="effect-comparison"></div><small id="effect-note"></small></article>
+      <article><h3>为什么会这样？</h3><p id="effect-why"></p></article>
+      <article><h3>怎么向客户解释？</h3><p id="effect-sales"></p></article>
+    </section>
+    <details class="circuit-assumptions"><summary>想了解更多：示例条件与资料</summary><p id="circuit-assumptions"></p><div id="circuit-sources"></div></details>
     <p id="circuit-status" class="sr-only" role="status"></p>
   </section>
   <div class="workspace">
@@ -28,7 +33,7 @@
       <div class="model-tools"><label class="explode-control" for="explode">拆解 <input id="explode" type="range" min="0" max="1" step="0.05" value="0"><output id="explode-value">0%</output></label><button id="rotate" type="button" aria-pressed="false">自动旋转</button><button id="animate" type="button" aria-pressed="false">内部示意动画</button><button id="reset-view" type="button">视角复位</button></div>
       <div id="parts" class="parts" aria-label="选择模型部位"></div>
       <div id="part-detail" class="part-detail" aria-live="polite"></div>
-      <p class="model-note">模型、层厚和动画速度为教学示意，不代表具体料号的内部比例、加工过程或真实响应速度。拆解视图不表示器件可以实际拆卸。</p>
+      <p class="model-note">内部结构已放大，便于观察；动画为慢放示意。实际产品尺寸和材料以具体型号资料为准。</p>
     </section>
     <section class="knowledge-card" aria-label="产品知识">
       <div class="tabs" role="tablist" aria-label="知识主题">
@@ -47,22 +52,21 @@
     <div class="section-head"><div><span class="eyebrow">看图辨层 / 材料组成</span><h2 id="cross-section-title" tabindex="-1">内部剖面与材料</h2></div><span id="cross-section-type" class="tag"></span></div>
     <p class="cross-section-intro">点图上的编号或右侧材料条目，查看这一层的成分与作用。</p>
     <div class="cross-section-layout"><div><div id="cross-section-drawing"></div><p id="cross-section-caption" class="cross-section-caption"></p></div><div><div id="cross-section-layers" class="cross-section-layers" aria-label="选择材料层"></div><div id="cross-section-detail" class="cross-section-detail" aria-live="polite"></div></div></div>
-    <p id="cross-section-limits" class="cross-section-limits"></p>
-    <details class="cross-section-sources"><summary>材料资料来源与适用范围</summary><div id="cross-section-sources"></div><p>只列公开资料可确认的典型材料，不提供未经证实的配比、掺杂浓度或尺寸。具体料号以原厂规格书、材料声明为准。</p></details>
+    <details class="cross-section-sources"><summary>想了解更多：材料资料与产品差异</summary><p id="cross-section-limits"></p><div id="cross-section-sources"></div><p>不同系列的材料和结构可能不同；给客户确认具体成分时，请查对应型号的原厂资料。</p></details>
   </section>
   <section class="practice-card" aria-label="培训实战工具">
-    <div class="section-head"><div><span class="eyebrow">02 / 学以致用</span><h2>从读型号，到做选型</h2></div><span class="tag">教学练习 · 不改业务数据</span></div>
+    <div class="section-head"><div><span class="eyebrow">02 / 学以致用</span><h2>从读型号，到做选型</h2></div><span class="tag">练习客户常见问题</span></div>
     <div class="tabs" role="tablist" aria-label="实战工具">
       <button type="button" role="tab" id="tool-decode" data-tool="decode" aria-controls="tool-panel-decode" aria-selected="true">型号拆解</button>
       <button type="button" role="tab" id="tool-scenario" data-tool="scenario" aria-controls="tool-panel-scenario" aria-selected="false" tabindex="-1">选型实战</button>
       <button type="button" role="tab" id="tool-mistakes" data-tool="mistakes" aria-controls="tool-panel-mistakes" aria-selected="false" tabindex="-1">错题本 <span id="mistake-count">0</span></button>
     </div>
     <div id="tool-panel-decode" class="tool-panel" role="tabpanel" aria-labelledby="tool-decode">
-      <p class="lead">富捷 FRC / FRL / FRM / FCM 支持格式分段；国巨、村田及二极管先提供已核对的具体型号示例。其他型号会提示暂未覆盖，不会猜测参数。</p>
+      <p class="lead">先点一个示例，看看型号中的尺寸、参数值和精度分别在哪里。富捷支持FRC / FRL / FRM / FCM；国巨、村田和二极管可从下面的示例开始。</p>
       <form id="decode-form"><label for="decode-input">输入一个完整型号</label><div class="decode-row"><input id="decode-input" type="text" maxlength="96" autocomplete="off" spellcheck="false" placeholder="例如 FRC0603J221 TS"><button class="primary" type="submit">拆解型号</button></div></form>
       <div id="decode-examples" class="example-buttons" aria-label="型号示例"></div>
       <div id="decode-result" aria-live="polite"></div>
-      <p class="storage-note">此工具解释编码，不查询库存或成本、不确认该完整料号可生产，也不自动修正或替代型号。额定功率、耐压、TCR等未明确编码的参数须查相应规格书。</p>
+      <p class="storage-note">这里只拆解型号，不自动修正或替代型号；查价格请用“元器件搜索”。功率、耐压等没有写在编码里的参数，要查对应规格书。</p>
     </div>
     <div id="tool-panel-scenario" class="tool-panel" role="tabpanel" aria-labelledby="tool-scenario" hidden>
       <label for="scenario-select">选择练习场景</label><select id="scenario-select"></select>
@@ -73,10 +77,10 @@
       <p class="lead">答错的课堂小测验和选型题会收录在这里。查看解析后再答一次；答对后从错题本移除。</p>
       <div id="mistake-list"></div><button id="clear-practice" type="button">清除本浏览器练习记录</button><div id="clear-confirm" hidden><p>将清除本浏览器的答题进度和错题记录，不能撤销。是否继续？</p><button id="confirm-clear" type="button">确认清除</button><button id="cancel-clear" type="button">取消</button></div>
     </div>
-    <p id="practice-storage" class="storage-note" role="status"></p>
+    <details class="practice-record-help"><summary>学习记录说明</summary><p id="practice-storage" class="storage-note" role="status"></p></details>
   </section>
   <section class="takeaways"><span class="eyebrow">选型提醒</span><div id="takeaways"></div></section>
-  <section class="references"><div class="section-head"><div><span class="eyebrow">参考资料</span><h2>从课堂回到真实产品</h2></div><span class="tag">厂家技术资料</span></div><p id="example"></p><div id="sources"></div><p class="source-note">资料核对日期：2026-10-09。课堂计算采用明确列出的简化模型，不替代具体料号数据手册、仿真模型或实际测试；额定值、降额条件与适用范围请以厂家最新版资料为准。</p></section>
+  <section class="references"><div class="section-head"><div><span class="eyebrow">参考资料</span><h2>查具体型号时，看原厂资料</h2></div><span class="tag">厂家技术资料</span></div><p id="example"></p><div id="sources"></div><p class="source-note">演示帮助理解原理，不替代具体型号的规格书；确认选型时，还要核对工作条件。</p></section>
   <noscript>请启用 JavaScript 以使用3D模型和参数实验；产品原理可查阅相应厂家的公开技术资料。</noscript>
 </main>
 <script>__TRAINING_JS__</script>

@@ -9,6 +9,36 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    def test_learner_page_omits_admin_copy_and_keeps_explanations(self):
+        page = build_training_html()
+        for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用']:
+            self.assertNotIn(phrase, page)
+        for phrase in ['电路发生什么变化', '为什么会这样', '怎么向客户解释', '学习记录说明', '计算条件与补充说明']:
+            self.assertIn(phrase, page)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_circuit_effects_follow_animation_time_and_options(self):
+        script = r"""
+const e=require(process.argv[1]),m=require(process.argv[2]),a=require('node:assert/strict');
+const near=(x,y)=>a(Math.abs(x-y)<1e-10);
+for(const c of ['resistor','capacitor','inductor','diode'])for(let s=0;s<3;s++)for(const u of [0,.4,1]){
+ const r=m.evaluate(c,s,u),d=e.describe(c,s,r);
+ for(const k of ['change','why','sales','note'])a(d[k].length>10);
+ a.equal(d.comparison.length,2);for(const [label,value,unit] of d.comparison){a(label);a(Number.isFinite(value));a(['A','V'].includes(unit));}
+ if(c==='capacitor'){near(d.comparison[0][1],r.v);near(d.comparison[1][1],m.evaluate(c,s,u,{cap:false}).v);}
+ if(c==='inductor'){near(d.comparison[0][1],r.i);near(d.comparison[1][1],s===1?.5:0);}
+ if(c==='diode'){near(d.comparison[0][1],r.input);near(d.comparison[1][1],r.output);}
+}
+const start=e.describe('capacitor',1,m.evaluate('capacitor',1,0));
+near(start.comparison[0][1],3.295);near(start.comparison[1][1],3.2);
+a(e.describe('capacitor',1,m.evaluate('capacitor',1,0,{cap:false})).change.includes('移除C1'));
+a(e.describe('resistor',2,m.evaluate('resistor',2,0,{r:1000})).change.includes('变小'));
+a(e.describe('resistor',2,m.evaluate('resistor',2,0,{r:220})).change.includes('更亮'));
+a(e.describe('resistor',1,m.evaluate('resistor',1)).why.includes('不是电流进去多、出来少'));
+a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('diode',4,{}),RangeError);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_effects.js'), str(WEB_ROOT / 'training_circuit_math.js')], check=True, capture_output=True)
+
     def test_page_has_all_four_lessons_and_inline_resources(self):
         page = build_training_html()
         for term in ["贴片电阻", "陶瓷电容", "电感", "二极管", "规格参数", "电气性能", "工作原理", "拆解", "TrainingMath", "function project"]:
@@ -23,7 +53,7 @@ class ProductTrainingTests(unittest.TestCase):
         page = build_training_html()
         for domain in ["vishay.com", "murata.com", "coilcraft.com", "assets.nexperia.com"]:
             self.assertIn(domain, page)
-        for term in ["不替代", "不模拟击穿", "DC偏压", "Isat", "Irms", "非温度", "约定电流", "不写入会员或业务数据库"]:
+        for term in ["不替代", "不含串联电阻、击穿和自热", "DC偏压", "Isat", "Irms", "非温度", "约定电流", "计算条件与补充说明"]:
             self.assertIn(term, page)
         self.assertIn('rel="noopener noreferrer"', page)
 
@@ -47,7 +77,7 @@ class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_materials.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_materials.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
@@ -120,7 +150,7 @@ for(const d of [null,[],1,'bad',{'r-power':{choice:0,correct:'true',attempts:1}}
 
     def test_practice_panels_are_separate_and_data_is_browser_only(self):
         page = build_training_html()
-        for term in ['型号拆解', '选型实战', '错题本', '同一浏览器的不同账号共用', '不自动修正', '暂未覆盖', '确认清除']:
+        for term in ['型号拆解', '选型实战', '错题本', '学习记录保存在当前浏览器', '不自动修正', '暂未覆盖', '确认清除']:
             self.assertIn(term, page)
         self.assertIn(".knowledge-card [role=\"tabpanel\"]", page)
         self.assertIn("fruition_training_practice_v1", page)
@@ -240,7 +270,7 @@ a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('没有�
         script = (WEB_ROOT / 'training_materials.js').read_text(encoding='utf-8')
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
             self.assertNotIn(term, script)
-        for term in ['training-course-change', 'aria-pressed', 'noopener noreferrer', '未披露', '配比']:
+        for term in ['training-course-change', 'aria-pressed', 'noopener noreferrer', '材料声明', '配比']:
             self.assertIn(term, script)
 
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):

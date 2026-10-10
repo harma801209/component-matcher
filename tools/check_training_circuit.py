@@ -58,6 +58,10 @@ with sync_playwright() as p:
                 press(f.locator('[data-circuit-step="'+str(s)+'"]'))
                 assert f.evaluate('TrainingCircuit.current().step')==s
                 assert f.locator('#circuit-headline').inner_text()
+                for field in ['change','why','sales','note']:
+                    assert f.locator('#effect-'+field).inner_text()
+                assert f.locator('#effect-comparison strong').count()==2
+                assert all(term not in f.locator('body').inner_text() for term in ['管理员','业务数据库','不改业务数据','不写入会员'])
                 icon_controls()
             press(f.locator('#circuit-next'));assert f.evaluate('TrainingCircuit.current().step')==1
             press(f.locator('#circuit-schematic'));assert f.locator('#circuit-svg').get_attribute('class')=='schematic'
@@ -72,6 +76,10 @@ with sync_playwright() as p:
                     press(f.locator('#circuit-'+view))
                     for step,progress in [(0,0),(1,0),(1,.4),(1,1),(2,0),(2,.5),(2,1)]:
                         f.evaluate('([s,u])=>TrainingCircuit.selectStep(s,u)',[step,progress])
+                        values=f.locator('#effect-comparison>div').evaluate_all('ns=>ns.map(n=>Number(n.dataset.value))')
+                        result=f.evaluate('TrainingCircuit.current().result')
+                        assert abs(values[0]-result['v'])<1e-10
+                        assert abs(values[1]-(3.2 if step==1 else 3.295))<1e-10
                         # The two colored contributions sum to the IC load, not two full loads.
                         f.evaluate('''()=>{
                             const r=TrainingCircuit.current().result;
@@ -113,6 +121,7 @@ with sync_playwright() as p:
                 press(f.locator('#circuit-remove-cap'))
                 assert f.evaluate('TrainingCircuit.current().result.v')<r['v']
                 assert f.locator('#flow-cap-up').evaluate('e=>e.style.opacity')=='0'
+                assert '移除C1' in f.locator('#effect-change').inner_text()
                 press(f.locator('#circuit-remove-cap'))
             elif course=='inductor':
                 press(f.locator('[data-circuit-step="2"]'))
@@ -125,6 +134,7 @@ with sync_playwright() as p:
                 assert f.locator('#flow-main').evaluate('e=>e.style.opacity')=='0'
                 assert f.locator('#circuit-output-value').text_content()=='负载 0.0 V'
             f.locator('#circuit-card').scroll_into_view_if_needed()
+            f.locator('.circuit-effects').screenshot(path=str(out/f'{"formal" if args.public else "local"}-{course}-effects.png'))
             page.screenshot(path=str(out/f'{"formal" if args.public else "local"}-{course}.png'),full_page=True)
             # Clicking original tabs must not hide the PCB lesson or practice panel.
             press(f.locator('#tab-principle'))
@@ -159,7 +169,8 @@ with sync_playwright() as p:
             size=f.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
             assert size['scroll']<=size['client']+1,size
             icon_controls()
+            f.locator('.circuit-effects').screenshot(path=str(out/f'{"formal" if args.public else "local"}-effects-{width}.png'))
             page.screenshot(path=str(out/f'{"formal" if args.public else "local"}-{width}.png'),full_page=True)
         assert not errors,errors
-        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'play_pause_finish':True,'icon_controls':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
+        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'cause_effect_comparisons':True,'learner_copy':True,'play_pause_finish':True,'icon_controls':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
     finally:context.close();browser.close()
