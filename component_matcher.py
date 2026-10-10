@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-10T22:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-10T22:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -28446,7 +28446,11 @@ def format_current_display(value):
         return ""
     match = re.fullmatch(r"(\d+(?:\.\d+)?)(UA|MA|A)", text, flags=re.I)
     if match:
-        return f"{match.group(1)}{match.group(2).upper()}"
+        # These legacy input tokens already mean micro/milli/amperes in the
+        # numeric parser. Render their SI prefixes correctly on every path,
+        # including table re-normalization and BOM parameter-detail exports.
+        unit = {"UA": "µA", "MA": "mA", "A": "A"}[match.group(2).upper()]
+        return f"{match.group(1)}{unit}"
     return clean_text(value)
 
 
@@ -31317,6 +31321,7 @@ def deduplicate_component_matches(frame):
 def build_component_spec_detail_from_row(row, component_type_hint=""):
     if row is None:
         return ""
+    row = enrich_jianghai_record(row)
     component_type = normalize_component_type(component_type_hint) or infer_db_component_type(row)
     row_text = " ".join([
         clean_text(row.get("器件类型", "")),
@@ -31390,6 +31395,10 @@ def build_component_spec_detail_from_row(row, component_type_hint=""):
         output_type=row.get("输出类型", "") if is_timing else "",
         duty_cycle=row.get("占空比", "") if is_timing else "",
     )
+    for field in ("寿命类型", "寿命条件", "ESR条件", "纹波电流条件", "参数来源", "参数核验状态"):
+        value = clean_text(row.get(field, ""))
+        if value:
+            lines.append(f"{field}：{value}")
     return format_component_detail_inline(lines)
 
 def match_by_partial_spec(df, spec):
