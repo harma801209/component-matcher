@@ -23,12 +23,12 @@
       <article><h3>为什么会这样？</h3><p id="effect-why"></p></article>
       <article><h3>怎么向客户解释？</h3><p id="effect-sales"></p></article>
     </section>
-    <details class="circuit-assumptions"><summary>想了解更多：示例条件与资料</summary><p id="circuit-assumptions"></p><div id="circuit-sources"></div></details>
+    <details class="circuit-assumptions"><summary>选型时还要注意</summary><p id="circuit-assumptions"></p><div id="circuit-sources"></div></details>
     <p id="circuit-status" class="sr-only" role="status"></p>
   </section>
   <div class="workspace">
     <section class="model-card" aria-label="3D结构探索">
-      <div class="section-head"><div><span class="eyebrow">01 / 结构探索</span><h2 id="model-title"></h2></div><div class="model-heading-tools"><span class="tag">3D 教学模型</span><button id="show-cross-section" type="button">剖面与材料</button></div></div>
+      <div class="section-head"><div><span class="eyebrow">01 / 结构探索</span><h2 id="model-title"></h2></div><div class="model-heading-tools"><span class="tag">3D结构</span><button id="show-cross-section" type="button">剖面与材料</button></div></div>
       <div class="viewport"><canvas id="model-canvas" tabindex="0" aria-label="可交互3D模型，拖动旋转，滚轮缩放；键盘方向键旋转，加减键缩放，0复位"></canvas><div class="view-hint">拖拽旋转 · 滚轮 / 双指缩放 · 点击部位</div><span id="state-badge" class="state-badge">结构示意</span></div>
       <div class="model-tools"><label class="explode-control" for="explode">拆解 <input id="explode" type="range" min="0" max="1" step="0.05" value="0"><output id="explode-value">0%</output></label><button id="rotate" type="button" aria-pressed="false">自动旋转</button><button id="animate" type="button" aria-pressed="false">内部示意动画</button><button id="reset-view" type="button">视角复位</button></div>
       <div id="parts" class="parts" aria-label="选择模型部位"></div>
@@ -75,9 +75,9 @@
     <div id="tool-panel-mistakes" class="tool-panel" role="tabpanel" aria-labelledby="tool-mistakes" hidden>
       <div class="practice-summary"><h3>错题复习</h3><span id="practice-progress"></span></div>
       <p class="lead">答错的课堂小测验和选型题会收录在这里。查看解析后再答一次；答对后从错题本移除。</p>
-      <div id="mistake-list"></div><button id="clear-practice" type="button">清除本浏览器练习记录</button><div id="clear-confirm" hidden><p>将清除本浏览器的答题进度和错题记录，不能撤销。是否继续？</p><button id="confirm-clear" type="button">确认清除</button><button id="cancel-clear" type="button">取消</button></div>
+      <div id="mistake-list"></div><button id="clear-practice" type="button">清除练习记录</button><div id="clear-confirm" hidden><p>将清除此设备上的答题进度和错题记录，不能撤销。是否继续？</p><button id="confirm-clear" type="button">确认清除</button><button id="cancel-clear" type="button">取消</button></div>
     </div>
-    <details class="practice-record-help"><summary>学习记录说明</summary><p id="practice-storage" class="storage-note" role="status"></p></details>
+    <p id="practice-storage" class="storage-note" role="status" hidden></p>
   </section>
   <section class="takeaways"><span class="eyebrow">选型提醒</span><div id="takeaways"></div></section>
   <section class="references"><div class="section-head"><div><span class="eyebrow">参考资料</span><h2>查具体型号时，看原厂资料</h2></div><span class="tag">厂家技术资料</span></div><p id="example"></p><div id="sources"></div><p class="source-note">演示帮助理解原理，不替代具体型号的规格书；确认选型时，还要核对工作条件。</p></section>

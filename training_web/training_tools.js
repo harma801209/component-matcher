@@ -8,7 +8,7 @@
  try{records=P.validRecords(JSON.parse(localStorage.getItem(key)||'{}'));}catch(_){storageOK=false;}
  // Recompute correctness from current question data, never trust stored grading.
  for(const [id,r] of Object.entries(records)){const q=bank.find(x=>x.id===id);if(q)r.correct=P.grade(q,r.choice);}
- function storageMessage(){ $('practice-storage').textContent=storageOK?'学习记录保存在当前浏览器，不随会员账号同步。使用公共电脑后可清除记录；换浏览器或清理浏览器数据后，记录可能不在。':'当前无法保存学习记录；仍可答题和复习，但刷新后记录可能丢失。';}
+ function storageMessage(){const message=$('practice-storage');message.hidden=storageOK;message.textContent=storageOK?'':'练习记录暂时无法保存，刷新后请重新练习。';}
  function persist(){try{localStorage.setItem(key,JSON.stringify(records));storageOK=true;}catch(_){storageOK=false;}storageMessage();}
  function sync(){const progress={};for(const c of Object.keys(quizzes))progress[c]=records['quiz-'+c]?.correct===true;L.setQuizProgress(progress);}
  function record(id,choice){const q=bank.find(x=>x.id===id);if(!q)return;records[id]={choice,correct:P.grade(q,choice),attempts:Math.min(10000,(records[id]?.attempts||0)+1)};persist();sync();renderMistakes();}

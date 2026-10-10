@@ -23,6 +23,13 @@ material-scope information and learning-record details remain available in close
 disclosures. Necessary selection limits remain concise and learner-facing. Learning
 records continue to use the existing browser storage; no account storage was added.
 
+Follow-up: remove implementation/model-validation prose even from disclosures.
+Replace it with product-selection cautions and customer scenarios, retaining the
+scientific differences and manufacturer links. Routine storage/synchronization
+explanations are no longer shown; only a learner-actionable save-failure warning
+appears when storage is unavailable. Progress persistence and clearing remain the
+same device-local operations.
+
 Validation: safety gate, pure cause/effect tests, rendered four-course/stage checks,
 capacitor present/removed and transient comparison checks, controls, narrow layouts,
 materials and existing model/quiz/practice coexistence. No runtime database changes.

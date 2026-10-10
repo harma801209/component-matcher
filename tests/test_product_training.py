@@ -11,9 +11,9 @@ from precision_theme import render_header
 class ProductTrainingTests(unittest.TestCase):
     def test_learner_page_omits_admin_copy_and_keeps_explanations(self):
         page = build_training_html()
-        for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用']:
+        for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用', '系统已核对', '不模拟', '未经披露', '计算条件与补充说明', '学习记录说明', '不随会员账号同步']:
             self.assertNotIn(phrase, page)
-        for phrase in ['电路发生什么变化', '为什么会这样', '怎么向客户解释', '学习记录说明', '计算条件与补充说明']:
+        for phrase in ['电路发生什么变化', '为什么会这样', '怎么向客户解释', '客户需求', '选型时还要注意']:
             self.assertIn(phrase, page)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
@@ -53,7 +53,7 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
         page = build_training_html()
         for domain in ["vishay.com", "murata.com", "coilcraft.com", "assets.nexperia.com"]:
             self.assertIn(domain, page)
-        for term in ["不替代", "不含串联电阻、击穿和自热", "DC偏压", "Isat", "Irms", "非温度", "约定电流", "计算条件与补充说明"]:
+        for term in ["不替代", "反向耐压", "DC偏压", "Isat", "Irms", "非温度", "约定电流", "选型时还要注意"]:
             self.assertIn(term, page)
         self.assertIn('rel="noopener noreferrer"', page)
 
@@ -150,7 +150,7 @@ for(const d of [null,[],1,'bad',{'r-power':{choice:0,correct:'true',attempts:1}}
 
     def test_practice_panels_are_separate_and_data_is_browser_only(self):
         page = build_training_html()
-        for term in ['型号拆解', '选型实战', '错题本', '学习记录保存在当前浏览器', '不自动修正', '暂未覆盖', '确认清除']:
+        for term in ['型号拆解', '选型实战', '错题本', '不自动修正', '暂未覆盖', '确认清除']:
             self.assertIn(term, page)
         self.assertIn(".knowledge-card [role=\"tabpanel\"]", page)
         self.assertIn("fruition_training_practice_v1", page)
@@ -158,6 +158,15 @@ for(const d of [null,[],1,'bad',{'r-power':{choice:0,correct:'true',attempts:1}}
         self.assertNotIn('innerHTML', tools)
         self.assertNotIn('fetch(', tools)
         self.assertNotIn('member_token', tools)
+
+    def test_record_implementation_is_not_shown_as_training_content(self):
+        page = build_training_html()
+        self.assertNotIn('practice-record-help', (WEB_ROOT / 'index.html').read_text(encoding='utf-8'))
+        self.assertIn('id="practice-storage" class="storage-note" role="status" hidden', page)
+        tools = (WEB_ROOT / 'training_tools.js').read_text(encoding='utf-8')
+        self.assertIn('message.hidden=storageOK', tools)
+        self.assertIn('localStorage.setItem', tools)
+        self.assertIn('练习记录暂时无法保存', tools)
 
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
     def test_circuit_current_conservation_and_continuous_energy_states(self):
@@ -256,7 +265,7 @@ a(m.lesson('capacitor').scope.includes('C0G'));
 a(m.lesson('capacitor').layers.find(p=>p.id==='dielectric').composition.includes('BaTiO₃'));
 a(m.lesson('inductor').scope.includes('一体成型'));
 a(m.lesson('diode').layers.find(p=>p.id==='junction').composition.includes('不是夹入'));
-a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('没有提供'));
+a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('原厂文件'));
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_materials.js')], check=True, capture_output=True)
 
@@ -275,7 +284,7 @@ a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('没有�
 
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
-        for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','不是完整Buck','不是固定导通门槛']:
+        for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','负载10 Ω','不是固定导通门槛']:
             self.assertIn(word,page)
         self.assertLess(page.index('id="circuit-card"'),page.index('class="workspace"'))
         self.assertIn('training-course-change',page)
