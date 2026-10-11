@@ -91,19 +91,29 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
         self.assertIn('class="wb-title">产品培训', rendered[-1])
         self.assertIn('aria-label="会员登录"', rendered[-1])
 
-    def test_component_render_is_scrollable_and_stateless(self):
+    def test_component_render_uses_host_scrolling_and_is_stateless(self):
         calls = []
         fake = type("Components", (), {"html": lambda _, value, **kwargs: calls.append((value, kwargs))})()
         render_training_page(fake)
-        self.assertEqual(calls[0][1], {"height": 1050, "scrolling": True})
+        self.assertEqual(calls[0][1], {"height": 1050, "scrolling": False})
         source = Path("product_training.py").read_text(encoding="utf-8")
         self.assertNotIn("sqlite", source)
         self.assertNotIn("requests", source)
 
+    def test_embed_height_tracks_content_without_affecting_other_frames(self):
+        script=(WEB_ROOT / 'training_embed.js').read_text(encoding='utf-8')
+        for term in ['window.frameElement', 'app.getBoundingClientRect().height', 'ResizeObserver', 'trainingAutoheight', "setAttribute('scrolling','no')"]:
+            self.assertIn(term,script)
+        self.assertNotIn('window.top',script)
+        self.assertNotIn('document.querySelectorAll',script)
+        self.assertNotIn('app.scrollHeight',script)
+        self.assertIn('if(!frame||!app)return',script)
+        self.assertIn('training_embed.js',(Path('product_training.py')).read_text(encoding='utf-8'))
+
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_material_data.js", "training_material_geometry.js", "training_materials.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_material_data.js", "training_material_geometry.js", "training_materials.js", "training_embed.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")

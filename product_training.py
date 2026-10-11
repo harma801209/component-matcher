@@ -12,9 +12,11 @@ def build_training_html():
         "training_math.js", "training_practice.js", "training_circuit_math.js", "training_effects.js",
         "training_material_data.js", "training_material_geometry.js",
         "training.js", "training_tools.js", "training_circuit.js", "training_materials.js",
+        "training_embed.js",
     ))
     return template.replace("__TRAINING_CSS__", css).replace("__TRAINING_JS__", scripts.replace("</script", "<\\/script"))
 
 
 def render_training_page(components):
-    components.html(build_training_html(), height=1050, scrolling=True)
+    # 1050 is an initial paint size only; the trusted lesson expands its own frame.
+    components.html(build_training_html(), height=1050, scrolling=False)
