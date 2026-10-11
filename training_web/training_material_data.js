@@ -6,11 +6,11 @@
    layers:[
     {id:'substrate',name:'陶瓷基板',brief:'氧化铝 Al₂O₃',composition:'常见为氧化铝（Al₂O₃）陶瓷。',role:'绝缘、支撑电阻膜，并帮助把热量传出。',scope:'陶瓷等级、纯度与添加物需查具体系列。',refs:[0]},
     {id:'film',name:'厚膜电阻膜',brief:'典型：RuO₂＋玻璃相',composition:'钌系陶瓷金属复合材料；RuO₂（二氧化钌）导电相与玻璃相是公开工艺示例。',role:'承担电阻作用；膜的材料、几何尺寸与修调共同决定阻值。',scope:'不同厚膜系列的材料配比可能不同；确认具体成分时，请查该型号的材料声明。',refs:[0,1]},
-    {id:'cover',name:'保护层',brief:'玻璃保护层（示例）',composition:'此示例为烧结玻璃保护层。',role:'保护电阻膜，减少环境及加工影响。',scope:'也有不同树脂/复合保护工艺；不把厂家玻璃配方视为统一成分。',refs:[0]},
+    {id:'cover',name:'保护层',brief:'玻璃保护层（示例）',composition:'此示例为烧结玻璃保护层。',role:'保护电阻膜，减少环境及加工影响；表面的阻值印字用于识别，不是产生电阻的材料。',scope:'也有不同树脂/复合保护工艺；印字与下划线规则依厂家、封装及系列，不把玻璃配方或印字规则视为统一标准。',refs:[0,3,4]},
     {id:'electrode',name:'基础端电极',brief:'导电金属；Ag为工艺示例',composition:'连接膜层的导电金属；银（Ag）基电极见公开厚膜工艺。',role:'把电阻膜两端接到外部端子。',scope:'金属体系按系列确认，不能据此认定每颗电阻都使用银或银钯。',refs:[1]},
     {id:'nickel',name:'阻挡镀层',brief:'镍 Ni',composition:'镍（Ni）阻挡层。',role:'位于基础电极与可焊外层之间。',scope:'镀层厚度与结构依封装/系列；本图为典型层序。',refs:[0]},
     {id:'finish',name:'可焊外层',brief:'可焊镀层；无铅Sn示例',composition:'外部可焊金属镀层；锡（Sn）为无铅外层示例。',role:'用于与PCB焊盘焊接。',scope:'锡、含铅或其他端接版本必须按原厂订货规格确认。',refs:[2]}
-   ],sources:[['Vishay · M系列材料与剖面结构','https://www.vishay.com/docs/60031/m.pdf'],['公开厚膜材料工艺 · EP2286420B1','https://patents.google.com/patent/EP2286420B1/en'],['Vishay · D/CRCW e3镍层与锡端接','https://www.vishay.com/docs/20035/dcrcwe3.pdf']]},
+   ],sources:[['Vishay · M系列材料与剖面结构','https://www.vishay.com/docs/60031/m.pdf'],['公开厚膜材料工艺 · EP2286420B1','https://patents.google.com/patent/EP2286420B1/en'],['Vishay · D/CRCW e3镍层与锡端接','https://www.vishay.com/docs/20035/dcrcwe3.pdf'],['Vishay · 表面阻值标识规则','https://www.vishay.com/docs/20020/smdmark.pdf'],['Stackpole · RMCF/RMCP标识规则','https://www.mouser.lt/datasheet/3/1099/1/SEI_RMCF_RMCP.pdf#page=12']]},
   capacitor:{name:'高介电常数MLCC',scope:'这里展示BaTiO₃基、镍内部电极的MLCC示例。不能把C0G或所有陶瓷电容都当作相同配方。',caption:'陶瓷隔开相邻电极；电极交替接左、右端，层层叠加储能。薄层已放大。',
    layers:[
     {id:'dielectric',name:'陶瓷介质',brief:'钛酸钡 BaTiO₃基',composition:'高介电常数MLCC常见为钛酸钡（BaTiO₃）基陶瓷，含按性能设计的添加物。',role:'隔开电极，并在电场中储能。',scope:'X7R/X5R是温度特性分类，不是配方名称；C0G不得照用本例材料。',refs:[0]},

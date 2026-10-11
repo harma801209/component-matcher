@@ -10,6 +10,37 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_resistor_print_code_is_exact_and_ink_belongs_to_cover(self):
+        script = r"""
+const m=require(process.argv[1]),a=require('node:assert/strict');
+for(const [r,code] of [[1000,'102'],[100,'101'],[10,'100'],[4700,'472'],[.1,'R10'],[4.7,'4R7'],])a.equal(m.encode(r).code,code);
+for(const r of [NaN,Infinity,-1,0,12.5892541179,.0001])a.equal(m.encode(r),null);
+a.equal(m.encode(999.9999999999999).code,'102');
+for(const [r,code] of [[1000,'1001'],[100,'1000'],[.1,'R100'],[4.7,'4R70'],[6.19,'6R19'],[12.4,'12R4'],[6190,'6191']])a.equal(m.encode(r,'four').code,code);
+for(const r of [1000,100,10,13,15,20,75,1020,12.5892541179])a.equal(m.encode(r,'underline'),null);
+const under=m.encode(220,'underline');a.equal(under.code,'221');a(under.underline);
+const cover=()=>({id:'cover',p:[[-1.24,.49,-.65],[1.24,.49,-.65],[1.24,.49,.25],[-1.24,.49,.25]]});
+const plain=cover(),lined=cover();m.attach([plain],220,true);m.attach([lined],220,true,'underline');a.equal(lined.ink.length,plain.ink.length+1);a(lined.markingUnderline);
+a.throws(()=>m.encode(220,'unknown'),RangeError);
+for(const y of [.35,1.85,.49,1.49]){
+ const top={id:'cover',p:[[-1.24,y,-.65],[1.24,y,-.65],[1.24,y,.25],[-1.24,y,.25]]},side={id:'cover',p:[[-1.24,y,-.65],[-1.24,y-.12,-.65],[-1.24,y-.12,.25],[-1.24,y,.25]]},f=[top,side];
+ a.equal(m.attach(f,1000,true),f);a.equal(top.markingCode,'102');a(top.ink.length>20);a.equal(side.ink,undefined);
+ for(const q of top.ink)for(const p of q){a.equal(p[1],y);a(p[0]>=-1.24&&p[0]<=1.24);a(p[2]>=-.65&&p[2]<=.25);a(p.every(Number.isFinite));}
+}
+const f=[{id:'film',p:[[0,0,0],[1,0,0],[1,0,1]]}];a.equal(m.attach(f,1000,false),f);a.equal(f[0].ink,undefined);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_resistor_marking.js')], check=True, capture_output=True)
+
+    def test_resistor_print_uses_face_pass_and_learner_scope_notes(self):
+        page=build_training_html()
+        for phrase in ['id="resistor-marking"', '101＝10×10¹＝100 Ω', '4R7＝4.7 Ω', 'R10＝0.1 Ω', '部分0402', '不能仅凭印字判断精度', 'Vishay · 表面阻值标识规则']:
+            self.assertIn(phrase,page)
+        self.assertIn('if(f.ink)',page)
+        self.assertIn('window.TrainingResistorMarking.attach(materialMesh.faces,params.r,true,markingProfile)',page)
+        self.assertIn("section.hidden=active!=='resistor'",page)
+        self.assertNotIn('id="cross-section-card"',page)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_material_volume_parts_and_anchors_share_the_source_lesson(self):
         script = r"""
 const g=require(process.argv[1]),d=require(process.argv[2]),a=require('node:assert/strict');
@@ -117,7 +148,7 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")
-        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_material_data.js", "training_material_geometry.js", "training_materials.js", "training_embed.js"]:
+        for name in ["training.js", "training_math.js", "training_practice.js", "training_tools.js", "training_circuit.js", "training_circuit_math.js", "training_effects.js", "training_material_data.js", "training_material_geometry.js", "training_materials.js", "training_embed.js", "training_resistor_marking.js"]:
             subprocess.run([node, "--check", str(WEB_ROOT / name)], check=True, capture_output=True)
         script = "const m=require(process.argv[1]); console.log(JSON.stringify({r:m.resistor({r:1000,v:5,rating:.125}),c:m.capacitor({c:1e-7,f:1000,v:5}),l:m.inductor({l:1e-5,f:1000,i:1,dcr:.1,isat:2}),zero:m.diode({v:0,is:1e-9,n:2,vt:.02585}),reverse:m.diode({v:-2,is:1e-9,n:2,vt:.02585}),forward:m.diode({v:.6,is:1e-9,n:2,vt:.02585}),units:[m.format(1e-3,'Ω'),m.format(1e6,'Ω'),m.format(1e-12,'F')]}));"
         result = subprocess.run([node, "-e", script, str(WEB_ROOT / "training_math.js")], check=True, capture_output=True, text=True, encoding="utf-8")
