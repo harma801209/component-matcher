@@ -30,12 +30,12 @@ with sync_playwright() as p:
             if f:break
             page.wait_for_timeout(300)
         assert f is not None
-        f.wait_for_function('typeof TrainingMaterials!=="undefined"')
+        f.wait_for_function('typeof TrainingMaterialData!=="undefined"')
         def press(n):n.focus();n.press('Enter')
         canvas=f.locator('#model-canvas')
         canvas.scroll_into_view_if_needed()
         f.wait_for_function('document.querySelector("canvas").dataset.meshFaces>20')
-        assert f.locator('#cross-section-card').get_attribute('open') is None
+        assert f.locator('#cross-section-card, #material-leaders, [data-label-leader]').count()==0
         for course in ['resistor','capacitor','inductor','diode']:
             press(f.locator('button[data-course="'+course+'"]'))
             press(f.locator('#model-exterior'))
@@ -52,44 +52,49 @@ with sync_playwright() as p:
             assert f.locator('#animate').is_disabled()
             data=f.evaluate('TrainingMaterialData.lesson(TrainingLesson.current().course)')
             assert f.locator('#model-labels button').count()==len(data['layers'])
-            for part in data['layers']:
+            for index,part in enumerate(data['layers']):
                 button=f.locator('[data-model-material="'+part['id']+'"]')
                 press(button)
                 assert f.evaluate('TrainingLesson.current().part')==part['id']
-                assert f.evaluate('TrainingMaterials.current().selected')==part['id']
+                assert button.inner_text()==str(index+1)
+                assert f.locator('#parts [data-part="'+part['id']+'"]').inner_text().startswith(str(index+1)+' · ')
+                assert button.get_attribute('aria-label').startswith(part['name'])
                 assert part['composition'] in f.locator('#part-detail').inner_text()
                 assert part['role'] in f.locator('#part-detail').inner_text()
                 assert button.get_attribute('aria-pressed')=='true'
             canvas.scroll_into_view_if_needed()
-            path=f.locator('#material-leaders path').first.get_attribute('d')
+            marker=f.locator('#model-labels button').first
+            position=marker.get_attribute('style')
             canvas.focus();canvas.press('ArrowRight');canvas.press('+')
-            page.wait_for_timeout(120)
-            assert f.locator('#material-leaders path').first.get_attribute('d')!=path
-            assert float(canvas.get_attribute('data-zoom'))>1
+            f.wait_for_function('v=>document.querySelector("#model-labels button").getAttribute("style")!==v',arg=position)
+            f.wait_for_function('Number(document.querySelector("#model-canvas").dataset.zoom)>1')
             f.locator('#explode').focus();f.locator('#explode').press('End')
             assert f.evaluate('TrainingLesson.current().explosion')==1
             canvas.scroll_into_view_if_needed()
-            press(f.locator('#rotate'));page.wait_for_timeout(160)
-            auto_yaw=canvas.get_attribute('data-yaw');page.wait_for_timeout(160)
-            assert canvas.get_attribute('data-yaw')!=auto_yaw
+            press(f.locator('#rotate'));canvas.scroll_into_view_if_needed()
+            auto_yaw=canvas.get_attribute('data-yaw')
+            f.wait_for_function('v=>document.querySelector("#model-canvas").dataset.yaw!==v',arg=auto_yaw)
             press(f.locator('#rotate'));press(f.locator('#reset-view'))
             canvas.scroll_into_view_if_needed();page.wait_for_timeout(120)
             if not args.public:
                 canvas.scroll_into_view_if_needed();rect=canvas.bounding_box()
                 old_yaw=float(canvas.get_attribute('data-yaw'))
-                page.mouse.move(rect['x']+rect['width']/2,rect['y']+rect['height']/2)
-                page.mouse.down();page.mouse.move(rect['x']+rect['width']/2+35,rect['y']+rect['height']/2+12,steps=8);page.mouse.up()
-                page.wait_for_timeout(100)
-                assert abs(float(canvas.get_attribute('data-yaw'))-old_yaw)>.2
-                page.mouse.wheel(0,-100);page.wait_for_timeout(100)
-                assert float(canvas.get_attribute('data-zoom'))>1
+                # Numbers are intentional click targets on the mesh; drag empty canvas.
+                page.mouse.move(rect['x']+50,rect['y']+rect['height']-65)
+                page.mouse.down();page.mouse.move(rect['x']+85,rect['y']+rect['height']-53,steps=8);page.mouse.up()
+                f.wait_for_function('v=>Math.abs(Number(document.querySelector("#model-canvas").dataset.yaw)-v)>.2',arg=old_yaw)
+                page.mouse.wheel(0,-100)
+                f.wait_for_function('Number(document.querySelector("#model-canvas").dataset.zoom)>1')
                 press(f.locator('#reset-view'))
                 # Real pointer activation of a face, not just API/button selection.
                 press(f.locator('#parts [data-part]').nth(1))
                 canvas.scroll_into_view_if_needed();selected=f.evaluate('TrainingLesson.current().part')
                 size=canvas.bounding_box();hit=False
                 for dx,dy in [(0,0),(-30,0),(30,0),(0,-40),(0,40)]:
-                    canvas.click(position={'x':size['width']/2+dx,'y':size['height']/2+dy})
+                    point={'x':size['width']/2+dx,'y':size['height']/2+dy}
+                    if not canvas.evaluate('(e,p)=>{const r=e.getBoundingClientRect();return document.elementFromPoint(r.left+p.x,r.top+p.y)===e;}',point):
+                        continue
+                    canvas.click(position=point)
                     if f.evaluate('TrainingLesson.current().part')!=selected:
                         hit=True;break
                 assert hit,'No material face selected by pointer: '+course
@@ -104,6 +109,10 @@ with sync_playwright() as p:
                     assert button.is_visible()
                     assert button.evaluate('e=>e.offsetHeight>=44')
                     assert button.evaluate('e=>{const p=e.parentElement.getBoundingClientRect(),r=e.getBoundingClientRect();return r.left>=p.left&&r.right<=p.right+1&&r.top>=p.top&&r.bottom<=p.bottom+1;}')
+                    button.click()
+                    assert f.evaluate('TrainingLesson.current().part')==button.get_attribute('data-model-material')
+                    assert f.locator('#part-detail>strong').inner_text().startswith(button.inner_text()+' · ')
+                assert f.locator('#model-labels button').evaluate_all('ns=>ns.every((n,i)=>ns.slice(i+1).every(m=>{const a=n.getBoundingClientRect(),b=m.getBoundingClientRect();return a.right<=b.left+.1||b.right<=a.left+.1||a.bottom<=b.top+.1||b.bottom<=a.top+.1;}))')
                 f.locator('.model-card').screenshot(path=str(out/f'{"formal" if args.public else "local"}-{course}-{width}.png'))
             page.set_viewport_size({'width':1440,'height':1000})
             press(f.locator('#model-exterior'));canvas.scroll_into_view_if_needed()
@@ -115,7 +124,7 @@ with sync_playwright() as p:
         press(f.locator('button[data-course="capacitor"]'))
         assert f.evaluate('TrainingLesson.current().modelMode')=='materials'
         assert f.locator('#model-labels button').count()==5
-        assert f.evaluate('TrainingMaterials.current().course')=='capacitor'
+        assert f.evaluate('TrainingLesson.current().course')=='capacitor'
         state=f.evaluate('TrainingLesson.current()')
         assert not f.evaluate('TrainingLesson.setModelMode("unknown")')
         assert not f.evaluate('TrainingLesson.selectMaterial("unknown")')

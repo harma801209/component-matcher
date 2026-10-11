@@ -26,12 +26,16 @@ a.throws(()=>g.build('other',0,{box,tube}),RangeError);a.throws(()=>g.build('res
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js'), str(WEB_ROOT / 'training_material_data.js')], check=True, capture_output=True)
 
-    def test_material_mode_uses_same_canvas_and_collapsed_reference(self):
+    def test_material_mode_uses_same_canvas_numbered_markers_without_duplicate(self):
         page = build_training_html()
         self.assertEqual(page.count('<canvas'), 1)
         self.assertIn('id="model-exterior"', page)
         self.assertIn('内部材料结构', page)
-        self.assertIn('<details id="cross-section-card"', page)
+        self.assertNotIn('id="cross-section-card"', page)
+        self.assertNotIn('material-leaders', page)
+        self.assertNotIn('data-label-leader', page)
+        self.assertNotIn('展开平面剖面参考图', page)
+        self.assertIn('button.textContent=String(i+1)', page)
         self.assertIn('data-model-material', page)
         self.assertIn('TrainingMaterialGeometry.build', page)
 
@@ -305,17 +309,16 @@ a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('原厂�
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_materials.js')], check=True, capture_output=True)
 
-    def test_cross_sections_are_additive_and_do_not_persist_business_data(self):
+    def test_material_mode_keeps_sources_without_business_data_access(self):
         page = build_training_html()
         self.assertIn('id="show-cross-section"', page)
-        self.assertIn('id="cross-section-card"', page)
+        self.assertNotIn('id="cross-section-card"', page)
         self.assertIn('id="model-canvas"', page)
-        self.assertLess(page.index('class="workspace"'), page.index('id="cross-section-card"'))
-        self.assertLess(page.index('id="cross-section-card"'), page.index('class="practice-card"'))
-        script = (WEB_ROOT / 'training_materials.js').read_text(encoding='utf-8') + (WEB_ROOT / 'training_material_data.js').read_text(encoding='utf-8')
+        self.assertLess(page.index('class="workspace"'), page.index('class="practice-card"'))
+        script = (WEB_ROOT / 'training_material_geometry.js').read_text(encoding='utf-8') + (WEB_ROOT / 'training_material_data.js').read_text(encoding='utf-8')
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
             self.assertNotIn(term, script)
-        for term in ['training-course-change', 'aria-pressed', 'noopener noreferrer', '材料声明', '配比']:
+        for term in ['材料声明', '配比']:
             self.assertIn(term, script)
 
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):

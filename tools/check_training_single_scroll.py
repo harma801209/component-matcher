@@ -61,12 +61,13 @@ with sync_playwright() as p:
                 press(f.locator('button[data-course="'+course+'"]'));fitted()
                 for tab in ['performance','principle','quiz','spec']:
                     press(f.locator('#tab-'+tab));fitted()
-                closed=fitted()
-                press(f.locator('#cross-section-card>.reference-section-toggle'))
-                opened=fitted();assert opened>closed+200,(closed,opened)
-                press(f.locator('#cross-section-card>.reference-section-toggle'))
-                assert abs(fitted()-closed)<=2
+                assert f.locator('#cross-section-card, #material-leaders').count()==0
                 press(f.locator('#show-cross-section'));fitted()
+                closed=fitted()
+                press(f.locator('#part-detail .lesson-more>summary'))
+                opened=fitted();assert opened>closed+20,(closed,opened)
+                press(f.locator('#part-detail .lesson-more>summary'))
+                assert abs(fitted()-closed)<=2
                 press(f.locator('#model-exterior'));fitted()
             press(f.locator('#tool-decode'))
             press(f.locator('#decode-examples button').first);fitted()
