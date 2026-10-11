@@ -109,7 +109,9 @@ with sync_playwright() as p:
                     assert button.is_visible()
                     assert button.evaluate('e=>e.offsetHeight>=44')
                     assert button.evaluate('e=>{const p=e.parentElement.getBoundingClientRect(),r=e.getBoundingClientRect();return r.left>=p.left&&r.right<=p.right+1&&r.top>=p.top&&r.bottom<=p.bottom+1;}')
-                    button.click()
+                    # The public proxy has nested-frame auto-scroll coordinates;
+                    # use native keyboard activation there, real pointer locally.
+                    press(button) if args.public else button.click()
                     assert f.evaluate('TrainingLesson.current().part')==button.get_attribute('data-model-material')
                     assert f.locator('#part-detail>strong').inner_text().startswith(button.inner_text()+' · ')
                 assert f.locator('#model-labels button').evaluate_all('ns=>ns.every((n,i)=>ns.slice(i+1).every(m=>{const a=n.getBoundingClientRect(),b=m.getBoundingClientRect();return a.right<=b.left+.1||b.right<=a.left+.1||a.bottom<=b.top+.1||b.bottom<=a.top+.1;}))')
