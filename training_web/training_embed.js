@@ -18,6 +18,7 @@
  frame.style.setProperty('max-height','none','important');
  if(container){
   container.style.setProperty('height','auto','important');
+  container.style.setProperty('flex','0 0 auto','important');
   container.style.setProperty('min-height','0','important');
   container.style.setProperty('max-height','none','important');
  }

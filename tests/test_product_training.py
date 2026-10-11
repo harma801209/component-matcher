@@ -102,7 +102,7 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
 
     def test_embed_height_tracks_content_without_affecting_other_frames(self):
         script=(WEB_ROOT / 'training_embed.js').read_text(encoding='utf-8')
-        for term in ['window.frameElement', 'app.getBoundingClientRect().height', 'ResizeObserver', 'trainingAutoheight', "setAttribute('scrolling','no')"]:
+        for term in ['window.frameElement', 'app.getBoundingClientRect().height', 'ResizeObserver', 'trainingAutoheight', "setAttribute('scrolling','no')", "setProperty('flex','0 0 auto','important')"]:
             self.assertIn(term,script)
         self.assertNotIn('window.top',script)
         self.assertNotIn('document.querySelectorAll',script)
