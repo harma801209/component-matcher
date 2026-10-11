@@ -34,8 +34,19 @@ with sync_playwright() as p:
         f.wait_for_function('typeof TrainingResistorMarking!=="undefined"')
         canvas=f.locator('#model-canvas')
         def press(n):n.focus();n.press('Enter')
-        def painted(code,under=False):
+        def reveal_canvas():
             canvas.scroll_into_view_if_needed();canvas.focus()
+            if args.public:
+                # Native autoheight gives the inner document a tall viewport.
+                # Centre the real child in the outer Streamlit scroll area too.
+                f.wait_for_function('Math.abs(innerHeight-Math.ceil(document.querySelector("#training-app").getBoundingClientRect().height)-12)<=1')
+                host=f.parent_frame.locator('[data-testid="stMain"]')
+                assert host.count()==1
+                child_box=canvas.bounding_box();host_box=host.bounding_box()
+                host.evaluate('(e,dy)=>e.scrollTop+=dy',child_box['y']+child_box['height']/2-host_box['y']-host_box['height']/2)
+                page.wait_for_timeout(80)
+        def painted(code,under=False):
+            reveal_canvas()
             f.wait_for_function('v=>{const c=document.querySelector("#model-canvas");return c.dataset.resistorMarking===v[0]&&c.dataset.resistorUnderline===String(v[1]);}',arg=[code,under])
             assert canvas.get_attribute('data-marking-faces')==('1' if code else '0')
         for mode in ['exterior','materials']:
