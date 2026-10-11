@@ -46,14 +46,19 @@
   const face=cover.find(f=>f.p.every(p=>same(p[1],top)));
   if(!face)return faces;
   const xs=face.p.map(p=>p[0]),zs=face.p.map(p=>p[2]);
-  const cx=(Math.min(...xs)+Math.max(...xs))/2-.25,cz=(Math.min(...zs)+Math.max(...zs))/2;
+  const cx=(Math.min(...xs)+Math.max(...xs))/2,cz=(Math.min(...zs)+Math.max(...zs))/2;
   const columns=mark.code.length*6-1,cell=1.05/columns,depth=.44/7,ink=[];
   for(const [index,char] of [...mark.code].entries())for(const [row,line] of glyphs[char].entries())for(let col=0;col<5;col++)if(line[col]==='1'){
    const x=cx-1.05/2+(index*6+col)*cell,z=cz-.22+row*depth;
    ink.push([[x,top,z],[x+cell*.92,top,z],[x+cell*.92,top,z+depth*.92],[x,top,z+depth*.92]]);
   }
   // Render inside this face's paint pass, so nearer faces hide the print naturally.
-  if(mark.underline)ink.push([[cx-.525,top,cz+.26],[cx+.525,top,cz+.26],[cx+.525,top,cz+.285],[cx-.525,top,cz+.285]]);
+  const bounds=()=>{const points=ink.flat(),x=points.map(p=>p[0]),z=points.map(p=>p[2]);return {left:Math.min(...x),right:Math.max(...x),back:Math.min(...z),front:Math.max(...z)};};
+  if(mark.underline){const b=bounds();ink.push([[b.left,top,b.front+.04],[b.right,top,b.front+.04],[b.right,top,b.front+.065],[b.left,top,b.front+.065]]);}
+  // Centre the visible print, including its underline, not the glyph grid's
+  // unequal side bearings. Material markers move aside instead of moving ink.
+  const b=bounds(),dx=cx-(b.left+b.right)/2,dz=cz-(b.back+b.front)/2;
+  for(const quad of ink)for(const point of quad){point[0]+=dx;point[2]+=dz;}
   face.ink=ink;face.inkColor=materials?'#14283e':'#f6f8fb';face.markingCode=mark.code;face.markingUnderline=mark.underline;
   return faces;
  }

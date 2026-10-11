@@ -32,6 +32,15 @@ with sync_playwright() as p:
             page.wait_for_timeout(300)
         assert f is not None
         f.wait_for_function('typeof TrainingResistorMarking!=="undefined"')
+        assert f.evaluate("""()=>{
+            for(const [value,profile] of [[1000,'three'],[1000,'four'],[220,'underline'],[.1,'three'],[.1,'four']]){
+                const face={id:'cover',p:[[-1.24,.49,-.65],[1.24,.49,-.65],[1.24,.49,.25],[-1.24,.49,.25]]};
+                TrainingResistorMarking.attach([face],value,true,profile);
+                const points=face.ink.flat(),x=points.map(p=>p[0]),z=points.map(p=>p[2]);
+                if(Math.abs((Math.min(...x)+Math.max(...x))/2)>1e-10||Math.abs((Math.min(...z)+Math.max(...z))/2+.2)>1e-10)return false;
+            }
+            return true;
+        }""")
         canvas=f.locator('#model-canvas')
         def press(n):n.focus();n.press('Enter')
         def reveal_canvas():

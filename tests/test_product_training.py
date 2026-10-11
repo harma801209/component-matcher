@@ -10,6 +10,25 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_visible_print_and_underline_are_centered_on_actual_cover(self):
+        script = r"""
+const m=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);
+for(const [r,profile] of [[1000,'three'],[1000,'four'],[220,'underline'],[.1,'three'],[.1,'four'],[4.7,'three']])
+for(const [cx,y,cz] of [[0,.35,0],[0,1.85,0],[0,.49,-.2],[0,1.49,-.2],[.6,2.3,-.7]]){
+ const face={id:'cover',p:[[cx-1.24,y,cz-.45],[cx+1.24,y,cz-.45],[cx+1.24,y,cz+.45],[cx-1.24,y,cz+.45]]};
+ m.attach([face],r,true,profile);
+ const points=face.ink.flat(),x=points.map(p=>p[0]),z=points.map(p=>p[2]);
+ near((Math.min(...x)+Math.max(...x))/2,cx);near((Math.min(...z)+Math.max(...z))/2,cz);
+ for(const p of points){near(p[1],y);a(p[0]>=cx-1.24&&p[0]<=cx+1.24);a(p[2]>=cz-.45&&p[2]<=cz+.45);}
+ if(profile==='underline'){
+  const line=face.ink.at(-1),digits=face.ink.slice(0,-1).flat(),xs=digits.map(p=>p[0]);
+  near(line[0][0],Math.min(...xs));near(line[1][0],Math.max(...xs));near((line[0][0]+line[1][0])/2,cx);
+ }
+}
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_resistor_marking.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_resistor_print_code_is_exact_and_ink_belongs_to_cover(self):
         script = r"""
 const m=require(process.argv[1]),a=require('node:assert/strict');

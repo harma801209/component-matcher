@@ -8,6 +8,11 @@ reset view now looks down at the printed top, rather than up at its underside;
 the other three courses retain their original default camera. Material number markers
 remain separately selectable and avoid the central print region.
 
+The complete visible print bounding box (digits plus underline, when present)
+is centred on both axes of the actual cover face. Unequal glyph side bearings
+are accounted for; there is no manual lateral offset. The underline follows the
+visible text width and shares its centre. Material markers sit toward the edge.
+
 The page has source-scoped example rules:
 
 - Three-character value marking for a 5% teaching example, default 102 = 1 kΩ.
