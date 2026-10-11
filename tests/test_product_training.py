@@ -10,6 +10,32 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_mlcc_cut_exposes_alternating_electrodes_without_shorting_ends(self):
+        script = r"""
+const g=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);
+for(const e of [0,.5,1]){
+ const blocks=[],box=(f,p,size,color,id)=>{blocks.push({p,size,color,id});f.push({p:[p],color,id});};
+ const result=g.build('capacitor',e,{box,tube:()=>{}}),ceramics=blocks.filter(p=>p.id==='dielectric'),metal=blocks.filter(p=>p.id==='internal'),ends=blocks.filter(p=>p.id==='base');
+ a.equal(ceramics.length,7);a.equal(metal.length,6);
+ const minX=b=>b.p[0]-b.size[0]/2,maxX=b=>b.p[0]+b.size[0]/2;
+ for(let i=0;i<6;i++){
+  const m=metal[i],lo=ceramics[i],hi=ceramics[i+1],left=ends[0],right=ends[1];
+  a(m.size[1]>=.06);near(m.p[2]+m.size[2]/2,lo.p[2]+lo.size[2]/2);
+  near(m.p[1],(lo.p[1]+hi.p[1])/2);
+  a(m.p[1]-m.size[1]/2>=lo.p[1]+lo.size[1]/2-1e-10);
+  a(m.p[1]+m.size[1]/2<=hi.p[1]-hi.size[1]/2+1e-10);
+  if(e===0){near(m.p[1]-m.size[1]/2,lo.p[1]+lo.size[1]/2);near(m.p[1]+m.size[1]/2,hi.p[1]-hi.size[1]/2);}
+  if(i%2===0){a(minX(m)>minX(left)&&minX(m)<maxX(left));a(maxX(m)<minX(right)-.1);}
+  else{a(maxX(m)>minX(right)&&maxX(m)<maxX(right));a(minX(m)>maxX(left)+.1);}
+ }
+ const anchor=result.anchors.find(p=>p.id==='internal');
+ near(anchor.point[2],.3);
+ a(metal.some(m=>Math.abs(m.p[1]-anchor.point[1])<1e-10));
+}
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_visible_print_and_underline_are_centered_on_actual_cover(self):
         script = r"""
 const m=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);

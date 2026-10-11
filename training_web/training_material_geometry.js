@@ -19,15 +19,21 @@
    }
    anchor('electrode',[-1.34-e*.12,.08,.25]);anchor('nickel',[-1.46-e*.3,-.17,.25]);anchor('finish',[1.58+e*.48,-.17,.25]);
   }else if(course==='capacitor'){
-   const step=.16+e*.10;
-   for(let i=0;i<7;i++)block('dielectric',[0,(i-3)*step,-.15],[2.6,.13,.9],[231,208,153]);
-   for(let i=0;i<6;i++)block('internal',[i%2?.075:-.075,(i-2.5)*step,-.15],[2.65,.025,.85],[133,151,176]);
-   for(const s of [-1,1]){
-    block('base',[s*(1.44+e*.12),0,-.15],[.14,1.18+e*.6,.9],[179,119,67]);
-    block('barrier',[s*(1.58+e*.3),0,-.15],[.14,1.18+e*.6,.9],[139,163,191]);
-    block('tin',[s*(1.72+e*.48),0,-.15],[.14,1.18+e*.6,.9],[204,215,227]);
+   // A common front cut exposes both materials. Enlarged metal thickness keeps
+   // the six electrodes readable without requiring an exploded view.
+   const ceramic=.15,metal=.075,step=ceramic+metal+e*.14,contact=1.39+e*.12;
+   for(let i=0;i<7;i++)block('dielectric',[0,(i-3)*step,-.15],[2.6,ceramic,.9],[231,208,153]);
+   for(let i=0;i<6;i++){
+    const side=i%2?1:-1;
+    // Each sheet reaches only its own copper termination, never both ends.
+    block('internal',[side*(contact-1.20)/2,(i-2.5)*step,-.15],[contact+1.20,metal,.9],[80,99,121]);
    }
-   anchor('dielectric',[.5,step*3,.3]);anchor('internal',[-.3,step*2.5,.275]);anchor('base',[-1.44-e*.12,.2,.3]);anchor('barrier',[-1.58-e*.3,-.15,.3]);anchor('tin',[1.72+e*.48,0,.3]);
+   for(const s of [-1,1]){
+    block('base',[s*(1.44+e*.12),0,-.15],[.14,1.5+e*.84,.9],[179,119,67]);
+    block('barrier',[s*(1.58+e*.3),0,-.15],[.14,1.5+e*.84,.9],[139,163,191]);
+    block('tin',[s*(1.72+e*.48),0,-.15],[.14,1.5+e*.84,.9],[204,215,227]);
+   }
+   anchor('dielectric',[.5,step*3,.3]);anchor('internal',[.65,-step*.5,.3]);anchor('base',[-1.44-e*.12,.2,.3]);anchor('barrier',[-1.58-e*.3,-.15,.3]);anchor('tin',[1.72+e*.48,0,.3]);
   }else if(course==='inductor'){
    block('core',[0,-.7,-.15],[2.7,.3,1.35],[82,101,120]);
    tube(f,[0,-.55,-.15],[0,.65,-.15],.38,[106,129,149],'core',20);
