@@ -69,8 +69,7 @@
   const shorts={resistor:['Al₂O₃','RuO₂＋玻璃相','保护玻璃','导电金属（Ag示例）','Ni','Sn示例'],capacitor:['BaTiO₃基陶瓷','Ni','Cu','Ni','Sn','无内电极的陶瓷保护区域','无内电极的陶瓷保护区域'],inductor:['铁氧体','Cu','聚合物绝缘漆','导电金属'],diode:['Si＋受主杂质','同一硅中的结区','Si＋施主杂质','密封玻璃','导电金属']};
   return {faces:f,anchors:lesson.layers.map((p,i)=>({id:p.id,point:points[p.id],name:p.name,material:shorts[course][i]}))};
  }
- // The introductory view uses the same exposed stack, with five simple groups.
- // Do not cover its electrodes with an opaque ceramic envelope at 0% explosion.
+ // Simplified cutaway metadata for the internal field overlay, not the exterior.
  function buildCapacitorStructure(e,primitives){
   const mesh=build('capacitor',e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal',upper_cover:'upper_cover',lower_cover:'lower_cover'};
   const ids=['dielectric','internal','tin','upper_cover','lower_cover'],names=['层间陶瓷介质','内部电极','端电极','上陶瓷盖层','下陶瓷盖层'];
@@ -80,5 +79,16 @@
    electrodeY:Array.from({length:6},(_,i)=>(i-2.5)*(.15+.075+e*.14))
   };
  }
- const api=Object.freeze({build,buildCapacitorStructure});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingMaterialGeometry=api;
+ function buildCapacitorExterior(primitives){
+  const f=[],{box}=primitives;
+  // A sealed ceramic body and two overlapping end caps leave no exposed stack.
+  // Explosion is deliberately not an input to the purely external view.
+  box(f,[0,0,0],[3,1.5,1.6],[221,194,142],'body');
+  for(const side of [-1,1])box(f,[side*1.55,0,0],[.5,1.55,1.65],[181,192,208],'terminal');
+  return {faces:f,anchors:[
+   {id:'body',point:[0,.35,.8],name:'陶瓷本体',material:'完整烧结陶瓷外表面'},
+   {id:'terminal',point:[1.6,.1,.825],name:'金属端电极',material:'外部可焊表面'}
+  ]};
+ }
+ const api=Object.freeze({build,buildCapacitorStructure,buildCapacitorExterior});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingMaterialGeometry=api;
 })(typeof window==='undefined'?globalThis:window);

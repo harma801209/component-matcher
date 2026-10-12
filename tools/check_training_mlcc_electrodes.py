@@ -108,7 +108,7 @@ with sync_playwright() as p:
             })''')
 
         observations = []
-        for mode in ['exterior', 'materials']:
+        for mode in ['materials']:
             press(f.locator('#model-exterior' if mode == 'exterior' else '#show-cross-section'))
             assert '内电极' in f.locator('.model-note').inner_text()
             assert f.locator('#model-labels button').count() == (5 if mode == 'exterior' else 7)
@@ -183,20 +183,76 @@ with sync_playwright() as p:
             check_markers()
             assert f.locator(selector).is_visible()
             f.locator('.model-card').screenshot(path=str(out / f'{"formal" if args.public else "local"}-{mode}-upper-angle.png'))
-        press(f.locator('#model-exterior'))
+        # The field lesson remains available only inside, never through a sealed body.
         press(f.locator('#animate'))
         reveal()
         assert f.locator('#animate').get_attribute('aria-pressed') == 'true'
         old_frame = int(canvas.get_attribute('data-frames'))
         f.wait_for_function('v=>Number(document.querySelector("#model-canvas").dataset.frames)>v+2', arg=old_frame)
         check_markers()
-        assert f.locator('[data-model-part="electrode"]').is_visible()
+        assert f.locator('[data-model-material="internal"]').is_visible()
+        assert f.evaluate('''()=>{
+            const boxes=[],box=(f,p,s,color,id)=>{boxes.push({p,s,color,id});f.push({p,s,color,id});};
+            const ext=TrainingMaterialGeometry.buildCapacitorExterior({box});
+            return boxes.length===3&&boxes.filter(b=>b.id==='body').length===1&&boxes.filter(b=>b.id==='terminal').length===2&&JSON.stringify(ext.anchors.map(a=>a.id))==='["body","terminal"]';
+        }''')
+        f.locator('#explode').focus()
+        f.locator('#explode').press('End')
+        old_state = f.evaluate('TrainingLesson.current()')
+        press(f.locator('#model-exterior'))
+        for width in [1440, 900, 390]:
+            page.set_viewport_size({'width': width, 'height': 1100})
+            reveal()
+            press(f.locator('#reset-view'))
+            press(f.locator('#parts [data-part="body"]'))
+            f.wait_for_function('document.querySelector("#model-canvas").dataset.mode==="exterior"&&document.querySelector("#model-canvas").dataset.meshFaces==="18"')
+            assert f.locator('#parts button').count() == 2
+            assert f.locator('#model-labels button').count() == 2
+            assert f.locator('[data-model-part="electrode"],[data-model-part="upper_cover"],[data-model-part="lower_cover"]').count() == 0
+            assert not f.locator('.explode-control').is_visible()
+            assert not f.locator('#animate').is_visible()
+            assert f.locator('#animate').get_attribute('aria-pressed') == 'false'
+            assert f.locator('#state-badge').inner_text() == '完整外观'
+            assert '完整外观' in f.locator('.model-note').inner_text()
+            # Sample the middle of the ceramic face, not the grey end caps
+            # that intersect full-height perspective columns at the edges.
+            # Actual mesh count separately proves only the three closed boxes.
+            assert f.evaluate('''()=>{
+                const c=document.querySelector('#model-canvas'),b=TrainingLesson.bounds(),scale=c.width/c.getBoundingClientRect().width;
+                const x=Math.round((b.left+b.right)/2*scale),y=Math.round((b.top+(b.bottom-b.top)*.3)*scale),h=Math.max(1,Math.round((b.bottom-b.top)*.4*scale));
+                const p=c.getContext('2d').getImageData(x,y,1,h).data;
+                for(let i=0;i<p.length;i+=4){const R=p[i],G=p[i+1],B=p[i+2];if(R<145&&G>R+8&&B>G+8&&B-R<80&&G<180)return false;}
+                return true;
+            }'''), 'Electrode-coloured stripe inside the external ceramic face'
+            check_markers()
+            for part in ['body', 'terminal']:
+                marker = f.locator('[data-model-part="'+part+'"]')
+                marker.click() if not args.public else press(marker)
+                assert f.evaluate('TrainingLesson.current().part') == part
+                assert marker.get_attribute('aria-pressed') == 'true'
+            f.locator('.model-card').screenshot(path=str(out / f'{"formal" if args.public else "local"}-sealed-exterior-{width}.png'))
+            reveal()
+            old_yaw = canvas.get_attribute('data-yaw')
+            canvas.press('ArrowRight')
+            canvas.press('+')
+            f.wait_for_function('v=>document.querySelector("#model-canvas").dataset.yaw!==v', arg=old_yaw)
+            check_markers()
+            assert f.evaluate('TrainingLesson.current().params') == old_state['params']
+            assert f.evaluate('TrainingLesson.current().explosion') == old_state['explosion']
+        press(f.locator('#show-cross-section'))
+        reveal()
+        f.wait_for_function('document.querySelector("#model-canvas").dataset.mode==="materials"')
+        assert f.locator('#model-labels button').count() == 7
+        assert f.locator('.explode-control').is_visible()
+        assert f.locator('#animate').is_visible() and not f.locator('#animate').is_disabled()
+        assert f.evaluate('TrainingLesson.current().explosion') == 1
+        press(f.locator('#model-exterior'))
         for course in ['resistor', 'inductor', 'diode']:
             press(f.locator('button[data-course="'+course+'"]'))
             assert not f.locator('#model-labels').is_visible()
             assert f.locator('[data-model-part]').count() == 0
         assert not errors, errors
-        print(json.dumps({'status': 'passed', 'public': args.public, 'geometry': geometry, 'upper_lower_cover_selection': True, 'visible_electrode_bands': observations, 'browser_errors': errors}), flush=True)
+        print(json.dumps({'status': 'passed', 'public': args.public, 'geometry': geometry, 'sealed_exterior_distinct_from_cutaway': True, 'upper_lower_cover_selection': True, 'visible_electrode_bands': observations, 'browser_errors': errors}), flush=True)
     finally:
         context.close()
         browser.close()

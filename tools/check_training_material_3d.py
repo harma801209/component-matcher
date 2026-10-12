@@ -49,7 +49,7 @@ with sync_playwright() as p:
             state=f.evaluate('TrainingLesson.current()')
             assert state['params']==before['params'] and state['tab']=='performance'
             assert canvas.get_attribute('data-yaw')==yaw
-            assert f.locator('#animate').is_disabled()
+            assert f.locator('#animate').is_disabled() == (course != 'capacitor')
             data=f.evaluate('TrainingMaterialData.lesson(TrainingLesson.current().course)')
             assert f.locator('#model-labels button').count()==len(data['layers'])
             for index,part in enumerate(data['layers']):
@@ -121,9 +121,11 @@ with sync_playwright() as p:
             f.wait_for_function('document.querySelector("canvas").dataset.mode==="exterior"')
             assert f.locator('#model-labels').is_visible() == (course == 'capacitor')
             if course == 'capacitor':
-                assert f.locator('#model-labels [data-model-part]').count() == 5
-                assert f.locator('[data-model-part="electrode"]').inner_text() == '2'
-            assert not f.locator('#animate').is_disabled()
+                assert f.locator('#model-labels [data-model-part]').count() == 2
+                assert f.locator('[data-model-part="terminal"]').inner_text() == '2'
+                assert not f.locator('.explode-control').is_visible()
+                assert not f.locator('#animate').is_visible()
+            assert f.locator('#animate').is_disabled() == (course == 'capacitor')
             assert f.evaluate('TrainingLesson.current().params')==before['params']
         press(f.locator('#show-cross-section'))
         press(f.locator('button[data-course="capacitor"]'))

@@ -10,7 +10,7 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
-    def test_capacitor_intro_reuses_exposed_layers_and_cover_anchors(self):
+    def test_capacitor_internal_overlay_reuses_exposed_layers_and_cover_anchors(self):
         script = r"""
 const g=require(process.argv[1]),a=require('node:assert/strict');
 const box=(f,p,size,color,id)=>f.push({id,color,p:[p,p.map((v,i)=>v+size[i]),p.map((v,i)=>v-size[i])]});
@@ -26,6 +26,23 @@ for(const e of [0,.05,.1,.5,1]){
  a.equal(intro.anchors[1].point[2],.3);
 }
 a.throws(()=>g.buildCapacitorStructure(-1,{box}),RangeError);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_capacitor_exterior_is_sealed_body_with_two_end_caps_only(self):
+        script = r"""
+const g=require(process.argv[1]),a=require('node:assert/strict');
+const b=[],box=(f,p,size,color,id)=>{b.push({p,size,color,id});f.push({p:[p],size,color,id});};
+const m=g.buildCapacitorExterior({box});
+a.equal(b.length,3);a.deepEqual(m.anchors.map(p=>p.id),['body','terminal']);
+a.deepEqual([...new Set(m.faces.map(f=>f.id))].sort(),['body','terminal']);
+a.equal(b.filter(p=>p.id==='body').length,1);a.equal(b.filter(p=>p.id==='terminal').length,2);
+const body=b[0];for(const cap of b.slice(1)){a(cap.size[1]>=body.size[1]);a(cap.size[2]>=body.size[2]);a(Math.abs(cap.p[0])-cap.size[0]/2<body.size[0]/2);a(Math.abs(cap.p[0])+cap.size[0]/2>body.size[0]/2);}
+for(const p of m.anchors)a(p.point.every(Number.isFinite));
+const cut=g.build('capacitor',0,{box:(f,p,size,color,id)=>f.push({p,size,color,id}),tube:()=>{}});
+a(cut.faces.some(f=>f.id==='internal'));a(cut.faces.some(f=>f.id==='upper_cover'));a(cut.faces.some(f=>f.id==='lower_cover'));
+a.notDeepEqual(m.faces,cut.faces);
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js')], check=True, capture_output=True)
 

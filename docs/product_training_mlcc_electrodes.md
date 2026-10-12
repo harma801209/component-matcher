@@ -80,6 +80,28 @@ height and consistent mode mapping. Actual-browser QA checks both native cover
 buttons and their details, independent highlighting, source links, marker layout
 after rotation/zoom and three widths, while retaining electrode-band checks.
 
+## Restore a purely external MLCC view
+
+The user clarified that the two mode buttons must not present the same cutaway.
+The external mode now uses its own sealed ceramic body and two metal end caps,
+with only two selectable exterior parts. No electrodes, layer lines or separately
+exposed cover regions are rendered there, including after returning from a 100%
+exploded internal view. It keeps camera rotation/zoom and the same canvas height.
+The internal seven-part material geometry and independent covers remain unchanged.
+
+External mode hides the dismantling slider and internal-animation button. The
+existing electric-field overlay is available in capacitor material mode instead;
+it is reset when switching modes and never painted over the closed external body.
+Existing explosion state and lab parameters are preserved for return to material
+mode. Other courses retain their existing controls and animation locations.
+
+Verification compares the distinct actual geometry builders, validates a single
+sealed ceramic volume/two overlapping end caps and exterior-only anchors, checks
+an uninterrupted ceramic centre patch outside versus six visible electrode bands
+inside (full-height exterior samples would also cross grey end caps), native
+part selection, mode round-trip from 100% exploded state, camera/zoom, control
+visibility, internal field animation, seven materials/covers and three widths.
+
 Primary sources checked: [Murata structure FAQ](https://www.murata.com/support/faqs/capacitor/ceramiccapacitor/conf/0001)
 and [Murata MLCC fabrication lesson](https://article.murata.com/en-us/article/basics-of-capacitors-3).
 They describe dielectric/electrode stacking and the representative Ni internal,
