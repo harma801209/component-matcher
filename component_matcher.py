@@ -10372,6 +10372,14 @@ def render_runtime_status_admin_page():
     ]
     st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
 
+    # Check the actual lazy-loaded image engine, not only whether the package
+    # appears installed. This read-only status helps diagnose basic-OCR fallback.
+    ocr_status = get_bom_image_ocr_runtime_status()
+    if ocr_status["ready"]:
+        st.info(f"图片识别模型已就绪 · {ocr_status['version']}")
+    else:
+        st.warning(f"图片识别模型未就绪 · {ocr_status['error']}")
+
     st.markdown("#### 匹配性能")
     bom_metrics = runtime_metric_summary("bom")
     search_metrics = runtime_metric_summary("search")
@@ -45116,6 +45124,19 @@ def get_bom_image_text_recognizer():
     config = read_yaml(root / "config.yaml")["Rec"]
     config["model_path"] = str(root / config["model_path"])
     return TextRecognizer(config)
+
+
+def get_bom_image_ocr_runtime_status():
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        installed = version("rapidocr-onnxruntime")
+    except PackageNotFoundError:
+        installed = "未安装"
+    try:
+        get_bom_image_text_recognizer()
+        return {"ready": True, "version": installed, "error": ""}
+    except Exception as exc:
+        return {"ready": False, "version": installed, "error": f"{type(exc).__name__}: {exc}"[:400]}
 
 
 # Source-verified alias only; never substitute O/0 indiscriminately in models.

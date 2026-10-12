@@ -290,6 +290,21 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_bom_image_runtime_status_checks_model_initialization(self):
+        app = self.app
+        original = app["get_bom_image_text_recognizer"]
+        try:
+            app["get_bom_image_text_recognizer"] = lambda: object()
+            self.assertTrue(app["get_bom_image_ocr_runtime_status"]()["ready"])
+            def broken_model():
+                raise RuntimeError("model unavailable")
+            app["get_bom_image_text_recognizer"] = broken_model
+            status = app["get_bom_image_ocr_runtime_status"]()
+            self.assertFalse(status["ready"])
+            self.assertIn("RuntimeError", status["error"])
+        finally:
+            app["get_bom_image_text_recognizer"] = original
+
     def test_bom_image_pale_rules_ignore_dense_text_and_coloured_fills(self):
         from PIL import Image, ImageDraw
         image = Image.new("L", (1000, 500), 255)
