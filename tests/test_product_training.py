@@ -10,15 +10,15 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
-    def test_capacitor_intro_reuses_exposed_layers_and_three_surface_anchors(self):
+    def test_capacitor_intro_reuses_exposed_layers_and_cover_anchors(self):
         script = r"""
 const g=require(process.argv[1]),a=require('node:assert/strict');
 const box=(f,p,size,color,id)=>f.push({id,color,p:[p,p.map((v,i)=>v+size[i]),p.map((v,i)=>v-size[i])]});
 for(const e of [0,.05,.1,.5,1]){
  const detailed=g.build('capacitor',e,{box}),intro=g.buildCapacitorStructure(e,{box});
- const mapping={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
+ const mapping={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal',upper_cover:'upper_cover',lower_cover:'lower_cover'};
  a.deepEqual(intro.faces,detailed.faces.map(f=>({...f,id:mapping[f.id]})));
- a.deepEqual(intro.anchors.map(p=>p.id),['dielectric','electrode','terminal']);
+ a.deepEqual(intro.anchors.map(p=>p.id),['dielectric','electrode','terminal','upper_cover','lower_cover']);
  a.equal(intro.faces.filter(f=>f.id==='electrode').length,6);
  const metal=detailed.faces.filter(f=>f.id==='internal');
  a.deepEqual(intro.electrodeY,metal.map(f=>f.p[0][1]));
@@ -35,13 +35,13 @@ a.throws(()=>g.buildCapacitorStructure(-1,{box}),RangeError);
 const g=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);
 for(const e of [0,.5,1]){
  const blocks=[],box=(f,p,size,color,id)=>{blocks.push({p,size,color,id});f.push({p:[p],color,id});};
- const result=g.build('capacitor',e,{box,tube:()=>{}}),ceramics=blocks.filter(p=>p.id==='dielectric'),metal=blocks.filter(p=>p.id==='internal'),ends=blocks.filter(p=>p.id==='base');
- a.equal(ceramics.length,7);a.equal(metal.length,6);
+ const result=g.build('capacitor',e,{box,tube:()=>{}}),active=blocks.filter(p=>p.id==='dielectric'),ceramics=[blocks.find(p=>p.id==='lower_cover'),...active,blocks.find(p=>p.id==='upper_cover')],metal=blocks.filter(p=>p.id==='internal'),ends=blocks.filter(p=>p.id==='base');
+ a.equal(active.length,5);a.equal(ceramics.length,7);a.equal(metal.length,6);
  const minX=b=>b.p[0]-b.size[0]/2,maxX=b=>b.p[0]+b.size[0]/2;
  for(let i=0;i<6;i++){
   const m=metal[i],lo=ceramics[i],hi=ceramics[i+1],left=ends[0],right=ends[1];
   a(m.size[1]>=.06);near(m.p[2]+m.size[2]/2,lo.p[2]+lo.size[2]/2);
-  near(m.p[1],(lo.p[1]+hi.p[1])/2);
+  if(i>0&&i<5)near(m.p[1],(lo.p[1]+hi.p[1])/2);
   a(m.p[1]-m.size[1]/2>=lo.p[1]+lo.size[1]/2-1e-10);
   a(m.p[1]+m.size[1]/2<=hi.p[1]-hi.size[1]/2+1e-10);
   if(e===0){near(m.p[1]-m.size[1]/2,lo.p[1]+lo.size[1]/2);near(m.p[1]+m.size[1]/2,hi.p[1]-hi.size[1]/2);}
@@ -54,6 +54,29 @@ for(const e of [0,.5,1]){
 }
 """
         subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_mlcc_upper_lower_covers_are_non_electroded_protection_regions(self):
+        script = r"""
+const g=require(process.argv[1]),d=require(process.argv[2]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);
+for(const e of [0,.05,.5,1]){
+ const b=[],box=(f,p,size,color,id)=>{b.push({p,size,color,id});f.push({id,color,p:[p]});};
+ const m=g.build('capacitor',e,{box}),covers=b.filter(p=>['upper_cover','lower_cover'].includes(p.id)),inner=b.filter(p=>p.id==='internal'),ceramic=b.filter(p=>p.id==='dielectric');
+ a.equal(covers.length,2);a.equal(ceramic.length,5);a.equal(inner.length,6);
+ const upper=covers.find(p=>p.id==='upper_cover'),lower=covers.find(p=>p.id==='lower_cover');
+ near(upper.p[1],-lower.p[1]);near(upper.size[1],lower.size[1]);a(upper.size[1]>ceramic[0].size[1]);a.notDeepEqual(upper.color,ceramic[0].color);
+ for(const c of covers){
+  const lo=c.p[1]-c.size[1]/2,hi=c.p[1]+c.size[1]/2;
+  for(const i of inner)a(i.p[1]+i.size[1]/2<=lo+1e-10||i.p[1]-i.size[1]/2>=hi-1e-10);
+  const point=m.anchors.find(p=>p.id===c.id).point;near(point[1],c.p[1]);near(point[2],c.p[2]+c.size[2]/2);
+  const info=d.lesson('capacitor').layers.find(p=>p.id===c.id);a(info.name.includes('陶瓷盖层'));a(info.composition.includes('不含内电极'));a(info.scope.includes('一体'));a(info.refs.includes(2));
+ }
+ near(m.anchors.find(p=>p.id==='dielectric').point[1],0);
+ const base=b.find(p=>p.id==='base');near(base.size[1]/2,upper.p[1]+upper.size[1]/2);
+ if(e===0){near(upper.p[1]-upper.size[1]/2,inner.at(-1).p[1]+inner.at(-1).size[1]/2);near(lower.p[1]+lower.size[1]/2,inner[0].p[1]-inner[0].size[1]/2);}
+}
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js'), str(WEB_ROOT / 'training_material_data.js')], check=True, capture_output=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_visible_print_and_underline_are_centered_on_actual_cover(self):

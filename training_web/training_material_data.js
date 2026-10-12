@@ -11,14 +11,16 @@
     {id:'nickel',name:'阻挡镀层',brief:'镍 Ni',composition:'镍（Ni）阻挡层。',role:'位于基础电极与可焊外层之间。',scope:'镀层厚度与结构依封装/系列；本图为典型层序。',refs:[0]},
     {id:'finish',name:'可焊外层',brief:'可焊镀层；无铅Sn示例',composition:'外部可焊金属镀层；锡（Sn）为无铅外层示例。',role:'用于与PCB焊盘焊接。',scope:'锡、含铅或其他端接版本必须按原厂订货规格确认。',refs:[2]}
    ],sources:[['Vishay · M系列材料与剖面结构','https://www.vishay.com/docs/60031/m.pdf'],['公开厚膜材料工艺 · EP2286420B1','https://patents.google.com/patent/EP2286420B1/en'],['Vishay · D/CRCW e3镍层与锡端接','https://www.vishay.com/docs/20035/dcrcwe3.pdf'],['Vishay · 表面阻值标识规则','https://www.vishay.com/docs/20020/smdmark.pdf'],['Stackpole · RMCF/RMCP标识规则','https://www.mouser.lt/datasheet/3/1099/1/SEI_RMCF_RMCP.pdf#page=12']]},
-  capacitor:{name:'高介电常数MLCC',scope:'这里展示BaTiO₃基、镍内部电极的MLCC示例。不能把C0G或所有陶瓷电容都当作相同配方。',caption:'陶瓷隔开相邻电极；电极交替接左、右端，层层叠加储能。薄层已放大。',
+  capacitor:{name:'高介电常数MLCC',scope:'这里展示BaTiO₃基、镍内部电极的MLCC示例。不能把C0G或所有陶瓷电容都当作相同配方。',caption:'上陶瓷盖层 → 内电极与介质叠层 → 下陶瓷盖层。前侧剖开是教学示意；真实内电极被陶瓷包覆。层厚已放大。',
    layers:[
-    {id:'dielectric',name:'陶瓷介质',brief:'钛酸钡 BaTiO₃基',composition:'高介电常数MLCC常见为钛酸钡（BaTiO₃）基陶瓷，含按性能设计的添加物。',role:'隔开电极，并在电场中储能。',scope:'X7R/X5R是温度特性分类，不是配方名称；C0G不得照用本例材料。',refs:[0]},
+    {id:'dielectric',name:'层间陶瓷介质',brief:'钛酸钡 BaTiO₃基',composition:'高介电常数MLCC常见为钛酸钡（BaTiO₃）基陶瓷，含按性能设计的添加物。',role:'位于相邻内电极之间，隔开电极并在电场中储能；区别于上下保护盖层。',scope:'X7R/X5R是温度特性分类，不是配方名称；C0G不得照用本例材料。',refs:[0]},
     {id:'internal',name:'内部电极',brief:'镍 Ni（本例）',composition:'本例使用镍（Ni）金属电极。',role:'交替连接两个端子，多层叠加有效电极面积。',scope:'镍属基底金属电极示例；其他电极工艺依产品确认。',refs:[0,1]},
     {id:'base',name:'端电极基础层',brief:'铜 Cu（本例）',composition:'铜（Cu）基础电极层。',role:'收集连接同一端的内部电极。',scope:'本例采用村田公开结构资料的材料层序，不替代其他系列材料声明。',refs:[1]},
     {id:'barrier',name:'端部阻挡层',brief:'镍 Ni',composition:'镍（Ni）镀层，位于铜基础层与锡层之间。',role:'形成端接阻挡层。',scope:'层厚及柔性端接等结构不由本图确定。',refs:[1]},
-    {id:'tin',name:'端部可焊层',brief:'锡 Sn',composition:'锡（Sn）外镀层。',role:'提供外部可焊连接表面。',scope:'仅为此结构示例；具体端接版本以料号资料为准。',refs:[1]}
-   ],sources:[['Murata · 钛酸钡介质与镍电极','https://article.murata.com/en-global/article/mlcc-for-5g-smartphone-2'],['Murata · MLCC剖面与材料表','https://search.murata.co.jp/Ceramy/image/img/A01X/1R0009A.pdf']]},
+    {id:'tin',name:'端部可焊层',brief:'锡 Sn',composition:'锡（Sn）外镀层。',role:'提供外部可焊连接表面。',scope:'仅为此结构示例；具体端接版本以料号资料为准。',refs:[1]},
+    {id:'upper_cover',name:'上陶瓷盖层',brief:'无内电极的陶瓷保护区域',composition:'不含内电极的陶瓷保护区域；本例以BaTiO₃基陶瓷作材料示意。',role:'位于内电极叠层上方，与主体烧结为一体，提供绝缘和机械保护；不是中间的有效储能叠层。',scope:'盖层与主体共同烧结为一体，不是可拆盖板。实际盖层配方、厚度和层数须按具体型号确认；图中厚度与颜色仅用于区分结构。',refs:[2,3]},
+    {id:'lower_cover',name:'下陶瓷盖层',brief:'无内电极的陶瓷保护区域',composition:'不含内电极的陶瓷保护区域；本例以BaTiO₃基陶瓷作材料示意。',role:'位于内电极叠层下方，与主体烧结为一体，提供绝缘和机械保护；与上盖层一起保护内部结构。',scope:'盖层与主体共同烧结为一体，不是可拆底板。实际盖层配方、厚度和层数须按具体型号确认；剖开和拉开层片只用于学习。',refs:[2,3]}
+   ],sources:[['Murata · 钛酸钡介质与镍电极','https://article.murata.com/en-global/article/mlcc-for-5g-smartphone-2'],['Murata · MLCC剖面与材料表','https://search.murata.co.jp/Ceramy/image/img/A01X/1R0009A.pdf'],['KYOCERA AVX · 上下陶瓷盖层（第9页）','https://kyocera-avx.com/docs/techinfo/whitepapers/mlcc-tant-alternatives/AVX-Hi-CV-SMD-Capacitor-Solutions.pdf#page=9'],['Murata · MLCC叠层与烧结制造','https://article.murata.com/en-us/article/basics-of-capacitors-3']]},
   inductor:{name:'绕线铁氧体电感',scope:'此图为绕线铁氧体结构，不代表空气芯、叠层电感或金属粉芯一体成型结构。屏蔽/封装形式也随系列变化。',caption:'穿过绕组的剖面。橙色圆面是铜线被切开的截面，外圈是绝缘膜，不是互不相连的独立小零件。',
    layers:[
     {id:'core',name:'磁芯 / 磁性屏蔽体',brief:'铁氧体：复合金属氧化物',composition:'铁氧体以铁氧化物为主要组成，结合锰、锌或镍等金属氧化物；MnZn、NiZn为材料类别示例。',role:'引导磁通；磁性屏蔽体有助于减少外泄磁场。',scope:'不是纯铁块；配比、气隙、损耗与饱和性能需查具体磁材/系列。',refs:[0,1]},

@@ -121,21 +121,21 @@ with sync_playwright() as p:
             f.wait_for_function('document.querySelector("canvas").dataset.mode==="exterior"')
             assert f.locator('#model-labels').is_visible() == (course == 'capacitor')
             if course == 'capacitor':
-                assert f.locator('#model-labels [data-model-part]').count() == 3
+                assert f.locator('#model-labels [data-model-part]').count() == 5
                 assert f.locator('[data-model-part="electrode"]').inner_text() == '2'
             assert not f.locator('#animate').is_disabled()
             assert f.evaluate('TrainingLesson.current().params')==before['params']
         press(f.locator('#show-cross-section'))
         press(f.locator('button[data-course="capacitor"]'))
         assert f.evaluate('TrainingLesson.current().modelMode')=='materials'
-        assert f.locator('#model-labels button').count()==5
+        assert f.locator('#model-labels button').count()==7
         assert f.evaluate('TrainingLesson.current().course')=='capacitor'
         state=f.evaluate('TrainingLesson.current()')
         assert not f.evaluate('TrainingLesson.setModelMode("unknown")')
         assert not f.evaluate('TrainingLesson.selectMaterial("unknown")')
         assert f.evaluate('TrainingLesson.current()')==state
         assert not errors,errors
-        print(json.dumps({'status':'passed','public':args.public,'courses':4,'material_parts':20,'same_canvas':True,'labels_camera_and_selection':True,'pointer_mesh_selection':not args.public,'widths':[1440,900,390],'browser_errors':errors}),flush=True)
+        print(json.dumps({'status':'passed','public':args.public,'courses':4,'material_parts':22,'same_canvas':True,'labels_camera_and_selection':True,'pointer_mesh_selection':not args.public,'widths':[1440,900,390],'browser_errors':errors}),flush=True)
     except Exception:
         print(json.dumps({'browser_errors':errors,'state':f.evaluate('TrainingLesson.current()') if f else None}),flush=True)
         raise

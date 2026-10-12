@@ -50,6 +50,36 @@ covers both modes, all three widths, closed/exploded visible bands, native marke
 2 activation, marker containment and non-overlap after rotation/zoom, upper-facing
 camera matching the user screenshot, animation and switching to other courses.
 
+## Separate upper and lower ceramic covers
+
+The outer ceramic slabs had been grouped and numbered as active dielectric. They
+now have independent `upper_cover` and `lower_cover` identities, names and material
+details. Five active ceramic layers separate six electrodes; the two cover regions
+sit outside that active stack with no electrodes inside. Covers are drawn thicker
+and light cream for teaching contrast, not as a commercial thickness specification
+or a claim that their recipe/colour always differs from the active dielectric.
+At 0% each cover meets the outer electrode with no artificial air void; the existing
+explosion slider opens the teaching stack. End-termination height covers the body.
+
+Both modes share those cover volumes. The introductory view keeps electrode 2
+and adds covers 4/5; detailed material mode keeps its original 1-5 and adds covers
+6/7. The dielectric anchor is moved from the former top slab into the active stack.
+The note explicitly shows top cover -> active layers -> bottom cover, explains that
+the front is cut open for teaching, and says the real cover/body is one fired piece
+and electrodes are enclosed, not exposed as in the lesson. No leaders/duplicate
+diagrams/extra scrolling or changes to circuit math, matching, TCR or business data.
+
+Source: [KYOCERA AVX structure diagram, page 9](https://kyocera-avx.com/docs/techinfo/whitepapers/mlcc-tant-alternatives/AVX-Hi-CV-SMD-Capacitor-Solutions.pdf#page=9)
+labels top/bottom covers separately from dielectric layers. The existing Murata
+fabrication source describes the monolithic fabrication sequence. Model detail
+links retain these source and material-scope boundaries.
+
+Cover validation checks count, distinct IDs/colour/teaching thickness, outside-stack
+placement, lack of electrode overlap, closed adjacency, surface anchors, body/terminal
+height and consistent mode mapping. Actual-browser QA checks both native cover
+buttons and their details, independent highlighting, source links, marker layout
+after rotation/zoom and three widths, while retaining electrode-band checks.
+
 Primary sources checked: [Murata structure FAQ](https://www.murata.com/support/faqs/capacitor/ceramiccapacitor/conf/0001)
 and [Murata MLCC fabrication lesson](https://article.murata.com/en-us/article/basics-of-capacitors-3).
 They describe dielectric/electrode stacking and the representative Ni internal,

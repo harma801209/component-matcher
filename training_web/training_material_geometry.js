@@ -21,19 +21,25 @@
   }else if(course==='capacitor'){
    // A common front cut exposes both materials. Enlarged metal thickness keeps
    // the six electrodes readable without requiring an exploded view.
-   const ceramic=.15,metal=.075,step=ceramic+metal+e*.14,contact=1.39+e*.12;
-   for(let i=0;i<7;i++)block('dielectric',[0,(i-3)*step,-.15],[2.6,ceramic,.9],[231,208,153]);
+   const ceramic=.15,metal=.075,cover=.28,step=ceramic+metal+e*.14,contact=1.39+e*.12;
+   // Five active dielectric layers separate six electrodes. The two outer,
+   // non-electroded ceramic cover regions are distinct teaching parts.
+   for(let i=0;i<5;i++)block('dielectric',[0,(i-2)*step,-.15],[2.6,ceramic,.9],[231,208,153]);
+   const coverY=2.5*step+metal/2+cover/2+e*.07,bodyHeight=2*(coverY+cover/2);
+   block('upper_cover',[0,coverY,-.15],[2.6,cover,.9],[244,232,208]);
+   block('lower_cover',[0,-coverY,-.15],[2.6,cover,.9],[244,232,208]);
    for(let i=0;i<6;i++){
     const side=i%2?1:-1;
     // Each sheet reaches only its own copper termination, never both ends.
     block('internal',[side*(contact-1.20)/2,(i-2.5)*step,-.15],[contact+1.20,metal,.9],[80,99,121]);
    }
    for(const s of [-1,1]){
-    block('base',[s*(1.44+e*.12),0,-.15],[.14,1.5+e*.84,.9],[179,119,67]);
-    block('barrier',[s*(1.58+e*.3),0,-.15],[.14,1.5+e*.84,.9],[139,163,191]);
-    block('tin',[s*(1.72+e*.48),0,-.15],[.14,1.5+e*.84,.9],[204,215,227]);
+    block('base',[s*(1.44+e*.12),0,-.15],[.14,bodyHeight,.9],[179,119,67]);
+    block('barrier',[s*(1.58+e*.3),0,-.15],[.14,bodyHeight,.9],[139,163,191]);
+    block('tin',[s*(1.72+e*.48),0,-.15],[.14,bodyHeight,.9],[204,215,227]);
    }
-   anchor('dielectric',[.5,step*3,.3]);anchor('internal',[.65,-step*.5,.3]);anchor('base',[-1.44-e*.12,.2,.3]);anchor('barrier',[-1.58-e*.3,-.15,.3]);anchor('tin',[1.72+e*.48,0,.3]);
+   anchor('dielectric',[-.55,0,.3]);anchor('internal',[.65,-step*.5,.3]);anchor('base',[-1.44-e*.12,.2,.3]);anchor('barrier',[-1.58-e*.3,-.15,.3]);anchor('tin',[1.72+e*.48,0,.3]);
+   anchor('upper_cover',[.05,coverY,.3]);anchor('lower_cover',[.05,-coverY,.3]);
   }else if(course==='inductor'){
    block('core',[0,-.7,-.15],[2.7,.3,1.35],[82,101,120]);
    tube(f,[0,-.55,-.15],[0,.65,-.15],.38,[106,129,149],'core',20);
@@ -60,14 +66,14 @@
    for(const s of [-1,1])tube(f,[s*.86,0,.05],[s*2.05,0,.05],.065,[177,196,214],'lead',12);
    anchor('p',[-.46,.2,.375]);anchor('junction',[0,.2,.375]);anchor('n',[.46,.2,.375]);anchor('glass',[0,lift+.65,-.05]);anchor('lead',[1.72,0,.05]);
   }
-  const shorts={resistor:['Al₂O₃','RuO₂＋玻璃相','保护玻璃','导电金属（Ag示例）','Ni','Sn示例'],capacitor:['BaTiO₃基陶瓷','Ni','Cu','Ni','Sn'],inductor:['铁氧体','Cu','聚合物绝缘漆','导电金属'],diode:['Si＋受主杂质','同一硅中的结区','Si＋施主杂质','密封玻璃','导电金属']};
+  const shorts={resistor:['Al₂O₃','RuO₂＋玻璃相','保护玻璃','导电金属（Ag示例）','Ni','Sn示例'],capacitor:['BaTiO₃基陶瓷','Ni','Cu','Ni','Sn','无内电极的陶瓷保护区域','无内电极的陶瓷保护区域'],inductor:['铁氧体','Cu','聚合物绝缘漆','导电金属'],diode:['Si＋受主杂质','同一硅中的结区','Si＋施主杂质','密封玻璃','导电金属']};
   return {faces:f,anchors:lesson.layers.map((p,i)=>({id:p.id,point:points[p.id],name:p.name,material:shorts[course][i]}))};
  }
- // The introductory view uses the same exposed stack, with three simple groups.
+ // The introductory view uses the same exposed stack, with five simple groups.
  // Do not cover its electrodes with an opaque ceramic envelope at 0% explosion.
  function buildCapacitorStructure(e,primitives){
-  const mesh=build('capacitor',e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
-  const ids=['dielectric','internal','tin'],names=['陶瓷介质','内部电极','端电极'];
+  const mesh=build('capacitor',e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal',upper_cover:'upper_cover',lower_cover:'lower_cover'};
+  const ids=['dielectric','internal','tin','upper_cover','lower_cover'],names=['层间陶瓷介质','内部电极','端电极','上陶瓷盖层','下陶瓷盖层'];
   return {
    faces:mesh.faces.map(f=>({...f,id:map[f.id]})),
    anchors:ids.map((id,i)=>({...mesh.anchors.find(p=>p.id===id),id:map[id],name:names[i]})),

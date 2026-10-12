@@ -60,21 +60,25 @@ with sync_playwright() as p:
         geometry = f.evaluate('''()=>[0,.5,1].map(e=>{
             const boxes=[];
             TrainingMaterialGeometry.build('capacitor',e,{box:(faces,c,s,col,id)=>{boxes.push({id,c,s,col});},tube:()=>[]});
-            const d=boxes.filter(b=>b.id==='dielectric'),m=boxes.filter(b=>b.id==='internal'),cu=boxes.filter(b=>b.id==='base');
-            if(d.length!==7||m.length!==6)throw Error('Missing dielectric/electrode layers');
+            const d=boxes.filter(b=>b.id==='dielectric'),m=boxes.filter(b=>b.id==='internal'),cu=boxes.filter(b=>b.id==='base'),covers=boxes.filter(b=>['upper_cover','lower_cover'].includes(b.id));
+            if(d.length!==5||m.length!==6||covers.length!==2)throw Error('Missing dielectric/electrode/cover layers');
             m.forEach((b,i)=>{
-                if(b.s[1]<.06||Math.abs(b.c[2]+b.s[2]/2-(d[i].c[2]+d[i].s[2]/2))>1e-9)throw Error('Recessed/invisible electrode');
+                if(b.s[1]<.06||Math.abs(b.c[2]+b.s[2]/2-(d[0].c[2]+d[0].s[2]/2))>1e-9)throw Error('Recessed/invisible electrode');
                 const side=i%2?1:-1,own=cu.find(t=>Math.sign(t.c[0])===side),other=cu.find(t=>Math.sign(t.c[0])!==side);
                 const overlap=t=>Math.min(b.c[0]+b.s[0]/2,t.c[0]+t.s[0]/2)-Math.max(b.c[0]-b.s[0]/2,t.c[0]-t.s[0]/2);
                 if(overlap(own)<=0||overlap(other)>=0)throw Error('Incorrect alternating termination');
             });
-            return {explosion:e,dielectric:d.length,electrodes:m.length,thickness:m[0].s[1]};
+            covers.forEach(c=>{
+                if(c.s[1]<=d[0].s[1]||JSON.stringify(c.col)===JSON.stringify(d[0].col))throw Error('Indistinct cover');
+                m.forEach(b=>{if(Math.min(c.c[1]+c.s[1]/2,b.c[1]+b.s[1]/2)-Math.max(c.c[1]-c.s[1]/2,b.c[1]-b.s[1]/2)>1e-9)throw Error('Electrode in cover');});
+            });
+            return {explosion:e,dielectric:d.length,electrodes:m.length,covers:covers.length,thickness:m[0].s[1]};
         })''')
         assert f.evaluate('''()=>{
             const box=(f,p,s,color,id)=>f.push({p,s,color,id}),primitives={box,tube:()=>{}};
             return [0,.05,.1,.5,1].every(e=>{
-                const a=TrainingMaterialGeometry.build('capacitor',e,primitives),b=TrainingMaterialGeometry.buildCapacitorStructure(e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
-                return JSON.stringify(b.faces)===JSON.stringify(a.faces.map(f=>({...f,id:map[f.id]})))&&JSON.stringify(b.anchors.map(a=>a.id))==='["dielectric","electrode","terminal"]';
+                const a=TrainingMaterialGeometry.build('capacitor',e,primitives),b=TrainingMaterialGeometry.buildCapacitorStructure(e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal',upper_cover:'upper_cover',lower_cover:'lower_cover'};
+                return JSON.stringify(b.faces)===JSON.stringify(a.faces.map(f=>({...f,id:map[f.id]})))&&JSON.stringify(b.anchors.map(a=>a.id))==='["dielectric","electrode","terminal","upper_cover","lower_cover"]';
             });
         }''')
 
@@ -107,7 +111,9 @@ with sync_playwright() as p:
         for mode in ['exterior', 'materials']:
             press(f.locator('#model-exterior' if mode == 'exterior' else '#show-cross-section'))
             assert '内电极' in f.locator('.model-note').inner_text()
-            assert f.locator('#model-labels button').count() == (3 if mode == 'exterior' else 5)
+            assert f.locator('#model-labels button').count() == (5 if mode == 'exterior' else 7)
+            assert '上陶瓷盖层 → 内电极与介质叠层 → 下陶瓷盖层' in f.locator('.model-note').inner_text()
+            assert '真实内电极被陶瓷包覆' in f.locator('.model-note').inner_text()
             selector = '[data-model-part="electrode"]' if mode == 'exterior' else '[data-model-material="internal"]'
             selected = 'electrode' if mode == 'exterior' else 'internal'
             for width in [1440, 900, 390]:
@@ -139,6 +145,23 @@ with sync_playwright() as p:
                     assert f.locator(selector).get_attribute('aria-pressed') == 'true'
                     if mode == 'materials':
                         assert '镍' in f.locator('#part-detail').inner_text()
+                    for cover_id, cover_name, number in [('upper_cover', '上陶瓷盖层', 4 if mode == 'exterior' else 6), ('lower_cover', '下陶瓷盖层', 5 if mode == 'exterior' else 7)]:
+                        attr = 'data-model-part' if mode == 'exterior' else 'data-model-material'
+                        marker = f.locator(f'[{attr}="{cover_id}"]')
+                        assert marker.is_visible()
+                        assert marker.inner_text() == str(number)
+                        marker.click() if not args.public else press(marker)
+                        assert f.evaluate('TrainingLesson.current().part') == cover_id
+                        assert marker.get_attribute('aria-pressed') == 'true'
+                        detail = f.locator('#part-detail').inner_text()
+                        assert cover_name in detail and ('不含内电极' in detail or '保护区域' in detail)
+                        if mode == 'materials':
+                            assert '一体' in detail
+                            assert f.locator('#part-detail a[href*="AVX-Hi-CV"]').count() == 1
+                        if not exploded and width in [1440, 390]:
+                            reveal()
+                            f.locator('.model-card').screenshot(path=str(out / f'{prefix}-{cover_id}.png'))
+                    press(f.locator(selector))
                     reveal()
                     old_yaw = canvas.get_attribute('data-yaw')
                     canvas.press('ArrowRight')
@@ -173,7 +196,7 @@ with sync_playwright() as p:
             assert not f.locator('#model-labels').is_visible()
             assert f.locator('[data-model-part]').count() == 0
         assert not errors, errors
-        print(json.dumps({'status': 'passed', 'public': args.public, 'geometry': geometry, 'visible_electrode_bands': observations, 'browser_errors': errors}), flush=True)
+        print(json.dumps({'status': 'passed', 'public': args.public, 'geometry': geometry, 'upper_lower_cover_selection': True, 'visible_electrode_bands': observations, 'browser_errors': errors}), flush=True)
     finally:
         context.close()
         browser.close()
