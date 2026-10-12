@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-12T16:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-12T23:05:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -45028,10 +45028,13 @@ def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, sta
     if len(row_lines) > 90:
         raise RuntimeError("图片表格行数较多，请分成较小的截图上传，以便完整识别每一行。")
 
+    from bom_image_ocr_runtime import ImageOCRRuntimeError
     try:
         neural_df = build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines)
         if bom_grid_dataframe_is_usable(neural_df):
             return neural_df
+    except ImageOCRRuntimeError:
+        raise
     except (ImportError, OSError, RuntimeError):
         # A basic OCR fallback remains available if the optional CPU engine
         # cannot start. It must still pass the same content-quality checks.
@@ -45116,14 +45119,12 @@ def build_bom_grid_dataframe_from_batch(pytesseract_module, image, row_lines, co
 def get_bom_image_text_recognizer():
     # This pinned package includes its recognition model; uploads never leave
     # the application server and no first-use model download is necessary.
-    from pathlib import Path
-    import rapidocr_onnxruntime
-    from rapidocr_onnxruntime.ch_ppocr_v3_rec.text_recognize import TextRecognizer
-    from rapidocr_onnxruntime.utils import read_yaml
-    root = Path(rapidocr_onnxruntime.__file__).parent
-    config = read_yaml(root / "config.yaml")["Rec"]
-    config["model_path"] = str(root / config["model_path"])
-    return TextRecognizer(config)
+    try:
+        from bom_image_ocr_worker import load_recognizer
+        return load_recognizer()
+    except (ImportError, OSError):
+        from bom_image_ocr_runtime import IsolatedRecognizer
+        return IsolatedRecognizer()
 
 
 def get_bom_image_ocr_runtime_status():
@@ -45133,7 +45134,9 @@ def get_bom_image_ocr_runtime_status():
     except PackageNotFoundError:
         installed = "未安装"
     try:
-        get_bom_image_text_recognizer()
+        recognizer = get_bom_image_text_recognizer()
+        if hasattr(recognizer, "recognize_strips"):
+            installed = "RapidOCR 1.2.3 · 独立CPU环境"
         return {"ready": True, "version": installed, "error": ""}
     except Exception as exc:
         return {"ready": False, "version": installed, "error": f"{type(exc).__name__}: {exc}"[:400]}
@@ -45174,38 +45177,10 @@ def recognize_bom_image_strips(recognizer, crops):
     than recognizing isolated glyphs. Physical gaps recover separators that
     its decoder can omit between a model, package and numeric value.
     """
-    import numpy as np
-    results = [None] * len(crops)
-    order = np.argsort([crop.shape[1] / crop.shape[0] for crop in crops])
-    for start in range(0, len(order), recognizer.rec_batch_num):
-        ids = order[start:start + recognizer.rec_batch_num]
-        ratio = max(crops[idx].shape[1] / crops[idx].shape[0] for idx in ids)
-        batch = np.asarray([recognizer.resize_norm_img(crops[idx], ratio) for idx in ids], dtype=np.float32)
-        predictions = recognizer.session(batch)[0]
-        for idx, prediction in zip(ids, predictions):
-            crop = crops[idx]
-            occupied = np.where((crop.mean(axis=2) < 170).sum(axis=0) > 0)[0]
-            gaps = np.where(np.diff(occupied) > max(6, crop.shape[0] * .20))[0]
-            spaces = [(occupied[g] + occupied[g+1])/2 for g in gaps]
-            sequence, probabilities = prediction.argmax(axis=1), prediction.max(axis=1)
-            raw_chars, spaced_chars, scores = [], [], []
-            previous_x = 0.0
-            for step, char_id in enumerate(sequence):
-                if char_id == 0 or (step and char_id == sequence[step-1]):
-                    continue
-                char = recognizer.postprocess_op.character[int(char_id)]
-                x = (step+.5) * batch.shape[3] / len(sequence) * crop.shape[0] / recognizer.rec_image_shape[1]
-                if spaced_chars and any(previous_x < gap <= x for gap in spaces):
-                    spaced_chars.append(" ")
-                raw_chars.append(char)
-                spaced_chars.append(char)
-                scores.append(float(probabilities[step]))
-                previous_x = x
-            raw = "".join(raw_chars)
-            is_description = "/SMD" in raw.upper() or bool(re.search(r"\d\s*(?:[pnuµμ]F|Ω|W)\b", raw, re.I))
-            text = "".join(spaced_chars) if is_description else raw
-            results[idx] = (text, sum(scores) / max(1, len(scores)+1))
-    return results
+    if hasattr(recognizer, "recognize_strips"):
+        return recognizer.recognize_strips(crops)
+    from bom_image_ocr_worker import recognize_strips
+    return recognize_strips(recognizer, crops)
 
 
 def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
@@ -45585,6 +45560,7 @@ def tesseract_image_to_string_with_timeout(pytesseract_module, image, language, 
 
 
 def ocr_bom_image_to_dataframe(raw_bytes):
+    from bom_image_ocr_runtime import ImageOCRRuntimeError
     try:
         import pytesseract
     except Exception as exc:
@@ -45607,6 +45583,8 @@ def ocr_bom_image_to_dataframe(raw_bytes):
             best_score = grid_score
         if bom_grid_dataframe_is_usable(grid_df):
             return grid_df
+    except ImageOCRRuntimeError:
+        raise
     except Exception as exc:
         last_error = exc
     for _, image in image_variants:

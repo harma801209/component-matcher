@@ -20,6 +20,7 @@ parser.add_argument('--tesseract')
 parser.add_argument('--expected-rows', type=int)
 parser.add_argument('--output', type=Path)
 parser.add_argument('--verify-example', action='store_true')
+parser.add_argument('--isolated', action='store_true')
 args = parser.parse_args()
 if args.tesseract:
     import pytesseract
@@ -31,6 +32,10 @@ with tempfile.TemporaryDirectory(prefix='bom-image-check-') as folder:
     os.environ['COMPONENT_MATCHER_BUILD_MODE'] = '1'
     os.environ['COMPONENT_MATCHER_STARTUP_MAINTENANCE'] = '0'
     app = runpy.run_path(str(ROOT / 'component_matcher.py'), run_name='ocr_diagnostic')
+    if args.isolated:
+        from bom_image_ocr_runtime import IsolatedRecognizer
+        isolated = IsolatedRecognizer()
+        app['clean_text'].__globals__['get_bom_image_text_recognizer'] = lambda: isolated
     raw = args.image.read_bytes()
     image = app['preprocess_bom_image_for_ocr'](raw)
     print('grid', app['detect_bom_image_grid_lines'](image), flush=True)

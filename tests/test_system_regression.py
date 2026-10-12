@@ -290,6 +290,28 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_bom_image_setup_failure_does_not_return_basic_ocr_as_success(self):
+        from PIL import Image
+        from unittest.mock import patch, Mock
+        from bom_image_ocr_runtime import ImageOCRRuntimeError
+        fake = Mock()
+        fake.get_languages.return_value = ['eng']
+        data = BytesIO()
+        Image.new('RGB', (200,100), 'white').save(data, format='PNG')
+        app = self.app
+        original = app['build_bom_grid_dataframe_from_image']
+        def unready(*args, **kwargs):
+            raise ImageOCRRuntimeError('图片识别服务尚未就绪')
+        try:
+            app['build_bom_grid_dataframe_from_image'] = unready
+            with patch.dict('sys.modules', {'pytesseract':fake}):
+                workbook = app['read_uploaded_bom_image_workbook']('bom.png', data.getvalue())
+            self.assertFalse(workbook['sheet_frames'])
+            self.assertIn('未就绪', workbook['read_error'])
+            fake.image_to_data.assert_not_called()
+        finally:
+            app['build_bom_grid_dataframe_from_image'] = original
+
     def test_bom_image_runtime_status_checks_model_initialization(self):
         app = self.app
         original = app["get_bom_image_text_recognizer"]
