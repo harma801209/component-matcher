@@ -63,5 +63,16 @@
   const shorts={resistor:['Al₂O₃','RuO₂＋玻璃相','保护玻璃','导电金属（Ag示例）','Ni','Sn示例'],capacitor:['BaTiO₃基陶瓷','Ni','Cu','Ni','Sn'],inductor:['铁氧体','Cu','聚合物绝缘漆','导电金属'],diode:['Si＋受主杂质','同一硅中的结区','Si＋施主杂质','密封玻璃','导电金属']};
   return {faces:f,anchors:lesson.layers.map((p,i)=>({id:p.id,point:points[p.id],name:p.name,material:shorts[course][i]}))};
  }
- const api=Object.freeze({build});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingMaterialGeometry=api;
+ // The introductory view uses the same exposed stack, with three simple groups.
+ // Do not cover its electrodes with an opaque ceramic envelope at 0% explosion.
+ function buildCapacitorStructure(e,primitives){
+  const mesh=build('capacitor',e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
+  const ids=['dielectric','internal','tin'],names=['陶瓷介质','内部电极','端电极'];
+  return {
+   faces:mesh.faces.map(f=>({...f,id:map[f.id]})),
+   anchors:ids.map((id,i)=>({...mesh.anchors.find(p=>p.id===id),id:map[id],name:names[i]})),
+   electrodeY:Array.from({length:6},(_,i)=>(i-2.5)*(.15+.075+e*.14))
+  };
+ }
+ const api=Object.freeze({build,buildCapacitorStructure});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TrainingMaterialGeometry=api;
 })(typeof window==='undefined'?globalThis:window);

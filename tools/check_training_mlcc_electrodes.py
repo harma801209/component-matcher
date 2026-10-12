@@ -70,22 +70,16 @@ with sync_playwright() as p:
             });
             return {explosion:e,dielectric:d.length,electrodes:m.length,thickness:m[0].s[1]};
         })''')
-        observations = []
-        for width in [1440, 900, 390]:
-            page.set_viewport_size({'width': width, 'height': 1100})
-            for exploded in [False, True]:
-                press(f.locator('#reset-view'))
-                f.locator('#explode').focus()
-                f.locator('#explode').press('End' if exploded else 'Home')
-                press(f.locator('#parts [data-part="dielectric"]'))
-                reveal()
-                f.wait_for_function('v=>{const c=document.querySelector("#model-canvas");return c.dataset.mode==="materials"&&c.dataset.course==="capacitor"&&TrainingLesson.current().explosion===v;}', arg=1 if exploded else 0)
-                # Wait for resized/selected geometry to be visibly painted.
-                f.wait_for_function('''()=>{
-                    const c=document.querySelector('#model-canvas'),r=c.getBoundingClientRect();
-                    return Math.abs(c.width/r.width-devicePixelRatio)<.02&&Number(c.dataset.meshFaces)>0;
-                }''')
-                bands = f.evaluate('''()=>{
+        assert f.evaluate('''()=>{
+            const box=(f,p,s,color,id)=>f.push({p,s,color,id}),primitives={box,tube:()=>{}};
+            return [0,.05,.1,.5,1].every(e=>{
+                const a=TrainingMaterialGeometry.build('capacitor',e,primitives),b=TrainingMaterialGeometry.buildCapacitorStructure(e,primitives),map={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
+                return JSON.stringify(b.faces)===JSON.stringify(a.faces.map(f=>({...f,id:map[f.id]})))&&JSON.stringify(b.anchors.map(a=>a.id))==='["dielectric","electrode","terminal"]';
+            });
+        }''')
+
+        def visible_bands():
+            return f.evaluate('''()=>{
                     const c=document.querySelector('#model-canvas'),ctx=c.getContext('2d'),r=c.getBoundingClientRect(),scale=c.width/r.width,b=TrainingLesson.bounds();
                     const counts=[];
                     for(const offset of [-.12,-.06,0,.06,.12]){
@@ -98,16 +92,86 @@ with sync_playwright() as p:
                         end();counts.push(count);
                     }
                     return {counts,max:Math.max(...counts),scale};
-                }''')
-                assert bands['max'] >= 6, (width, exploded, bands)
-                assert f.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
-                f.locator('.model-card').screenshot(path=str(out / f'{"formal" if args.public else "local"}-{width}-{"exploded" if exploded else "closed"}.png'))
-                observations.append({'width': width, 'exploded': exploded, 'bands': bands})
-                press(f.locator('[data-model-material="internal"]'))
-                assert f.evaluate('TrainingLesson.current().part') == 'internal'
-                assert '镍' in f.locator('#part-detail').inner_text()
-                assert f.locator('[data-model-material="internal"]').get_attribute('aria-pressed') == 'true'
-                assert f.locator('#cross-section-card,#material-leaders').count() == 0
+            }''')
+
+        def check_markers():
+            assert f.locator('#model-labels').is_visible()
+            assert f.locator('#model-labels button').evaluate_all('''ns=>ns.every((n,i)=>{
+                const a=n.getBoundingClientRect(),p=n.parentElement.getBoundingClientRect();
+                return a.width>=44&&a.height>=44&&a.left>=p.left&&a.right<=p.right+1&&a.top>=p.top&&a.bottom<=p.bottom+1&&ns.slice(i+1).every(m=>{
+                    const b=m.getBoundingClientRect();return a.right<=b.left+.1||b.right<=a.left+.1||a.bottom<=b.top+.1||b.bottom<=a.top+.1;
+                });
+            })''')
+
+        observations = []
+        for mode in ['exterior', 'materials']:
+            press(f.locator('#model-exterior' if mode == 'exterior' else '#show-cross-section'))
+            assert '内电极' in f.locator('.model-note').inner_text()
+            assert f.locator('#model-labels button').count() == (3 if mode == 'exterior' else 5)
+            selector = '[data-model-part="electrode"]' if mode == 'exterior' else '[data-model-material="internal"]'
+            selected = 'electrode' if mode == 'exterior' else 'internal'
+            for width in [1440, 900, 390]:
+                page.set_viewport_size({'width': width, 'height': 1100})
+                for exploded in [False, True]:
+                    old_frame = int(canvas.get_attribute('data-frames') or '0')
+                    press(f.locator('#reset-view'))
+                    f.locator('#explode').focus()
+                    f.locator('#explode').press('End' if exploded else 'Home')
+                    press(f.locator('#parts [data-part="dielectric"]'))
+                    reveal()
+                    f.wait_for_function('''v=>{
+                        const c=document.querySelector('#model-canvas'),r=c.getBoundingClientRect();
+                        return c.dataset.mode===v[0]&&c.dataset.course==='capacitor'&&TrainingLesson.current().explosion===v[1]&&Number(c.dataset.frames)>v[2]&&Math.abs(c.width/r.width-Math.min(devicePixelRatio,2))<.02;
+                    }''', arg=[mode, 1 if exploded else 0, old_frame])
+                    bands = visible_bands()
+                    assert bands['max'] >= 6, (mode, width, exploded, bands)
+                    check_markers()
+                    assert f.locator(selector).is_visible()
+                    assert f.locator(selector).inner_text() == '2'
+                    assert f.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+                    prefix = f'{"formal" if args.public else "local"}-{mode}-{width}-{"exploded" if exploded else "closed"}'
+                    f.locator('.model-card').screenshot(path=str(out / f'{prefix}.png'))
+                    observations.append({'mode': mode, 'width': width, 'exploded': exploded, 'bands': bands})
+                    # Native activation of the number, not only the bottom list/API.
+                    press(f.locator(selector))
+                    assert f.evaluate('TrainingLesson.current().part') == selected
+                    assert f.locator('#part-detail>strong').inner_text().startswith('2 · ')
+                    assert f.locator(selector).get_attribute('aria-pressed') == 'true'
+                    if mode == 'materials':
+                        assert '镍' in f.locator('#part-detail').inner_text()
+                    reveal()
+                    old_yaw = canvas.get_attribute('data-yaw')
+                    canvas.press('ArrowRight')
+                    canvas.press('+')
+                    f.wait_for_function('v=>document.querySelector("#model-canvas").dataset.yaw!==v', arg=old_yaw)
+                    check_markers()
+                    assert f.locator(selector).is_visible()
+                    assert float(canvas.get_attribute('data-zoom')) > 1
+                    assert f.locator('#cross-section-card,#material-leaders').count() == 0
+            # Also reproduce the user's upper-facing angle at 0%, with no hidden 2.
+            press(f.locator('#reset-view'))
+            f.locator('#explode').focus()
+            f.locator('#explode').press('Home')
+            reveal()
+            old_frame = int(canvas.get_attribute('data-frames'))
+            for _ in range(8):
+                canvas.press('ArrowDown')
+            f.wait_for_function('v=>Number(document.querySelector("#model-canvas").dataset.frames)>v', arg=old_frame)
+            check_markers()
+            assert f.locator(selector).is_visible()
+            f.locator('.model-card').screenshot(path=str(out / f'{"formal" if args.public else "local"}-{mode}-upper-angle.png'))
+        press(f.locator('#model-exterior'))
+        press(f.locator('#animate'))
+        reveal()
+        assert f.locator('#animate').get_attribute('aria-pressed') == 'true'
+        old_frame = int(canvas.get_attribute('data-frames'))
+        f.wait_for_function('v=>Number(document.querySelector("#model-canvas").dataset.frames)>v+2', arg=old_frame)
+        check_markers()
+        assert f.locator('[data-model-part="electrode"]').is_visible()
+        for course in ['resistor', 'inductor', 'diode']:
+            press(f.locator('button[data-course="'+course+'"]'))
+            assert not f.locator('#model-labels').is_visible()
+            assert f.locator('[data-model-part]').count() == 0
         assert not errors, errors
         print(json.dumps({'status': 'passed', 'public': args.public, 'geometry': geometry, 'visible_electrode_bands': observations, 'browser_errors': errors}), flush=True)
     finally:

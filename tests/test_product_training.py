@@ -10,6 +10,26 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_capacitor_intro_reuses_exposed_layers_and_three_surface_anchors(self):
+        script = r"""
+const g=require(process.argv[1]),a=require('node:assert/strict');
+const box=(f,p,size,color,id)=>f.push({id,color,p:[p,p.map((v,i)=>v+size[i]),p.map((v,i)=>v-size[i])]});
+for(const e of [0,.05,.1,.5,1]){
+ const detailed=g.build('capacitor',e,{box}),intro=g.buildCapacitorStructure(e,{box});
+ const mapping={dielectric:'dielectric',internal:'electrode',base:'terminal',barrier:'terminal',tin:'terminal'};
+ a.deepEqual(intro.faces,detailed.faces.map(f=>({...f,id:mapping[f.id]})));
+ a.deepEqual(intro.anchors.map(p=>p.id),['dielectric','electrode','terminal']);
+ a.equal(intro.faces.filter(f=>f.id==='electrode').length,6);
+ const metal=detailed.faces.filter(f=>f.id==='internal');
+ a.deepEqual(intro.electrodeY,metal.map(f=>f.p[0][1]));
+ a.deepEqual(intro.anchors[1].point,detailed.anchors.find(p=>p.id==='internal').point);
+ a.equal(intro.anchors[1].point[2],.3);
+}
+a.throws(()=>g.buildCapacitorStructure(-1,{box}),RangeError);
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_material_geometry.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_mlcc_cut_exposes_alternating_electrodes_without_shorting_ends(self):
         script = r"""
 const g=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);

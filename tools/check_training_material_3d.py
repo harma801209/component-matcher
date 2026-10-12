@@ -119,7 +119,10 @@ with sync_playwright() as p:
             page.set_viewport_size({'width':1440,'height':1000})
             press(f.locator('#model-exterior'));canvas.scroll_into_view_if_needed()
             f.wait_for_function('document.querySelector("canvas").dataset.mode==="exterior"')
-            assert not f.locator('#model-labels').is_visible()
+            assert f.locator('#model-labels').is_visible() == (course == 'capacitor')
+            if course == 'capacitor':
+                assert f.locator('#model-labels [data-model-part]').count() == 3
+                assert f.locator('[data-model-part="electrode"]').inner_text() == '2'
             assert not f.locator('#animate').is_disabled()
             assert f.evaluate('TrainingLesson.current().params')==before['params']
         press(f.locator('#show-cross-section'))

@@ -20,7 +20,35 @@ a thinner outline in this model so it does not cover the electrodes.
 The learner note identifies grey Ni electrodes and pale ceramic, states the
 alternating end connections, and keeps the magnified/typical-structure disclaimer.
 No added leader lines, duplicate diagram, libraries or business data changes.
-Exterior geometry, circuit animations, labs and quizzes are unchanged.
+That initial fix left exterior geometry, circuit animations, labs and quizzes unchanged.
+
+## Follow-up: introductory/exterior view
+
+The user's next screenshots were in exterior mode, not material mode. Its
+separate old geometry still covered the stack with an opaque ceramic envelope
+at 0% and its canvas label code explicitly suppressed the electrode number
+below 15% explosion. Reproduction selected `electrode` at 0% and confirmed
+that no `2` was painted. The first fix above did not cover that separate path.
+
+The introductory MLCC view now reuses the same exposed material stack, mapping
+it to the existing three groups: dielectric, electrode and terminal. It has no
+opaque envelope concealing the teaching cut. Material mode retains five detailed
+groups. Both use native, 44px numbered targets and the existing projected-anchor
+separation; electrode number 2 remains present even closed, rotated or animated.
+The introductory note explicitly calls this a front cutaway, not a real exposed
+commercial part. Both views keep the same canvas height for MLCC. Other courses'
+exterior labels and cameras are unchanged.
+
+The electric-field overlay now uses the shared six electrode heights at all
+explosion values, instead of the old ten-sheet spacing. Coloured charges and
+field arrows are teaching overlays, not conductive current through the ceramic.
+The PCB circuit simulation, math, labs and quizzes are untouched.
+
+Additional validation covers exact face/ID mapping, matching exposed electrode
+anchors and field heights at 0/5/10/50/100% explosion. Browser QA now explicitly
+covers both modes, all three widths, closed/exploded visible bands, native marker
+2 activation, marker containment and non-overlap after rotation/zoom, upper-facing
+camera matching the user screenshot, animation and switching to other courses.
 
 Primary sources checked: [Murata structure FAQ](https://www.murata.com/support/faqs/capacitor/ceramiccapacitor/conf/0001)
 and [Murata MLCC fabrication lesson](https://article.murata.com/en-us/article/basics-of-capacitors-3).
