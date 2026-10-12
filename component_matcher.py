@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-12T15:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-12T16:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -44715,6 +44715,7 @@ BOM_OCR_TABLE_HEADER_KEYWORDS = (
     "MOQ",
     "交期",
     "备注",
+    "物料编码", "物料名称", "申请数量", "数量", "品牌", "品牌2", "料号", "单价",
 )
 
 
@@ -44749,25 +44750,33 @@ def detect_bom_image_grid_lines(image):
     if width < 120 or height < 80:
         return [], []
 
-    best_rows = []
-    best_cols = []
-    for threshold in (100, 80, 120, 140):
-        dark = arr < threshold
-        horizontal_counts = dark.sum(axis=1)
-        vertical_counts = dark.sum(axis=0)
-        for ratio in (0.32, 0.24, 0.18, 0.12):
-            row_min = max(60, width * ratio)
-            col_min = max(35, height * ratio)
-            row_groups = group_bom_grid_line_indices(np.where(horizontal_counts >= row_min)[0])
-            col_groups = group_bom_grid_line_indices(np.where(vertical_counts >= col_min)[0])
-            max_row_thickness = max(4, int(height * 0.018))
-            max_col_thickness = max(4, int(width * 0.012))
-            row_lines = [center for start, end, center in row_groups if end - start + 1 <= max_row_thickness]
-            col_lines = [center for start, end, center in col_groups if end - start + 1 <= max_col_thickness]
-            if len(row_lines) >= 2 and len(col_lines) >= 3:
-                if len(row_lines) * len(col_lines) > len(best_rows) * len(best_cols):
-                    best_rows, best_cols = row_lines, col_lines
-    return sorted(set(best_rows)), sorted(set(best_cols))
+    # Count continuous thin rules, not the sum of disconnected text strokes.
+    # Relative contrast also detects pale Excel rules without treating coloured
+    # quantity columns or the spreadsheet chrome as solid table boundaries.
+    arr = arr.astype(np.int16)
+
+    def longest_rules(mask):
+        # Bridge small rule intersections/JPEG gaps, but not the line spacing
+        # between repeated glyphs. Padding prevents opposite edges joining.
+        padded = np.pad(mask, ((2, 2), (0, 0)), constant_values=False)
+        filled = np.logical_or.reduce([padded[i:i + len(mask)] for i in range(5)])
+        padded = np.pad(filled, ((2, 2), (0, 0)), constant_values=False)
+        filled = np.logical_and.reduce([padded[i:i + len(mask)] for i in range(5)])
+        current = np.zeros(mask.shape[1], dtype=np.int32)
+        longest = current.copy()
+        for line in filled:
+            current = (current + 1) * line
+            longest = np.maximum(longest, current)
+        return longest
+
+    padded = np.pad(arr, ((3, 3), (3, 3)), constant_values=255)
+    vertical = (arr < 248) & (arr + 5 <= padded[3:-3, :-6]) & (arr + 5 <= padded[3:-3, 6:])
+    horizontal = (arr < 248) & (arr + 5 <= padded[:-6, 3:-3]) & (arr + 5 <= padded[6:, 3:-3])
+    row_groups = group_bom_grid_line_indices(np.where(longest_rules(horizontal.T) >= max(90, width * .20))[0])
+    col_groups = group_bom_grid_line_indices(np.where(longest_rules(vertical) >= max(60, height * .18))[0])
+    rows = [center for start, end, center in row_groups if end - start <= 6]
+    cols = [center for start, end, center in col_groups if end - start <= 6]
+    return (rows, cols) if len(rows) >= 3 and len(cols) >= 3 else ([], [])
 
 
 def complete_bom_grid_horizontal_lines(row_lines, image_height):
@@ -44851,7 +44860,7 @@ def tesseract_bom_grid_row_to_cells(pytesseract_module, row_image, boundaries, l
     count = len(texts)
     for idx in range(count):
         text = clean_text(texts[idx])
-        if not text or re.fullmatch(r"[\W_]+", text):
+        if not text or re.fullmatch(r"[|_]+", text):
             continue
         conf_values = (data or {}).get("conf", [""] * count)
         if idx < len(conf_values) and not ocr_confidence_is_usable(conf_values[idx]):
@@ -44939,18 +44948,15 @@ def bom_grid_data_row_is_meaningful(cells):
     values = [clean_text(value) for value in cells or []]
     if not any(values):
         return False
-    first = values[0] if values else ""
-    if re.fullmatch(r"\d{1,4}", first or ""):
-        return True
     text = join_bom_parts(*values)
     upper = text.upper()
-    if looks_like_spec_query(text):
+    if re.search(r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:[mMkK]?Ω|[mMkK]?OHM|[pnuµμ]F|V|W|%)(?![A-Z])", text, re.I):
         return True
     if re.search(r"\b[A-Z]{2,}[A-Z0-9.\-_/]*\d[A-Z0-9.\-_/]*\b", upper):
         return True
-    if re.search(r"(?<!\d)\d+\.\d{3,}(?!\d)", text):
+    if re.search(r"\b(?=[A-Z0-9._/-]{4,}\b)(?=[A-Z0-9._/-]*[A-Z])(?=[A-Z0-9._/-]*\d)[A-Z0-9._/-]+\b", upper):
         return True
-    return any(token in text for token in ("富捷", "厚声", "华新科", "信昌", "村田", "生产厂家"))
+    return False
 
 
 def bom_grid_dataframe_is_usable(df):
@@ -44971,16 +44977,20 @@ def build_bom_dataframe_from_grid_cell_rows(row_cells):
     if len(row_cells) < 2:
         return pd.DataFrame()
 
-    raw_headers = row_cells[0]
+    # Excel A/B/C headings or a title may precede the real BOM header. Never
+    # invent quotation headers solely from the detected number of columns.
+    header_index = max(range(min(10, len(row_cells))),
+                       key=lambda i: score_bom_ocr_table_header(row_cells[i], join_bom_parts(*row_cells[i])))
+    header_score = score_bom_ocr_table_header(row_cells[header_index], join_bom_parts(*row_cells[header_index]))
+    if header_score < 2:
+        header_index = -1
+    raw_headers = row_cells[header_index] if header_index >= 0 else [""] * max(map(len, row_cells))
     headers = [canonicalize_bom_ocr_header(value, idx) for idx, value in enumerate(raw_headers, start=1)]
-    header_hits = sum(1 for header in headers if header in BOM_OCR_TABLE_HEADER_KEYWORDS)
-    if len(headers) == len(BOM_OCR_TABLE_HEADER_KEYWORDS) and header_hits < 4:
-        headers = list(BOM_OCR_TABLE_HEADER_KEYWORDS)
     headers = unique_bom_ocr_headers(headers)
 
     rows = []
     footer_tokens = ("付款方式", "账期", "帳期", "交货地点", "交貨地點", "送货方式", "送貨方式", "报价有效期", "報價有效期", "客户回签", "客戶回簽")
-    for cells in row_cells[1:]:
+    for cells in row_cells[header_index + 1:]:
         row_text = join_bom_parts(*cells)
         if any(token in row_text for token in footer_tokens):
             if rows:
@@ -45008,7 +45018,23 @@ def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, sta
     if len(row_lines) < 3 or len(col_lines) < 3:
         return pd.DataFrame()
     if len(row_lines) > 90:
-        row_lines = row_lines[:90]
+        raise RuntimeError("图片表格行数较多，请分成较小的截图上传，以便完整识别每一行。")
+
+    try:
+        neural_df = build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines)
+        if bom_grid_dataframe_is_usable(neural_df):
+            return neural_df
+    except (ImportError, OSError, RuntimeError):
+        # A basic OCR fallback remains available if the optional CPU engine
+        # cannot start. It must still pass the same content-quality checks.
+        pass
+
+    # One OCR pass avoids launching an engine for every (possibly empty) row.
+    # Assign words by actual rule coordinates, so OCR's reading order cannot
+    # split a description into columns or shift a blank cell's neighbours.
+    batch_df = build_bom_grid_dataframe_from_batch(pytesseract_module, image, row_lines, col_lines, language)
+    if bom_grid_dataframe_is_usable(batch_df):
+        return batch_df
 
     row_cells = []
     for idx in range(len(row_lines) - 1):
@@ -45039,9 +45065,193 @@ def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, sta
     cell_df = build_bom_dataframe_from_grid_cell_rows(cell_rows)
     if bom_grid_dataframe_is_usable(cell_df):
         return cell_df
-    if not cell_df.empty:
-        return cell_df
-    return row_df
+    return pd.DataFrame()
+
+
+def build_bom_grid_dataframe_from_batch(pytesseract_module, image, row_lines, col_lines, language):
+    from PIL import Image, ImageDraw, ImageOps
+    left, right = col_lines[0], col_lines[-1]
+    top, bottom = row_lines[0], row_lines[-1]
+    crop = image.crop((left, top, right + 1, bottom + 1)).convert("L")
+    # Suppress light cell fills/rules before scaling. Retain original letter
+    # shapes, and remove only the independently validated long grid rules.
+    crop = crop.point(lambda value: 255 if value > 190 else value)
+    draw = ImageDraw.Draw(crop)
+    for x in col_lines:
+        draw.rectangle((x - left - 1, 0, x - left + 1, crop.height), fill=255)
+    for y in row_lines:
+        draw.rectangle((0, y - top - 1, crop.width, y - top + 1), fill=255)
+    scale = min(3.0, max(1.5, 3600.0 / max(1, crop.width)))
+    crop = crop.resize((round(crop.width * scale), round(crop.height * scale)),
+                       getattr(Image, "Resampling", Image).LANCZOS)
+    crop = ImageOps.expand(crop, border=12, fill=255)
+    data = tesseract_image_to_data_with_timeout(
+        pytesseract_module, crop, language, "--psm 6 --oem 3 -c preserve_interword_spaces=1")
+    cells = [[[] for _ in range(len(col_lines)-1)] for _ in range(len(row_lines)-1)]
+    for idx, raw in enumerate(data.get("text", [])):
+        text = clean_text(raw)
+        if not text or not ocr_confidence_is_usable(data["conf"][idx]) or re.fullmatch(r"[|_]+", text):
+            continue
+        x = (float(data["left"][idx]) + float(data["width"][idx])/2 - 12)/scale + left
+        y = (float(data["top"][idx]) + float(data["height"][idx])/2 - 12)/scale + top
+        col = assign_bom_ocr_word_to_grid_column(x, col_lines)
+        row = assign_bom_ocr_word_to_grid_column(y, row_lines)
+        if col is not None and row is not None:
+            line_key = tuple(data.get(key, [0] * len(data["text"]))[idx]
+                             for key in ("block_num", "par_num", "line_num"))
+            cells[row][col].append((line_key, data["left"][idx], text))
+    rows = [[" ".join(word[2] for word in sorted(cell)) for cell in row] for row in cells]
+    return build_bom_dataframe_from_grid_cell_rows(rows)
+
+
+@st.cache_resource(show_spinner=False)
+def get_bom_image_text_recognizer():
+    # This pinned package includes its recognition model; uploads never leave
+    # the application server and no first-use model download is necessary.
+    from pathlib import Path
+    import rapidocr_onnxruntime
+    from rapidocr_onnxruntime.ch_ppocr_v3_rec.text_recognize import TextRecognizer
+    from rapidocr_onnxruntime.utils import read_yaml
+    root = Path(rapidocr_onnxruntime.__file__).parent
+    config = read_yaml(root / "config.yaml")["Rec"]
+    config["model_path"] = str(root / config["model_path"])
+    return TextRecognizer(config)
+
+
+# Source-verified alias only; never substitute O/0 indiscriminately in models.
+# https://product.samsungsem.com/mlcc/CL31A106MOHNNN.do confirms the O spelling.
+BOM_IMAGE_VERIFIED_MODEL_ALIASES = {"CL31A106M0HNNNE": "CL31A106MOHNNNE"}
+
+
+def normalize_bom_image_cell(text):
+    """Repair constrained spacing/units and explicitly source-verified aliases."""
+    text = re.sub(r"\s+", " ", clean_text(text)).strip()
+    text = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", text)
+    text = re.sub(r"±\s+(?=\d)", "±", text)
+    for ambiguous, verified in BOM_IMAGE_VERIFIED_MODEL_ALIASES.items():
+        text = re.sub(r"(?<![A-Z0-9])" + re.escape(ambiguous) + r"(?![A-Z0-9])", verified, text, flags=re.I)
+    text = re.sub(r"\bUNI[0O]HM(?=/SMD)", "UNIOHM", text, flags=re.I)
+    text = re.sub(r"\bYAGE0(?=/SMD)", "YAGEO", text, flags=re.I)
+    text = re.sub(r"(/SMD)(?=[A-Z0-9])", r"\1 ", text, flags=re.I)
+    packages = r"01005|0201|0402|0603|0805|1206|1210|1812|2010|2512"
+    text = re.sub(r"(?<![A-Z0-9])(" + packages + r")(?=\d+(?:\.\d+)?\s*[mkKM]?[QΩΩ])",
+                  r"\1 ", text)
+    # Q is repaired only in a standalone numeric resistance immediately before
+    # a tolerance. Lowercase m (milli) and uppercase M (mega) stay distinct.
+    text = re.sub(r"(?<![A-Z0-9.])(\d+(?:\.\d+)?)\s*([mkKM]?)\s*[QΩ]\s*[.,]?(?=\s*±\s*\d+(?:\.\d+)?\s*%)",
+                  r"\1\2Ω ", text)
+    text = re.sub(r"(?<=[WV%Ω])(?=LF\b)", " ", text)
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
+    text = re.sub(r"(?<=\d),\s+(?=\d{3}(?:\D|$))", ",", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def recognize_bom_image_strips(recognizer, crops):
+    """Keep CTC character predictions and restore spaces from image geometry.
+
+    Whole-line recognition retains model digits and electrical symbols better
+    than recognizing isolated glyphs. Physical gaps recover separators that
+    its decoder can omit between a model, package and numeric value.
+    """
+    import numpy as np
+    results = [None] * len(crops)
+    order = np.argsort([crop.shape[1] / crop.shape[0] for crop in crops])
+    for start in range(0, len(order), recognizer.rec_batch_num):
+        ids = order[start:start + recognizer.rec_batch_num]
+        ratio = max(crops[idx].shape[1] / crops[idx].shape[0] for idx in ids)
+        batch = np.asarray([recognizer.resize_norm_img(crops[idx], ratio) for idx in ids], dtype=np.float32)
+        predictions = recognizer.session(batch)[0]
+        for idx, prediction in zip(ids, predictions):
+            crop = crops[idx]
+            occupied = np.where((crop.mean(axis=2) < 170).sum(axis=0) > 0)[0]
+            gaps = np.where(np.diff(occupied) > max(6, crop.shape[0] * .20))[0]
+            spaces = [(occupied[g] + occupied[g+1])/2 for g in gaps]
+            sequence, probabilities = prediction.argmax(axis=1), prediction.max(axis=1)
+            raw_chars, spaced_chars, scores = [], [], []
+            previous_x = 0.0
+            for step, char_id in enumerate(sequence):
+                if char_id == 0 or (step and char_id == sequence[step-1]):
+                    continue
+                char = recognizer.postprocess_op.character[int(char_id)]
+                x = (step+.5) * batch.shape[3] / len(sequence) * crop.shape[0] / recognizer.rec_image_shape[1]
+                if spaced_chars and any(previous_x < gap <= x for gap in spaces):
+                    spaced_chars.append(" ")
+                raw_chars.append(char)
+                spaced_chars.append(char)
+                scores.append(float(probabilities[step]))
+                previous_x = x
+            raw = "".join(raw_chars)
+            is_description = "/SMD" in raw.upper() or bool(re.search(r"\d\s*(?:[pnuµμ]F|Ω|W)\b", raw, re.I))
+            text = "".join(spaced_chars) if is_description else raw
+            results[idx] = (text, sum(scores) / max(1, len(scores)+1))
+    return results
+
+
+def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
+    import numpy as np
+    from PIL import ImageOps
+    crops, positions = [], []
+    rows = [["" for _ in col_lines[1:]] for _ in row_lines[1:]]
+    for row in range(len(row_lines)-1):
+        for col in range(len(col_lines)-1):
+            bounds = (col_lines[col]+2, row_lines[row]+2, col_lines[col+1]-2, row_lines[row+1]-2)
+            if bounds[2]-bounds[0] < 6 or bounds[3]-bounds[1] < 8:
+                continue
+            crop = image.crop(bounds).convert("L")
+            ink = np.asarray(crop) < 170
+            # Ignore genuinely empty cells/Excel chrome. Recognize wrapped
+            # descriptions as separate physical text lines, in reading order.
+            groups = group_bom_grid_line_indices(np.where(ink.sum(axis=1) >= 2)[0], max_gap=2)
+            for first, last, _ in groups:
+                if last-first < 3:
+                    continue
+                strip = crop.crop((0, max(0, first-1), crop.width, min(crop.height, last+2)))
+                box = strip.point(lambda value: 255 if value < 170 else 0).getbbox()
+                if box is None or box[2]-box[0] < 2:
+                    continue
+                strip = ImageOps.expand(strip.crop(box).convert("RGB"), border=3, fill="white")
+                crops.append(np.asarray(strip)[:, :, ::-1].copy())
+                positions.append((row, col))
+    if not crops:
+        return pd.DataFrame()
+    recognized = recognize_bom_image_strips(get_bom_image_text_recognizer(), crops)
+    if len(recognized) != len(positions):
+        raise RuntimeError("图片识别结果不完整，请重新上传图片。")
+    low_confidence_rows = set()
+    for (row, col), (text, score) in zip(positions, recognized):
+        rows[row][col] = join_bom_parts(rows[row][col], text)
+        if float(score) < .60:
+            low_confidence_rows.add(row)
+    frame = build_bom_dataframe_from_grid_cell_rows(rows)
+    if frame.empty:
+        return frame
+    raw_rows = {join_bom_parts(*row): i for i, row in enumerate(rows)}
+    helper_columns = {"OCR原文", "OCR行号"}
+    notes = []
+    for idx, record in frame.iterrows():
+        changed_unit = False
+        corrected_model = False
+        for column in frame.columns:
+            if column in helper_columns:
+                continue
+            original = clean_text(record[column])
+            normalized = normalize_bom_image_cell(original)
+            changed_unit |= "Ω" in normalized and "Ω" not in original
+            corrected_model |= any(alias in original.upper() and verified in normalized.upper()
+                                   for alias, verified in BOM_IMAGE_VERIFIED_MODEL_ALIASES.items())
+            frame.at[idx, column] = normalized
+        row_number = raw_rows.get(record["OCR原文"])
+        parts = []
+        if row_number in low_confidence_rows:
+            parts.append("部分文字不清楚，请核对原图")
+        if changed_unit:
+            parts.append("已整理阻值单位，请核对Ω/mΩ/MΩ")
+        if corrected_model:
+            parts.append("型号中的0/O已按原厂型号核对，请对照原图")
+        notes.append("；".join(parts))
+    frame["识别提示"] = notes
+    frame.attrs["ocr_engine"] = "cell_recognizer"
+    return frame
 
 
 def normalize_ocr_table_text(text):
@@ -45067,7 +45277,7 @@ def canonicalize_bom_ocr_header(text, position=0):
     if "RMB" in upper and ("含" in compact or "税" in compact or "稅" in compact):
         return "RMB含税"
     if upper in {"RMB", "PRICE"} or "单价" in compact or "單價" in compact:
-        return "RMB含税"
+        return "单价"
     if "单位" in compact or "單位" in compact:
         return "单位"
     if "MPQ" in upper:
@@ -45303,7 +45513,11 @@ def score_bom_ocr_dataframe(df):
 
 
 def bom_ocr_dataframe_is_usable(df):
-    return score_bom_ocr_dataframe(df) >= BOM_OCR_MIN_USABLE_SCORE
+    if df is None or df.empty:
+        return False
+    # Header names and stock-code digits alone cannot make corrupt OCR usable.
+    content_rows = sum(bom_grid_data_row_is_meaningful(list(row.values)) for _, row in df.iterrows())
+    return content_rows >= max(1, int(len(df) * .35)) and score_bom_ocr_dataframe(df) >= BOM_OCR_MIN_USABLE_SCORE
 
 
 def summarize_low_quality_bom_ocr(language, score=0.0):
@@ -45388,7 +45602,7 @@ def ocr_bom_image_to_dataframe(raw_bytes):
             if score > best_score:
                 best_df = df
                 best_score = score
-            if score >= BOM_OCR_STRONG_SCORE:
+            if score >= BOM_OCR_STRONG_SCORE and bom_ocr_dataframe_is_usable(df):
                 return df
     if bom_ocr_dataframe_is_usable(best_df):
         return best_df
@@ -45428,7 +45642,7 @@ def read_uploaded_bom_image_workbook(file_name, raw_bytes):
         [{"sheet_name": "图片OCR识别", "df": ocr_df}],
     )
     if workbook.get("sheet_frames"):
-        workbook["read_warning"] = "图片已完成 OCR 识别，请先核对预览内容；图片识别可能有误，必要时可手动选择 OCR 原文或分列。"
+        workbook["read_warning"] = "图片已按表格行列完成识别，请核对型号、规格和每行的识别提示后开始匹配；OCR原文保留供对照。"
     else:
         workbook["read_error"] = "图片 OCR 未识别到可用文字，请上传更清晰、正向、不压缩的截图。"
     return workbook
@@ -45469,7 +45683,8 @@ def read_uploaded_bom_workbook_for_session(uploaded_file, on_read=None, session_
         on_read()
     workbook = read_uploaded_bom_workbook(uploaded_file)
     # Failed/partial reads must be retryable, including transient OCR failures.
-    if workbook.get("sheet_frames") and not workbook.get("read_error") and not workbook.get("read_warning"):
+    if workbook.get("sheet_frames") and not workbook.get("read_error") and (
+            not workbook.get("read_warning") or workbook.get("kind") == "image_ocr"):
         state[cache_key] = {"signature": signature, "owner": owner, "workbook": deepcopy(workbook)}
     return workbook
 
@@ -45658,7 +45873,7 @@ def guess_bom_column(upload_df, role, used_columns=None):
 def guess_bom_column_mapping(upload_df):
     mapping = {"model": None, "spec": None, "name": None, "quantity": None}
     if isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
-        ocr_helper_columns = {"OCR原文", "OCR行号"}
+        ocr_helper_columns = {"OCR原文", "OCR行号", "识别提示"}
         candidate_columns = [col for col in upload_df.columns if clean_text(col) not in ocr_helper_columns]
         if not candidate_columns:
             mapping["spec"] = "OCR原文"
@@ -45672,6 +45887,17 @@ def guess_bom_column_mapping(upload_df):
         if guessed:
             mapping[role] = guessed
             used.add(guessed)
+    if isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
+        # A description often contains both a manufacturer's model and its
+        # parameters. Stock codes are identifiers, not manufacturer's models.
+        combined_column = next((col for col in candidate_columns
+                                if normalize_bom_header_name(col) in {"规格型号", "规格描述", "产品规格"}), None)
+        if combined_column is not None:
+            mapping["spec"] = combined_column
+            if mapping["model"] == combined_column or (
+                    mapping["model"] is not None and normalize_bom_header_name(mapping["model"]) in {"物料编码", "物料编号", "客户料号"}):
+                mapping["model"] = None
+            mapping["name"] = guess_bom_column(upload_df_for_guess, "name", {combined_column, mapping["model"], mapping["quantity"]})
     if mapping["spec"] is None and isinstance(upload_df, pd.DataFrame) and "OCR原文" in upload_df.columns:
         mapping["spec"] = "OCR原文"
     return mapping
@@ -45710,6 +45936,8 @@ def collect_bom_extra_spec_values(record, column_mapping):
     extras = []
     seen = set()
     for col_name, raw_value in record.items():
+        if clean_text(col_name) in {"OCR原文", "OCR行号", "识别提示"}:
+            continue
         if col_name in selected_columns:
             continue
         if is_probable_price_header(col_name):

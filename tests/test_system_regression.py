@@ -290,6 +290,105 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_bom_image_pale_rules_ignore_dense_text_and_coloured_fills(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("L", (1000, 500), 255)
+        draw = ImageDraw.Draw(image)
+        rows = list(range(40, 461, 30))
+        cols = [0, 160, 280, 770, 880, 999]
+        draw.rectangle((0, 0, 999, 38), fill=240)
+        draw.rectangle((772, 42, 878, 459), fill=225)
+        for y in rows:
+            draw.line((0, y, 999, y), fill=228)
+        for x in cols:
+            draw.line((x, 40, x, 460), fill=205)
+        for y in rows[:-1]:
+            draw.text((6, y+8), "10100101940", fill=0)
+            draw.text((284, y+8), "UNIOHM/SMD HP06W2J047KT5E 1206 470mOHM 5% 1/2W", fill=0)
+        found_rows, found_cols = self.app["detect_bom_image_grid_lines"](image)
+        self.assertEqual(found_rows, rows)
+        self.assertEqual(found_cols, cols)
+
+    def test_bom_image_text_strokes_are_not_table_rules(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("L", (1000, 500), 255)
+        draw = ImageDraw.Draw(image)
+        for y in range(8, 480, 24):
+            draw.text((50, y), "10100101940  HP06W2J047KT5E  1206  470mOHM  5%  1/2W " * 2, fill=0)
+        self.assertEqual(self.app["detect_bom_image_grid_lines"](image), ([], []))
+
+    def test_bom_image_header_search_keeps_first_data_and_never_invents_headers(self):
+        app = self.app
+        rows = [["A", "B", "C"], ["物料编码", "物料名称", "规格型号"],
+                ["123456789", "贴片电阻", "0402 1KΩ ±1%"],
+                ["123456790", "贴片电容", "0603 10uF 16V"], ["", "", "to A"]]
+        frame = app["build_bom_dataframe_from_grid_cell_rows"](rows)
+        self.assertEqual(list(frame.columns)[:3], rows[1])
+        self.assertEqual(len(frame), 2)
+        no_header = app["build_bom_dataframe_from_grid_cell_rows"](rows[2:4])
+        self.assertEqual(len(no_header), 2)
+        self.assertEqual(no_header.columns[0], "OCR列1")
+        noise = pd.DataFrame({"规格型号":["i", "4", "to A"], "物料名称":["到", "", ""]})
+        self.assertFalse(app["bom_ocr_dataframe_is_usable"](noise))
+        self.assertFalse(app["bom_grid_dataframe_is_usable"](noise))
+
+    def test_bom_image_normalization_preserves_models_and_milli_mega_resistance(self):
+        app = self.app
+        fixtures = [("UNI0HM/SMD HP06W2J047KT5E 1206 470m Q ± 5% 1/2W LF", .47, "HP06W2J047KT5E"),
+                    ("UNI0HM/SMD 0402WGF4024TCE 0402 4. 02M Q . ± 1% 1/16W LF", 4020000, "0402WGF4024TCE"),
+                    ("YAGE0/SMD RC0402FR-07174KL 0402 174k Q ± 1% 1/16W LF", 174000, "RC0402FR-07174KL")]
+        for raw, ohms, model in fixtures:
+            with self.subTest(raw=raw):
+                text = app["normalize_bom_image_cell"](raw)
+                self.assertIn(model, app["extract_model_like_tokens"](text))
+                self.assertAlmostEqual(app["parse_resistor_spec_query"](text)["_resistance_ohm"], ohms)
+        self.assertEqual(app["normalize_bom_image_cell"]("ABC123Q ±1%"), "ABC123Q ±1%")
+        self.assertEqual(app["normalize_bom_image_cell"]("CLO5A475KP5NRNC"), "CLO5A475KP5NRNC")
+        self.assertEqual(app["normalize_bom_image_cell"]("CL31A106M0HNNNE"), "CL31A106MOHNNNE")
+        self.assertEqual(app["normalize_bom_image_cell"]("CL31A106M0HNNNE123"), "CL31A106M0HNNNE123")
+        self.assertEqual(app["format_bom_quantity"](app["normalize_bom_image_cell"]("20, 000")), "20000")
+
+    def test_bom_image_column_mapping_uses_description_not_stock_codes_or_raw_ocr(self):
+        app = self.app
+        frame = pd.DataFrame({"物料编码":["123456789"], "物料名称":["贴片电阻"],
+                              "规格型号":["UNIOHM/SMD HP06W2J047KT5E 1206 470mΩ ±5% 1/2W LF"],
+                              "申请数量":["20,000"], "料号":[""],
+                              "OCR原文":["wrong OCR 470MΩ"], "OCR行号":[1], "识别提示":["请核对"]})
+        mapping = app["guess_bom_column_mapping"](frame)
+        self.assertIsNone(mapping["model"])
+        self.assertEqual(mapping["spec"], "规格型号")
+        self.assertEqual(mapping["name"], "物料名称")
+        self.assertEqual(mapping["quantity"], "申请数量")
+        self.assertEqual(app["collect_bom_extra_spec_values"](frame.iloc[0].to_dict(), mapping), [])
+        frame["料号"] = "HP06W2J047KT5E"
+        self.assertEqual(app["guess_bom_column_mapping"](frame)["model"], "料号")
+
+    def test_bom_image_cache_reuses_successful_warned_ocr_but_not_failures(self):
+        app = self.app
+        original = app["read_uploaded_bom_workbook"]
+        calls = []
+        def read(upload):
+            calls.append(True)
+            return {"kind":"image_ocr", "read_warning":"请核对图片", "sheet_frames":[{"df":pd.DataFrame({"规格型号":["0402 1KΩ"]})}]}
+        try:
+            app["read_uploaded_bom_workbook"] = read
+            state = {"_member_auth_token":"ocr-test-member"}
+            upload = UploadedBytes("bom.png", b"image-test")
+            first = app["read_uploaded_bom_workbook_for_session"](upload, session_state=state)
+            first["sheet_frames"][0]["df"].iloc[0,0] = "EDIT"
+            second = app["read_uploaded_bom_workbook_for_session"](upload, session_state=state)
+            self.assertEqual(second["sheet_frames"][0]["df"].iloc[0,0], "0402 1KΩ")
+            self.assertEqual(len(calls), 1)
+            state["_member_auth_token"] = "other-member"
+            app["read_uploaded_bom_workbook_for_session"](upload, session_state=state)
+            self.assertEqual(len(calls), 2)
+            app["read_uploaded_bom_workbook"] = lambda upload: {"kind":"image_ocr", "read_error":"bad OCR", "sheet_frames":[]}
+            state.clear()
+            app["read_uploaded_bom_workbook_for_session"](upload, session_state=state)
+            self.assertNotIn("_bom_parsed_upload_cache", state)
+        finally:
+            app["read_uploaded_bom_workbook"] = original
+
     def test_jianghai_verified_parameters_reach_fast_hydration_and_display(self):
         app = self.app
         detail = {"品牌": "江海Jianghai", "型号": "ECS1ABZ183M250030",
