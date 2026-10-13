@@ -35,6 +35,7 @@ with sync_playwright() as p:
         assert current()['scene']['renderer']=='WebGL'
     try:
         press(f.locator('#games-card>summary'));ready()
+        press(f.locator('[data-play-mode="free"]'))
         canvas=f.locator('#playground-canvas')
         assert canvas.get_attribute('data-marking')=='331'
         assert '9.1 mA' in f.locator('.play-hud').inner_text()
@@ -79,6 +80,7 @@ with sync_playwright() as p:
         f.locator('#playground').screenshot(path=str(OUT/f'{prefix}-resistor.png'))
         for course in ['capacitor','inductor','diode']:
             press(f.locator('button[data-course="'+course+'"]'));ready()
+            press(f.locator('[data-play-mode="free"]'))
             assert current()['scene']['course']==course
             if course=='capacitor':
                 press(f.locator('#playground-trigger'));page.wait_for_timeout(550)
@@ -140,6 +142,7 @@ with sync_playwright() as p:
                 fallback_page.wait_for_timeout(300)
             assert ff
             ff.locator('#games-card>summary').focus();ff.locator('#games-card>summary').press('Enter')
+            ff.locator('[data-play-mode="free"]').focus();ff.locator('[data-play-mode="free"]').press('Enter')
             assert ff.locator('.play-fallback').is_visible()
             ff.locator('[data-play-choice="1000"]').focus();ff.locator('[data-play-choice="1000"]').press('Enter')
             assert '3.0 mA' in ff.locator('.play-hud').inner_text()

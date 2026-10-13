@@ -1,5 +1,6 @@
 """Read-only local preview of the real embedded training assets, no business DBs."""
 import argparse
+import importlib
 import platform
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,7 +9,7 @@ from pathlib import Path
 platform._wmi = None
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from product_training import build_training_html
+import product_training
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, default=8534)
@@ -17,7 +18,7 @@ HOST = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport"
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        text = build_training_html() if self.path.split('?')[0]=='/lesson' else HOST
+        text = importlib.reload(product_training).build_training_html() if self.path.split('?')[0]=='/lesson' else HOST
         body = text.encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type','text/html; charset=utf-8')

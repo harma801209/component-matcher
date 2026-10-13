@@ -42,6 +42,7 @@ with sync_playwright() as p:
         for course,value in winners.items():
             activate(f.locator('button[data-course='+course+']'))
             activate(f.locator('[data-game-mode=circuit]'))
+            activate(f.locator('[data-play-mode="free"]'))
             assert '0 / 2' in f.locator('#game-progress').text_content()
             activate(f.locator('[data-play-choice="'+value+'"]'))
             assert '1 / 2' in f.locator('#game-progress').text_content()

@@ -10,6 +10,39 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_sixteen_sequential_missions_require_actions_and_real_model_goals(self):
+        script=r'''
+const L=require(process.argv[1]),a=require('node:assert/strict');
+const answers={resistor:[[330,{},0],[100,{},0],[330,{},0],[1000,{},0]],capacitor:[[10,{},1],[22,{},2],[22,{near:true},0],[22,{},3]],inductor:[[100,{},1.5],[220,{},3],[22,{},3],[100,{},3]],diode:[[true,{},0],[true,{reverse:true},0],[false,{reverse:true},0],[true,{reverse:false},0]]};
+let total=0;
+for(const [c,cases] of Object.entries(answers)){
+ let s=L.create(c);a.equal(L.list(c).length,4);a(Object.isFrozen(L.list(c)));a.equal(L.visit(s,3),s);
+ for(let i=0;i<4;i++){
+  const l=L.level(c,i);a(Object.isFrozen(l));a(Object.isFrozen(l.setup));a(l.title&&l.goal&&l.hint&&l.learned);
+  s=L.visit(s,i);a.equal(s.index,i);a.equal(L.judge(s,l.setup,0).passed,false);
+  let trial=L.action(s,'change');a.equal(L.judge(trial,l.setup,0).passed,false,'Mission seed must not auto-complete '+c+i);
+  const [value,extra,phase]=cases[i],p={...l.setup,power:true,value,...extra};trial=L.action(trial,'trigger');a.equal(L.judge(trial,p,phase).passed,true,c+i);
+  const next=L.record(trial,p,phase);a.equal(next.cleared.length,i+1);a.equal(L.record(next,p,phase).cleared.length,i+1);a.equal(trial.cleared.length,i);s=next;total++;
+  a.equal(L.judge({...s,index:i,interacted:true},{...p,power:false},phase).passed,false);
+ }
+ a.deepEqual(s.cleared,[0,1,2,3]);const back=L.visit(s,0);a.equal(back.cleared.length,4);a.equal(L.attempt(back).interacted,false);a.equal(L.create(c).cleared.length,0);
+}
+a.equal(total,16);a.throws(()=>L.level('__proto__',0),RangeError);a.throws(()=>L.level('resistor',4),RangeError);a.throws(()=>L.visit(L.create('resistor'),-1),RangeError);a.throws(()=>L.action(L.create('resistor'),'admin'),RangeError);a.throws(()=>L.record({...L.create('resistor'),cleared:[1]},L.level('resistor',0).setup,0),RangeError);
+const s=L.action(L.create('capacitor'),'trigger');a.equal(L.judge({...s,index:0},{...L.level('capacitor',0).setup},3).passed,false);
+'''
+        completed=subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_playground_levels.js')],capture_output=True,text=True)
+        self.assertEqual(completed.returncode,0,completed.stderr)
+
+    def test_missions_stay_page_only_and_offer_free_experiments(self):
+        source=(WEB_ROOT/'training_playground_levels.js').read_text(encoding='utf-8')
+        for forbidden in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+            self.assertNotIn(forbidden,source)
+        ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
+        for text in ['闯关挑战','自由实验','playground-mission','playground-outcome','观察下一阶段','L.record','b.disabled=i>']:
+            self.assertIn(text,ui)
+        self.assertLess(build_training_html().index('root.TrainingPlaygroundLevels=api'),build_training_html().index('window.TrainingPlayground=Object.freeze'))
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_playground_live_values_validate_choices_and_preserve_current(self):
         script=r'''
 const m=require(process.argv[1]),a=require('node:assert/strict'),p=value=>({value,power:true,reverse:false,near:true});
