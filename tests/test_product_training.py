@@ -9,6 +9,68 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_all_remaining_subtypes_have_observation_gated_solvable_missions(self):
+        script=r'''
+const m=require(process.argv[1]),c=require(process.argv[2]),a=require('node:assert/strict');
+a.equal(m.ids.length,26);a.deepEqual([...m.ids].sort(),c.lessons.filter(d=>!d.baseline).map(d=>d.id).sort());
+let count=0;for(const id of m.ids){const d=m.profile(id);a(Object.isFrozen(d));a.equal(d.missions.length,3);
+ let combinations=[{}];for(const f of d.fields)combinations=combinations.flatMap(p=>f.options.map(([x])=>({...p,[f.key]:x})));
+ let s=m.create(id);a(!m.judge(s).passed);a.strictEqual(m.visit(s,1),s);
+ for(const [i,l] of d.missions.entries()){
+  a.equal(s.index,i);a(!l.check(l.setup,m.evaluate(id,l.setup).values),id+' initial solution '+i);
+  const win=combinations.find(p=>l.check(p,m.evaluate(id,p).values));a(win,id+' unsolvable '+i);
+  for(const p of combinations){const r=m.evaluate(id,p);a(r.story);a(r.metrics.length);for(const value of Object.values(r.values))if(typeof value==='number')a(Number.isFinite(value));a(Number.isFinite(r.visual.brightness));}
+  for(const [k,v] of Object.entries(win))s=m.change(s,k,v);a(!m.judge(s).passed);a.equal(s.cleared.length,i);
+  a.strictEqual(m.observe(s,.6),s);s=m.start(s);s=m.observe(s,.6);a.equal(s.cleared.length,i);s=m.observe(s,.6);a(m.judge(s).passed);a.equal(s.cleared.length,i+1);
+  s=m.observe(s,.6);a.equal(s.cleared.length,i+1);count++;if(i<2)s=m.visit(s,i+1);
+ }
+ a.equal(s.cleared.length,3);s=m.visit(s,0);a.equal(s.cleared.length,3);a.equal(s.observed,0);
+ for(const bad of [null,{},NaN])a.throws(()=>m.evaluate(id,bad),RangeError);
+ a.throws(()=>m.change(s,'unknown',0),RangeError);a.throws(()=>m.observe(s,Infinity),RangeError);a.throws(()=>m.observe(s,-1),RangeError);
+ a.throws(()=>m.judge({...s,cleared:[1]}),RangeError);a.throws(()=>m.visit(s,3),RangeError);
+}a.equal(count,78);for(const bad of ['__proto__','constructor','missing'])a.throws(()=>m.profile(bad),RangeError);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_subtype_game_math.js'),str(WEB_ROOT/'training_catalog.js')],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_subtype_game_physics_distinguish_signal_storage_switching_and_limits(self):
+        script=r'''
+const m=require(process.argv[1]),a=require('node:assert/strict'),r=(id,p)=>m.evaluate(id,p),near=(x,y)=>a(Math.abs(x-y)<1e-8);
+near(r('res-thin',{tcr:25,temperature:40}).values.drift,1);near(r('res-sense',{resistance:10,load:2}).values.voltage,.02);
+let t=m.change(m.create('res-thin'),'temperature',40);t=m.start(t);t=m.observe(m.observe(t,.6),.6);a.deepEqual(t.cleared,[0]);
+near(r('cap-aluminum',{esr:.2,ripple:2}).values.loss,.8);a(r('cap-safety',{category:'Y',position:'earth'}).values.match);
+const storage=r('cap-tantalum',{forward:true,capacitance:10}).visual;near(storage.source-storage.storage,storage.load);
+near(r('cap-film',{capacitance:.1,slew:100}).values.current,10);near(r('cap-tantalum',{forward:true,capacitance:10}).values.voltage,4.9);
+a.equal(r('cap-tantalum',{forward:false,capacitance:10}).values.voltage,null);
+a(r('ind-molded',{isat:2,load:3}).values.boundary);a.equal(r('ind-common',{mode:'differential',installed:true}).values.flux,0);
+a(!r('xtal-passive',{amplifier:false,load:15}).values.clock);near(r('xtal-passive',{amplifier:true,load:15}).values.cl,9.5);
+a(!r('xtal-active',{vdd:false,oe:true}).values.clock);a(r('xtal-active',{vdd:true,oe:true}).values.clock);
+near(r('xtal-tcxo',{design:'compensated',temperature:85}).values.offset,65);near(r('xtal-vcxo',{offset:-50}).values.frequency,25998700);
+near(r('mos-p',{drive:10,load:2}).values.vgs,-10);a.equal(r('mos-n',{drive:2.5,load:2}).values.loss,null);
+near(r('mos-dual',{gates:'both',load:2}).values.loss,.16);a(!r('mos-dual',{gates:'one',load:2}).values.known);
+near(r('dio-rectifier',{forward:false,load:1000}).values.peak,-4.3);near(r('dio-schottky',{vf:.3,load:2}).values.loss,.6);
+const z=r('dio-zener',{input:12,series:1000}).values;near(z.voltage,5.1);a(z.shunt>0&&z.loss<.02);
+const tvs=r('dio-tvs',{clamp:10,event:'surge'}).values;near(tvs.voltage,10);near(tvs.shunt,1);a(!tvs.within);
+near(r('dio-led',{forward:true,resistance:1000}).values.current,.002);a(!r('bjt-npn',{base:.1,load:20}).values.known);
+near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{input:3.3,load:2}).values.on);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_subtype_game_math.js')],check=True,capture_output=True)
+
+    def test_all_subtype_games_load_offline_and_keep_the_unified_board(self):
+        page=build_training_html()
+        for name in ['training_subtype_game_math.js','training_subtype_game_scene.js','training_subtype_game.js']:
+            text=(WEB_ROOT/name).read_text(encoding='utf-8')
+            for forbidden in ['fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+                self.assertNotIn(forbidden,text)
+        self.assertIn('window.TrainingSubtypeGame=Object.freeze',page)
+        self.assertIn("$('games-card').hidden=false",page)
+        self.assertIn('training-subtype-change',page)
+        self.assertIn('viewport.append(power)',page)
+        self.assertIn('renderer.forceContextLoss()',page)
+        builder=(WEB_ROOT.parent/'tools/build_training_playground_vendor.mjs').read_text(encoding='utf-8')
+        self.assertIn('BufferGeometry,BufferAttribute,Line,LineBasicMaterial',builder)
+
     def test_guided_controls_are_in_the_board_workbench_not_an_upper_module(self):
         ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
         for text in ['playground-workbench','playground-action','playground-instruction','viewport.append(power)','workbench.append(controls,status)','这一关不用换电阻','这关怎么玩']:

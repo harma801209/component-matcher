@@ -14,9 +14,9 @@ def build_training_html():
         "vendor/training-three.min.js", "training_playground_math.js", "training_playground_levels.js",
         "training_math.js", "training_practice.js", "training_circuit_math.js", "training_effects.js",
         "training_material_data.js", "training_material_geometry.js", "training_resistor_marking.js",
-        "training_catalog.js", "training_catalog_geometry.js", "training_catalog_labs.js",
+        "training_catalog.js", "training_catalog_geometry.js", "training_catalog_labs.js", "training_subtype_game_math.js",
         "training.js", "training_tools.js", "training_circuit.js",
-        "training_playground_scene.js", "training_playground.js", "training_playground_entry.js",
+        "training_playground_scene.js", "training_playground.js", "training_subtype_game_scene.js", "training_subtype_game.js", "training_playground_entry.js",
         "training_catalog_ui.js", "training_embed.js",
     ))
     assets = {

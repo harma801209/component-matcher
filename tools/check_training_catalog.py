@@ -77,7 +77,7 @@ with sync_playwright() as p:
                 assert f.locator('button[data-course="'+family['id']+'"]').get_attribute('aria-pressed')=='true'
                 assert f.locator('#subtype-application').is_visible()!=d['baseline']
                 assert f.locator('#circuit-card').is_visible()==d['baseline']
-                assert f.locator('#games-card').is_visible()==d['baseline']
+                assert f.locator('#games-card').is_visible()
                 assert f.locator('.practice-card').is_visible()==d['baseline']
                 assert f.locator('.model-card').get_attribute('data-mode')=='exterior'
                 if not d['baseline']:
