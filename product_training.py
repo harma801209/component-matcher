@@ -11,8 +11,9 @@ def build_training_html():
     scripts = "\n".join((WEB_ROOT / name).read_text(encoding="utf-8") for name in (
         "training_math.js", "training_practice.js", "training_games_math.js", "training_circuit_math.js", "training_effects.js",
         "training_material_data.js", "training_material_geometry.js", "training_resistor_marking.js",
+        "training_catalog.js", "training_catalog_geometry.js", "training_catalog_labs.js",
         "training.js", "training_tools.js", "training_circuit.js", "training_games.js",
-        "training_embed.js",
+        "training_catalog_ui.js", "training_embed.js",
     ))
     return template.replace("__TRAINING_CSS__", css).replace("__TRAINING_JS__", scripts.replace("</script", "<\\/script"))
 

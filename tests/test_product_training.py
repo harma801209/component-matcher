@@ -9,6 +9,92 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    def test_catalog_assets_are_ordered_and_keep_one_viewer(self):
+        page = build_training_html()
+        self.assertEqual(page.count('<canvas'), 1)
+        for asset in ['training_catalog.js', 'training_catalog_geometry.js', 'training_catalog_labs.js', 'training_catalog_ui.js']:
+            content = (WEB_ROOT / asset).read_text(encoding='utf-8')
+            self.assertNotIn('fetch(', content)
+            self.assertNotIn('localStorage', content)
+            self.assertNotIn('member_token', content)
+        self.assertLess(page.index('root.TrainingCatalog=api'), page.index('root.TrainingCatalogGeometry=api'))
+        self.assertLess(page.index('root.TrainingCatalogLabs=api'), page.index('window.TrainingCatalogUI=Object.freeze'))
+        self.assertIn('id="subtypes"', page)
+        self.assertNotIn('id="material-leaders"', page)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_catalog_seven_families_and_thirty_complete_scoped_chapters(self):
+        script = r'''
+const c=require(process.argv[1]),a=require('node:assert/strict');
+a.deepEqual(c.families.map(f=>f.name),['电容','电阻','电感','晶振','MOS管','二极管','三极管']);
+a.deepEqual(c.families.map(f=>c.children(f.id).length),[5,4,4,4,3,6,4]);
+a.equal(c.lessons.length,30);a.equal(new Set(c.lessons.map(d=>d.id)).size,30);
+a.equal(c.lessons.filter(d=>d.baseline).length,4);
+for(const f of c.families)a.equal(c.lesson(f.default).family,f.id);
+for(const d of c.lessons){a(Object.isFrozen(d));a(Object.isFrozen(d.layers));
+ for(const k of ['title','kind','summary','use','scope','lab'])a(d[k]);
+ a(d.specs.length>=3);a(d.principle.length>=2);a(d.ask.length>=2);a(d.sources.length);
+ a.equal(d.quiz.options.length,3);a(Number.isInteger(d.quiz.answer)&&d.quiz.answer>=0&&d.quiz.answer<3);a(d.quiz.explain);
+ a.equal(new Set(d.layers.map(p=>p.id)).size,d.layers.length);a(d.layers.length>=3);
+ for(const p of d.layers)for(const k of ['id','name','composition','role'])a(p[k]);
+ for(const id of d.outerIds)a(d.layers.some(p=>p.id===id));
+ for(const s of d.sources)a(s[0]&&s[1].startsWith('https://'));
+}
+for(const bad of ['__proto__','constructor','other',null]){a.throws(()=>c.lesson(bad),RangeError);a.throws(()=>c.children(bad),RangeError);}
+const material=(id,p)=>c.lesson(id).layers.find(l=>l.id===p).composition;
+a.match(material('res-thin','element'),/NiCr/);a.match(material('res-sulfur','element'),/RuO₂/);
+a.match(material('mos-n','regions'),/N⁺/);a.match(material('mos-p','regions'),/P⁺/);
+a.match(material('bjt-npn','base'),/P型/);a.match(material('bjt-pnp','base'),/N型/);
+a.match(c.lesson('xtal-tcxo').layers.find(p=>p.id==='ic').name,/温度补偿/);
+a.match(c.lesson('xtal-vcxo').layers.find(p=>p.id==='ic').name,/压控调谐/);
+a.match(c.lesson('dio-schottky').principle.join(''),/不画成普通PN结/);
+a.match(c.lesson('cap-aluminum').scope,/卷绕芯局部展开/);
+a.match(c.lesson('cap-tantalum').scope,/不按真实孔隙/);
+'''
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_catalog.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_catalog_meshes_have_finite_numbered_parts_and_sealed_exteriors(self):
+        script = r'''
+const dir=process.argv[1],c=require(dir+'/training_catalog.js'),g=require(dir+'/training_catalog_geometry.js'),a=require('node:assert/strict');
+const primitives={box(f,p,s,color,id){a(s.every(v=>v>0));f.push({id,color,p:[p,p.map((v,i)=>v+s[i]),p.map((v,i)=>v-s[i])]});},tube(f,p,q,r,color,id){a(r>0);f.push({id,color,p:[p,q,p.map(v=>v+r)]});}};
+for(const d of c.lessons)for(const mode of ['exterior','materials'])for(const e of [0,.5,1]){
+ const m=g.build(d.id,mode,e,primitives);a(m.faces.length);a(m.anchors.length);
+ const ids=d.layers.filter(p=>mode==='materials'||d.outerIds.includes(p.id)).map(p=>p.id);
+ a.deepEqual(m.anchors.map(p=>p.id),ids);
+ for(const p of m.anchors)a(p.point.every(Number.isFinite));
+ for(const f of m.faces){a(d.layers.some(p=>p.id===f.id));a(f.p.flat().every(Number.isFinite));a(f.color.every(Number.isFinite));}
+ if(!d.baseline&&mode==='exterior')for(const f of m.faces)a(ids.includes(f.id),d.id+' leaked internal part '+f.id);
+}
+for(const bad of [-1,NaN,Infinity,1.1])a.throws(()=>g.build('mos-n','materials',bad,primitives),RangeError);
+a.throws(()=>g.build('mos-n','other',0,primitives),RangeError);
+'''
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT)], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_catalog_labs_are_subtype_specific_and_validate_inputs(self):
+        script = r'''
+const l=require(process.argv[1]),c=require(process.argv[2]),a=require('node:assert/strict');
+for(const d of c.lessons){const cfg=l.config(d.id);a(cfg.options.some(o=>o[0]===cfg.initial));
+ for(const [x] of cfg.options){const r=l.evaluate(d.id,x);a(r.status);a(r.metrics.length);a(r.series.flat().every(Number.isFinite));}
+ for(const bad of [NaN,null,{},'bad'])a.throws(()=>l.evaluate(d.id,bad),RangeError);
+ cfg.options.length=0;a(l.config(d.id).options.length);
+}
+const text=(id,x)=>l.evaluate(id,x).metrics.flat().join(' ');
+a.match(text('res-thin',40),/1001 Ω/);a.match(text('res-sense',2),/20 mV.*40 mW/);
+a.match(text('cap-aluminum',.2),/0.2 W.*0.2 V/);a.match(text('cap-film',100),/10 A/);
+a.match(text('xtal-passive',15),/9.5 pF/);a.match(text('xtal-passive',20),/12 pF/);
+a.equal(l.evaluate('xtal-passive',0).signal,'none');a.match(l.evaluate('xtal-passive',15).status,/假设其余振荡条件已满足/);
+a.match(text('xtal-active','on'),/24 MHz.*41.667 ns/);a.equal(l.evaluate('xtal-active','off').signal,'none');
+a.match(text('xtal-tcxo',2.5),/65 Hz/);a.match(text('xtal-vcxo',50),/26.001 MHz/);
+a.match(text('mos-n',2.5),/Ron未提供/);a.match(text('mos-n',10),/10 V.*0.08 W/);a.match(text('mos-p',10),/-10 V/);
+a.match(text('mos-dual',2),/0.16 W/);a.match(text('dio-zener',3),/2.5 V.*0 mA/);
+a.match(text('dio-tvs','surge'),/10 V@1 A/);a.match(text('bjt-digital',3.3),/404.26 µA/);
+a(l.evaluate('bjt-npn',.1).warn);a(!l.evaluate('bjt-npn',2).warn);
+const r=l.evaluate('dio-rectifier','output');a(r.series[0].some(v=>v<0));a(r.series[1].every(v=>v>=0));
+'''
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_catalog_labs.js'), str(WEB_ROOT / 'training_catalog.js')], check=True, capture_output=True)
+
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_games_electrical_goals_validate_full_parameters_and_teach_limits(self):
         script = r'''
