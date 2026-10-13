@@ -15,3 +15,48 @@
 @media(min-width:1051px){.play-viewport{height:540px}.play-story h4{font-size:31px}.play-story>p{font-size:17px}.play-tray>div:first-child{flex:0 1 340px}.play-choices{flex:1;justify-content:center}.play-choices .play-choice{width:148px;min-height:132px}.play-choice canvas{height:82px}.play-tray strong{font-size:18px}.play-why summary{border:1px solid #bed3ef;border-radius:9px;padding:12px;text-align:center;font-size:16px}}
 @media(max-width:760px){.playground{padding:14px}.play-heading{align-items:flex-start;flex-direction:column;gap:10px}.play-stage{grid-template-columns:1fr}.play-viewport{height:360px}.play-story{border-left:0;border-top:1px solid #dce8fa;padding:18px}.play-story h4{font-size:22px;margin-top:8px}.play-detail{min-height:0}.play-story button.play-primary{margin-top:12px}.play-tray{padding:14px;gap:13px}.play-tray>div:first-child{max-width:none}.play-choices{width:100%;justify-content:space-between;gap:8px}.play-choices .play-choice{width:calc((100% - 16px)/3);min-height:95px}.play-choices .play-choice strong{font-size:15px}.play-choice canvas{height:57px}.play-heading p{font-size:14px}.play-labels{font-size:10px}.play-tray strong{font-size:14px}}
 @media(max-width:420px){.play-viewport{height:290px}.play-heading h3{font-size:24px}.play-labels{top:45px;left:9px;right:9px}.play-badge{top:12px;left:12px}.play-story>p{font-size:14px}.play-controls button{font-size:12px;padding:8px 10px}.play-hud{bottom:33px;padding:6px 12px}.play-hud strong{font-size:17px}.play-choice canvas{height:46px}.play-choices .play-choice{min-height:84px;padding:5px}.play-view-hint{font-size:10px}}
+
+/* One learner console: choose -> act -> observe. No controls over the 3D board. */
+.play-workbench .play-stage{grid-template-columns:minmax(0,1.7fr) minmax(320px,1fr);align-items:stretch}
+.play-workbench .play-stage>.play-viewport{height:100%;min-height:540px}
+.play-workbench .play-console{justify-content:flex-start;padding:20px;background:#fff;min-width:0}
+.play-console h4{font-size:21px;line-height:1.4;margin:0 0 8px}
+.play-workbench .play-console .play-goal{font-size:15px;line-height:1.65}
+.play-console .play-instruction{flex:none;min-height:0;font-size:13px;font-weight:400;line-height:1.6;margin-top:10px;color:#526d95}
+.play-console .subgame-fields{grid-template-columns:1fr;padding:0;border:0;gap:12px;margin:16px 0 0;background:transparent}
+.play-console .subgame-field{padding:9px;background:#f7faff}
+.play-console .subgame-field legend{font-size:13px}
+.play-console .subgame-choice{font-size:14px;min-height:44px;line-height:1.4;padding:9px 10px}
+.play-workbench .play-console .play-tray{display:block;padding:0;margin:16px 0 0;border:0;background:transparent}
+.play-console .play-tray>div:first-child{max-width:none;margin-bottom:10px}
+.play-console .play-tray strong{font-size:14px;line-height:1.5}
+.play-console .play-tray p{font-size:12px;margin-top:3px}
+.play-console .play-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.play-console .play-choices .play-choice{width:100%;min-width:0;min-height:92px;padding:5px}
+.play-console .play-choice canvas{height:52px}
+.play-console .play-choice strong{font-size:14px}
+.play-console .play-action-row{padding:0;border:0;margin:12px 0 0;gap:8px;background:transparent}
+.play-console .play-action-row button{min-height:44px;padding:9px 13px;font-size:14px;border:1px solid #bed3ef;border-radius:7px;background:white;color:#294e7b}
+.play-console .play-action-row button.play-primary{flex:1 1 140px;display:inline-flex;align-items:center;justify-content:center;width:auto;margin:0;min-height:46px;padding:10px 14px;font-size:15px;background:#1555e8;color:white;border-color:#1555e8}
+.play-console .play-mission-hint{margin:10px 0 0;padding:10px;border-radius:7px;background:#eef4ff;font-size:13px;line-height:1.7}
+.play-workbench .play-console .play-controls{padding:0;margin:12px 0 0;border:0;background:transparent;gap:7px}
+.play-console .play-controls button{font-size:12px;line-height:1.4}
+.play-console .play-result-title{font-size:14px;font-weight:650;margin:18px 0 0;padding-top:14px;border-top:1px solid #dce8fa;color:#234e80}
+.play-workbench .play-console .play-outcome{font-size:13px;line-height:1.65;margin:7px 0}
+.play-console .subgame-metrics{grid-template-columns:1fr 1fr;gap:7px;margin:8px 0 0}
+.play-console .subgame-metrics>div{padding:9px;min-width:0}
+.play-console .subgame-metrics small{font-size:11px;line-height:1.5}
+.play-console .subgame-metrics strong{font-size:16px;overflow-wrap:anywhere}
+.play-console .play-why{margin-top:12px;font-size:13px}
+.play-console .play-why summary{padding:7px 0;border:0;border-radius:0;text-align:left;font-size:13px}
+.play-console .play-why p{font-size:13px}
+.play-console .play-brightness{margin-top:10px}
+@media(max-width:760px){
+ .play-workbench .play-stage{grid-template-columns:1fr}
+ .play-workbench .play-stage>.play-viewport{height:340px;min-height:0}
+ .play-workbench .play-console{padding:16px}
+ .play-console h4{font-size:19px}
+ .play-console .play-action-row button.play-primary{flex:1 1 140px}
+ .play-console .play-choices .play-choice{min-height:88px}
+}
+@media(max-width:420px){.play-workbench .play-stage>.play-viewport{height:290px}.play-console .subgame-metrics strong{font-size:15px}}

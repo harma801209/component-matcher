@@ -24,7 +24,10 @@ with sync_playwright() as p:
             page.wait_for_timeout(300)
         assert f and f.evaluate('typeof TrainingSubtypeGameMath!=="undefined"'),'New games not loaded'
         def press(selector):
-            loc=f.locator(selector);loc.focus();loc.press('Enter')
+            loc=f.locator(selector)
+            if selector=='#subgame-power' and not loc.is_visible():loc=f.locator('#subgame-action')
+            assert loc.is_visible(),selector
+            loc.focus();loc.press('Enter')
         def state():return f.evaluate('TrainingSubtypeGame.current().snapshot()')
         def fitted():
             f.wait_for_function('Math.abs(innerHeight-Math.ceil(document.getElementById("training-app").getBoundingClientRect().height)-12)<=1')
@@ -49,7 +52,9 @@ with sync_playwright() as p:
             f.wait_for_function('(id)=>document.getElementById("subgame-canvas").dataset.model===id&&Number(document.getElementById("subgame-canvas").dataset.frames)>1',arg=id)
             assert state()['scene']['renderer']=='WebGL'
             assert not state()['playing']
-            assert f.locator('#subgame-power').is_visible()
+            assert f.locator('#subgame-power').is_hidden()
+            assert f.locator('.play-console #subgame-action').is_visible()
+            assert f.locator('.play-viewport button').count()==0
             assert f.locator('[data-subgame-level="1"]').is_disabled()
             assert f.locator('#subgame-next').is_hidden()
             if id=='cap-tantalum':
@@ -111,7 +116,8 @@ with sync_playwright() as p:
             page.set_viewport_size({'width':width,'height':1024})
             for family,id in [('capacitor','cap-aluminum'),('crystal','xtal-active'),('mos','mos-p')]:
                 press('button[data-course="'+family+'"]');press('button[data-subtype="'+id+'"]');f.locator('#subgame-canvas').scroll_into_view_if_needed();fitted()
-                a=f.locator('#subgame-power').bounding_box();b=f.locator('.subtype-game .play-hud').bounding_box();assert a['x']+a['width']<=b['x']+1,(width,id,a,b)
+                assert f.locator('.play-console #subgame-action').is_visible()
+                assert f.locator('.play-viewport button').count()==0
                 f.locator('.subtype-game .play-viewport').screenshot(path=str(OUT/f'{prefix}-{id}-width-{width}.png'))
             f.locator('#subgame-root').scroll_into_view_if_needed();page.screenshot(path=str(OUT/f'{prefix}-width-{width}.png'))
         page.reload(wait_until='domcontentloaded',timeout=90000)

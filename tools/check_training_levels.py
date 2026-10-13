@@ -22,7 +22,13 @@ with sync_playwright() as p:
             page.wait_for_timeout(300)
         assert f and f.evaluate('typeof TrainingPlaygroundLevels!=="undefined"')
         def press(selector):
-            loc=f.locator(selector);loc.focus();loc.press('Enter')
+            loc=f.locator(selector)
+            # The single contextual CTA replaces a matching secondary control.
+            if not loc.is_visible() and selector.startswith('#playground-'):
+                action=f.locator('#playground-action')
+                if action.is_visible() and action.get_attribute('data-target')==selector.removeprefix('#playground-'):loc=action
+            assert loc.is_visible(),selector
+            loc.focus();loc.press('Enter')
         def state():return f.evaluate('TrainingPlayground.current().snapshot()')
         def choose(value):press('[data-play-choice="'+str(value).lower()+'"]')
         def step(n):
@@ -33,7 +39,9 @@ with sync_playwright() as p:
         press('#games-card>summary')
         assert f.locator('#playground-workbench #playground-power').count()==1
         assert f.locator('#playground-mission #playground-power').count()==0
-        assert f.locator('.play-viewport #playground-power').count()==1
+        assert f.locator('.play-viewport #playground-power').count()==0
+        assert f.locator('.play-console #playground-power').count()==1
+        assert f.locator('#playground-power').is_hidden()
         assert f.locator('#playground-action').inner_text()=='打开电源'
         assert '不用换电阻' in f.locator('#playground-instruction').inner_text()
         assert f.locator('.play-tray').is_hidden()

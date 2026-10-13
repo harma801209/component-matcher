@@ -85,7 +85,8 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
         self.assertIn('window.TrainingSubtypeGame=Object.freeze',page)
         self.assertIn("$('games-card').hidden=false",page)
         self.assertIn('training-subtype-change',page)
-        self.assertIn('viewport.append(power)',page)
+        self.assertTrue('play-story play-console' in page)
+        self.assertTrue('viewport.append(power)' not in page)
         self.assertIn('renderer.forceContextLoss()',page)
         self.assertIn("canvas.dataset.positiveSide=params.forward?'left':'right'",page)
         self.assertIn("canvas.dataset.partConnected=String(id!=='ind-common'||p.installed)",page)
@@ -94,11 +95,29 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
 
     def test_guided_controls_are_in_the_board_workbench_not_an_upper_module(self):
         ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
-        for text in ['playground-workbench','playground-action','playground-instruction','viewport.append(power)','workbench.append(controls,status)','这一关不用换电阻','这关怎么玩']:
+        for text in ['playground-workbench','playground-action','playground-instruction','play-story play-console','story.append(instruction,actionRow,hintText)','story.append(controls','这一关不用换电阻','这关怎么玩']:
             self.assertIn(text,ui)
+        self.assertNotIn('viewport.append(power)',ui)
+        self.assertNotIn('workbench.append(tray)',ui)
         self.assertNotIn('mission.append(controls)',ui)
         self.assertIn('next.hidden=!done',ui)
         self.assertIn("tray.hidden=mode==='challenge'&&course==='resistor'&&campaign.progress.index===0",ui)
+
+    def test_all_game_engines_group_controls_without_duplicate_start_or_inner_scroll(self):
+        for file in ['training_playground.js','training_subtype_game.js']:
+            ui=(WEB_ROOT/file).read_text(encoding='utf-8')
+            self.assertIn('play-story play-console',ui)
+            self.assertIn("setAttribute('aria-controls'",ui)
+            self.assertNotIn('viewport.append(power)',ui)
+        ui=(WEB_ROOT/'training_subtype_game.js').read_text(encoding='utf-8')
+        self.assertIn('story.append(fields)',ui)
+        self.assertIn('story.append(instruction,row,hint)',ui)
+        self.assertIn('power.hidden=!s.started',ui)
+        self.assertNotIn('打开电源 / 开始观察',ui)
+        css=(WEB_ROOT/'training_playground.css').read_text(encoding='utf-8')
+        self.assertIn('.play-console .play-action-row',css)
+        self.assertIn('.play-console .subgame-fields{grid-template-columns:1fr',css)
+        self.assertNotIn('overflow-y:auto',css)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_sixteen_sequential_missions_require_actions_and_real_model_goals(self):

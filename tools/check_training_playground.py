@@ -27,7 +27,13 @@ with sync_playwright() as p:
         if f and f.evaluate('typeof TrainingPlayground!=="undefined"'):break
         page.wait_for_timeout(300)
     assert f and f.evaluate('typeof TrainingPlayground!=="undefined"'),'Playground not available'
-    def press(loc):loc.focus();loc.press('Enter')
+    def press(loc):
+        if not loc.is_visible():
+            target=loc.get_attribute('id') or ''
+            action=f.locator('#playground-action')
+            if action.is_visible() and action.get_attribute('data-target')==target.removeprefix('playground-'):loc=action
+        assert loc.is_visible()
+        loc.focus();loc.press('Enter')
     def current():return f.evaluate('TrainingPlayground.current().snapshot()')
     def ready():
         f.locator('#playground-canvas').scroll_into_view_if_needed()
