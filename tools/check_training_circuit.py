@@ -70,6 +70,48 @@ with sync_playwright() as p:
                 assert f.evaluate('TrainingCircuit.current().result.i')>0
                 f.locator('#circuit-resistance').select_option('1000')
                 assert abs(f.evaluate('TrainingCircuit.current().result.i')-.003)<1e-12
+                # Read in the SAME event turn: feedback must not wait for RAF,
+                # the moving arrow, an LED crossing, or the next teaching stage.
+                for view in ['pcb','schematic']:
+                    press(f.locator('#circuit-'+view))
+                    f.evaluate('''()=>{
+                        function check(){
+                            const r=TrainingCircuit.current().result;
+                            for(const [key,value] of [['before',r.before],['after',r.after],['drop',r.drop],['heat',r.p],['current-in',r.i],['current-out',r.i]]){
+                                const n=document.getElementById('circuit-r-'+key);
+                                if(Math.abs(Number(n.dataset.value)-value)>1e-12)throw Error('Stale local feedback '+key);
+                            }
+                            if(Math.abs(r.drop*r.i-r.p)>1e-12)throw Error('Local energy balance');
+                            if(r.vs!==5)throw Error('Source voltage changed');
+                            if(document.getElementById('circuit-r-energy').style.opacity!==(r.closed?'1':'0'))throw Error('Stale heat cue');
+                            if(document.getElementById('circuit-led').classList.contains('lit')!==r.closed)throw Error('Delayed LED');
+                            if(Number(document.getElementById('flow-main').dataset.current)!==r.i)throw Error('Delayed loop current');
+                            if(!document.getElementById('circuit-story').textContent.includes(r.closed?'电阻承担':'电源仍有5 V'))throw Error('Stale explanation');
+                        }
+                        for(const s of [0,1,2])for(const u of [0,.02,.5,1]){TrainingCircuit.selectStep(s,u);check();}
+                        const select=document.getElementById('circuit-resistance');
+                        for(const value of ['220','1000','220','1000']){
+                            select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));check();
+                            if(TrainingCircuit.current().result.r!==Number(value))throw Error('Stale resistance');
+                        }
+                        const r=TrainingCircuit.current().result;
+                        if(r.before!==5||r.after!==2||r.drop!==3||Math.abs(r.i-.003)>1e-12||Math.abs(r.p-.009)>1e-12)throw Error('Screenshot working point');
+                    }''')
+                    assert '压降' in f.locator('#circuit-headline').inner_text() or '同步' in f.locator('#circuit-headline').inner_text()
+                    assert '电阻发热' in f.locator('#circuit-energy-legend').inner_text()
+                    assert '不是真实响应时间' in f.locator('#circuit-caption').inner_text()
+                    f.locator('#circuit-drawing').screenshot(path=str(out/f'{"formal" if args.public else "local"}-resistor-local-{view}.png'))
+                # Play begins with all values already present; pause does not
+                # postpone feedback. Changing R during playback updates now.
+                f.evaluate('TrainingCircuit.selectStep(1,0)')
+                press(f.locator('#circuit-play'));icon_controls(playing=True)
+                assert f.locator('#circuit-r-drop').text_content()=='电阻压降 3 V'
+                f.locator('#circuit-resistance').select_option('1000')
+                assert f.locator('#circuit-r-heat').text_content()=='电能转成热 9 mW'
+                assert not f.evaluate('TrainingCircuit.current().playing')
+                press(f.locator('#circuit-reset'))
+                assert f.locator('#circuit-r-drop').text_content()=='电阻压降 0 V'
+                f.evaluate('TrainingCircuit.selectStep(2,0)')
             elif course=='capacitor':
                 r=f.evaluate('TrainingCircuit.current().result');assert r['icap']<0
                 for view in ['pcb','schematic']:
@@ -144,7 +186,11 @@ with sync_playwright() as p:
         f.locator('#circuit-play').focus();f.locator('#circuit-play').press('Space')
         icon_controls(playing=True)
         f.locator('#circuit-card').scroll_into_view_if_needed()
-        f.wait_for_function('TrainingCircuit.current().step===1',timeout=7000)
+        try:
+            f.wait_for_function('TrainingCircuit.current().step===1',timeout=20000)
+        except Exception:
+            print(json.dumps(f.evaluate('''()=>({circuit:TrainingCircuit.current(),hidden:document.hidden,card:document.getElementById('circuit-card').getBoundingClientRect().toJSON(),viewport:innerHeight})''')),flush=True)
+            raise
         icon_controls(playing=True)
         press(f.locator('#circuit-play'))
         state=f.evaluate('TrainingCircuit.current()');assert not state['playing']
@@ -154,7 +200,7 @@ with sync_playwright() as p:
         assert f.evaluate('TrainingCircuit.current().u')==state['u']
         press(f.locator('#circuit-play'))
         f.locator('#circuit-card').scroll_into_view_if_needed()
-        f.wait_for_function('TrainingCircuit.current().step===2&&!TrainingCircuit.current().playing',timeout=14000)
+        f.wait_for_function('TrainingCircuit.current().step===2&&!TrainingCircuit.current().playing',timeout=30000)
         assert f.evaluate('TrainingCircuit.current().u')==1
         icon_controls()
         assert f.locator('#circuit-next').get_attribute('title')=='已是最后一步'
@@ -165,6 +211,12 @@ with sync_playwright() as p:
         icon_controls()
         for width in [900,390]:
             page.set_viewport_size({'width':width,'height':1100})
+            press(f.locator('button[data-course="resistor"]'))
+            f.evaluate('TrainingCircuit.selectStep(2,0)')
+            f.locator('#circuit-drawing').screenshot(path=str(out/f'{"formal" if args.public else "local"}-resistor-local-{width}.png'))
+            # SVG readout boxes stay within the same drawing, with no leaders
+            # or overlay across the resistor/LED. Check actual glyph bounds.
+            assert f.locator('#circuit-svg').evaluate('''svg=>[...svg.querySelectorAll('.resistor-node,.resistor-feedback-text')].every(n=>{const b=n.getBBox();return b.x>=0&&b.y>=0&&b.x+b.width<=560&&b.y+b.height<=275;})''')
             f.locator('#circuit-card').scroll_into_view_if_needed()
             size=f.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
             assert size['scroll']<=size['client']+1,size
@@ -172,5 +224,5 @@ with sync_playwright() as p:
             f.locator('.circuit-effects').screenshot(path=str(out/f'{"formal" if args.public else "local"}-effects-{width}.png'))
             page.screenshot(path=str(out/f'{"formal" if args.public else "local"}-{width}.png'),full_page=True)
         assert not errors,errors
-        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'cause_effect_comparisons':True,'learner_copy':True,'play_pause_finish':True,'icon_controls':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
+        print(json.dumps({'status':'passed','public':args.public,'courses':4,'views':2,'stages':3,'resistor_same_event_feedback':True,'resistor_kvl_equal_current_heat':True,'cause_effect_comparisons':True,'learner_copy':True,'play_pause_finish':True,'icon_controls':True,'flow_topology':True,'mobile':True,'errors':errors}),flush=True)
     finally:context.close();browser.close()

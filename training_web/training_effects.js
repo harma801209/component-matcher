@@ -12,9 +12,10 @@
   if(!Object.hasOwn(lessons,course)||!Number.isInteger(step)||step<0||step>2)throw new RangeError('Unknown circuit lesson');
   let change,comparison,note;
   if(course==='resistor'){
-   change=step===0?'回路断开，LED不亮。接通后，电阻帮助把电流控制在合适范围。':step===1?'LED亮起；电阻控制整条支路的电流，电阻本身会产生热量。':r.r===1000?'阻值从220 Ω增至1 kΩ，电流变小，LED示意亮度降低。':'选220 Ω时，电流比1 kΩ大，LED示意更亮；电阻功耗也更大。';
+   const local=r.closed?'R1两端产生'+r.drop+' V压降，电能在电阻中转成热；电阻前后电流相同。':'';
+   change=step===0?'回路断开，电阻和LED未供电，电阻没有发热；电源本身仍为5 V。':local+(step===1?'接通后，整条回路电流和LED亮度一起变化。':r.r===1000?'选1 kΩ时，相比220 Ω整条回路电流变小，电阻发热更少，LED示意亮度降低。':'选220 Ω时，相比1 kΩ整条回路电流更大，电阻发热更多，LED示意更亮。');
    comparison=[['220 Ω时的电流',3/220,'A'],['1 kΩ时的电流',.003,'A']];
-   note=step===0?'对比接通后的情况；当前开关断开，电流为0。':'同样5 V电源、示例LED压降2 V。亮度仅作示意，实际要确认LED额定电流。';
+   note='本图展示稳态：电源5 V；接通时LED压降假定2 V，电阻承担其余3 V。箭头不是响应计时；亮度与橙色发热提示不是实测亮度或温度。';
   }else if(course==='capacitor'){
    const progress=Math.min(1,Math.max(0,r.t/(5*r.tau)));
    const withCap=circuits.evaluate(course,step,progress,{cap:true}).v;

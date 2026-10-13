@@ -4,8 +4,11 @@
  function evaluate(course,step,u=0,options={}){
   if(!['resistor','capacitor','inductor','diode'].includes(course)||!Number.isInteger(step)||step<0||step>2||!Number.isFinite(u)||u<0||u>1)throw new RangeError('Invalid teaching state');
   if(course==='resistor'){
-   const r=step===2?(options.r===220?220:1000):220,v=step===0?0:5,vf=2,i=v?Math.max(0,(v-vf)/r):0;
-   return {r,v,vf:i?vf:0,i,p:i*i*r,brightness:i/(3/220),closed:step>0};
+   const r=step===2?(options.r===220?220:1000):220,vs=5,v=step===0?0:vs,vf=2,i=v?Math.max(0,(v-vf)/r):0;
+   // Ground-referenced nodes in this fixed-Vf classroom circuit. Opening S1
+   // disconnects the load; it does not turn the ideal source itself into 0 V.
+   const before=v,after=i?vf:0,drop=before-after;
+   return {r,vs,v,vf:after,before,after,drop,i,p:i*i*r,brightness:i/(3/220),closed:step>0};
   }
   if(course==='capacitor'){
    const vs=3.3,rs=1,c=10e-6,tau=rs*c,low=.005,high=.1,load=step===1?high:low;

@@ -10,6 +10,15 @@ Internal mesh animation is initially off and explicitly named internal illustrat
 - Resistor: a 5 V source, switch, series resistor and LED return loop. A fixed 2 V
   LED drop is a classroom assumption; `I=(5-2)/R`. Compare 220 ohms vs 1 kilohm.
   Glow is qualitative, not a photometric or thermal simulation.
+  Local resistor feedback shows both node voltages, equal entering/leaving
+  current, voltage drop and heat power alongside R1 in both views. With S1
+  closed, the nodes are 5 V and 2 V, the drop is 3 V and `P=I*3 V` (9 mW
+  at 1 kilohm). With S1 open the load is unpowered and power is zero, while
+  the ideal source remains 5 V. Voltage/heat/readouts and LED/current update
+  from one state in the same event, not when the slow direction arrow reaches
+  a device. This is a steady-state model, not field-propagation timing or a
+  simulation of switch transients. Orange around R1 is a heat-power cue, not
+  temperature or orange storage current; no current is consumed by R1.
 - Capacitor: a 3.3 V supply with a **teaching** 1 ohm supply resistance, a 10 uF
   capacitor parallel to a load changing 5 mA -> 100 mA -> 5 mA. The closed-form RC
   solution satisfies `C dV/dt=(Vs-V)/Rs-Iload`. State boundaries preserve capacitor

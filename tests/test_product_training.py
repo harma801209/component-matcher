@@ -10,6 +10,25 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_resistor_local_drop_heat_and_equal_current_do_not_wait_for_arrow(self):
+        script=r'''
+const m=require(process.argv[1]),e=require(process.argv[2]),a=require('node:assert/strict');
+const eq=(x,y)=>a(Math.abs(x-y)<1e-12);
+for(const step of [0,1,2])for(const resistance of [220,1000]){
+ const start=m.evaluate('resistor',step,0,{r:resistance});
+ for(const time of [.01,.5,1])a.deepEqual(m.evaluate('resistor',step,time,{r:resistance}),start);
+ eq(start.vs,5);eq(start.drop,start.before-start.after);eq(start.p,start.drop*start.i);
+ eq(start.i,m.currentFlows('resistor',start).main);
+ const text=e.describe('resistor',step,start);
+ if(step===0){eq(start.i,0);eq(start.drop,0);eq(start.p,0);a(text.change.includes('电源本身仍为5 V'));}
+ else{eq(start.before,5);eq(start.after,2);eq(start.drop,3);eq(start.i,3/start.r);a(text.change.includes('电阻前后电流相同'));a(text.change.includes('3 V压降'));}
+}
+const low=m.evaluate('resistor',2,0,{r:1000}),high=m.evaluate('resistor',2,0,{r:220});
+a(low.i<high.i);a(low.p<high.p);a(low.brightness<high.brightness);eq(low.p,.009);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_circuit_math.js'),str(WEB_ROOT/'training_effects.js')],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_all_remaining_subtypes_have_observation_gated_solvable_missions(self):
         script=r'''
 const m=require(process.argv[1]),c=require(process.argv[2]),a=require('node:assert/strict');
