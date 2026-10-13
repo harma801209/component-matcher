@@ -37,7 +37,9 @@ class IsolatedImageOCRTests(unittest.TestCase):
                       "zone.addEventListener('click'", "zone.addEventListener('keydown'",
                       'fileInput.click()', 'container.style.display',
                       '浏览器没有提供文件内容', "allowed.has(extension)",
-                      'file.size > 100 * 1024 * 1024', 'originalName', 'lastModified'):
+                      'file.size > 100 * 1024 * 1024', 'originalName', 'lastModified',
+                      '[data-testid="stFileChipDeleteBtn"]', 'candidate.closest',
+                      'flex-direction:row!important'):
             self.assertIn(value,html)
 
     def test_character_confidence_uses_ctc_peak_not_weak_boundary(self):

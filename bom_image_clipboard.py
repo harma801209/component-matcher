@@ -26,7 +26,11 @@ def build_bom_image_clipboard_html():
     [data-bom-upload-zone]:focus-visible{outline:2px solid #1755e8;outline-offset:2px}
     [data-bom-upload-zone] [data-testid="stFileUploaderDropzoneInstructions"]{display:none!important}
     [data-bom-upload-zone] button[data-bom-upload-button]>*:not(svg){display:none!important}
-    [data-bom-upload-zone] button[data-bom-upload-button]{font-size:0!important;flex-shrink:0}
+    [data-bom-upload-zone] button[data-bom-upload-button]{font-size:0!important;flex-shrink:0;
+      width:auto!important;min-width:138px!important;min-height:40px!important;height:auto!important;
+      padding:8px 12px!important;border:1px solid #c7d5e7!important;border-radius:8px!important;
+      background:#fff!important;color:#18395f!important;display:inline-flex!important;
+      align-items:center!important;justify-content:center!important;gap:6px!important}
     [data-bom-upload-zone] button[data-bom-upload-button]::after{content:"上传文件或图片";
       font:inherit;font-size:14px;line-height:1.4}
     [data-bom-upload-hint]{flex:1 1 260px;min-width:0;color:#45658f;font-size:14px;line-height:1.7}
@@ -106,7 +110,10 @@ def build_bom_image_clipboard_html():
       zone.addEventListener('keydown',openPickerKey,true);
       zone.addEventListener('drop',clearStatus,true);
     }
-    const button = zone.querySelector('button');
+    // New Streamlit puts file-removal controls before its "Add files" button.
+    // Never relabel/restyle a file chip's delete button as the upload action.
+    const button = Array.from(zone.querySelectorAll('button')).find(candidate =>
+      !candidate.closest('[data-testid="stFileChip"],[data-testid="stFileChipDeleteBtn"],[data-testid="stFileUploaderFile"]'));
     if (button !== buttonState?.button) {
       detachButton();
       if (button) {
