@@ -9,6 +9,14 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    def test_guided_controls_are_in_the_board_workbench_not_an_upper_module(self):
+        ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
+        for text in ['playground-workbench','playground-action','playground-instruction','viewport.append(power)','workbench.append(controls,status)','这一关不用换电阻','这关怎么玩']:
+            self.assertIn(text,ui)
+        self.assertNotIn('mission.append(controls)',ui)
+        self.assertIn('next.hidden=!done',ui)
+        self.assertIn("tray.hidden=mode==='challenge'&&course==='resistor'&&campaign.progress.index===0",ui)
+
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_sixteen_sequential_missions_require_actions_and_real_model_goals(self):
         script=r'''

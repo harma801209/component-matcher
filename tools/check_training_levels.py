@@ -31,6 +31,12 @@ with sync_playwright() as p:
             assert len(state()['progress']['cleared'])==count,state()
             assert not f.locator('#playground-next').is_disabled()
         press('#games-card>summary')
+        assert f.locator('#playground-workbench #playground-power').count()==1
+        assert f.locator('#playground-mission #playground-power').count()==0
+        assert f.locator('.play-viewport #playground-power').count()==1
+        assert f.locator('#playground-action').inner_text()=='打开电源'
+        assert '不用换电阻' in f.locator('#playground-instruction').inner_text()
+        assert f.locator('.play-tray').is_hidden()
         assert state()['mode']=='challenge' and state()['progress']['cleared']==[]
         assert f.locator('[data-play-level="1"]').is_disabled()
         assert f.locator('#playground-next').is_disabled()
@@ -46,28 +52,28 @@ with sync_playwright() as p:
             for level in range(4):
                 assert state()['progress']['index']==level
                 if course=='resistor':
-                    if level==0:press('#playground-power')
+                    if level==0:press('#playground-action')
                     else:
                         if level==1:
                             choose(330);assert f.locator('#playground-next').is_disabled()
                         choose([None,100,330,1000][level])
                 elif course=='capacitor':
-                    if level==0:press('#playground-trigger')
+                    if level==0:press('#playground-action')
                     elif level==1:
                         choose(1);press('#playground-trigger');step(2)
                         assert f.locator('#playground-next').is_disabled()
                         choose(22);assert state()['phase']==0
                         assert f.locator('#playground-next').is_disabled()
-                        press('#playground-trigger');step(2)
-                    elif level==2:press('#playground-near')
+                        press('#playground-action');step(2)
+                    elif level==2:press('#playground-action')
                     else:press('#playground-trigger');step(4)
                 elif course=='inductor':
-                    if level==0:press('#playground-trigger');step(1)
+                    if level==0:press('#playground-action');step(1)
                     else:
                         choose([None,220,22,100][level]);press('#playground-trigger');step(2)
                 else:
                     if level==0:choose(True)
-                    elif level==1:press('#playground-reverse')
+                    elif level==1:press('#playground-action')
                     elif level==2:choose(False)
                     else:
                         choose(True);assert f.locator('#playground-next').is_disabled()
@@ -76,6 +82,7 @@ with sync_playwright() as p:
                 f.evaluate('document.activeElement?.blur()')
                 f.locator('#playground-mission').screenshot(path=str(OUT/f'{prefix}-{course}-{level+1}-mission.png'))
                 f.locator('.play-stage').screenshot(path=str(OUT/f'{prefix}-{course}-{level+1}-board.png'))
+                f.locator('.play-action-row').screenshot(path=str(OUT/f'{prefix}-{course}-{level+1}-actions.png'))
                 if level<3:press('#playground-next')
             assert '全部通关' in f.locator('#playground-outcome').inner_text()
             # A completed task can be revisited without duplicate completion credit.
