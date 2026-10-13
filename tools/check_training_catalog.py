@@ -37,6 +37,8 @@ with sync_playwright() as p:
             page.wait_for_timeout(300)
         assert f and f.evaluate('typeof TrainingCatalogUI!=="undefined"'), 'New catalogue not ready'
         f.wait_for_function('document.documentElement.dataset.trainingEmbedded==="autoheight"')
+        if args.public:
+            assert '电容、电阻、电感、晶振、MOS管、二极管和三极管' in f.parent_frame.locator('.wb-subtitle').inner_text()
         families = f.evaluate('TrainingCatalog.families')
         assert [x['name'] for x in families]==['电容','电阻','电感','晶振','MOS管','二极管','三极管']
         assert f.locator('#courses button').count()==7

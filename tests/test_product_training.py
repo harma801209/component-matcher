@@ -353,6 +353,7 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
         render_header(fake, "", "training", [("training", "产品培训", "?training=1"), ("member", "会员中心", "?member=1&training=0")], None)
         self.assertIn('class="active" aria-current="page"', rendered[-1])
         self.assertIn('class="wb-title">产品培训', rendered[-1])
+        self.assertIn('电容、电阻、电感、晶振、MOS管、二极管和三极管', rendered[-1])
         self.assertIn('aria-label="会员登录"', rendered[-1])
 
     def test_component_render_uses_host_scrolling_and_is_stateless(self):
