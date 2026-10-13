@@ -758,6 +758,44 @@ a(m.lesson('diode').layers.find(p=>p.id==='glass').composition.includes('原厂�
         for term in ['材料声明', '配比']:
             self.assertIn(term, script)
 
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_beginner_examples_follow_live_models_and_preserve_unknowns(self):
+        script = r"""
+const b=require(process.argv[1]),m=require(process.argv[2]),s=require(process.argv[3]),a=require('node:assert/strict');
+for(const id of ['resistor','capacitor','mos-n','mos-p']){
+ a(b.supported(id));a(Object.isFrozen(b.lesson(id)));a(b.lesson(id).purpose);a.equal(b.lesson(id).words.length,3);
+ const questions=new Set();
+ for(let i=0;i<(id.startsWith('mos-')?3:4);i++){a(b.fixed(id,i));a(b.hint(id,i));const p=b.practice(id,i);a.equal(p.answers.length,3);a(p.explanation);a(p.verify);a(p.trial);}
+ for(let i=0;i<(id.startsWith('mos-')?3:4);i++)questions.add(b.practice(id,i).question);
+ a.equal(questions.size,id.startsWith('mos-')?3:4);
+}
+a(!b.supported('__proto__'));a(!b.supported('res-thin'));a.throws(()=>b.lesson('x'),RangeError);a.throws(()=>b.fields('mos-n',3),RangeError);
+for(const value of [100,330,1000])for(const power of [true,false]){
+ const p={value,power,near:true,reverse:false},r=m.evaluate('resistor',p),t=b.explain('resistor',p,r);
+ a(t.change.includes(power?(r.current*1000).toFixed(1)+' mA':'电源仍是5 V'));
+ if(power){a(t.change.includes('压降3 V'));a(t.change.includes((r.power*1000).toFixed(1)+' mW'));a(t.why.includes('前后')||t.why.includes('流入'));}
+}
+for(const phase of [0,1,1.5,2,2.5,3]){const p={value:22,power:true,near:true,reverse:false},r=m.evaluate('capacitor',p,phase),t=b.explain('capacitor',p,r,phase);a(t.title);a(t.change);a(t.why);if(phase>=1&&phase<2)a(t.change.includes('5 mA + 电容20 mA = 芯片25 mA'));if(phase>=2&&phase<3)a(t.change.includes('芯片5 mA + 电容回充20 mA'));}
+for(const id of ['mos-n','mos-p'])for(const drive of [0,2.5,10]){
+ const p={drive,load:2},r=s.evaluate(id,p),t=b.explain(id,p,r,0,true);a(t.change.includes((id==='mos-p'?-drive:drive)+' V'));
+ if(drive===2.5){a(t.title.includes('未知'));a(t.change.includes('不能据此计算'));a(!t.change.includes('电流为0'));}
+ if(drive===10)a(t.change.includes('80 mW'));
+ a.deepEqual(b.fields(id,0),['drive']);a.deepEqual(b.fields(id,1),['drive']);a.deepEqual(b.fields(id,2),['load']);
+ a(b.optionLabel(id,'drive',10,'').includes(id==='mos-p'?'−10 V':'+10 V'));
+}
+"""
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_beginner.js'), str(WEB_ROOT / 'training_playground_math.js'), str(WEB_ROOT / 'training_subtype_game_math.js')], check=True, capture_output=True)
+
+    def test_beginner_examples_are_bundled_without_business_storage(self):
+        script = (WEB_ROOT / 'training_beginner.js').read_text(encoding='utf-8')
+        page = build_training_html()
+        self.assertIn('window.TrainingBeginner', page)
+        self.assertLess(page.index('root.TrainingBeginner=api'), page.index('const B=window.TrainingBeginner'))
+        for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+            self.assertNotIn(term, script)
+        for term in ['play-cause', 'play-transfer', '换个场景', '控制端', '回充']:
+            self.assertIn(term, script)
+
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
         for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','负载10 Ω','不是固定导通门槛']:

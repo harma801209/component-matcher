@@ -73,8 +73,10 @@
     wire([[left,y,top],[-.75,y,top],[.75,y,top],[right,y,top],[right,y,bottom],[left,y,bottom],[left,y,.6]]);
     const ctrl=[-1.25,y,.75],target=[device[0]-.8,.4,device[2]+.2];box([ctrl[0],.2,ctrl[2]],[.8,.22,.6],0x416688);
     wire([ctrl,[ctrl[0],y,.3],target],chapter.family==='mos'?0xb994ef:0xf4ab53);wire([[ctrl[0],y,1.1],[ctrl[0],y,bottom]],0x89a69d);
-    label(chapter.family==='mos'?'G：相对S的驱动':'B：正确极性基流',[ctrl[0],.36,ctrl[2]],1.2,.23);
-    label(high?'高边：S/E接电源':'低边：S/E接返回端',[device[0],.07,device[2]-.7],2,.22);
+    const beginnerMOS=['mos-n','mos-p'].includes(id);
+    label(beginnerMOS?'G控制端：相对于S':chapter.family==='mos'?'G：相对S的驱动':'B：正确极性基流',[ctrl[0],.36,ctrl[2]],beginnerMOS?1.5:1.2,.23);
+    label(beginnerMOS?(high?'供电侧：S接电源':'返回侧：S接返回端'):(high?'高边：S/E接电源':'低边：S/E接返回端'),[device[0],.07,device[2]-.7],2,.22);
+    if(beginnerMOS){label('S参考端',high?[-.95,.12,top+.28]:[right,.12,1.05],.8,.22);label('D负载端',high?[.95,.12,top+.28]:[right,.12,-.65],.8,.22);}
     if(id==='mos-dual'||id==='bjt-darlington')label(id==='mos-dual'?'背靠背双N示例':'两级BJT示例',[0,.06,-.55],1.8,.23);
    }else if(d.topology==='common'){
     component([0,.82,-.4]);chip([right,.28,-.15],'双线端口');wire([[left,y,top],[right,y,top]]);wire([[left,y,.65],[right,y,.65]]);wire([[left,y,bottom],[right,y,bottom]],0x6a948b);
@@ -161,7 +163,8 @@
   canvas.addEventListener('pointerup',e=>{if(down&&!moved&&hit(e.clientX,e.clientY))onPick();down=null;});canvas.addEventListener('pointercancel',()=>{down=null;});
   canvas.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','0','Enter',' '].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')azimuth-=.12;if(e.key==='ArrowRight')azimuth+=.12;if(e.key==='ArrowUp')elevation=Math.min(1.2,elevation+.1);if(e.key==='ArrowDown')elevation=Math.max(.35,elevation-.1);if(e.key==='0'){azimuth=.35;elevation=.8;}if(e.key==='Enter'||e.key===' ')onPick();draw(0);});
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();alive=false;canvas.dispatchEvent(new CustomEvent('subgame-context-lost'));});canvas.addEventListener('webglcontextrestored',()=>{alive=true;canvas.dispatchEvent(new CustomEvent('subgame-context-restored'));draw(0);});
-  return {update,draw,resize,hit,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({id,renderer:'WebGL',topology:d.topology,markers:markers.length,signalMarkers:markers.filter(m=>m.kind==='clock').length,phase:clockPhase}),dispose:()=>{disposed=true;observer.disconnect();purge(solid);purge(moving);textures.forEach(t=>t.dispose());map.dispose();env.dispose();renderer.dispose();renderer.forceContextLoss();}};
+  function focusPoint(){const point=V(d.topology==='switch-high'?[0,1.5,top]:[right,1.5,.2]).project(camera);return {x:(point.x+1)/2,y:(1-point.y)/2};}
+  return {update,draw,resize,hit,focusPoint,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({id,renderer:'WebGL',topology:d.topology,markers:markers.length,signalMarkers:markers.filter(m=>m.kind==='clock').length,phase:clockPhase}),dispose:()=>{disposed=true;observer.disconnect();purge(solid);purge(moving);textures.forEach(t=>t.dispose());map.dispose();env.dispose();renderer.dispose();renderer.forceContextLoss();}};
  }
  window.TrainingSubtypeGameScene=Object.freeze({create});
 })();

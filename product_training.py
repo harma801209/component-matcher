@@ -11,7 +11,7 @@ def build_training_html():
     template = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     css = (WEB_ROOT / "training.css").read_text(encoding="utf-8") + "\n" + (WEB_ROOT / "training_playground.css").read_text(encoding="utf-8")
     scripts = "\n".join((WEB_ROOT / name).read_text(encoding="utf-8") for name in (
-        "vendor/training-three.min.js", "training_playground_math.js", "training_playground_levels.js",
+        "vendor/training-three.min.js", "training_playground_math.js", "training_playground_levels.js", "training_beginner.js",
         "training_math.js", "training_practice.js", "training_circuit_math.js", "training_effects.js",
         "training_material_data.js", "training_material_geometry.js", "training_resistor_marking.js",
         "training_catalog.js", "training_catalog_geometry.js", "training_catalog_labs.js", "training_subtype_game_math.js",

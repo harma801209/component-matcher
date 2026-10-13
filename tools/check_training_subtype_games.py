@@ -69,7 +69,7 @@ with sync_playwright() as p:
                     assert canvas.get_attribute('data-part-connected')=='false'
                     f.locator('.subtype-game .play-viewport').screenshot(path=str(OUT/f'{prefix}-common-uninstalled.png'))
                 # Read-only enumerate valid model choices, then act through UI.
-                winner=f.evaluate('''({id,index})=>{const m=TrainingSubtypeGameMath,d=m.profile(id),l=m.level(id,index);let choices=[{params:{},indices:{}}];for(const field of d.fields)choices=choices.flatMap(o=>field.options.map(([v],i)=>({params:{...o.params,[field.key]:v},indices:{...o.indices,[field.key]:i}})));return choices.find(o=>l.check(o.params,m.evaluate(id,o.params).values)).indices;}''',{'id':id,'index':level})
+                winner=f.evaluate('''({id,index})=>{const m=TrainingSubtypeGameMath,d=m.profile(id),l=m.level(id,index),b=TrainingBeginner,allowed=b.supported(id)?b.fields(id,index):d.fields.map(f=>f.key);let choices=[{params:{...l.setup},indices:{}}];for(const field of d.fields.filter(f=>allowed.includes(f.key)))choices=choices.flatMap(o=>field.options.map(([v],i)=>({params:{...o.params,[field.key]:v},indices:{...o.indices,[field.key]:i}})));return choices.find(o=>l.check(o.params,m.evaluate(id,o.params).values)).indices;}''',{'id':id,'index':level})
                 for key,index in winner.items():choose(key,index)
                 assert state()['progress']['cleared']==list(range(level)),(id,level,state())
                 assert not state()['progress']['started']
@@ -77,7 +77,7 @@ with sync_playwright() as p:
                 if id=='cap-tantalum':assert canvas.get_attribute('data-positive-side')=='left'
                 if id=='ind-common':assert canvas.get_attribute('data-part-connected')=='true'
                 assert f.locator('#subgame-next').is_visible()
-                assert '你刚刚学会了' in f.locator('.subtype-game .play-story').inner_text()
+                assert ('本关观察完成' if id in ('mos-n','mos-p') else '你刚刚学会了') in f.locator('.subtype-game .play-story').inner_text()
                 fitted();total+=1
                 if level==1 and id in photo_ids:
                     f.locator('.subtype-game .play-stage').screenshot(path=str(OUT/f'{prefix}-{id}-board.png'))
@@ -88,7 +88,8 @@ with sync_playwright() as p:
             press('[data-subgame-level="0"]');assert len(state()['progress']['cleared'])==3
             press('[data-subgame-level="2"]');assert len(state()['progress']['cleared'])==3
             press('[data-subgame-mode="free"]');cfg=f.evaluate('(id)=>TrainingSubtypeGameMath.profile(id).fields',id)
-            choose(cfg[0]['key'],(winner[cfg[0]['key']]+1)%len(cfg[0]['options']))
+            current_option=next(i for i,o in enumerate(cfg[0]['options']) if o[0]==state()['progress']['params'][cfg[0]['key']])
+            choose(cfg[0]['key'],(current_option+1)%len(cfg[0]['options']))
             assert state()['mode']=='free';press('[data-subgame-mode="challenge"]');assert len(state()['progress']['cleared'])==3
             press('#subgame-next');assert state()['progress']['cleared']==[] and state()['progress']['index']==0
             assert not state()['progress']['started']

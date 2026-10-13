@@ -60,3 +60,29 @@
  .play-console .play-choices .play-choice{min-height:88px}
 }
 @media(max-width:420px){.play-workbench .play-stage>.play-viewport{height:290px}.play-console .subgame-metrics strong{font-size:15px}}
+
+/* Novice examples: one variable, local cause, then a new-situation prediction. */
+.play-board-column{min-width:0;display:flex;flex-direction:column}
+.play-beginner .play-board-column{align-self:start}
+.play-beginner .play-board-column>.play-viewport{flex:none;min-height:440px;height:440px}
+.play-device-focus{position:absolute;transform:translate(-50%,-100%);padding:6px 9px;border:1px solid #a9c9f6;border-radius:7px;background:#fffffff2;color:#164b8c;font-size:12px;font-weight:650;white-space:nowrap;pointer-events:none}
+.play-cause{padding:16px 20px;border-top:1px solid #d5e3f8;background:#eaf2ff;color:#234e80}
+.play-cause h5{font-size:16px;margin:0 0 8px;line-height:1.5;color:#143d70}
+.play-cause p{font-size:14px;line-height:1.75;margin:5px 0;overflow-wrap:anywhere}
+.play-cause p:last-child{color:#45678e;font-size:13px}
+.play-beginner-intro{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #dce8fa}
+.play-beginner-intro>p{font-size:14px;font-weight:650;line-height:1.7;margin:0}
+.play-beginner-intro details{margin-top:6px;font-size:12px;color:#45678e}
+.play-beginner-intro summary{cursor:pointer;padding:6px 0;min-height:30px;line-height:1.6}
+.play-beginner-intro details p{font-size:12px;line-height:1.8;margin:7px 0}
+.play-fixed-condition{font-size:12px!important;line-height:1.65!important;color:#637b9c;margin:6px 0 0}
+.play-transfer{margin-top:16px;padding-top:14px;border-top:1px solid #dce8fa}
+.play-transfer summary{font-size:14px;font-weight:650;line-height:1.6;min-height:44px;padding:10px 0;cursor:pointer;color:#1555e8}
+.play-transfer>p{font-size:13px;line-height:1.7;margin:6px 0}
+.play-transfer-answers{display:grid;gap:7px;margin:10px 0}
+.play-transfer button{min-height:44px;line-height:1.6;text-align:left;padding:9px 11px;background:#fff;color:#294e7b;border:1px solid #bed3ef;border-radius:7px;font-size:13px}
+.play-transfer-answers button[aria-pressed=true]{border-color:#1555e8;background:#edf3ff}
+.play-transfer>.play-secondary{width:100%;text-align:center;margin-top:6px}
+.play-transfer-feedback{color:#45678e}
+@media(max-width:760px){.play-beginner .play-board-column>.play-viewport{height:340px;min-height:0;flex:none}.play-cause{padding:14px 16px}.play-cause h5{font-size:15px}.play-cause p{font-size:13px}.play-device-focus{font-size:11px;padding:5px 7px}}
+@media(max-width:420px){.play-beginner .play-board-column>.play-viewport{height:290px}}
