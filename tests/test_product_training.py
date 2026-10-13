@@ -10,6 +10,44 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_games_electrical_goals_validate_full_parameters_and_teach_limits(self):
+        script = r'''
+const g=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-10);
+const winners={resistor:{r:330,rating:.063},capacitor:{c:10,near:true},inductor:{l:220,isat:1.5},diode:{forward:true,vf:.3}};
+for(const c of g.courses){const d=g.lesson(c);a(Object.isFrozen(d));a(Object.isFrozen(d.fields));a.equal(d.pairs.length,4);a.equal(new Set(d.pairs.flatMap(p=>p.slice(0,2))).size,8);a(!g.evaluate(c,d.defaults).passed);a(g.evaluate(c,winners[c]).passed);a(d.note);a(d.source[1].startsWith('https://'));for(const f of d.fields)for(const [v] of f.options){const p={...d.defaults,[f.id]:v};const r=g.evaluate(c,p);a(r.metrics.length>=3);a(r.why);}a.throws(()=>g.evaluate(c,{}),RangeError);a.throws(()=>g.evaluate(c,Object.fromEntries(d.fields.map(f=>[f.id,NaN]))),RangeError);}
+const r=g.evaluate('resistor',winners.resistor);near(r.values.i,3/330);near(r.values.power,9/330);
+a(!g.evaluate('resistor',{r:330,rating:.02}).passed);a(!g.evaluate('resistor',{r:470,rating:.125}).passed);
+const c=g.evaluate('capacitor',winners.capacitor);near(c.values.droop,.1);near(c.values.v,3.2);a(!g.evaluate('capacitor',{c:10,near:false}).passed);a(!g.evaluate('capacitor',{c:4.7,near:true}).passed);a(g.evaluate('capacitor',{c:.1,near:true}).metrics[1][1]==='储备不足');
+a(g.evaluate('capacitor',{c:.1,near:true}).metrics[0][1].includes('不能外推'));near(g.evaluate('capacitor',{c:10,near:false}).values.v,c.values.v);
+const l=g.evaluate('inductor',winners.inductor);near(l.values.delta,3*20/220);a(!g.evaluate('inductor',{l:220,isat:1}).passed);a(!g.evaluate('inductor',{l:100,isat:3}).passed);
+const d=g.evaluate('diode',winners.diode);near(d.values.output,3);near(d.values.i,3/33);a(d.values.reverseBlocked);a(!g.evaluate('diode',{forward:true,vf:.7}).passed);a(!g.evaluate('diode',{forward:false,vf:.3}).values.reverseBlocked);
+for(const bad of ['__proto__','other',''])a.throws(()=>g.lesson(bad),RangeError);
+'''
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_games_math.js')], check=True, capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_games_flip_pair_progress_is_lossless_and_not_repeatable(self):
+        script = r'''
+const g=require(process.argv[1]),a=require('node:assert/strict');
+for(const c of g.courses){let s=g.deck(c,()=>.3);a.equal(s.cards.length,8);a.equal(new Set(s.cards.map(c=>c.id)).size,8);
+let t=g.flip(s,0);a.equal(t.outcome,'first');a.deepEqual(s.selected,[]);s=t.state;a.equal(g.flip(s,0).outcome,'unchanged');t=g.flip(s,3);a.equal(t.outcome,'miss');s=t.state;a.equal(s.turns,1);a.equal(s.matched.length,0);s=g.flip(s,0).state;a.deepEqual(s.selected,[0]);
+for(let pair=0;pair<4;pair++){s=g.flip(s,pair*2).state;t=g.flip(s,pair*2+1);a.equal(t.outcome,'match');a(t.explain);s=t.state;}a.equal(s.matched.length,8);a.equal(new Set(s.matched).size,8);a.equal(g.flip(s,0).outcome,'unchanged');a.equal(s.turns,5);a.throws(()=>g.flip(s,99),RangeError);}
+a.throws(()=>g.deck('resistor',()=>1),RangeError);a.throws(()=>g.deck('resistor',()=>NaN),RangeError);
+'''
+        subprocess.run([shutil.which('node'), '-e', script, str(WEB_ROOT / 'training_games_math.js')], check=True, capture_output=True)
+
+    def test_games_are_optional_local_only_and_separate_from_existing_practice(self):
+        page=build_training_html()
+        self.assertIn('<details id="games-card" class="games-card">',page)
+        self.assertLess(page.index('id="games-card"'),page.index('id="circuit-card"'))
+        for text in ['电路救援','知识翻牌','role="status" aria-live="polite"','本次已完成','training-course-change','prefers-reduced-motion:reduce']:
+            self.assertIn(text,page)
+        game_js=''.join((WEB_ROOT/name).read_text(encoding='utf-8') for name in ['training_games.js','training_games_math.js'])
+        for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite', 'setInterval(', 'setTimeout(']:
+            self.assertNotIn(term,game_js)
+        self.assertIn('V198',game_js)  # Return terminates at bottom plate, not through dielectric.
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_capacitor_internal_overlay_reuses_exposed_layers_and_cover_anchors(self):
         script = r"""
 const g=require(process.argv[1]),a=require('node:assert/strict');

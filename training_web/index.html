@@ -5,6 +5,11 @@
 <main id="training-app">
   <div class="intro"><div><span class="eyebrow">PRODUCT ACADEMY</span><h1>先看电路怎么工作，再看器件内部结构</h1><p>选择器件，播放下面的PCB分步演示：看它接在哪里、电流怎么走、接入后有什么变化。</p></div><span class="lesson-count">4 类器件 · 交互课堂</span></div>
   <nav id="courses" aria-label="培训产品类别"></nav>
+  <details id="games-card" class="games-card">
+    <summary><strong id="game-summary-title">边玩边学 · 器件小游戏</strong><span>2 个小游戏 · 不计时</span></summary>
+    <div class="game-toolbar"><div role="group" aria-label="选择小游戏"><button type="button" data-game-mode="circuit" aria-pressed="true">电路救援</button><button type="button" data-game-mode="memory" aria-pressed="false">知识翻牌</button></div><span id="game-progress"></span><button id="game-restart" type="button">重新玩</button></div>
+    <div id="game-body"></div><p id="game-feedback" class="game-feedback" role="status" aria-live="polite"></p>
+  </details>
   <section id="circuit-card" class="circuit-card" aria-label="PCB电路工作演示">
     <div class="section-head"><div><span class="eyebrow">先看应用 / PCB电路工作演示</span><h2 id="circuit-title"></h2></div><div class="circuit-views" role="group" aria-label="电路显示方式"><button id="circuit-pcb" type="button" aria-pressed="true">PCB示意</button><button id="circuit-schematic" type="button" aria-pressed="false">电路图</button></div></div>
     <div class="circuit-layout"><div><div id="circuit-drawing"></div><div class="circuit-legend"><span class="legend-source">蓝色：电源供电</span><span class="legend-energy">橙色：储能释放 / 回充</span><span>灰色：当前无电流</span></div><p class="circuit-caption">沿箭头看约定电流方向，再看下面“电路发生什么变化”。动画为慢放示意。</p></div><div class="circuit-explanation"><span id="circuit-stage" class="eyebrow"></span><h3 id="circuit-headline"></h3><p id="circuit-story"></p><div id="circuit-metrics" class="circuit-metrics"></div><div class="circuit-takeaway"><strong>记住这一句</strong><p id="circuit-takeaway"></p></div><div id="circuit-options"></div></div></div>
