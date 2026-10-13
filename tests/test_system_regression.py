@@ -388,6 +388,82 @@ class SystemRegressionTests(unittest.TestCase):
                             app['build_bom_record_match_signature'](dict(record, 识别提示=''),mapping))
         self.assertNotIn(record['识别提示'], app['collect_bom_extra_spec_values'](record,mapping))
 
+    def test_bom_image_simple_preview_hides_helpers_without_changing_match_data(self):
+        app=self.app
+        source=pd.DataFrame([{'规格型号':'CL05A475KP5NRNC 0603 47uF','数量':20,'空报价':'',
+                              '提示':'客户原表备注','OCR原文':'private raw text','OCR行号':8,
+                              '识别提示':'型号CL05A475KP5NRNC与规格不一致：容量，请对照原图确认'},
+                             {'规格型号':'0402 1KΩ','数量':10,'空报价':'','提示':'',
+                              'OCR原文':'original second','OCR行号':9,'识别提示':'已对照原图人工确认'}])
+        source.attrs['ocr_audit']={'text_rows':2}
+        before=source.copy(deep=True)
+        preview=app['build_bom_image_preview_frame'](source)
+        self.assertNotIn('OCR原文',preview)
+        self.assertNotIn('OCR行号',preview)
+        self.assertNotIn('识别提示',preview)
+        self.assertNotIn('空报价',preview)
+        self.assertEqual(preview.iloc[0]['提示'],'客户原表备注')
+        status=preview.attrs['_bom_image_review_status_column']
+        self.assertEqual(preview[status].tolist(),['规格需核对','已确认'])
+        self.assertEqual(preview['数量'].tolist(),[20,10])
+        result_preview=app['build_bom_image_preview_frame'](source.assign(匹配型号='ABC100',匹配成本=''),hide_empty=False)
+        self.assertIn('匹配成本',result_preview)
+        self.assertIn('空报价',result_preview)
+        self.assertNotIn('OCR原文',result_preview)
+        self.assertEqual(result_preview['匹配型号'].tolist(),['ABC100','ABC100'])
+        pd.testing.assert_frame_equal(source,before)
+        self.assertEqual(source.attrs,before.attrs)
+        output=app['apply_bom_image_review_to_result']({'状态':'可推荐'},source.iloc[0].to_dict())
+        self.assertEqual(output['状态'],'需确认')
+        self.assertIn('容量',output['差异说明'])
+        fragment=app['render_static_preview_table'](preview,wrapper_class='bom-preview-table-wrap-compact',wrap_iframe=False)
+        self.assertEqual(fragment.count('class="bom-image-needs-review"'),1)
+        self.assertIn('background:#fff7e6',fragment)
+        self.assertNotIn('private raw text',fragment)
+        plain=app['render_static_preview_table'](preview,wrapper_class='bom-preview-table-wrap',wrap_iframe=False)
+        self.assertNotIn('bom-image-needs-review',plain)
+        self.assertEqual(app['bom_image_short_review_note']('修改后尚未人工确认，请对照原图'),'修改待确认')
+        self.assertEqual(app['bom_image_short_review_note']('字符Q仍不清楚，请对照原图'),'内容需核对')
+        self.assertEqual(app['bom_image_short_review_note']('本行文字可能截断'),'图片需补全')
+
+    def test_bom_image_whole_line_preview_remains_editable_and_preserves_raw(self):
+        from bom_image_review import editor_frame,build_corrections,apply_corrections
+        app=self.app
+        raw=pd.DataFrame([{'OCR原文':'FRC0805F9762TS 交期需确认','OCR行号':1,
+                           '识别提示':'需确认：基础识别未完成字符二次核对，请对照原图'}])
+        raw.attrs['ocr_audit']={'text_rows':1}
+        source=app['prepare_bom_image_review_source'](raw)
+        self.assertEqual(source.iloc[0]['规格型号'],raw.iloc[0]['OCR原文'])
+        self.assertNotIn('规格型号',raw)
+        self.assertEqual(source.attrs,raw.attrs)
+        self.assertEqual(app['guess_bom_column_mapping'](source)['spec'],'规格型号')
+        edited=editor_frame(source,source)
+        edited.at[0,'规格型号']='FRC0805F9762TS'
+        edited.at[0,'_已对照原图']=True
+        current=apply_corrections(source,build_corrections(source,edited),app['bom_image_model_spec_warnings'])
+        self.assertEqual(current.iloc[0]['OCR原文'],raw.iloc[0]['OCR原文'])
+        self.assertEqual(current.iloc[0]['规格型号'],'FRC0805F9762TS')
+        self.assertEqual(app['build_bom_image_preview_frame'](current).iloc[0]['规格型号'],'FRC0805F9762TS')
+        self.assertEqual(list(app['prepare_bom_image_review_source'](source).columns),list(source.columns))
+        blank=app['prepare_bom_image_review_source'](raw.assign(规格型号=''))
+        self.assertEqual(list(blank.columns).count('规格型号'),1)
+        self.assertEqual(blank.iloc[0]['规格型号'],raw.iloc[0]['OCR原文'])
+
+    def test_bom_image_review_has_one_optional_entry_not_four_sections(self):
+        import ast,inspect,textwrap
+        app=self.app
+        source=inspect.getsource(app['render_bom_image_review_tools'])
+        calls=[node for node in ast.walk(ast.parse(textwrap.dedent(source)))
+               if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='expander']
+        self.assertEqual(len(calls),1)
+        self.assertEqual(ast.literal_eval(calls[0].args[0]),'识别有误？修改')
+        self.assertFalse(next(ast.literal_eval(arg.value) for arg in calls[0].keywords if arg.arg=='expanded'))
+        self.assertIn("st.tabs(['修改内容','对照原图','详细提示'])",source)
+        page=inspect.getsource(app['render_bom_upload_page'])
+        self.assertNotIn('点击查看具体字段',page)
+        self.assertIn('preview_frame=build_bom_image_preview_frame(bom_df)',page)
+        self.assertIn('build_bom_preview_notice_html(bom_read_warning, workbook_signature)',page)
+
     def test_bom_image_fallback_never_claims_character_reverification(self):
         from unittest.mock import patch
         app = self.app

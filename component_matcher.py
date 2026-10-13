@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-13T11:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-13T12:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -41952,6 +41952,9 @@ html, body {{
     background: #ffffff;
     table-layout: fixed;
 }}
+.bom-preview-table-wrap-compact .result-table {{
+    min-width: 100%;
+}}
 .result-table th,
 .result-table td {{
     border: 1px solid #e6e6e6;
@@ -42705,11 +42708,15 @@ def render_static_preview_table(show_df, wrapper_class="result-table-wrap", oute
     parts.append("</tr></thead><tbody>")
 
     for _, row in display_df.iterrows():
-        parts.append("<tr>")
+        review_column=display_df.attrs.get('_bom_image_review_status_column')
+        needs_review = (bool(review_column) and 'bom-preview-table-wrap-compact' in wrapper_class
+                        and clean_text(row.get(review_column,'')) not in ('', '已确认'))
+        parts.append('<tr class="bom-image-needs-review">' if needs_review else '<tr>')
         for idx, _ in enumerate(visible_columns):
             value = clean_text(row.iloc[idx] if idx < len(row) else "")
             cell = html.escape(value).replace(chr(10), "<br>") if value != "" else "&nbsp;"
-            parts.append(f'<td style="text-align: left;">{cell}</td>')
+            attention_style = ' background:#fff7e6;' if needs_review else ''
+            parts.append(f'<td style="text-align: left;{attention_style}">{cell}</td>')
         parts.append("</tr>")
 
     parts.append("</tbody></table></div>")
@@ -45378,6 +45385,55 @@ def build_bom_image_review_summary(frame):
                                                 get_bom_selected_value(record, mapping.get("spec"))),
                      "需要核对": note})
     return pd.DataFrame(rows)
+
+
+def prepare_bom_image_review_source(frame):
+    """Expose a separately editable value when OCR yielded only whole lines."""
+    source = frame.copy(deep=True)
+    helpers = {'OCR原文', 'OCR行号', '识别提示'}
+    if 'OCR原文' in source and not any(
+            column not in helpers and source[column].fillna('').astype(str).str.strip().ne('').any()
+            for column in source.columns):
+        values=source['OCR原文'].fillna('').map(clean_text)
+        if '规格型号' in source:
+            source['规格型号']=values
+        else:
+            source.insert(0, '规格型号', values)
+    return source
+
+
+def bom_image_short_review_note(note):
+    """Display-only labels; full evidence and matching safeguards stay intact."""
+    note = clean_text(note)
+    if '与规格不一致' in note:
+        return '规格需核对'
+    if any(token in note for token in ('截断', '裁切', '疑似缺少')):
+        return '图片需补全'
+    if '尚未人工确认' in note:
+        return '修改待确认'
+    if any(token in note for token in ('不清楚', '需确认', '需核对', '不一致')):
+        return '内容需核对'
+    return '已确认' if '已对照原图人工确认' in note else ''
+
+
+def build_bom_image_preview_frame(frame, hide_empty=True):
+    """A concise view only: never strip helpers from the actual match input."""
+    helpers = {'OCR原文', 'OCR行号', '识别提示'}
+    columns = [column for column in frame.columns if column not in helpers
+               and (not hide_empty or frame[column].fillna('').astype(str).str.strip().ne('').any())]
+    preview = frame[columns].copy(deep=True)
+    if not columns and 'OCR原文' in frame:
+        preview['规格型号'] = frame['OCR原文'].fillna('').map(clean_text)
+    preview.rename(columns={column:re.sub(r'^OCR列', '识别内容', str(column))
+                            for column in columns if re.fullmatch(r'OCR列\d+',str(column))},inplace=True)
+    notes = frame.get('识别提示', pd.Series('',index=frame.index)).map(bom_image_short_review_note)
+    if notes.ne('').any():
+        label='提示'
+        while label in preview.columns:
+            label='核对'+label
+        preview[label] = notes
+        preview.attrs['_bom_image_review_status_column']=label
+    return preview
 
 
 def apply_bom_image_review_to_result(result, record):
@@ -49657,6 +49713,7 @@ def render_cached_bom_preview_table(
         clean_text(sheet_name),
         bool(compact),
         source_fingerprint(show_df),
+        show_df.attrs.get('_bom_image_review_status_column'),
     )
     cached = state.get("_bom_preview_html_cache", {})
     if isinstance(cached, dict) and cache_key in cached:
@@ -49701,68 +49758,90 @@ def restore_bom_image_review(uploaded_file, restored_job=None):
     return review
 
 
-def render_bom_image_review_tools(source, current, raw_bytes, review, sheet_name, signature):
+def render_bom_image_review_tools(source, current, raw_bytes, review, sheet_name, signature,
+                                  column_mapping=None, manual_mapping_open=False):
     import inspect
     from bom_image_review import editor_frame, build_corrections, crop_source
     key = hashlib.sha256((signature+sheet_name).encode()).hexdigest()[:20]
     audit = source.attrs.get('ocr_audit',{})
-    if audit:
-        st.caption(f"原图有文字的数据行 {audit.get('text_rows',0)} 行 · 已提取 {len(source)} 行 · 疑似遗漏 {len(audit.get('missing',[]))} 行")
     regions = source.attrs.get('ocr_regions',{})
-    with st.expander('原图定位与放大', expanded=False):
-        options = [('row',int(idx)) for idx in regions] + [('missing',idx) for idx in range(len(audit.get('missing',[])))]
-        if options:
-            def row_label(value):
-                kind,idx=value
-                return (f"原图第{regions[str(idx)]['physical_line']}行" if kind=='row'
-                        else f"疑似遗漏：原图第{audit['missing'][idx]['physical_line']}行")
-            chosen=st.selectbox('选择要核对的原图行',options,format_func=row_label,key=f'ocr_zoom_row_{key}')
-            kind,idx=chosen
-            if kind=='row':
-                region=regions[str(idx)]
-                fields=['整行']+list(region['columns'])
-                field=st.selectbox('放大字段',fields,index=next((i for i,col in enumerate(fields) if '规格' in col),0),key=f'ocr_zoom_field_{key}')
-                box=region['row'] if field=='整行' else region['columns'][field]
-            else:
-                field='整行'
-                box=audit['missing'][idx]['box']
-            try:
-                enlarged=crop_source(raw_bytes,box)
-                st.image(enlarged,width=min(1000,enlarged.width),caption=row_label(chosen)+' · '+field+' · 原图内容未修改')
-            except (ValueError,OSError) as exc:
-                st.warning(str(exc))
-        else:
-            st.caption('这张图片没有可靠的行列定位，请直接查看完整原图。')
-    with st.expander('查看完整原图'):
-        image_options=({'use_container_width':True} if 'use_container_width' in inspect.signature(st.image).parameters
-                       else {'use_column_width':True})
-        st.image(raw_bytes,**image_options)
     payload=review.get('sheets',{}).get(sheet_name,{})
     revision=hashlib.sha256(json.dumps(payload,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:12]
-    with st.expander('修正识别内容（保存后再开始匹配）',expanded=False):
-        st.caption('可以修改型号、规格和数量；已对照原图的行请勾选确认。OCR原文保留不变，型号与规格仍有冲突时会继续提醒。')
-        form_options={'enter_to_submit':False} if 'enter_to_submit' in inspect.signature(st.form).parameters else {}
-        with st.form(f'ocr_edit_form_{key}_{revision}',**form_options):
-            edited=st.data_editor(editor_frame(source,current,payload.get('confirmed',[])),
-                                  hide_index=True,num_rows='fixed',use_container_width=True,
-                                  disabled=['_图片行号'],key=f'ocr_editor_{key}_{revision}',
-                                  column_config={'_图片行号':st.column_config.NumberColumn('原图行号'),
-                                                 '_已对照原图':st.column_config.CheckboxColumn('已对照原图确认')})
-            save=st.form_submit_button('保存修正',type='primary')
-            reset=st.form_submit_button('恢复最初识别内容')
-        if save:
-            try:
-                review.setdefault('sheets',{})[sheet_name]=build_corrections(source,edited)
+    mapping=dict(column_mapping or guess_bom_column_mapping(current))
+    with st.expander('识别有误？修改',expanded=False):
+        edit_tab,image_tab,detail_tab=st.tabs(['修改内容','对照原图','详细提示'])
+        with edit_tab:
+            st.caption('按原图修改型号、规格或数量，核对后勾选确认，再点保存。')
+            if st.checkbox('调整匹配列',value=bool(manual_mapping_open),key=f'ocr_adjust_columns_{key}'):
+                options=[BOM_NONE_OPTION]+list(current.columns)
+                for col_ui,role in zip(st.columns(4),['model','spec','name','quantity']):
+                    value=mapping.get(role)
+                    chosen=col_ui.selectbox(BOM_ROLE_LABELS[role],options,
+                                           index=options.index(value if value in options else BOM_NONE_OPTION),
+                                           key=f'bom_{signature}_{sheet_name}_{role}_column')
+                    mapping[role]=None if chosen==BOM_NONE_OPTION else chosen
+            form_options={'enter_to_submit':False} if 'enter_to_submit' in inspect.signature(st.form).parameters else {}
+            with st.form(f'ocr_edit_form_{key}_{revision}',**form_options):
+                edited=st.data_editor(editor_frame(source,current,payload.get('confirmed',[])),
+                                      hide_index=True,num_rows='fixed',use_container_width=True,
+                                      disabled=['_图片行号'],key=f'ocr_editor_{key}_{revision}',
+                                      column_config={'_图片行号':st.column_config.NumberColumn('行号',width='small'),
+                                                     '_已对照原图':st.column_config.CheckboxColumn('已核对',width='small'),
+                                                     **{column:st.column_config.TextColumn(re.sub(r'^OCR列','识别内容',str(column)))
+                                                        for column in source.columns if re.fullmatch(r'OCR列\d+',str(column))}})
+                save_col,reset_col=st.columns(2)
+                save=save_col.form_submit_button('保存修正',type='primary')
+                reset=reset_col.form_submit_button('恢复最初识别内容')
+            if save:
+                try:
+                    review.setdefault('sheets',{})[sheet_name]=build_corrections(source,edited)
+                    st.session_state['_bom_image_review']=review
+                    st.rerun(scope='app')
+                except ValueError as exc:
+                    st.error(str(exc))
+            if reset:
+                review.setdefault('sheets',{}).pop(sheet_name,None)
                 st.session_state['_bom_image_review']=review
                 st.rerun(scope='app')
-            except ValueError as exc:
-                st.error(str(exc))
-        if reset:
-            review.setdefault('sheets',{}).pop(sheet_name,None)
-            st.session_state['_bom_image_review']=review
-            st.rerun(scope='app')
-    if payload.get('changes') or payload.get('confirmed'):
-        st.caption(f"已保存人工修正 {len(payload.get('changes',{}))} 行 · 已人工确认 {len(payload.get('confirmed',[]))} 行；切换品牌不会丢失。")
+            if payload.get('changes') or payload.get('confirmed'):
+                st.caption(f"已保存修改 {len(payload.get('changes',{}))} 行 · 已核对 {len(payload.get('confirmed',[]))} 行")
+        with image_tab:
+            options = [('row',int(idx)) for idx in regions] + [('missing',idx) for idx in range(len(audit.get('missing',[])))]
+            view=st.radio('查看原图',['局部放大','完整原图'],horizontal=True,key=f'ocr_image_view_{key}') if options else '完整原图'
+            if view=='局部放大':
+                def row_label(value):
+                    kind,idx=value
+                    return (f"原图第{regions[str(idx)]['physical_line']}行" if kind=='row'
+                            else f"疑似遗漏：原图第{audit['missing'][idx]['physical_line']}行")
+                chosen=st.selectbox('选择原图行',options,format_func=row_label,key=f'ocr_zoom_row_{key}')
+                kind,idx=chosen
+                if kind=='row':
+                    region=regions[str(idx)]
+                    fields=['整行']+list(region['columns'])
+                    field=st.selectbox('放大字段',fields,index=next((i for i,col in enumerate(fields) if '规格' in col),0),key=f'ocr_zoom_field_{key}')
+                    box=region['row'] if field=='整行' else region['columns'][field]
+                else:
+                    field='整行'
+                    box=audit['missing'][idx]['box']
+                try:
+                    enlarged=crop_source(raw_bytes,box)
+                    st.image(enlarged,width=min(1000,enlarged.width),caption=row_label(chosen)+' · '+field)
+                except (ValueError,OSError) as exc:
+                    st.warning(str(exc))
+            else:
+                image_options=({'use_container_width':True} if 'use_container_width' in inspect.signature(st.image).parameters
+                               else {'use_column_width':True})
+                st.image(raw_bytes,**image_options)
+        with detail_tab:
+            if audit:
+                st.caption(f"已提取 {len(source)} 行 · 疑似遗漏 {len(audit.get('missing',[]))} 行")
+            details=current[[column for column in ['OCR行号','OCR原文','识别提示'] if column in current]].copy()
+            details.rename(columns={'OCR行号':'原图行号','OCR原文':'原始识别文字','识别提示':'具体问题'},inplace=True)
+            if not details.empty:
+                st.dataframe(details,hide_index=True,use_container_width=True)
+            for warning in audit.get('warnings',[]):
+                st.warning(warning)
+    return mapping
 
 
 def render_bom_upload_page():
@@ -49921,7 +50000,7 @@ def render_bom_upload_page():
                     image_review_state=restore_bom_image_review(uploaded_file,restored_bom_job)
                     for item in bom_sheet_frames:
                         name=clean_text(item.get('sheet_name',''))
-                        source=item.get('df',pd.DataFrame()).copy()
+                        source=prepare_bom_image_review_source(item.get('df',pd.DataFrame()))
                         image_sources[name]=source
                         payload=image_review_state.get('sheets',{}).get(name,{})
                         try:
@@ -50127,23 +50206,21 @@ def render_bom_upload_page():
                 stored_manual_mapping = sheet_mapping_store.get(selected_sheet_name, guessed_mapping)
 
                 st.markdown('<div class="section-title">BOM原始内容预览</div>', unsafe_allow_html=True)
-                if bom_read_warning:
-                    st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
-                else:
-                    st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
                 is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [
                     clean_text(col) for col in bom_df.columns
                 ]
                 if is_ocr_preview:
-                    source=image_sources.get(selected_sheet_name,bom_df)
-                    render_bom_image_review_tools(source,bom_df,bom_workbook.get('file_bytes',b''),
-                                                  image_review_state,selected_sheet_name,workbook_signature)
                     image_review = build_bom_image_review_summary(bom_df)
-                    if not image_review.empty:
-                        with st.expander(f"有 {len(image_review)} 行需要对照原图确认，点击查看具体字段", expanded=True):
-                            st.dataframe(image_review, hide_index=True, use_container_width=True)
+                    st.caption(f"已识别 {len(bom_df)} 行" + (f" · {len(image_review)} 行待核对" if not image_review.empty else ''))
+                    preview_frame=build_bom_image_preview_frame(bom_df)
+                else:
+                    if bom_read_warning:
+                        st.markdown(build_bom_preview_notice_html(bom_read_warning, workbook_signature), unsafe_allow_html=True)
+                    else:
+                        st.markdown(build_bom_manual_mapping_toggle_html(workbook_signature), unsafe_allow_html=True)
+                    preview_frame=bom_df
                 preview_html = render_cached_bom_preview_table(
-                    bom_df,
+                    preview_frame,
                     workbook_signature,
                     selected_sheet_name,
                     compact=is_ocr_preview,
@@ -50157,6 +50234,8 @@ def render_bom_upload_page():
 
                 def resolve_bom_mapping_value(role, fallback_mapping):
                     value = clean_text(stored_manual_mapping.get(role, ""))
+                    if is_ocr_preview and role=='spec' and value=='OCR原文' and '规格型号' in bom_df:
+                        value='规格型号'
                     if value not in bom_column_options:
                         value = clean_text((fallback_mapping or {}).get(role, ""))
                     if value not in bom_column_options:
@@ -50168,7 +50247,14 @@ def render_bom_upload_page():
                     for role in ["model", "spec", "name", "quantity"]
                 }
 
-                if manual_mapping_open:
+                if is_ocr_preview:
+                    source=image_sources.get(selected_sheet_name,bom_df)
+                    selected_mapping=render_bom_image_review_tools(
+                        source,bom_df,bom_workbook.get('file_bytes',b''),image_review_state,
+                        selected_sheet_name,workbook_signature,column_mapping=selected_mapping,
+                        manual_mapping_open=manual_mapping_open)
+                    sheet_mapping_store[selected_sheet_name]=selected_mapping
+                elif manual_mapping_open:
                     st.caption("系统会先自动猜测常见表头，你也可以手动改成正确的型号列、规格列、品名列、数量列。再次点击按钮即可收起。")
                     mapping_cols = st.columns(4)
                     selected_mapping = {}
@@ -50189,7 +50275,7 @@ def render_bom_upload_page():
                 if not parse_columns:
                     st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
                 elif is_ocr_preview and bom_df.attrs.get('ocr_audit',{}).get('missing'):
-                    st.warning('原图中有疑似未提取的物料行，请先在“原图定位与放大”核对，裁去表外内容或补全截图后重新上传；本次不会把缺行结果当作完整BOM开始匹配。')
+                    st.warning('图片可能缺少物料行，请补全截图后再匹配。可展开“识别有误？修改”查看原图。')
                 elif not bom_output_selection_ready(bom_export_mode, selected_export_brands):
                     st.info("BOM 已完成读取和列识别；选择输出品牌后再开始匹配。")
                 else:
@@ -50549,6 +50635,8 @@ def render_bom_upload_page():
                             include_cost=bom_export_settings.get("include_cost", False),
                         )
                         display_bom_result_df = format_display_df(full_display_bom_result_df)
+                        if is_ocr_preview:
+                            display_bom_result_df=build_bom_image_preview_frame(display_bom_result_df,hide_empty=False)
                         upload_file_name = clean_text(getattr(uploaded_file, "name", "bom")) or "bom"
                         legacy_xls_export = is_legacy_xls_file_name(upload_file_name)
                         export_name_root = os.path.splitext(upload_file_name)[0] or "bom"
