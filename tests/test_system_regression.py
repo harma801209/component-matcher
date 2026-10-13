@@ -2771,19 +2771,24 @@ class SystemRegressionTests(unittest.TestCase):
         tree = ast.parse(source_path.read_text(encoding="utf-8"))
         selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in {"_source_segment_with_original_lines", "load_component_matcher_runtime"}]
         saved_theme = sys.modules.get("precision_theme")
+        saved_upload_bridge = sys.modules.get("bom_image_clipboard")
         with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
             root = Path(folder)
             theme = root / "precision_theme.py"
             theme.write_text('PUBLIC_STYLE_MARKER = "before"\n', encoding="utf-8")
-            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
+            upload_bridge = root / 'bom_image_clipboard.py'
+            upload_bridge.write_text('PUBLIC_UPLOAD_MARKER = "before"\n',encoding='utf-8')
+            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
             runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
             namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
             sys.path.insert(0, folder)
             sys.modules.pop("precision_theme", None)
+            sys.modules.pop("bom_image_clipboard",None)
             try:
                 exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
                 cached, _ = namespace["load_component_matcher_runtime"]()
                 self.assertEqual(cached["base_namespace"]["PUBLIC_STYLE_MARKER"], "before")
+                self.assertEqual(cached['base_namespace']['PUBLIC_UPLOAD_MARKER'],'before')
                 initial_namespace = cached["base_namespace"]
                 namespace["load_component_matcher_runtime"]()
                 self.assertIs(cached["base_namespace"], initial_namespace)
@@ -2791,11 +2796,19 @@ class SystemRegressionTests(unittest.TestCase):
                 cached, _ = namespace["load_component_matcher_runtime"]()
                 self.assertEqual(cached["base_namespace"]["PUBLIC_STYLE_MARKER"], "after-hot-update")
                 self.assertIsNot(cached["base_namespace"], initial_namespace)
+                theme_namespace=cached['base_namespace']
+                upload_bridge.write_text('PUBLIC_UPLOAD_MARKER = "after-upload-bridge-update"\n',encoding='utf-8')
+                cached,_=namespace['load_component_matcher_runtime']()
+                self.assertEqual(cached['base_namespace']['PUBLIC_UPLOAD_MARKER'],'after-upload-bridge-update')
+                self.assertIsNot(cached['base_namespace'],theme_namespace)
             finally:
                 sys.path.pop(0)
                 sys.modules.pop("precision_theme", None)
                 if saved_theme is not None:
                     sys.modules["precision_theme"] = saved_theme
+                sys.modules.pop('bom_image_clipboard',None)
+                if saved_upload_bridge is not None:
+                    sys.modules['bom_image_clipboard']=saved_upload_bridge
 
     def test_02ba_page_modes_are_mutually_exclusive(self):
         app = self.app

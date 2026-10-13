@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-13T12:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-13T12:38:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49849,7 +49849,7 @@ def render_bom_upload_page():
     startup_trace("after_bom_title")
     uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
     from bom_image_clipboard import build_bom_image_clipboard_html
-    components.html(build_bom_image_clipboard_html(), height=48, scrolling=False)
+    components.html(build_bom_image_clipboard_html(), height=0, scrolling=False)
     startup_trace("after_file_uploader")
     effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
     if effective_uploaded_file is None:

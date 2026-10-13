@@ -18,12 +18,27 @@ class IsolatedImageOCRTests(unittest.TestCase):
                          'input[type="file"]', 'new host.DataTransfer()',
                          "new host.Event('change'", 'previous.dispose()',
                          "removeEventListener('paste'", 'textarea', 'contenteditable',
-                         'if (!files.length) return;', 'files.length !== 1',
-                         '不会自动开始匹配', 'role="status"'):
+                         "[data-testid=\"stDataFrame\"]", "[data-testid=\"stForm\"]",
+                         'files.length !== 1', '不会自动开始匹配',
+                         "status.setAttribute('role','status')", 'observer.disconnect()',
+                         'data-bom-upload-zone', 'host.parent.document'):
             self.assertIn(expected, html)
         for forbidden in ('navigator.clipboard.read', 'fetch(', 'XMLHttpRequest',
                           'localStorage', 'readText(', 'setInterval(', 'image/svg+xml'):
             self.assertNotIn(forbidden, html)
+
+    def test_unified_upload_is_in_existing_zone_and_accepts_bom_file_types(self):
+        from bom_image_clipboard import build_bom_image_clipboard_html
+        html=build_bom_image_clipboard_html()
+        self.assertNotIn('<button',html)
+        self.assertNotIn('id="paste-area"',html)
+        for value in ("['xlsx','xls','csv','png','jpg','jpeg','webp','bmp','tif','tiff']",
+                      '上传文件或图片','直接在页面按 Ctrl+V',"zone.appendChild(hint)",
+                      "zone.addEventListener('click'", "zone.addEventListener('keydown'",
+                      'fileInput.click()', 'container.style.display',
+                      '浏览器没有提供文件内容', "allowed.has(extension)",
+                      'file.size > 100 * 1024 * 1024', 'originalName', 'lastModified'):
+            self.assertIn(value,html)
 
     def test_character_confidence_uses_ctc_peak_not_weak_boundary(self):
         from bom_image_ocr_worker import recognize_strips
