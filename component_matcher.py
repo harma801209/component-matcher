@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-13T10:40:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-13T11:25:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49649,12 +49649,14 @@ def render_cached_bom_preview_table(
     compact=False,
     session_state=None,
 ):
-    """Reuse the static preview HTML while BOM controls trigger reruns."""
+    """Reuse unchanged previews, never pre-edit or pre-confirmation contents."""
+    from bom_image_review import source_fingerprint
     state = st.session_state if session_state is None else session_state
     cache_key = (
         clean_text(workbook_signature),
         clean_text(sheet_name),
         bool(compact),
+        source_fingerprint(show_df),
     )
     cached = state.get("_bom_preview_html_cache", {})
     if isinstance(cached, dict) and cache_key in cached:
@@ -49671,7 +49673,7 @@ def render_cached_bom_preview_table(
         ),
     )
     # Keep only the current preview to bound per-session memory for multi-sheet
-    # workbooks; changing the upload or sheet naturally renders a fresh table.
+    # workbooks; upload, sheet, values or review-note changes render fresh HTML.
     state["_bom_preview_html_cache"] = {cache_key: preview_html}
     return preview_html
 

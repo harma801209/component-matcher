@@ -476,6 +476,33 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertNotEqual(app['build_bom_workbook_run_signature'](upload,{},{}),first)
             self.assertEqual(captured['file_bytes'],b'private-image')
 
+    def test_bom_preview_cache_refreshes_edits_confirmation_and_reset(self):
+        from unittest.mock import patch, Mock
+        app=self.app
+        state={}
+        source=pd.DataFrame([{'型号':'CL05A475KP5NRNC','规格':'0603 X7R 47uF ±20% 16V',
+                              'OCR原文':'original remains unchanged','识别提示':'与规格不一致'}])
+        renderer=Mock(side_effect=lambda frame,**kwargs:frame.to_json(force_ascii=False))
+        preview=app['render_cached_bom_preview_table']
+        with patch.dict(app,{'render_static_preview_table':renderer}):
+            original=preview(source,'same-file','same-sheet',session_state=state)
+            self.assertEqual(preview(source.copy(),'same-file','same-sheet',session_state=state),original)
+            self.assertEqual(renderer.call_count,1,'Unchanged preview should reuse HTML')
+            edited=source.copy()
+            edited.at[0,'规格']='0402 X5R 4.7uF ±10% 10V'
+            updated=preview(edited,'same-file','same-sheet',session_state=state)
+            self.assertIn('0402 X5R 4.7uF',updated)
+            self.assertNotEqual(updated,original)
+            confirmed=edited.copy()
+            confirmed.at[0,'识别提示']='已对照原图人工确认'
+            latest=preview(confirmed,'same-file','same-sheet',session_state=state)
+            self.assertIn('已对照原图人工确认',latest)
+            self.assertNotEqual(latest,updated)
+            self.assertEqual(preview(source,'same-file','same-sheet',session_state=state),original)
+            self.assertEqual(renderer.call_count,4)
+            self.assertEqual(len(state['_bom_preview_html_cache']),1)
+            self.assertEqual(source.iloc[0]['OCR原文'],'original remains unchanged')
+
     def test_bom_image_setup_failure_does_not_return_basic_ocr_as_success(self):
         from PIL import Image
         from unittest.mock import patch, Mock
