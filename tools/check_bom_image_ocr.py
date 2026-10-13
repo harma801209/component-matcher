@@ -44,6 +44,7 @@ with tempfile.TemporaryDirectory(prefix='bom-image-check-') as folder:
     result = {'seconds': round(time.monotonic()-started, 2), 'rows': len(df),
               'columns': list(df.columns), 'mapping': app['guess_bom_column_mapping'](df),
               'engine': df.attrs.get('ocr_engine'), 'records': df.to_dict('records')}
+    result['audit'] = df.attrs.get('ocr_audit',{})
     if args.verify_example:
         expected_models = {0:'HP06W2J047KT5E',1:'HP05W3J068JT5E',2:'0402WGF4024TCE',
                            4:'CL31A106MOHNNNE',5:'CL05A475KP5NRNC',6:'AC0603FR-07180RL',

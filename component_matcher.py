@@ -292,7 +292,7 @@ PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
 QUERY_RESULT_CACHE_VERSION = 140
-BOM_MATCH_OUTPUT_VERSION = 2
+BOM_MATCH_OUTPUT_VERSION = 3
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -317,7 +317,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-12T23:05:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-13T10:40:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13697,6 +13697,12 @@ def find_chip_package_size_codes_in_query(text):
         if code in CHIP_PACKAGE_METRIC_TO_IMPERIAL and code not in CHIP_PACKAGE_IMPERIAL_TO_METRIC:
             return code, CHIP_PACKAGE_METRIC_TO_IMPERIAL[code]
 
+    # Prefer the independently printed package over digits embedded in a
+    # manufacturer's model (C1608... is metric, beside an explicit 0603).
+    for code in candidates:
+        if code in CHIP_PACKAGE_IMPERIAL_TO_METRIC:
+            imperial=clean_size(code)
+            return CHIP_PACKAGE_IMPERIAL_TO_METRIC[imperial],imperial
     embedded_imperial = find_embedded_size(raw)
     if embedded_imperial != "":
         return CHIP_PACKAGE_IMPERIAL_TO_METRIC.get(embedded_imperial, ""), embedded_imperial
@@ -45150,6 +45156,8 @@ BOM_IMAGE_VERIFIED_MODEL_ALIASES = {"CL31A106M0HNNNE": "CL31A106MOHNNNE"}
 def normalize_bom_image_cell(text):
     """Repair constrained spacing/units and explicitly source-verified aliases."""
     text = re.sub(r"\s+", " ", clean_text(text)).strip()
+    text = re.sub(r"(?<![A-Z0-9.])(\d+)\s+\.\s*(\d+)(?=\s*(?:[pnuµμ]F|[mkKM]?[ΩΩQ]|[VW])(?![A-Z0-9]))",
+                  r"\1.\2",text,flags=re.I)
     text = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", text)
     text = re.sub(r"±\s+(?=\d)", "±", text)
     for ambiguous, verified in BOM_IMAGE_VERIFIED_MODEL_ALIASES.items():
@@ -45183,10 +45191,235 @@ def recognize_bom_image_strips(recognizer, crops):
     return recognize_strips(recognizer, crops)
 
 
+def inspect_bom_image_reading(reading):
+    """Accept legacy two-item readings and character-aware worker results."""
+    text, score = reading[:2]
+    detail = reading[2] if len(reading) > 2 and isinstance(reading[2], dict) else {}
+    weak = [item for item in detail.get("uncertain", [])
+            if re.search(r"[A-Za-z0-9ΩΩµμ±%]", clean_text(item.get("char")))]
+    return clean_text(text), float(score), weak
+
+
+def recheck_bom_image_strips(recognizer, crops, readings, candidate_readings=None):
+    """Re-read suspect lines twice. Disagreement is evidence, not permission to guess."""
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    import numpy as np
+    ids = []
+    variants = []
+    for idx, reading in enumerate(readings):
+        text, score, weak = inspect_bom_image_reading(reading)
+        if not text or not (weak or score < .60) or not bom_grid_data_row_is_meaningful([text]):
+            continue
+        ids.append(idx)
+        strip = Image.fromarray(crops[idx][:, :, ::-1])
+        enlarged = strip.resize((strip.width*2, strip.height*2), Image.Resampling.LANCZOS)
+        variants.extend([np.asarray(enlarged.filter(ImageFilter.UnsharpMask(radius=1, percent=120)))[:, :, ::-1].copy(),
+                         np.asarray(ImageEnhance.Contrast(ImageOps.autocontrast(enlarged.convert("L"))).enhance(1.3).convert("RGB"))[:, :, ::-1].copy()])
+    if not ids:
+        return {}
+    rerun = recognize_bom_image_strips(recognizer, variants)
+    if len(rerun) != len(variants):
+        raise RuntimeError("图片二次识别结果不完整，请重新上传图片。")
+    evidence = {}
+    for number, idx in enumerate(ids):
+        original, _, weak = inspect_bom_image_reading(readings[idx])
+        first, second = rerun[number*2:number*2+2]
+        readings_text = [inspect_bom_image_reading(value)[0] for value in (first, second)]
+        if candidate_readings is not None:
+            candidate_readings[idx] = (first, second)
+        comparison = lambda value: re.sub(r"\s+", "", normalize_bom_image_cell(value))
+        same = all(comparison(value) == comparison(original) for value in readings_text)
+        reliable = all(inspect_bom_image_reading(value)[1] >= .60 and not inspect_bom_image_reading(value)[2]
+                       for value in (first, second))
+        if same and reliable:
+            evidence[idx] = "二次识别一致"
+        elif same:
+            characters = "/".join(dict.fromkeys(clean_text(item["char"]) for item in weak))
+            evidence[idx] = f"字符{characters}仍不清楚，请对照原图" if characters else "文字仍不清楚，请对照原图"
+        else:
+            characters = "/".join(dict.fromkeys(clean_text(item["char"]) for item in weak))
+            unique = {}
+            for value in [original, *readings_text]:
+                unique.setdefault(comparison(value), normalize_bom_image_cell(value))
+            alternatives = " / ".join(unique.values())
+            evidence[idx] = (f"字符{characters}需确认；" if characters else "") + f"多次识别需核对：{alternatives}"
+    return evidence
+
+
+def verified_bom_image_consensus_model(original, candidates, record):
+    """Repair one confused model glyph only with two readings AND rule/spec proof.
+
+    This cannot fix quantities, arbitrary values, unknown models, or ambiguous
+    identities. It never replaces a valid model with another valid model.
+    """
+    if not candidates or len(candidates) != 2:
+        return None
+    first, second = [inspect_bom_image_reading(reading) for reading in candidates]
+    if first[1] < .60 or second[1] < .60 or first[2] or second[2]:
+        return None
+    a, b = normalize_bom_image_cell(first[0]), normalize_bom_image_cell(second[0])
+    if re.sub(r"\s+", "", a) != re.sub(r"\s+", "", b):
+        return None
+    source_models = extract_model_like_tokens(original)
+    candidate_models = extract_model_like_tokens(a)
+    if len(source_models) != 1 or len(candidate_models) != 1:
+        return None
+    source, proposed = source_models[0], candidate_models[0]
+    if len(source) != len(proposed):
+        return None
+    differences = [(left, right) for left, right in zip(source, proposed) if left != right]
+    if len(differences) != 1 or set(differences[0]) not in ({'0','O'}, {'1','I'}, {'5','S'}, {'8','B'}):
+        return None
+    if parse_model_rule(source) is not None:
+        return None
+    parsed = parse_model_rule(proposed)
+    if not isinstance(parsed, dict) or not clean_text(parsed.get('_model_rule_authority', '')):
+        return None
+    text = join_bom_parts(*(clean_text(value) for column, value in record.items()
+                            if column not in {'OCR原文','OCR行号','识别提示'}
+                            and any(token in clean_text(column) for token in ('型号','规格','品名','物料名称'))))
+    for model in extract_model_like_tokens(text):
+        text = re.sub(re.escape(model), ' ', text, flags=re.I)
+    written = parse_resistor_spec_query(text) if looks_like_resistor_context(text) else parse_spec_query(text)
+    if not isinstance(written, dict):
+        return None
+    checks = 0
+    for key, normalize in (('尺寸（inch）',clean_size), ('容值误差',clean_tol_for_match),
+                            ('材质（介质）',clean_material), ('耐压（V）',clean_voltage)):
+        left, right = normalize(parsed.get(key,'')), normalize(written.get(key,''))
+        if left and right:
+            if left != right:
+                return None
+            checks += 1
+    value_checks = 0
+    for key in ('_resistance_ohm','容值_pf'):
+        left, right = parsed.get(key), written.get(key)
+        if left is not None and right is not None:
+            try:
+                if not math.isclose(float(left),float(right),rel_tol=1e-8,abs_tol=1e-10):
+                    return None
+            except (TypeError,ValueError):
+                return None
+            checks += 1
+            value_checks += 1
+    if checks < 2 or value_checks == 0:
+        return None
+    return original.replace(source, proposed), source, proposed
+
+
+def bom_image_model_spec_warnings(record):
+    """Compare independently written specifications with supported model rules.
+
+    Never generate a replacement model, consult pricing, or change m/M units.
+    Unknown brands/models remain unverified rather than declared wrong.
+    """
+    frame = pd.DataFrame([record])
+    mapping = guess_bom_column_mapping(frame)
+    specification = get_bom_selected_value(record, mapping.get("spec"))
+    model_text = get_bom_selected_value(record, mapping.get("model"))
+    name = get_bom_selected_value(record, mapping.get("name"))
+    if not name:
+        name = join_bom_parts(*(clean_text(value) for column, value in record.items()
+                                if column not in {"OCR原文", "OCR行号", "识别提示"}
+                                and re.search(r"电阻|電阻|电容|電容|电感|二极管|resistor|capacitor|inductor|diode", clean_text(value), re.I)))
+    combined = join_bom_parts(model_text, specification, *collect_bom_extra_spec_values(record, mapping))
+    models = list(dict.fromkeys(extract_model_like_tokens(combined)))
+    # Mixed 型号/规格 columns can be mapped to either role. Remove every model
+    # from both roles before reading the independently printed parameters.
+    written_text = combined
+    for model in sorted(models, key=len, reverse=True):
+        written_text = re.sub(re.escape(model), " ", written_text, flags=re.I)
+    written_text = join_bom_parts(written_text, name)
+    written = parse_spec_query(written_text)
+    resistor = parse_resistor_spec_query(written_text) if looks_like_resistor_context(written_text) else None
+    if isinstance(resistor, dict):
+        written = resistor
+    if not isinstance(written, dict):
+        return []
+    warnings = []
+    for model in models:
+        parsed = parse_model_rule(model)
+        if not isinstance(parsed, dict):
+            continue
+        conflicts = []
+        for label, key, normalize in (
+                ("封装", "尺寸（inch）", clean_size),
+                ("误差", "容值误差", clean_tol_for_match),
+                ("介质", "材质（介质）", clean_material),
+                ("耐压", "耐压（V）", clean_voltage)):
+            left, right = normalize(parsed.get(key, "")), normalize(written.get(key, ""))
+            if left and right and left != right:
+                conflicts.append(f"{label}（型号{left}，规格{right}）")
+        for label, key in (("阻值", "_resistance_ohm"), ("容量", "容值_pf")):
+            left, right = parsed.get(key), written.get(key)
+            if left is not None and right is not None:
+                try:
+                    if not math.isclose(float(left), float(right), rel_tol=1e-8, abs_tol=1e-10):
+                        unit = "Ω" if key == "_resistance_ohm" else "pF"
+                        conflicts.append(f"{label}（型号{left}{unit}，规格{right}{unit}）")
+                except (TypeError, ValueError):
+                    pass
+        if conflicts:
+            warnings.append(f"型号{model}与规格不一致：" + "、".join(conflicts) + "，请对照原图确认")
+    return warnings
+
+
+def build_bom_image_review_summary(frame):
+    if not isinstance(frame, pd.DataFrame) or "识别提示" not in frame.columns:
+        return pd.DataFrame()
+    mapping = guess_bom_column_mapping(frame)
+    rows = []
+    for idx, record in frame.iterrows():
+        note = clean_text(record.get("识别提示", ""))
+        if not any(token in note for token in ("不清楚", "需确认", "需核对", "不一致", "截断", "尚未人工确认", "疑似缺少")):
+            continue
+        rows.append({"图片行号": record.get("OCR行号", int(idx)+1),
+                     "识别内容": join_bom_parts(get_bom_selected_value(record, mapping.get("model")),
+                                                get_bom_selected_value(record, mapping.get("spec"))),
+                     "需要核对": note})
+    return pd.DataFrame(rows)
+
+
+def apply_bom_image_review_to_result(result, record):
+    if "OCR原文" not in record:
+        return result
+    note = clean_text(record.get("识别提示", ""))
+    if not note:
+        return result
+    result["差异说明"] = "；".join(value for value in (clean_text(result.get("差异说明", "")), "图片识别提示：" + note) if value)
+    # Keep candidates available for review, but never present contradictory or
+    # differing readings as a confirmed recommendation.
+    if result.get("状态") == "可推荐" and any(token in note for token in ("多次识别需核对", "与规格不一致", "未完成字符二次核对", "修改后尚未人工确认", "截断", "疑似缺少")):
+        result["状态"] = "需确认"
+        result["推荐理由"] = "图片型号/规格尚需确认；" + clean_text(result.get("推荐理由", ""))
+    return result
+
+
+def bom_image_has_unclosed_bottom_data(image,row_lines,col_lines,core_columns):
+    import numpy as np
+    if not row_lines or image.height-row_lines[-1]<9:
+        return False
+    band=np.asarray(image.convert('L'),dtype=float)[row_lines[-1]+3:image.height-2]
+    if band.shape[0]<5:
+        return False
+    continuing=0
+    for column in col_lines:
+        column=min(image.width-1,max(0,int(column)))
+        neighbors=(band[:,max(0,column-3)]+band[:,min(image.width-1,column+3)])/2
+        if float(((neighbors-band[:,column])>3).mean())>.65:
+            continuing+=1
+    if continuing<2:
+        return False
+    ink=band<160
+    for column in col_lines:
+        ink[:,max(0,column-4):min(image.width,column+5)]=False
+    return any(int(ink[:,col_lines[col]+4:col_lines[col+1]-4].sum())>=10 for col in core_columns)
+
+
 def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
     import numpy as np
     from PIL import ImageOps
-    crops, positions = [], []
+    crops, positions, clipped_cells = [], [], set()
     rows = [["" for _ in col_lines[1:]] for _ in row_lines[1:]]
     for row in range(len(row_lines)-1):
         for col in range(len(col_lines)-1):
@@ -45195,6 +45428,9 @@ def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
                 continue
             crop = image.crop(bounds).convert("L")
             ink = np.asarray(crop) < 170
+            if (row_lines[row+1] >= image.height-2 and int(ink[-1].sum())>=3) or (
+                    col_lines[col+1]>=image.width-2 and int(ink[:,-1].sum())>=3):
+                clipped_cells.add((row,col))
             # Ignore genuinely empty cells/Excel chrome. Recognize wrapped
             # descriptions as separate physical text lines, in reading order.
             groups = group_bom_grid_line_indices(np.where(ink.sum(axis=1) >= 2)[0], max_gap=2)
@@ -45210,20 +45446,35 @@ def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
                 positions.append((row, col))
     if not crops:
         return pd.DataFrame()
-    recognized = recognize_bom_image_strips(get_bom_image_text_recognizer(), crops)
+    recognizer = get_bom_image_text_recognizer()
+    recognized = recognize_bom_image_strips(recognizer, crops)
     if len(recognized) != len(positions):
         raise RuntimeError("图片识别结果不完整，请重新上传图片。")
-    low_confidence_rows = set()
-    for (row, col), (text, score) in zip(positions, recognized):
+    rerun_candidates = {}
+    rechecks = recheck_bom_image_strips(recognizer, crops, recognized, candidate_readings=rerun_candidates)
+    cell_notes = {}
+    cell_candidates = {}
+    for idx, ((row, col), reading) in enumerate(zip(positions, recognized)):
+        text, score, weak = inspect_bom_image_reading(reading)
         rows[row][col] = join_bom_parts(rows[row][col], text)
-        if float(score) < .60:
-            low_confidence_rows.add(row)
+        evidence = rechecks.get(idx, "")
+        if idx in rerun_candidates:
+            cell_candidates.setdefault(row, []).append((col, rerun_candidates[idx]))
+        if evidence and evidence != "二次识别一致":
+            cell_notes.setdefault(row, []).append((col, evidence))
+        elif evidence != "二次识别一致" and (weak or score < .60):
+            characters = "/".join(dict.fromkeys(clean_text(item["char"]) for item in weak))
+            cell_notes.setdefault(row, []).append((col, f"字符{characters}不清楚，请对照原图" if characters else "文字不清楚，请对照原图"))
     frame = build_bom_dataframe_from_grid_cell_rows(rows)
     if frame.empty:
         return frame
-    raw_rows = {join_bom_parts(*row): i for i, row in enumerate(rows)}
+    # Identical BOM lines still need their own physical-cell review evidence.
+    raw_rows = {}
+    for physical_row, values in enumerate(rows):
+        raw_rows.setdefault(join_bom_parts(*values), []).append(physical_row)
     helper_columns = {"OCR原文", "OCR行号"}
     notes = []
+    retained_physical_rows = []
     for idx, record in frame.iterrows():
         changed_unit = False
         corrected_model = False
@@ -45236,17 +45487,76 @@ def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
             corrected_model |= any(alias in original.upper() and verified in normalized.upper()
                                    for alias, verified in BOM_IMAGE_VERIFIED_MODEL_ALIASES.items())
             frame.at[idx, column] = normalized
-        row_number = raw_rows.get(record["OCR原文"])
+        physical_rows = raw_rows.get(record["OCR原文"], [])
+        row_number = physical_rows.pop(0) if physical_rows else None
+        retained_physical_rows.append(row_number)
         parts = []
-        if row_number in low_confidence_rows:
-            parts.append("部分文字不清楚，请核对原图")
+        recovered_columns = set()
+        for column_number, candidates in cell_candidates.get(row_number, []):
+            column = frame.columns[column_number]
+            recovery = verified_bom_image_consensus_model(clean_text(frame.at[idx, column]), candidates, frame.loc[idx].to_dict())
+            if recovery is not None:
+                replacement, source, proposed = recovery
+                frame.at[idx, column] = replacement
+                recovered_columns.add(column_number)
+                parts.append(f"{column}：{source} → {proposed}，两次识别及型号规格核对一致，请对照原图")
+        for column_number, message in cell_notes.get(row_number, []):
+            if column_number not in recovered_columns:
+                parts.append(f"{frame.columns[column_number]}：{message}")
         if changed_unit:
             parts.append("已整理阻值单位，请核对Ω/mΩ/MΩ")
         if corrected_model:
             parts.append("型号中的0/O已按原厂型号核对，请对照原图")
+        for physical_row, column_number in sorted(clipped_cells):
+            if physical_row == row_number:
+                parts.append(f"{frame.columns[column_number]}：疑似文字被截图边缘截断，请核对完整内容")
+        parts.extend(bom_image_model_spec_warnings(frame.loc[idx].to_dict()))
         notes.append("；".join(parts))
     frame["识别提示"] = notes
     frame.attrs["ocr_engine"] = "cell_recognizer"
+    from bom_image_review import normalized_box
+    header = max(range(min(10,len(rows))),key=lambda idx:score_bom_ocr_table_header(rows[idx],join_bom_parts(*rows[idx])))
+    if score_bom_ocr_table_header(rows[header],join_bom_parts(*rows[header])) < 1:
+        header = -1
+    regions = {}
+    for idx, physical_row in enumerate(retained_physical_rows):
+        if physical_row is None:
+            continue
+        physical_line = physical_row-header
+        frame.at[idx,'OCR行号'] = physical_line
+        regions[str(idx)] = {'physical_line':physical_line,
+                            'row':normalized_box(0,row_lines[physical_row],image.width,row_lines[physical_row+1],image.size),
+                            'columns':{str(frame.columns[col]):normalized_box(col_lines[col],row_lines[physical_row],col_lines[col+1],row_lines[physical_row+1],image.size)
+                                       for col in range(len(col_lines)-1)}}
+    mapping=guess_bom_column_mapping(frame)
+    mapped_columns=set(value for value in mapping.values() if value)
+    core_columns={col for col in range(len(col_lines)-1)
+                  if frame.columns[col] in mapped_columns
+                  or (any(token in str(frame.columns[col]) for token in ('型号','规格','料号','物料编码','物料名称'))
+                      and any(clean_text(rows[physical_row][col]) for physical_row in retained_physical_rows if physical_row is not None))
+                  or any(bom_grid_data_row_is_meaningful([rows[physical_row][col]])
+                         or re.fullmatch(r'\d{6,}',rows[physical_row][col])
+                         for physical_row in retained_physical_rows if physical_row is not None)}
+    # Floating Excel toolbars in otherwise blank quotation columns are not
+    # missing BOM lines. Audit ink in model/spec/name/quantity/stock-code areas.
+    ink_rows = set(row for row,col in positions if col in core_columns)
+    candidate_rows = []
+    for physical_row in range(header+1,len(rows)):
+        text = join_bom_parts(*rows[physical_row])
+        if any(token in text for token in ('付款方式','交货地点','报价有效期','客户回签')):
+            break
+        if physical_row in ink_rows:
+            candidate_rows.append(physical_row)
+    missing = [{'physical_line':physical_row-header,'text':join_bom_parts(*rows[physical_row]),
+                'box':normalized_box(0,row_lines[physical_row],image.width,row_lines[physical_row+1],image.size)}
+               for physical_row in candidate_rows if physical_row not in retained_physical_rows]
+    unclosed=bom_image_has_unclosed_bottom_data(image,row_lines,col_lines,core_columns)
+    if unclosed:
+        missing.append({'physical_line':len(rows)-header,'text':'图片下缘的表格行未闭合，疑似截断',
+                        'box':normalized_box(0,row_lines[-1],image.width,image.height,image.size)})
+    frame.attrs['ocr_regions'] = regions
+    frame.attrs['ocr_audit'] = {'text_rows':len(candidate_rows)+int(unclosed),'recognized_rows':len(frame),'missing':missing,
+                              'warnings':[f"原图第{item['physical_line']}行有文字但未提取为物料，可能漏行，请核对" for item in missing]}
     return frame
 
 
@@ -45634,6 +45944,13 @@ def read_uploaded_bom_image_workbook(file_name, raw_bytes):
         workbook = build_uploaded_bom_workbook("image_ocr", file_name, raw_bytes, [])
         workbook["read_error"] = summarize_bom_ocr_error(exc)
         return workbook
+    if not ocr_df.empty and ocr_df.attrs.get("ocr_engine") != "cell_recognizer":
+        # Rule-less/free-layout images still use the legacy fallback. Do not
+        # label that path as having received neural character verification.
+        ocr_df = ocr_df.copy()
+        ocr_df["识别提示"] = ["需确认：基础识别未完成字符二次核对，请对照原图；" +
+                              "；".join(bom_image_model_spec_warnings(record))
+                              for record in ocr_df.to_dict("records")]
     workbook = build_uploaded_bom_workbook(
         "image_ocr",
         file_name,
@@ -45641,7 +45958,13 @@ def read_uploaded_bom_image_workbook(file_name, raw_bytes):
         [{"sheet_name": "图片OCR识别", "df": ocr_df}],
     )
     if workbook.get("sheet_frames"):
-        workbook["read_warning"] = "图片已按表格行列完成识别，请核对型号、规格和每行的识别提示后开始匹配；OCR原文保留供对照。"
+        if ocr_df.attrs.get("ocr_engine") == "cell_recognizer":
+            workbook["read_warning"] = "图片内容已提取，并对疑似字符进行二次识别、核对型号与规格。请先确认下方需核对的内容；OCR原文保留供对照，识别完成不代表每个字符已确认正确。"
+        else:
+            workbook["read_warning"] = "图片已完成基础识别，但未完成字符二次核对，请逐行对照原图确认型号与规格；建议上传清晰的完整表格截图或Excel原文件。"
+        audit = ocr_df.attrs.get('ocr_audit',{})
+        if audit.get('warnings'):
+            workbook['read_warning'] += '；'+'；'.join(audit['warnings'])
     else:
         workbook["read_error"] = "图片 OCR 未识别到可用文字，请上传更清晰、正向、不压缩的截图。"
     return workbook
@@ -47115,7 +47438,7 @@ def build_bom_upload_result_row(
             f"name={clean_text(name_value)}",
         )
 
-    return result_row
+    return apply_bom_image_review_to_result(result_row, record)
 
 def format_bom_elapsed_time(seconds):
     try:
@@ -47586,6 +47909,8 @@ def build_bom_record_match_signature(record, column_mapping, export_settings=Non
         for role in ("model", "spec", "name")
     }
     payload["extra_values"] = collect_bom_extra_spec_values(record, column_mapping)
+    if "OCR原文" in record:
+        payload["image_review"] = clean_text(record.get("识别提示", ""))
     payload["export_settings"] = normalize_bom_export_settings(export_settings)
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -48070,6 +48395,7 @@ def build_bom_workbook_run_signature(uploaded_file, sheet_mappings, export_setti
             # a matching or pricing change, even when the uploaded BOM is the same.
             "matching_logic_version": BOM_MATCH_OUTPUT_VERSION,
             "file": build_uploaded_file_signature(uploaded_file),
+            "image_review": active_bom_image_review(uploaded_file).get('sheets',{}),
             "sheet_mappings": sheet_mappings or {},
             "export_settings": normalize_bom_export_settings(export_settings),
             # Never resume a priced checkpoint produced under an older owner scope.
@@ -48086,6 +48412,10 @@ def create_persisted_bom_job(uploaded_file, run_signature, sheet_mappings,
     raw_bytes = get_uploaded_file_bytes(uploaded_file)
     if not member_key or not raw_bytes:
         return None
+    job_settings = normalize_bom_export_settings(export_settings)
+    review = active_bom_image_review(uploaded_file)
+    if review.get('sheets'):
+        job_settings['_image_review'] = review
     job = create_or_update_bom_job(
         member_key=member_key,
         run_signature=run_signature,
@@ -48093,7 +48423,7 @@ def create_persisted_bom_job(uploaded_file, run_signature, sheet_mappings,
         file_type=clean_text(getattr(uploaded_file, "type", "")),
         file_sha256=hashlib.sha256(raw_bytes).hexdigest(),
         file_bytes=raw_bytes,
-        settings=normalize_bom_export_settings(export_settings),
+        settings=job_settings,
         mappings=sheet_mappings or {},
         total_rows=total_rows,
     )
@@ -49346,10 +49676,99 @@ def render_cached_bom_preview_table(
     return preview_html
 
 
+def active_bom_image_review(uploaded_file, session_state=None, owner=None):
+    state = st.session_state if session_state is None else session_state
+    review = state.get('_bom_image_review')
+    if not isinstance(review,dict) or review.get('file') != build_uploaded_file_signature(uploaded_file):
+        return {}
+    member_key = current_bom_job_member_key() if owner is None else owner
+    return review if review.get('owner') == member_key and member_key and isinstance(review.get('sheets'),dict) else {}
+
+
+def restore_bom_image_review(uploaded_file, restored_job=None):
+    current = active_bom_image_review(uploaded_file)
+    if current:
+        return current
+    owner = current_bom_job_member_key()
+    signature = build_uploaded_file_signature(uploaded_file)
+    saved = (restored_job or {}).get('settings',{}).get('_image_review',{})
+    if not isinstance(saved,dict) or saved.get('owner') != owner or saved.get('file') != signature or not isinstance(saved.get('sheets'),dict):
+        saved = {'owner':owner,'file':signature,'sheets':{}}
+    review = deepcopy(saved)
+    st.session_state['_bom_image_review'] = review
+    return review
+
+
+def render_bom_image_review_tools(source, current, raw_bytes, review, sheet_name, signature):
+    import inspect
+    from bom_image_review import editor_frame, build_corrections, crop_source
+    key = hashlib.sha256((signature+sheet_name).encode()).hexdigest()[:20]
+    audit = source.attrs.get('ocr_audit',{})
+    if audit:
+        st.caption(f"原图有文字的数据行 {audit.get('text_rows',0)} 行 · 已提取 {len(source)} 行 · 疑似遗漏 {len(audit.get('missing',[]))} 行")
+    regions = source.attrs.get('ocr_regions',{})
+    with st.expander('原图定位与放大', expanded=False):
+        options = [('row',int(idx)) for idx in regions] + [('missing',idx) for idx in range(len(audit.get('missing',[])))]
+        if options:
+            def row_label(value):
+                kind,idx=value
+                return (f"原图第{regions[str(idx)]['physical_line']}行" if kind=='row'
+                        else f"疑似遗漏：原图第{audit['missing'][idx]['physical_line']}行")
+            chosen=st.selectbox('选择要核对的原图行',options,format_func=row_label,key=f'ocr_zoom_row_{key}')
+            kind,idx=chosen
+            if kind=='row':
+                region=regions[str(idx)]
+                fields=['整行']+list(region['columns'])
+                field=st.selectbox('放大字段',fields,index=next((i for i,col in enumerate(fields) if '规格' in col),0),key=f'ocr_zoom_field_{key}')
+                box=region['row'] if field=='整行' else region['columns'][field]
+            else:
+                field='整行'
+                box=audit['missing'][idx]['box']
+            try:
+                enlarged=crop_source(raw_bytes,box)
+                st.image(enlarged,width=min(1000,enlarged.width),caption=row_label(chosen)+' · '+field+' · 原图内容未修改')
+            except (ValueError,OSError) as exc:
+                st.warning(str(exc))
+        else:
+            st.caption('这张图片没有可靠的行列定位，请直接查看完整原图。')
+    with st.expander('查看完整原图'):
+        image_options=({'use_container_width':True} if 'use_container_width' in inspect.signature(st.image).parameters
+                       else {'use_column_width':True})
+        st.image(raw_bytes,**image_options)
+    payload=review.get('sheets',{}).get(sheet_name,{})
+    revision=hashlib.sha256(json.dumps(payload,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:12]
+    with st.expander('修正识别内容（保存后再开始匹配）',expanded=False):
+        st.caption('可以修改型号、规格和数量；已对照原图的行请勾选确认。OCR原文保留不变，型号与规格仍有冲突时会继续提醒。')
+        form_options={'enter_to_submit':False} if 'enter_to_submit' in inspect.signature(st.form).parameters else {}
+        with st.form(f'ocr_edit_form_{key}_{revision}',**form_options):
+            edited=st.data_editor(editor_frame(source,current,payload.get('confirmed',[])),
+                                  hide_index=True,num_rows='fixed',use_container_width=True,
+                                  disabled=['_图片行号'],key=f'ocr_editor_{key}_{revision}',
+                                  column_config={'_图片行号':st.column_config.NumberColumn('原图行号'),
+                                                 '_已对照原图':st.column_config.CheckboxColumn('已对照原图确认')})
+            save=st.form_submit_button('保存修正',type='primary')
+            reset=st.form_submit_button('恢复最初识别内容')
+        if save:
+            try:
+                review.setdefault('sheets',{})[sheet_name]=build_corrections(source,edited)
+                st.session_state['_bom_image_review']=review
+                st.rerun(scope='app')
+            except ValueError as exc:
+                st.error(str(exc))
+        if reset:
+            review.setdefault('sheets',{}).pop(sheet_name,None)
+            st.session_state['_bom_image_review']=review
+            st.rerun(scope='app')
+    if payload.get('changes') or payload.get('confirmed'):
+        st.caption(f"已保存人工修正 {len(payload.get('changes',{}))} 行 · 已人工确认 {len(payload.get('confirmed',[]))} 行；切换品牌不会丢失。")
+
+
 def render_bom_upload_page():
     st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
     startup_trace("after_bom_title")
     uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
+    from bom_image_clipboard import build_bom_image_clipboard_html
+    components.html(build_bom_image_clipboard_html(), height=48, scrolling=False)
     startup_trace("after_file_uploader")
     effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
     if effective_uploaded_file is None:
@@ -49493,6 +49912,22 @@ def render_bom_upload_page():
                     (item for item in bom_sheet_frames if clean_text(item.get("sheet_name", "")) == clean_text(selected_sheet_name)),
                     bom_sheet_frames[0],
                 )
+                image_sources={}
+                image_review_state={}
+                if bom_workbook.get('kind')=='image_ocr':
+                    from bom_image_review import apply_corrections
+                    image_review_state=restore_bom_image_review(uploaded_file,restored_bom_job)
+                    for item in bom_sheet_frames:
+                        name=clean_text(item.get('sheet_name',''))
+                        source=item.get('df',pd.DataFrame()).copy()
+                        image_sources[name]=source
+                        payload=image_review_state.get('sheets',{}).get(name,{})
+                        try:
+                            item['df']=apply_corrections(source,payload,bom_image_model_spec_warnings)
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                            image_review_state.setdefault('sheets',{}).pop(name,None)
+                            item['df']=source
                 bom_df = selected_sheet.get("df", pd.DataFrame()).copy()
                 total_workbook_rows = sum(len(item.get("df", pd.DataFrame())) for item in bom_sheet_frames)
                 bom_read_warning = clean_text(bom_workbook.get("read_warning", ""))
@@ -49697,6 +50132,14 @@ def render_bom_upload_page():
                 is_ocr_preview = clean_text(selected_sheet_name) == "图片OCR识别" or "OCR原文" in [
                     clean_text(col) for col in bom_df.columns
                 ]
+                if is_ocr_preview:
+                    source=image_sources.get(selected_sheet_name,bom_df)
+                    render_bom_image_review_tools(source,bom_df,bom_workbook.get('file_bytes',b''),
+                                                  image_review_state,selected_sheet_name,workbook_signature)
+                    image_review = build_bom_image_review_summary(bom_df)
+                    if not image_review.empty:
+                        with st.expander(f"有 {len(image_review)} 行需要对照原图确认，点击查看具体字段", expanded=True):
+                            st.dataframe(image_review, hide_index=True, use_container_width=True)
                 preview_html = render_cached_bom_preview_table(
                     bom_df,
                     workbook_signature,
@@ -49743,6 +50186,8 @@ def render_bom_upload_page():
                 parse_columns = [selected_mapping.get(x) for x in ["model", "spec", "name"] if selected_mapping.get(x)]
                 if not parse_columns:
                     st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
+                elif is_ocr_preview and bom_df.attrs.get('ocr_audit',{}).get('missing'):
+                    st.warning('原图中有疑似未提取的物料行，请先在“原图定位与放大”核对，裁去表外内容或补全截图后重新上传；本次不会把缺行结果当作完整BOM开始匹配。')
                 elif not bom_output_selection_ready(bom_export_mode, selected_export_brands):
                     st.info("BOM 已完成读取和列识别；选择输出品牌后再开始匹配。")
                 else:

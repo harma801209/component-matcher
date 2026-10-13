@@ -28,7 +28,7 @@ def recognize_strips(recognizer, crops):
             gaps = np.where(np.diff(occupied) > max(6, crop.shape[0] * .20))[0]
             spaces = [(occupied[g] + occupied[g+1])/2 for g in gaps]
             sequence, probabilities = prediction.argmax(axis=1), prediction.max(axis=1)
-            raw_chars, spaced_chars, scores = [], [], []
+            raw_chars, spaced_chars, scores, uncertain = [], [], [], []
             previous_x = 0.0
             for step, char_id in enumerate(sequence):
                 if char_id == 0 or (step and char_id == sequence[step-1]):
@@ -40,11 +40,27 @@ def recognize_strips(recognizer, crops):
                 raw_chars.append(char)
                 spaced_chars.append(char)
                 scores.append(float(probabilities[step]))
+                # A high line average must not hide one ambiguous model digit.
+                # CTC repeats one character over several frames. The leading
+                # boundary frame can be weak even when its centre is certain.
+                end = step + 1
+                while end < len(sequence) and sequence[end] == char_id:
+                    end += 1
+                best_step = step + int(np.argmax(probabilities[step:end]))
+                alternatives = np.argsort(prediction[best_step])[-2:][::-1]
+                rival = next((int(value) for value in alternatives if value != char_id), 0)
+                confidence = float(probabilities[best_step])
+                margin = float(confidence - prediction[best_step, rival])
+                if confidence < .75 or margin < .15:
+                    uncertain.append({'index': len(raw_chars)-1, 'char': char,
+                                      'alternative': recognizer.postprocess_op.character[rival],
+                                      'score': confidence, 'margin': margin})
                 previous_x = x
             raw = "".join(raw_chars)
             is_description = "/SMD" in raw.upper() or bool(re.search(r"\d\s*(?:[pnuµμ]F|Ω|W)\b", raw, re.I))
             results[idx] = ("".join(spaced_chars) if is_description else raw,
-                            sum(scores) / max(1, len(scores)+1))
+                            sum(scores) / max(1, len(scores)+1),
+                            {'minimum': min(scores, default=0.0), 'uncertain': uncertain})
     return results
 
 

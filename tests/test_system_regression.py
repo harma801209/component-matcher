@@ -290,6 +290,192 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_bom_image_independent_model_spec_validation(self):
+        inspect = self.app['bom_image_model_spec_warnings']
+        valid = {'物料名称':'贴片电容', '规格型号':'SAMSUNG/SMD CL05A475KP5NRNC 0402 X5R 4.7uF ±10% 10V LF'}
+        self.assertEqual(inspect(valid), [])
+        bad = dict(valid, 规格型号='SAMSUNG/SMD CL05A475KP5NRNC 0603 X7R 47uF ±20% 16V LF')
+        warning = '；'.join(inspect(bad))
+        for field in ('封装', '介质', '容量', '误差', '耐压', 'CL05A475KP5NRNC'):
+            self.assertIn(field, warning)
+        self.assertEqual(bad['规格型号'], 'SAMSUNG/SMD CL05A475KP5NRNC 0603 X7R 47uF ±20% 16V LF')
+        resistor = {'物料名称':'贴片电阻','型号':'RC0402FR-07174KL','规格':'0402 174KΩ ±1% 1/16W'}
+        self.assertEqual(inspect(resistor), [])
+        warning = '；'.join(inspect(dict(resistor, 规格='0402 174mΩ ±1% 1/16W')))
+        self.assertIn('阻值', warning)
+        warning = '；'.join(inspect({'OCR列1':'贴片电阻','OCR列2':'RC0402FR-07174KL','OCR列3':'0402 174mΩ ±1% 1/16W',
+                                    'OCR原文':'贴片电阻 RC0402FR-07174KL 0402 174mΩ ±1% 1/16W'}))
+        self.assertIn('阻值', warning)
+        self.assertEqual(inspect({'规格型号':'UNKNOWNXYZ123 0402 10KΩ ±1%','物料名称':'贴片电阻'}), [])
+        self.assertEqual(inspect({'规格型号':'CL05A475KP5NRNC','物料名称':'贴片电容'}), [])
+        query='TDK C1608X7R1H104K080AA 0603 X7R 100nF ±10% 50V 贴片电容'
+        self.assertEqual(self.app['parse_spec_query'](query)['尺寸（inch）'],'0603')
+        self.assertEqual(self.app['find_chip_package_size_codes_in_query'](query),('1608','0603'))
+        self.assertEqual(self.app['find_chip_package_size_codes_in_query']('1608 公制 100nF X7R'),('1608','0603'))
+
+    def test_bom_image_secondary_reading_preserves_disagreement_and_skips_clear_cells(self):
+        from unittest.mock import patch
+        import numpy as np
+        app = self.app
+        weak = {'uncertain':[{'char':'0','alternative':'O','score':.5}]}
+        originals = [('ABC100',.93,weak), ('0402 1KΩ ±1%',.91,{'uncertain':[]})]
+        crops = [np.full((20,100,3),255,dtype=np.uint8)]*2
+        with patch.dict(app, {'recognize_bom_image_strips': lambda engine, images:
+                [('ABCI00',.9,{'uncertain':[]}), ('ABC100',.9,{'uncertain':[]})]}):
+            notes = app['recheck_bom_image_strips'](object(), crops, originals)
+        self.assertIn('ABC100', notes[0])
+        self.assertIn('ABCI00', notes[0])
+        self.assertIn('需核对', notes[0])
+        self.assertNotIn(1, notes)
+        self.assertEqual(originals[0][0], 'ABC100')
+        with patch.dict(app, {'recognize_bom_image_strips': lambda engine, images:
+                [('ABC100',.9,{'uncertain':[]}), ('ABC100',.9,{'uncertain':[]})]}):
+            self.assertEqual(app['recheck_bom_image_strips'](object(), crops, originals)[0], '二次识别一致')
+        self.assertEqual(app['inspect_bom_image_reading'](('ABC100',.8)), ('ABC100',.8,[]))
+
+    def test_bom_image_secondary_comparison_ignores_spaces_not_milli_mega(self):
+        from unittest.mock import patch
+        import numpy as np
+        app = self.app
+        originals = [('0402 10mΩ ±1%',.5,{'uncertain':[]})]
+        crop = np.full((20,100,3),255,dtype=np.uint8)
+        with patch.dict(app, {'recognize_bom_image_strips': lambda engine, images:
+                [('0402  10mΩ  ± 1%',.9), ('0402 10mΩ ±1%',.9)]}):
+            self.assertEqual(app['recheck_bom_image_strips'](object(), [crop], originals)[0], '二次识别一致')
+        with patch.dict(app, {'recognize_bom_image_strips': lambda engine, images:
+                [('0402 10MΩ ±1%',.9), ('0402 10MΩ ±1%',.9)]}):
+            self.assertIn('需核对', app['recheck_bom_image_strips'](object(), [crop], originals)[0])
+
+    def test_bom_image_recovery_requires_consensus_known_rule_and_written_value(self):
+        recover = self.app['verified_bom_image_consensus_model']
+        raw = 'SAMSUNG/SMD CLO5A475KP5NRNC 0402 X5R 4.7uF ±10% 10V'
+        good = raw.replace('CLO5','CL05')
+        candidate = (good,.92,{'uncertain':[]})
+        record = {'物料名称':'贴片电容','规格型号':raw}
+        answer = recover(raw,[candidate,candidate],record)
+        self.assertIsNotNone(answer)
+        self.assertEqual(answer[0], good)
+        self.assertEqual(record['规格型号'],raw)
+        self.assertIsNone(recover(raw,[candidate,(raw,.9)],record))
+        self.assertIsNone(recover(raw,[candidate,candidate],dict(record,规格型号=raw.replace('4.7uF','47uF'))))
+        self.assertIsNone(recover('CLO5A475KP5NRNC',[(good,.9),(good,.9)],{'型号':'CLO5A475KP5NRNC'}))
+        self.assertIsNone(recover(raw,[(good,.9,{'uncertain':[{'char':'0'}]}),candidate],record))
+        # Both valid identities must stay separate, even when another model
+        # would fit the written specification better.
+        other_valid = good.replace('A475','A474')
+        self.assertIsNone(recover(other_valid,[candidate,candidate],dict(record,规格型号=other_valid)))
+        self.assertIsNone(recover('UNKNOWNI23',[('UNKNOWN123',.9),('UNKNOWN123',.9)],{'规格型号':'UNKNOWNI23 0402 10KΩ ±1%'}))
+
+    def test_bom_image_review_is_visible_and_carries_into_matching_without_guessing(self):
+        app = self.app
+        record = {'规格型号':'CL05A475KP5NRNC 0402 47uF ±10% 10V',
+                  'OCR原文':'original OCR', 'OCR行号':3,
+                  '识别提示':'型号CL05A475KP5NRNC与规格不一致：容量，请对照原图确认'}
+        review = app['build_bom_image_review_summary'](pd.DataFrame([record, dict(record, OCR行号=4, 识别提示='')]))
+        self.assertEqual(len(review), 1)
+        self.assertEqual(review.iloc[0]['图片行号'], 3)
+        result = {'状态':'可推荐','推荐理由':'已找到候选','差异说明':'原匹配说明','推荐型号':'ABC100'}
+        output = app['apply_bom_image_review_to_result'](result, record)
+        self.assertEqual(output['状态'], '需确认')
+        self.assertIn('容量', output['差异说明'])
+        self.assertEqual(output['推荐型号'], 'ABC100')
+        unchanged = app['apply_bom_image_review_to_result']({'状态':'可推荐'}, dict(record, 识别提示='已整理阻值单位，请核对Ω/mΩ/MΩ'))
+        self.assertEqual(unchanged['状态'], '可推荐')
+        plain = {'状态':'可推荐'}
+        self.assertEqual(app['apply_bom_image_review_to_result'](plain, {'识别提示':'与规格不一致'}), plain)
+        mapping = {'spec':'规格型号'}
+        self.assertNotEqual(app['build_bom_record_match_signature'](record,mapping),
+                            app['build_bom_record_match_signature'](dict(record, 识别提示=''),mapping))
+        self.assertNotIn(record['识别提示'], app['collect_bom_extra_spec_values'](record,mapping))
+
+    def test_bom_image_fallback_never_claims_character_reverification(self):
+        from unittest.mock import patch
+        app = self.app
+        frame = pd.DataFrame([{'型号':'RC0402FR-07174KL','规格':'0402 174KΩ ±1%','OCR原文':'RC0402FR-07174KL 0402 174KΩ ±1%'}])
+        with patch.dict(app, {'ocr_bom_image_to_dataframe': lambda raw: frame}):
+            workbook = app['read_uploaded_bom_image_workbook']('fallback.png',b'image')
+        self.assertIn('未完成字符二次核对', workbook['read_warning'])
+        actual = workbook['sheet_frames'][0]['df']
+        self.assertIn('未完成字符二次核对',actual.iloc[0]['识别提示'])
+        self.assertEqual(app['apply_bom_image_review_to_result']({'状态':'可推荐'}, actual.iloc[0].to_dict())['状态'],'需确认')
+        self.assertNotIn('识别提示',frame.columns)
+
+    def test_bom_image_physical_audit_detects_dropped_rows_and_keeps_geometry(self):
+        from PIL import Image,ImageDraw
+        from unittest.mock import patch
+        app=self.app
+        image=Image.new('L',(400,160),255)
+        draw=ImageDraw.Draw(image)
+        for row in range(4):
+            for col in range(4):
+                if row==3 and col!=3:continue
+                draw.text((col*100+10,row*40+10),'A123',fill=0)
+        values=['型号','规格','物料名称','单价',
+                'RC0402FR-07174KL','0402 174KΩ ±1%','贴片电阻','',
+                '???','???','???','',
+                'to A']
+        with patch.dict(app,{'get_bom_image_text_recognizer':lambda:object(),
+                             'recognize_bom_image_strips':lambda engine,crops:[(value,.95) for value in values]}):
+            frame=app['build_bom_grid_dataframe_with_recognizer'](image,[0,40,80,120,159],[0,100,200,300,399])
+        self.assertEqual(len(frame),1)
+        self.assertEqual(frame.attrs['ocr_audit']['text_rows'],2)
+        self.assertEqual([item['physical_line'] for item in frame.attrs['ocr_audit']['missing']],[2])
+        region=frame.attrs['ocr_regions']['0']
+        self.assertEqual(region['physical_line'],1)
+        self.assertEqual(region['columns']['规格'],[.25,.25,.5,.5])
+        self.assertEqual(frame.iloc[0]['OCR行号'],1)
+
+    def test_bom_image_open_bottom_requires_continuing_rules_and_actual_text(self):
+        from PIL import Image,ImageDraw
+        check=self.app['bom_image_has_unclosed_bottom_data']
+        image=Image.new('L',(300,115),255)
+        draw=ImageDraw.Draw(image)
+        for x in (0,100,200,299):draw.line((x,0,x,114),fill=180)
+        draw.text((115,90),'ABC123',fill=0)
+        self.assertTrue(check(image,[0,40,80],[0,100,200,299],{0,1,2}))
+        blank=Image.new('L',(300,115),255)
+        draw=ImageDraw.Draw(blank)
+        for x in (0,100,200,299):draw.line((x,0,x,114),fill=180)
+        self.assertFalse(check(blank,[0,40,80],[0,100,200,299],{0,1,2}))
+        toolbar=Image.new('L',(300,115),255)
+        ImageDraw.Draw(toolbar).text((115,90),'to A',fill=0)
+        self.assertFalse(check(toolbar,[0,40,80],[0,100,200,299],{0,1,2}))
+
+    def test_bom_image_review_is_bound_to_member_and_upload(self):
+        app=self.app
+        upload=UploadedBytes('one.png',b'one')
+        state={'_bom_image_review':{'file':app['build_uploaded_file_signature'](upload),
+                                   'owner':'id:one','sheets':{'image':{'changes':{'0':{'型号':'ABC100'}}}}}}
+        self.assertTrue(app['active_bom_image_review'](upload,state,'id:one'))
+        self.assertFalse(app['active_bom_image_review'](upload,state,'id:other'))
+        self.assertFalse(app['active_bom_image_review'](UploadedBytes('one.png',b'two'),state,'id:one'))
+
+    def test_bom_image_corrections_are_in_job_signature_and_restore_settings(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        app=self.app
+        upload=UploadedBytes('review.png',b'private-image')
+        source={'source':'sha-source','changes':{'0':{'型号':'CL05A475KP5NRNC'}},'confirmed':[0]}
+        review={'file':app['build_uploaded_file_signature'](upload),'owner':'id:one','sheets':{'图片OCR识别':source}}
+        state={'_bom_image_review':review}
+        captured={}
+        def create_job(**kwargs):
+            captured.update(kwargs)
+            return {'job_id':'image-review-test','settings':kwargs['settings'],'member_key':kwargs['member_key']}
+        with patch.dict(app,{'st':SimpleNamespace(session_state=state),
+                             'current_bom_job_member_key':lambda:'id:one',
+                             'create_or_update_bom_job':create_job,'update_query_params':lambda **kwargs:None}):
+            first=app['build_bom_workbook_run_signature'](upload,{}, {})
+            job=app['create_persisted_bom_job'](upload,first,{}, {},1)
+            self.assertEqual(captured['settings']['_image_review']['sheets']['图片OCR识别'],source)
+            state.pop('_bom_image_review')
+            restored=app['restore_bom_image_review'](upload,job)
+            self.assertEqual(restored,review)
+            self.assertEqual(app['build_bom_workbook_run_signature'](upload,{},{}),first)
+            restored['sheets']['图片OCR识别']['changes']['0']['型号']='OTHER123'
+            self.assertNotEqual(app['build_bom_workbook_run_signature'](upload,{},{}),first)
+            self.assertEqual(captured['file_bytes'],b'private-image')
+
     def test_bom_image_setup_failure_does_not_return_basic_ocr_as_success(self):
         from PIL import Image
         from unittest.mock import patch, Mock
@@ -383,6 +569,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(app["normalize_bom_image_cell"]("CLO5A475KP5NRNC"), "CLO5A475KP5NRNC")
         self.assertEqual(app["normalize_bom_image_cell"]("CL31A106M0HNNNE"), "CL31A106MOHNNNE")
         self.assertEqual(app["normalize_bom_image_cell"]("CL31A106M0HNNNE123"), "CL31A106M0HNNNE123")
+        self.assertEqual(app["normalize_bom_image_cell"]("0402 X5R 4 . 7uF ±10% 10V"),"0402 X5R 4.7uF ±10% 10V")
+        self.assertEqual(app["normalize_bom_image_cell"]("ABC4 . 7uF"),"ABC4 . 7uF")
         self.assertEqual(app["format_bom_quantity"](app["normalize_bom_image_cell"]("20, 000")), "20000")
 
     def test_bom_image_column_mapping_uses_description_not_stock_codes_or_raw_ocr(self):

@@ -11,6 +11,37 @@ import bom_image_ocr_runtime as runtime
 
 
 class IsolatedImageOCRTests(unittest.TestCase):
+    def test_clipboard_is_user_initiated_scoped_and_reuses_file_uploader(self):
+        from bom_image_clipboard import build_bom_image_clipboard_html
+        html = build_bom_image_clipboard_html()
+        for expected in ('Ctrl+V', 'clipboardData', '上传 BOM Excel/CSV/图片',
+                         'input[type="file"]', 'new host.DataTransfer()',
+                         "new host.Event('change'", 'previous.dispose()',
+                         "removeEventListener('paste'", 'textarea', 'contenteditable',
+                         'if (!files.length) return;', 'files.length !== 1',
+                         '不会自动开始匹配', 'role="status"'):
+            self.assertIn(expected, html)
+        for forbidden in ('navigator.clipboard.read', 'fetch(', 'XMLHttpRequest',
+                          'localStorage', 'readText(', 'setInterval(', 'image/svg+xml'):
+            self.assertNotIn(forbidden, html)
+
+    def test_character_confidence_uses_ctc_peak_not_weak_boundary(self):
+        from bom_image_ocr_worker import recognize_strips
+        alphabet = ['', 'A', '0', 'O']
+        predictions = np.array([[[.1, .55, .2, .15], [.01, .97, .01, .01],
+                                 [.9, .05, .03, .02], [.05, .01, .50, .44]]], dtype=np.float32)
+        recognizer = SimpleNamespace(rec_batch_num=1, rec_image_shape=[3,48,320],
+                                     postprocess_op=SimpleNamespace(character=alphabet),
+                                     resize_norm_img=lambda crop, ratio: np.zeros((3,48,320)),
+                                     session=lambda batch: [predictions])
+        text, score, detail = recognize_strips(recognizer, [np.full((24,100,3),255,dtype=np.uint8)])[0]
+        self.assertEqual(text, 'A0')
+        self.assertGreater(score, .3)
+        self.assertEqual(len(detail['uncertain']), 1)
+        self.assertEqual(detail['uncertain'][0]['char'], '0')
+        self.assertEqual(detail['uncertain'][0]['alternative'], 'O')
+        self.assertEqual(detail['uncertain'][0]['index'], 1)
+
     def test_install_is_scoped_to_ocr_cache_and_uses_explicit_wheels(self):
         with tempfile.TemporaryDirectory(prefix='ocr-runtime-test-') as folder, patch.object(runtime, 'ROOT', Path(folder)):
             with patch.object(runtime.subprocess, 'run', side_effect=[
