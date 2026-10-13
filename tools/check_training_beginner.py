@@ -21,10 +21,12 @@ with sync_playwright() as p:
     page = ctx.new_page(); errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
     def lesson_frame(pg):
-        deadline = time.monotonic()+150
+        deadline = time.monotonic()+150; next_reload = time.monotonic()+12
         while time.monotonic()<deadline:
             found = next((x for x in pg.frames if x.locator('#training-app').count()), None)
-            if found and found.evaluate('typeof TrainingBeginner!=="undefined"'):return found
+            if found and found.evaluate('typeof TrainingBeginner!=="undefined" && TrainingBeginner.create.toString().includes("legend.offsetTop")'):return found
+            if args.public and time.monotonic()>next_reload:
+                pg.reload(wait_until='domcontentloaded',timeout=90000);next_reload=time.monotonic()+12
             pg.wait_for_timeout(250)
         raise AssertionError('Updated lesson did not load')
     try:
@@ -39,13 +41,27 @@ with sync_playwright() as p:
             f.wait_for_function('Math.abs(innerHeight-Math.ceil(document.getElementById("training-app").getBoundingClientRect().height)-12)<=1')
         def capture(name):
             fitted()
+            board=f.locator('.play-viewport');board.scroll_into_view_if_needed()
+            f.evaluate('''()=>{const im=new Image();im.src=TrainingPlaygroundAssets.pcb;return im.decode();}''')
+            sel='#playground-canvas' if f.locator('#playground-canvas').count() else '#subgame-canvas'
+            frames=int(f.locator(sel).get_attribute('data-frames') or 0)
+            f.wait_for_function('({sel,frames})=>Number(document.querySelector(sel).dataset.frames)>frames+2',arg={'sel':sel,'frames':frames})
+            focus=f.locator('.play-device-focus');legend=f.locator('.play-labels')
+            assert focus.bounding_box()['y']>=legend.bounding_box()['y']+legend.bounding_box()['height']-1
             if page.viewport_size['width']<760:
                 # Tall iframe element screenshots can clip offscreen regions.
                 # Capture individually visible board and action areas instead.
                 f.locator('.play-viewport').screenshot(path=str(OUT/f'{prefix}-{name}-board.png'))
                 f.locator('.play-cause').screenshot(path=str(OUT/f'{prefix}-{name}-cause.png'))
                 f.locator('.play-action-row').screenshot(path=str(OUT/f'{prefix}-{name}-actions.png'))
-            else:f.locator('.play-stage').screenshot(path=str(OUT/f'{prefix}-{name}.png'))
+            else:
+                f.locator('.play-stage').screenshot(path=str(OUT/f'{prefix}-{name}.png'))
+                # The formal proxy may clip a long iframe element screenshot;
+                # these short, individually visible regions are the QA evidence.
+                board.screenshot(path=str(OUT/f'{prefix}-{name}-board.png'))
+                f.locator('.play-cause').screenshot(path=str(OUT/f'{prefix}-{name}-cause.png'))
+                if f.locator('.play-transfer').is_visible() and f.locator('.play-transfer').get_attribute('open') is not None:
+                    f.locator('.play-transfer').screenshot(path=str(OUT/f'{prefix}-{name}-exercise.png'))
         def state(base):
             return f.evaluate('TrainingPlayground.current().snapshot()' if base else 'TrainingSubtypeGame.current().snapshot()')
         def observe():

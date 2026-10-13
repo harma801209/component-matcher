@@ -78,7 +78,7 @@
   let key='',task=null,answer=null,verified=false;
   apply.addEventListener('click',()=>{verified=true;transfer.dataset.verified='true';verify(task.trial);apply.textContent='已换好条件 · 看电路验证';feedback.textContent='这次是验证练习，不会重复增加通关数。'+task.explanation;});
   function update({params,result,phase=0,started=true,index,mode,done},view){
-   const value=explain(id,params,result,phase,started);causeTitle.textContent=value.title;change.textContent=value.change;reason.textContent=value.why;scope.textContent=fixed(id,index);scope.hidden=mode==='free'||done;focus.hidden=!view;const point=view?.focusPoint?.();if(point){focus.style.left=Math.max(14,Math.min(86,point.x*100))+'%';focus.style.top=Math.max(18,Math.min(78,point.y*100))+'%';}
+   const value=explain(id,params,result,phase,started);causeTitle.textContent=value.title;change.textContent=value.change;reason.textContent=value.why;scope.textContent=fixed(id,index);scope.hidden=mode==='free'||done;focus.hidden=!view;const point=view?.focusPoint?.();if(point){const legend=viewport.querySelector('.play-labels'),reserved=legend?(legend.offsetTop+legend.offsetHeight+focus.offsetHeight+8)/viewport.clientHeight*100:18;focus.style.left=Math.max(14,Math.min(86,point.x*100))+'%';focus.style.top=Math.max(reserved,Math.max(18,Math.min(78,point.y*100)))+'%';}
    transfer.hidden=mode!=='challenge'||!done;
    const newKey=mode+':'+index;if(newKey!==key){key=newKey;answer=null;verified=false;transfer.open=false;task=practice(id,index);question.textContent=task.question;answers.replaceChildren();feedback.textContent='可以试错，不扣分；也可以先继续下一关。';apply.hidden=true;apply.textContent=task.verify;
     // Keep the correct option in different positions across levels; do not teach a fixed button location.
