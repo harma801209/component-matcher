@@ -83,7 +83,8 @@ with sync_playwright() as p:
             press(f.locator('[data-play-mode="free"]'))
             assert current()['scene']['course']==course
             if course=='capacitor':
-                press(f.locator('#playground-trigger'));page.wait_for_timeout(550)
+                press(f.locator('#playground-trigger'))
+                f.wait_for_function('TrainingPlayground.current().snapshot().phase>1.05',timeout=15000)
                 r=current()['result'];assert r['storage']<0
                 assert abs(r['source']-r['load']-r['storage'])<1e-12
                 assert f.locator('#playground-canvas').get_attribute('data-energy-through-load')=='true'
@@ -92,13 +93,16 @@ with sync_playwright() as p:
                 press(f.locator('#playground-near'))
                 assert current()['params']['near']!=near
                 assert current()['result']['voltage']==v
-                press(f.locator('#playground-pause'));page.wait_for_timeout(6500)
+                press(f.locator('#playground-pause'))
+                f.wait_for_function('TrainingPlayground.current().snapshot().phase===3',timeout=30000)
                 assert current()['result']['storage']==0
                 assert current()['result']['voltage']==3.3
-                press(f.locator('#playground-trigger'));page.wait_for_timeout(450)
+                press(f.locator('#playground-trigger'))
+                f.wait_for_function('TrainingPlayground.current().snapshot().phase>1.05',timeout=15000)
                 press(f.locator('#playground-pause'))
             elif course=='inductor':
-                press(f.locator('[data-play-choice="22"]'));page.wait_for_timeout(2500)
+                press(f.locator('[data-play-choice="22"]'))
+                f.wait_for_function('TrainingPlayground.current().snapshot().result.unknown',timeout=15000)
                 assert current()['result']['unknown']
                 assert current()['result']['value']=='不再预测'
                 press(f.locator('[data-play-choice="220"]'))
