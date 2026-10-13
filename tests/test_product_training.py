@@ -189,12 +189,15 @@ a.throws(()=>g.deck('resistor',()=>1),RangeError);a.throws(()=>g.deck('resistor'
         page=build_training_html()
         self.assertIn('<details id="games-card" class="games-card">',page)
         self.assertLess(page.index('id="games-card"'),page.index('id="circuit-card"'))
-        for text in ['3D动手实验','知识翻牌','role="status" aria-live="polite"','本次已完成','training-course-change','prefers-reduced-motion:reduce']:
+        for text in ['闯关挑战','自由实验','4 关挑战','training-course-change','prefers-reduced-motion:reduce']:
             self.assertIn(text,page)
-        game_js=''.join((WEB_ROOT/name).read_text(encoding='utf-8') for name in ['training_games.js','training_games_math.js'])
+        for text in ['data-game-mode=', 'id="game-progress"', 'id="game-restart"', 'id="game-feedback"', '知识翻牌', '3D动手实验', 'window.TrainingGamesMath']:
+            self.assertNotIn(text,page)
+        game_js=(WEB_ROOT/'training_playground_entry.js').read_text(encoding='utf-8')
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite', 'setInterval(', 'setTimeout(']:
             self.assertNotIn(term,game_js)
-        self.assertIn('V198',game_js)  # Return terminates at bottom plate, not through dielectric.
+        self.assertIn('TrainingPlayground.mount',game_js)
+        self.assertIn('[x,Y,.77]',(WEB_ROOT/'training_playground_scene.js').read_text(encoding='utf-8'))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_capacitor_internal_overlay_reuses_exposed_layers_and_cover_anchors(self):
