@@ -52,17 +52,25 @@ with sync_playwright() as p:
             assert f.locator('#subgame-power').is_visible()
             assert f.locator('[data-subgame-level="1"]').is_disabled()
             assert f.locator('#subgame-next').is_hidden()
+            if id=='cap-tantalum':
+                assert canvas.get_attribute('data-positive-side')=='right'
+                f.locator('.subtype-game .play-viewport').screenshot(path=str(OUT/f'{prefix}-tantalum-reversed.png'))
             # Observe the deliberately unsolved setup once; it must not unlock.
             observe();assert state()['progress']['cleared']==[],(id,state())
             assert '还未达到' in f.locator('#subgame-feedback').inner_text()
             for level in range(3):
                 assert state()['progress']['index']==level
+                if id=='ind-common' and level==1:
+                    assert canvas.get_attribute('data-part-connected')=='false'
+                    f.locator('.subtype-game .play-viewport').screenshot(path=str(OUT/f'{prefix}-common-uninstalled.png'))
                 # Read-only enumerate valid model choices, then act through UI.
                 winner=f.evaluate('''({id,index})=>{const m=TrainingSubtypeGameMath,d=m.profile(id),l=m.level(id,index);let choices=[{params:{},indices:{}}];for(const field of d.fields)choices=choices.flatMap(o=>field.options.map(([v],i)=>({params:{...o.params,[field.key]:v},indices:{...o.indices,[field.key]:i}})));return choices.find(o=>l.check(o.params,m.evaluate(id,o.params).values)).indices;}''',{'id':id,'index':level})
                 for key,index in winner.items():choose(key,index)
                 assert state()['progress']['cleared']==list(range(level)),(id,level,state())
                 assert not state()['progress']['started']
                 observe();assert state()['progress']['cleared']==list(range(level+1)),(id,level,state())
+                if id=='cap-tantalum':assert canvas.get_attribute('data-positive-side')=='left'
+                if id=='ind-common':assert canvas.get_attribute('data-part-connected')=='true'
                 assert f.locator('#subgame-next').is_visible()
                 assert '你刚刚学会了' in f.locator('.subtype-game .play-story').inner_text()
                 fitted();total+=1

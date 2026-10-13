@@ -27,7 +27,8 @@
    window.TrainingCatalogGeometry.build(id,'exterior',0,{
     box(f,p,s,c,part){const mesh=box(p,s,color(c),group);if(id==='dio-led'&&part==='case')mesh.material.color.setHex(0x335465);f.push({});},tube(f,a,b,r,c){rod(a,b,r,color(c),group);f.push({});}
    });
-   if(id==='cap-tantalum'){label('+',[pos[0]-.45,pos[1]+.64,pos[2]],.2,.2,'#683b06');}
+   if(id==='cap-tantalum'){const sign=params.forward?-1:1;box([pos[0]+sign*.53,pos[1]+.338,pos[2]-.026],[.12,.009,.73],0x5b3c1b);label('+',[pos[0]+sign*.36,pos[1]+.345,pos[2]-.026],.25,.25,'#5b3c1b');canvas.dataset.positiveSide=params.forward?'left':'right';}
+   if(id==='ind-common'&&!params.installed)group.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=.22;o.material.depthWrite=false;}});
    if(['res-thin','res-sulfur'].includes(id))label(id==='res-thin'?'1001':'102',[pos[0],pos[1]+.316,pos[2]-.026],.7,.23);
    if(id==='dio-led'){const lens=mat(0x12305b,{emissive:0x348fff,emissiveIntensity:0,transparent:true,opacity:.92,roughness:.18});add(new T.SphereGeometry(.30,24,14,0,Math.PI*2,0,Math.PI/2),lens,[pos[0],pos[1]+.33,pos[2]]);lightMaterials.push(lens);ledLight.position.set(pos[0],pos[1]+.7,pos[2]);}
    label(chapter.title,[pos[0],.10,pos[2]+.88],1.7,.25);
@@ -48,7 +49,7 @@
   const loop=[[left,y,top],[-.75,.46,top+.3],[.75,.46,top+.3],[right,y,top],[right,y,.45],[right,y,bottom],[left,y,bottom],[left,y,.55]];
   const railLoop=[[left,y,top],[right,y,top],[right,y,.45],[right,y,bottom],[left,y,bottom],[left,y,.55]];
   function rebuild(p){
-   key=JSON.stringify(p);purge(solid);purge(moving);textures.forEach(t=>t.dispose());textures=[];markers=[];waves=[];hot=null;indicator=null;fieldRing=null;lightMaterials=[];
+   key=JSON.stringify(p);params=p;purge(solid);purge(moving);textures.forEach(t=>t.dispose());textures=[];markers=[];waves=[];hot=null;indicator=null;fieldRing=null;lightMaterials=[];canvas.dataset.partConnected=String(id!=='ind-common'||p.installed);
    box([0,-.09,0],[8,.16,5],0x8ca795,solid,{map,roughness:.58});for(const x of [-3.6,3.6])for(const z of [-2.1,2.1]){const ring=add(new T.TorusGeometry(.16,.04,8,24),mat(0xccb764),[x,.016,z]);ring.rotation.x=-Math.PI/2;}
    box([-3,.22,.04],[.96,.42,1.5],0x253b50);label(d.topology==='safety'?'虚拟 L / N':id==='dio-rectifier'?'5 V峰值 AC':chapter.family==='crystal'?'VDD / GND':chapter.family==='mos'?'12 V示例':id==='dio-zener'?p.input+' V':'电源',[-3,.44,.04],.85,.34);
    wire([[left,y,top],[left,y,-.68]]);wire([[left,y,.65],[left,y,bottom]]);
@@ -130,7 +131,7 @@
    const v=r.visual;if(indicator){indicator.material.emissiveIntensity=on&&v.active?v.brightness*1.8:0;indicator.material.color.setHex(v.warning?0xe3a443:0x315a45);}
    for(const material of lightMaterials)material.emissiveIntensity=on?v.brightness*3:0;ledLight.intensity=id==='dio-led'&&on?v.brightness*8:0;
    if(hot){hot.material.color.setHex(v.warning?0xffcb4d:0xef6335);hot.material.opacity=on?Math.max(v.warning?.65:0,Math.min(.8,v.heat*.7)):0;}
-   if(fieldRing)fieldRing.material.opacity=on&&v.flux?.65:.08;
+   if(fieldRing)fieldRing.material.opacity=on&&v.installed&&v.flux?.65:0;
    canvas.dataset.current=String(on&&v.known?(v.current||0):0);canvas.dataset.known=String(v.known);canvas.dataset.brightness=String(on&&v.active?v.brightness:0);canvas.dataset.heat=String(on?v.heat:0);canvas.dataset.running=String(on);
   }
   function sample(points,u){const lengths=points.slice(1).map((p,i)=>p.distanceTo(points[i])),total=lengths.reduce((a,b)=>a+b,0);let remaining=u*total;for(let i=0;i<lengths.length;i++){if(remaining<=lengths[i]||i===lengths.length-1)return {point:points[i].clone().lerp(points[i+1],remaining/lengths[i]),direction:points[i+1].clone().sub(points[i]).normalize()};remaining-=lengths[i];}}

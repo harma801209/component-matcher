@@ -68,6 +68,8 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
         self.assertIn('training-subtype-change',page)
         self.assertIn('viewport.append(power)',page)
         self.assertIn('renderer.forceContextLoss()',page)
+        self.assertIn("canvas.dataset.positiveSide=params.forward?'left':'right'",page)
+        self.assertIn("canvas.dataset.partConnected=String(id!=='ind-common'||p.installed)",page)
         builder=(WEB_ROOT.parent/'tools/build_training_playground_vendor.mjs').read_text(encoding='utf-8')
         self.assertIn('BufferGeometry,BufferAttribute,Line,LineBasicMaterial',builder)
 
