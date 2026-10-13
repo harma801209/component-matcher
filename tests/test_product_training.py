@@ -9,6 +9,36 @@ from precision_theme import render_header
 
 
 class ProductTrainingTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_playground_live_values_validate_choices_and_preserve_current(self):
+        script=r'''
+const m=require(process.argv[1]),a=require('node:assert/strict'),p=value=>({value,power:true,reverse:false,near:true});
+for(const c of m.courses){const d=m.lesson(c);a(Object.isFrozen(d));for(const [value] of d.choices)for(const phase of [0,.3,1,1.5,2,2.5,3]){const r=m.evaluate(c,p(value),phase);for(const k of ['current','voltage','brightness','storage','source','load','power'])a(Number.isFinite(r[k]));a(Math.abs(r.source-r.load-r.storage)<1e-10);a(r.story&&r.stage);a.equal(m.evaluate(c,{...p(value),power:false},phase).current,0);}a.throws(()=>m.evaluate(c,p(NaN)),RangeError);a.throws(()=>m.evaluate(c,p(d.initial),-1),RangeError);a.throws(()=>m.evaluate(c,p(d.initial),NaN),RangeError);}
+a.throws(()=>m.lesson('__proto__'),RangeError);a.throws(()=>m.evaluate('resistor',{value:330}),RangeError);
+const low=m.evaluate('resistor',p(1000)),mid=m.evaluate('resistor',p(330)),high=m.evaluate('resistor',p(100));a(low.brightness<mid.brightness&&mid.brightness<high.brightness);a.equal(high.current,.03);a.equal(high.power,.09);a.equal(low.current,.003);
+const cap=m.evaluate('capacitor',p(10),1.5);a.equal(cap.storage,-.02);a(Math.abs(cap.source-.005)<1e-12);a.equal(cap.load,.025);a(Math.abs(cap.voltage-3.25)<1e-10);a.equal(m.evaluate('capacitor',{...p(10),near:false},1.5).voltage,cap.voltage);
+const recover=m.evaluate('capacitor',p(10),2.5);a.equal(recover.storage,.02);a.equal(recover.source,.025);a.equal(recover.load,.005);a.equal(recover.voltage,cap.voltage);a.equal(m.evaluate('capacitor',p(10),3).storage,0);a.equal(m.evaluate('capacitor',p(10),3).voltage,3.3);
+const bad=m.evaluate('inductor',p(22),3);a(bad.unknown);a.equal(bad.value,'不再预测');a.equal(m.evaluate('inductor',p(220),3).unknown,false);
+a(m.evaluate('diode',p(true)).current>0);a.equal(m.evaluate('diode',p(false)).current,0);a(m.evaluate('diode',{...p(false),reverse:true}).current<0);a.equal(m.evaluate('diode',{...p(true),reverse:true}).current,0);
+'''
+        completed=subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_playground_math.js')],capture_output=True,text=True)
+        self.assertEqual(completed.returncode,0,completed.stderr)
+
+    def test_playground_is_self_contained_not_a_video_or_remote_service(self):
+        page=build_training_html()
+        self.assertIn('window.TrainingPlaygroundAssets=',page)
+        self.assertIn('data:image/webp;base64,',page)
+        self.assertIn('new T.WebGLRenderer',page)
+        self.assertNotIn('<video',page)
+        self.assertNotIn('<script src=',page)
+        for name in ['training_playground.js','training_playground_scene.js','training_playground_math.js']:
+            text=(WEB_ROOT/name).read_text(encoding='utf-8')
+            for forbidden in ['fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+                self.assertNotIn(forbidden,text)
+        self.assertTrue((WEB_ROOT/'vendor/three-LICENSE.txt').is_file())
+        self.assertTrue((WEB_ROOT/'assets/heroicons-LICENSE.txt').is_file())
+        self.assertLess(page.index('globalThis.TrainingPlaygroundMath') if 'globalThis.TrainingPlaygroundMath' in page else page.index('root.TrainingPlaygroundMath'),page.index('window.TrainingPlayground=Object.freeze'))
+
     def test_catalog_assets_are_ordered_and_keep_one_viewer(self):
         page = build_training_html()
         self.assertEqual(page.count('<canvas'), 1)
@@ -126,7 +156,7 @@ a.throws(()=>g.deck('resistor',()=>1),RangeError);a.throws(()=>g.deck('resistor'
         page=build_training_html()
         self.assertIn('<details id="games-card" class="games-card">',page)
         self.assertLess(page.index('id="games-card"'),page.index('id="circuit-card"'))
-        for text in ['电路救援','知识翻牌','role="status" aria-live="polite"','本次已完成','training-course-change','prefers-reduced-motion:reduce']:
+        for text in ['3D动手实验','知识翻牌','role="status" aria-live="polite"','本次已完成','training-course-change','prefers-reduced-motion:reduce']:
             self.assertIn(text,page)
         game_js=''.join((WEB_ROOT/name).read_text(encoding='utf-8') for name in ['training_games.js','training_games_math.js'])
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite', 'setInterval(', 'setTimeout(']:

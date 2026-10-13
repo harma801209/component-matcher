@@ -1,7 +1,7 @@
 (function(){
  'use strict';
  const G=window.TrainingGamesMath,$=id=>document.getElementById(id),node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
- let course=window.TrainingLesson.current().course,mode='circuit';
+ let course=window.TrainingLesson.current().course,mode='circuit',activePlayground=null;
  const sessions=Object.fromEntries(G.courses.map(c=>[c,{params:{...G.lesson(c).defaults},memory:G.deck(c),done:new Set()}]));
  const current=()=>sessions[course];
  function feedback(text,tone=''){$('game-feedback').textContent=text;$('game-feedback').className='game-feedback '+tone;}
@@ -42,6 +42,7 @@
   $('game-why').textContent=r.why;
  }
  function renderCircuit(){
+  if(window.TrainingPlayground){activePlayground=window.TrainingPlayground.mount($('game-body'),course,()=>{current().done.add('circuit');progress();});return;}
   const out=$('game-body'),d=G.lesson(course);out.replaceChildren();
   const intro=node('div',undefined,'game-intro');intro.append(node('h3',d.title),node('p',d.goal),node('small',d.conditions));
   const layout=node('div',undefined,'game-layout'),left=node('div'),right=node('div');
@@ -64,7 +65,7 @@
   }
   out.append(intro,count,grid);if(focusId!==undefined){const target=grid.querySelector('[data-game-card="'+focusId+'"]');if(!target.disabled)target.focus({preventScroll:true});else grid.querySelector('button:not(:disabled)')?.focus({preventScroll:true});}
  }
- function render(){progress();document.querySelectorAll('[data-game-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.gameMode===mode)));if(mode==='circuit')renderCircuit();else renderCards();feedback('选择参数试运行，或翻牌配对。');}
+ function render(){activePlayground?.dispose();activePlayground=null;progress();$('game-progress').hidden=mode==='circuit';$('game-restart').hidden=mode==='circuit';$('game-feedback').hidden=mode==='circuit';document.querySelectorAll('[data-game-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.gameMode===mode)));if(mode==='circuit')renderCircuit();else renderCards();feedback(mode==='circuit'?'直接操作器件，看电路如何变化。':'可选知识配对；不计时，可以慢慢试。');}
  document.querySelectorAll('[data-game-mode]').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.gameMode;render();}));
  $('game-restart').addEventListener('click',()=>{if(mode==='circuit')current().params={...G.lesson(course).defaults};else current().memory=G.deck(course);render();feedback('已重新开始本游戏。');});
  window.addEventListener('training-course-change',e=>{if(G.courses.includes(e.detail.course)){course=e.detail.course;render();}});

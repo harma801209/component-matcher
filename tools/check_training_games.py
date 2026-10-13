@@ -15,7 +15,7 @@ parser.add_argument('--public',action='store_true')
 args=parser.parse_args()
 OUT=ROOT.parent/'ocr-diagnostic-20261012/training-games'
 OUT.mkdir(parents=True,exist_ok=True)
-winners={'resistor':{'r':'330','rating':'0.063'},'capacitor':{'c':'10','near':'true'},'inductor':{'l':'220','isat':'1.5'},'diode':{'forward':'true','vf':'0.3'}}
+winners={'resistor':'330','capacitor':'10','inductor':'220','diode':'true'}
 with sync_playwright() as p:
     browser=p.chromium.launch(channel='chrome',headless=True)
     ctx=browser.new_context(viewport={'width':1440,'height':1000})
@@ -28,7 +28,7 @@ with sync_playwright() as p:
         while time.monotonic()<deadline:
             f=next((f for f in page.frames if f.locator('#games-card').count()),None)
             if f:
-                f.wait_for_function('typeof TrainingGamesMath!=="undefined" && document.querySelector("#game-board svg")')
+                f.wait_for_function('typeof TrainingPlayground!=="undefined" && document.querySelector("#playground-canvas")')
                 return f
             page.wait_for_timeout(400)
         raise AssertionError('Games not ready')
@@ -37,29 +37,23 @@ with sync_playwright() as p:
         page.goto('https://fruition-component.pages.dev/?training=1' if args.public else 'http://training.local/',wait_until='domcontentloaded',timeout=90000)
         f=frame()
         assert f.locator('#games-card').get_attribute('open') is None
-        assert not f.locator('#game-run').is_visible()
+        assert not f.locator('#playground-next').is_visible()
         activate(f.locator('#games-card>summary'))
-        for course,parameters in winners.items():
+        for course,value in winners.items():
             activate(f.locator('button[data-course='+course+']'))
             activate(f.locator('[data-game-mode=circuit]'))
-            assert '0 / 2' in f.locator('#game-progress').inner_text()
-            activate(f.locator('#game-run'))
-            assert '还差一点' in f.locator('#game-feedback').inner_text()
-            for key,value in parameters.items():f.locator('#game-param-'+key).select_option(value)
-            assert '参数已满足' in f.locator('#game-hints').inner_text()
-            activate(f.locator('#game-run'))
-            assert '闯关成功' in f.locator('#game-feedback').inner_text()
-            assert '1 / 2' in f.locator('#game-progress').inner_text()
+            assert '0 / 2' in f.locator('#game-progress').text_content()
+            activate(f.locator('[data-play-choice="'+value+'"]'))
+            assert '1 / 2' in f.locator('#game-progress').text_content()
             f.locator('#games-card').screenshot(path=str(OUT/(('formal-' if args.public else 'local-')+course+'-circuit.png')))
             if course=='capacitor':
-                assert f.locator('#game-board .game-flow.energy').count()==1
-                assert 'H450V250' in f.locator('#game-board .game-flow.energy').get_attribute('d')
+                activate(f.locator('#playground-trigger'))
+                assert f.locator('#playground-canvas').get_attribute('data-energy-through-load')=='true'
             if course=='diode':
-                activate(f.locator('#game-reverse'))
-                assert '被阻断' in f.locator('#game-board').inner_text()
-                assert f.locator('#game-board .game-flow').count()==0
-                activate(f.locator('#game-reverse'))
-                assert f.locator('#game-board .game-flow').count()==1
+                activate(f.locator('#playground-reverse'))
+                assert f.locator('#playground-canvas').get_attribute('data-flow-count')=='0'
+                activate(f.locator('#playground-reverse'))
+                assert int(f.locator('#playground-canvas').get_attribute('data-flow-count'))>0
             activate(f.locator('[data-game-mode=memory]'))
             activate(f.locator('[data-game-card="0"]'))
             activate(f.locator('[data-game-card="0"]'))
@@ -79,9 +73,9 @@ with sync_playwright() as p:
             assert '2 / 2' in f.locator('#game-progress').inner_text()
         # Course switching preserves this page's progress; unrelated training remains usable.
         activate(f.locator('button[data-course=resistor]'))
-        assert '2 / 2' in f.locator('#game-progress').inner_text()
+        assert '2 / 2' in f.locator('#game-progress').text_content()
         activate(f.locator('[data-game-mode=circuit]'))
-        assert f.locator('#game-param-r').input_value()=='330'
+        assert f.evaluate('TrainingPlayground.current().snapshot().params.value')==330
         activate(f.locator('#tab-performance'))
         assert f.locator('#panel-performance').is_visible()
         activate(f.locator('#show-cross-section'))
@@ -100,7 +94,7 @@ with sync_playwright() as p:
                 assert box['scrolling']=='no' and box['frame']>=box['h'],box
         page.emulate_media(reduced_motion='reduce')
         activate(f.locator('[data-game-mode=circuit]'))
-        assert f.locator('.game-flow').first.evaluate('(e)=>getComputedStyle(e).animationName')=='none'
+        assert not f.evaluate('TrainingPlayground.current().snapshot().playing')
         page.reload(wait_until='domcontentloaded',timeout=90000)
         f=frame()
         f.wait_for_function('document.querySelector("#game-progress").textContent.includes("0 / 2")')
