@@ -110,7 +110,7 @@ with sync_playwright() as p:
         press('[data-play-mode="free"]');choose(1000)
         assert state()['result']['current']==.003
         press('[data-play-mode="challenge"]');assert len(state()['progress']['cleared'])==4
-        press('[data-play-level="3"]');press('#playground-next')
+        press('[data-play-level="3"]');press('#playground-retry-chapter')
         assert state()['progress']['cleared']==[] and state()['progress']['index']==0
         assert not state()['params']['power']
         assert f.locator('#playground-next').is_disabled()
@@ -131,9 +131,10 @@ with sync_playwright() as p:
             f=next((x for x in page.frames if x.locator('#training-app').count()),None)
             if f and f.evaluate('typeof TrainingPlaygroundLevels!=="undefined"'):break
             page.wait_for_timeout(250)
-        assert state()['mode']=='challenge' and state()['progress']['cleared']==[]
+        assert state()['mode']=='challenge' and state()['progress']['cleared']==[0,1,2,3]
+        assert f.evaluate('TrainingGameProgress.get("res-thick").cleared')==4
         assert not errors,errors
-        print(json.dumps({'status':'passed','public':args.public,'missions':16,'locked_until_complete':True,'hints_wrong_retry_revisit':True,'independent_free_mode':True,'reduced_motion_manual_steps':True,'refresh_reset':True,'single_scroll':[1440,900,390],'errors':errors}),flush=True)
+        print(json.dumps({'status':'passed','public':args.public,'missions':16,'locked_until_complete':True,'hints_wrong_retry_revisit':True,'independent_free_mode':True,'reduced_motion_manual_steps':True,'refresh_resume':True,'single_scroll':[1440,900,390],'errors':errors}),flush=True)
     except Exception:
         page.screenshot(path=str(OUT/f'{prefix}-failure.png'));print(json.dumps({'errors':errors}),flush=True);raise
     finally:ctx.close();browser.close()

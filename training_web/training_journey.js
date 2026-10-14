@@ -24,7 +24,7 @@
  knowledge.remove();workspace.append(overview);stageNodes.get('recognize').append(workspace);
  model.querySelector('.eyebrow').textContent='外观与内部结构';
  stageNodes.get('circuit').append(document.getElementById('subtype-application'),document.getElementById('circuit-card'));
- stageNodes.get('game').append(document.getElementById('nightlight-card'),document.getElementById('games-card'));
+ stageNodes.get('game').append(document.getElementById('games-card'));
  stageNodes.get('specs').append(knowledge,app.querySelector('.practice-card'),app.querySelector('.takeaways'));
  app.querySelector('.practice-card .eyebrow').textContent='型号与选型练习';
  const review=make('section',null,'quiz-card'),quizTabs=make('div',null,'tabs');quizTabs.setAttribute('role','tablist');quizTabs.setAttribute('aria-label','小测验');quizTabs.append(quizTab);review.append(quizTabs,quiz);quiz.hidden=false;quizTab.tabIndex=0;quizTab.setAttribute('aria-selected','true');stageNodes.get('review').append(review);

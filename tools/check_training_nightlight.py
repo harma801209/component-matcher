@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 parser = argparse.ArgumentParser()
 parser.add_argument('--public', action='store_true')
 args = parser.parse_args()
-OUT = Path(__file__).resolve().parents[2] / 'ocr-diagnostic-20261014/training-nightlight'
+OUT = Path(__file__).resolve().parents[2] / 'ocr-diagnostic-20261014/training-progression'
 OUT.mkdir(parents=True, exist_ok=True)
 prefix = 'formal' if args.public else 'local'
 
@@ -60,7 +60,53 @@ with sync_playwright() as p:
             f.locator('.nightlight-stage').screenshot(path=str(OUT / f'{prefix}-{label}-{n}.png'))
             f.locator('.nightlight-head').evaluate('e=>e.scrollIntoView({block:"start"})')
             page.screenshot(path=str(OUT / f'{prefix}-{label}-{n}-viewport.png'))
-        press('#nightlight-card>summary')
+        press('#games-card>summary')
+        assert f.locator('#nightlight-card').count() == 0
+        assert f.locator('#game-projects').is_disabled()
+        assert f.evaluate('TrainingNightlight.open()') is None
+        assert f.evaluate('TrainingGameEntry.showProject()') is False
+        f.locator('#game-progression').screenshot(path=str(OUT / f'{prefix}-{label}-00-locked.png'))
+        # Free experiments are not prerequisite completion.
+        press('[data-play-mode="free"]')
+        press('[data-play-choice="1000"]')
+        assert f.evaluate('TrainingGameProgress.get("res-thick").cleared') == 0
+        press('[data-play-mode="challenge"]')
+        press('#playground-action')
+        assert f.evaluate('TrainingGameProgress.get("res-thick").cleared') == 1
+        f = load()
+        assert f.evaluate('TrainingPlayground.current().snapshot().progress.index') == 1
+        assert f.locator('#game-projects').is_disabled()
+        press('#games-card>summary')
+        for count, value in [(2,100),(3,330),(4,1000)]:
+            press(f'[data-play-choice="{value}"]')
+            assert f.evaluate('TrainingGameProgress.get("res-thick").cleared') == count
+            if count < 4: press('#playground-next')
+        assert '继续学' in f.locator('#playground-next').inner_text()
+        assert f.locator('#game-projects').is_disabled()
+        press('#playground-next')
+        assert f.evaluate('TrainingCatalogUI.current().id') == 'dio-schottky'
+        for id in ['dio-schottky','cap-aluminum','mos-n']:
+            assert f.evaluate('TrainingCatalogUI.current().id') == id
+            for index in range(3):
+                winner=f.evaluate('''({id,index})=>{const m=TrainingSubtypeGameMath,d=m.profile(id),l=m.level(id,index),b=TrainingBeginner,allowed=b.supported(id)?b.fields(id,index):d.fields.map(f=>f.key);let choices=[{params:{...l.setup},indices:{}}];for(const field of d.fields.filter(f=>allowed.includes(f.key)))choices=choices.flatMap(o=>field.options.map(([v],i)=>({params:{...o.params,[field.key]:v},indices:{...o.indices,[field.key]:i}})));return choices.find(o=>l.check(o.params,m.evaluate(id,o.params).values)).indices;}''',{'id':id,'index':index})
+                for field, option in winner.items():
+                    press(f'[data-subgame-field="{field}"][data-subgame-option="{option}"]')
+                assert f.evaluate('(id)=>TrainingGameProgress.get(id).cleared',id) == index
+                press('#subgame-action')
+                if f.evaluate('TrainingSubtypeGame.current().snapshot().playing'):
+                    press('#subgame-pause')
+                for _ in range(2):
+                    if f.locator('#subgame-action').is_visible():press('#subgame-action')
+                assert f.evaluate('(id)=>TrainingGameProgress.get(id).cleared',id) == index+1
+                assert f.locator('#game-projects').is_disabled() == (id!='mos-n' or index!=2)
+                if index < 2: press('#subgame-next')
+            if id != 'mos-n':press('#subgame-next')
+        assert f.evaluate('TrainingGameProgress.eligible("nightlight")')
+        assert '挑战综合电路' in f.locator('#subgame-next').inner_text()
+        f.locator('#game-progression').screenshot(path=str(OUT / f'{prefix}-{label}-00-unlocked.png'))
+        press('#subgame-next')
+        assert f.locator('#game-body').is_hidden()
+        assert f.locator('#nightlight-pane').is_visible()
         f.wait_for_function('document.getElementById("nightlight-canvas").dataset.textureLoaded === "true"')
         assert state()['state']['cleared'] == 0 and not state()['playing']
         assert f.locator('#nightlight-action').is_disabled()
@@ -99,8 +145,9 @@ with sync_playwright() as p:
         capture('03-protection')
         # Progress survives a full reload; no API or account storage writes.
         f = load()
-        assert '继续制作' in f.locator('#nightlight-count').inner_text()
-        press('#nightlight-card>summary')
+        assert f.evaluate('TrainingGameProgress.eligible("nightlight")')
+        press('#games-card>summary')
+        press('#game-projects')
         passed(3)
         assert state()['state']['index'] == 3
         choice('capacitance', '0.00047')
@@ -143,14 +190,16 @@ with sync_playwright() as p:
         passed(5)
         capture('05-product')
         assert f.locator('.nightlight-trophy').is_visible()
-        assert not f.locator('#games-card').evaluate('e=>e.open')
+        assert f.locator('#games-card').evaluate('e=>e.open')
+        assert f.locator('#game-body').is_hidden()
         for c in state()['scene']['contacts']:
             assert all(p['gap'] < 1e-5 for p in c['seating']), c
         page.once('dialog', lambda d: d.dismiss())
         press('#nightlight-restart')
         passed(5)
         f = load()
-        press('#nightlight-card>summary')
+        press('#games-card>summary')
+        press('#game-projects')
         passed(5)
         assert state()['state']['mos'] and state()['state']['gate']
         press('#nightlight-action')
@@ -162,8 +211,9 @@ with sync_playwright() as p:
         assert dimensions['frame'] == 'no'
         press('#nightlight-practice')
         assert f.locator('#games-card').evaluate('e=>e.open')
-        assert not f.locator('#nightlight-card').evaluate('e=>e.open')
-        assert f.locator('#playground-action').is_visible()
+        assert f.locator('#nightlight-pane').is_hidden()
+        assert f.locator('#game-body').is_visible()
+        assert f.locator('#playground-next').is_visible()
         assert not errors, errors
         print(json.dumps({'device':label,'status':'passed','chapter':5,'errors':errors,'dimensions':dimensions}, ensure_ascii=False), flush=True)
         ctx.close()
@@ -182,12 +232,13 @@ const get=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.get
         if f and f.evaluate('typeof TrainingNightlight!=="undefined"'):break
         page.wait_for_timeout(250)
     assert f
-    for selector in ['#nightlight-card>summary','[data-nightlight-field="resistance"][data-nightlight-value="330"]','#nightlight-action']:
+    for selector in ['#games-card>summary','#playground-action']:
         n=f.locator(selector);n.focus();n.press('Enter');page.wait_for_timeout(150)
-    fallback=f.evaluate('TrainingNightlight.current().snapshot()')
-    assert fallback['state']['cleared']==1 and not fallback['storageOK']
-    assert f.locator('.nightlight-fallback').is_visible()
-    assert '无法保存' in f.locator('.nightlight-footer').inner_text()
+    assert f.evaluate('TrainingGameProgress.get("res-thick").cleared')==1
+    assert not f.evaluate('TrainingGameProgress.storageOK()')
+    assert f.locator('.play-fallback').is_visible()
+    assert '无法保存' in f.locator('.game-progress-note').inner_text()
+    assert f.locator('#game-projects').is_disabled()
     print(json.dumps({'capability':'no-webgl-and-no-storage','status':'passed'}),flush=True)
     ctx.close()
     browser.close()

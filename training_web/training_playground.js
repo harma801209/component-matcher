@@ -2,7 +2,7 @@
 (function(){
  'use strict';const M=window.TrainingPlaygroundMath,L=window.TrainingPlaygroundLevels,node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
  const sessions=Object.fromEntries(M.courses.map(c=>[c,{value:M.lesson(c).initial,power:true,reverse:false,near:true}]));
- const campaigns=Object.fromEntries(M.courses.map(c=>[c,{progress:L.create(c),params:{...L.level(c,0).setup},elapsed:0}])),modes=Object.fromEntries(M.courses.map(c=>[c,'challenge']));
+ const campaigns=Object.fromEntries(M.courses.map(c=>[c,window.TrainingGameProgress.restoreBaseline(c)])),modes=Object.fromEntries(M.courses.map(c=>[c,'challenge']));
  const B=window.TrainingBeginner;
  let active=null;const icons=()=>window.TrainingPlaygroundAssets?.icons||{};
  function mount(out,course,onInteract){
@@ -31,6 +31,7 @@
   const pause=button('暂停动画','pause',()=>{playing=!playing;last=0;updatePause();refresh();});pause.id='playground-pause';
   const slow=node('button','慢放 1×');slow.type='button';slow.id='playground-speed';slow.addEventListener('click',()=>{speed=speed===1?.35:1;slow.textContent=speed===1?'慢放 1×':'慢放 0.35×';});controls.append(slow);
   const reset=button('恢复原状','arrow-path',()=>{Object.assign(p,mode==='challenge'?L.level(course,campaign.progress.index).setup:{value:d.initial,power:true,reverse:false,near:true});if(mode==='challenge')campaign.progress=L.attempt(campaign.progress);elapsed=0;interacted=false;hintDepth=0;hintText.hidden=true;help.setAttribute('aria-expanded','false');view?.restore();refresh(true);});reset.id='playground-reset';
+  const retry=node('button','再练一遍');retry.type='button';retry.id='playground-retry-chapter';retry.hidden=true;retry.addEventListener('click',()=>{campaign.progress=L.create(course);goLevel(0);});controls.append(retry);
   const power=node('button',course==='inductor'?'停止例题':'关闭电源');power.type='button';power.id='playground-power';power.addEventListener('click',()=>{p.power=!p.power;if(p.power){elapsed=0;startPlayback();}markInteraction('power');refresh(true);});controls.append(power);
   power.className='play-secondary';power.title='电源开关';
   let trigger;if(course==='capacitor'||course==='inductor'){trigger=node('button',course==='capacitor'?'模拟突然用电':'重播电流上升');trigger.type='button';trigger.id='playground-trigger';trigger.addEventListener('click',()=>{elapsed=course==='capacitor'?3:0;p.power=true;startPlayback();markInteraction('trigger');refresh(true);});controls.append(trigger);const step=node('button','观察下一阶段');step.type='button';step.id='playground-step';step.addEventListener('click',()=>{playing=false;updatePause();elapsed=Math.min(course==='capacitor'?9:3,elapsed+1.5);markInteraction('step');refresh(true);});controls.append(step);}
@@ -61,7 +62,7 @@
   }
   function goLevel(i){const previous=campaign.progress,visited=L.visit(previous,i);if(visited===previous)return false;campaign.progress=visited;Object.assign(campaign.params,L.level(course,i).setup);elapsed=0;campaign.elapsed=0;interacted=false;hintDepth=0;hintText.hidden=true;help.setAttribute('aria-expanded','false');view?.restore();refresh(true);mission.scrollIntoView({block:'start'});return true;}
   function changeMode(key){if(!['free','challenge'].includes(key)||key===mode)return;if(mode==='challenge')campaign.elapsed=elapsed;mode=key;modes[course]=key;p=mode==='challenge'?campaign.params:sessions[course];elapsed=mode==='challenge'?campaign.elapsed:0;interacted=false;hintDepth=0;hintText.hidden=true;help.setAttribute('aria-expanded','false');playing=!motion.matches;updatePause();refresh(true);}
-  next.addEventListener('click',()=>{if(mode==='free'){nextChoice();return;}const s=campaign.progress;if(!s.cleared.includes(s.index))return;if(s.index===3){campaign.progress=L.create(course);goLevel(0);}else goLevel(s.index+1);});
+  next.addEventListener('click',()=>{if(mode==='free'){nextChoice();return;}const s=campaign.progress;if(!s.cleared.includes(s.index))return;if(s.index===3){if(course==='resistor'&&window.TrainingGameEntry.continueLearning('res-thick'))return;campaign.progress=L.create(course);goLevel(0);}else goLevel(s.index+1);});
   for(const [value,label] of d.choices){const b=node('button',undefined,'play-choice');b.type='button';b.dataset.playChoice=String(value);b.draggable=true;const image=node('canvas');image.width=170;image.height=95;image.className='play-part-preview';image.setAttribute('aria-hidden','true');b.append(image,node('strong',label));b.addEventListener('click',()=>set(value));b.addEventListener('dragstart',e=>{e.dataTransfer.setData('application/x-fruition-play-choice',JSON.stringify({course,value}));e.dataTransfer.effectAllowed='copy';});choiceGroup.append(b);}
   // DOM drag never accepts files or arbitrary HTML; keyboard/click offer the same action.
   viewport.addEventListener('dragover',e=>{if([...e.dataTransfer.types].includes('application/x-fruition-play-choice')){e.preventDefault();e.dataTransfer.dropEffect='copy';viewport.classList.add('drop-ready');}});viewport.addEventListener('dragleave',()=>viewport.classList.remove('drop-ready'));
@@ -75,15 +76,16 @@
    power.setAttribute('aria-pressed',String(p.power));goal.hidden=mode==='free';outcome.hidden=mode==='free';text.hidden=mode==='challenge';detail.hidden=mode==='challenge';help.hidden=mode==='free';hintText.hidden=mode==='free'||help.getAttribute('aria-expanded')!=='true';
    tray.hidden=mode==='challenge'&&course==='resistor'&&campaign.progress.index===0;next.hidden=false;action.hidden=false;
    next.disabled=false;next.textContent='再换一个试试';if(mode==='challenge'){
-    campaign.elapsed=elapsed;const before=campaign.progress.cleared.length;campaign.progress=L.record(campaign.progress,p,phase());const s=campaign.progress,l=L.level(course,s.index),done=s.cleared.includes(s.index);root.dataset.level=String(s.index);root.dataset.cleared=String(s.cleared.length);
+    campaign.elapsed=elapsed;const before=campaign.progress.cleared.length;campaign.progress=L.record(campaign.progress,p,phase());const s=campaign.progress,l=L.level(course,s.index),done=s.cleared.includes(s.index);window.TrainingGameProgress.recordBaseline(course,s,p,phase());root.dataset.level=String(s.index);root.dataset.cleared=String(s.cleared.length);
     if(before<4&&s.cleared.length===4)onInteract?.();missionTitle.textContent='第 '+(s.index+1)+' / 4 关 · '+l.title;count.textContent='已通过 '+s.cleared.length+' / 4';goal.textContent=l.goal;hintText.textContent=beginner&&hintDepth===1?B.hint(course,s.index)+' 再点一次“提示”看操作建议。':l.hint;
     const message=done?(s.cleared.length===4?'全部通关！你已完成这类器件的4个任务。':'这关通过了，下一关已解锁。'):s.interacted?L.judge(s,p,phase()).feedback:'动手完成上面的目标；可以多试几次，不扣分。';if(outcome.textContent!==message)outcome.textContent=message;outcome.dataset.done=String(done);
     for(const b of levelNav.children){const i=Number(b.dataset.playLevel);b.disabled=i>Math.min(s.cleared.length,3);b.setAttribute('aria-current',i===s.index?'step':'false');b.dataset.done=String(s.cleared.includes(i));b.title=b.disabled?'完成前一关后解锁':L.level(course,i).title;}
     headline.textContent=done?(beginner?'本关观察完成':'你刚刚学会了'):'这关怎么玩';if(done){text.hidden=false;text.textContent=l.learned;help.hidden=true;hintText.hidden=true;}outcome.hidden=!s.interacted;goal.hidden=done;
-    next.disabled=!done;next.textContent=done?(s.index===3?'全部通关 · 再玩一次':'下一关'):'完成目标，解锁下一关';
+    next.disabled=!done;next.textContent=done?(s.index===3?(course==='resistor'?window.TrainingGameProgress.nextLabel('res-thick'):null)||'全部通关 · 再玩一次':'下一关'):'完成目标，解锁下一关';
     next.hidden=!done;action.hidden=done;
    }
    const move=guidance();actionTarget=move.id;action.dataset.target=move.id;action.textContent=move.label;if(move.id==='choices')action.hidden=true;next.className=mode==='challenge'?'play-primary':'play-secondary';const nextText=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index)?(campaign.progress.index===3?'本器件章节已完成。可以重玩，也可以选择其他器件继续学习。':'这关通过了！点“下一关”继续。'):move.text,paused=p.power&&!playing?'动画已暂停，点 ▶ 继续动画；也可逐步观察。 ':'';if(instruction.textContent!==paused+nextText)instruction.textContent=paused+nextText;
+   retry.hidden=mode!=='challenge'||course!=='resistor'||campaign.progress.index!==3||campaign.progress.cleared.length!==4;
    power.hidden=!p.power;
    for(const id of ['trigger','step','near','reverse']){const b=root.querySelector('#playground-'+id);if(b)b.hidden=!action.hidden&&move.id===id;}
    if(beginner&&mode==='challenge'&&course==='capacitor'){tray.hidden=campaign.progress.index!==1;root.querySelector('#playground-near').hidden=campaign.progress.index!==2||(!action.hidden&&move.id==='near');}
@@ -98,7 +100,7 @@
   for(const b of choiceGroup.querySelectorAll('[data-play-choice]')){const value=d.choices.find(o=>String(o[0])===b.dataset.playChoice)[0];try{window.TrainingPlaygroundScene.thumbnail(course,value,b.querySelector('canvas'));}catch(_){b.querySelector('canvas').hidden=true;}}
   const layout=window.TrainingPlaygroundLayout.mount(root);updatePause();refresh();view?.resize();
   const visibility=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});visibility.observe(canvas);
-  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open){const step=playing?dt*speed:0;if(p.power&&step&&(mode==='free'||campaign.progress.started)){if(course==='capacitor'){elapsed=Math.min(9,elapsed+step);}if(course==='inductor')elapsed=Math.min(3,elapsed+step);}if(now-lastPaint>80){refresh();lastPaint=now;}view?.draw(step);}frameID=requestAnimationFrame(loop);}
+  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open&&!root.closest('[data-game-pane]')?.hidden){const step=playing?dt*speed:0;if(p.power&&step&&(mode==='free'||campaign.progress.started)){if(course==='capacitor'){elapsed=Math.min(9,elapsed+step);}if(course==='inductor')elapsed=Math.min(3,elapsed+step);}if(now-lastPaint>80){refresh();lastPaint=now;}view?.draw(step);}frameID=requestAnimationFrame(loop);}
   frameID=requestAnimationFrame(loop);
   const api={course,set,snapshot:()=>({params:{...p},phase:phase(),result:M.evaluate(course,p,phase()),playing,speed,mode,progress:{...campaign.progress,cleared:[...campaign.progress.cleared]},scene:view?.snapshot()}),dispose:()=>{if(mode==='challenge')campaign.elapsed=elapsed;disposed=true;cancelAnimationFrame(frameID);visibility.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
  }

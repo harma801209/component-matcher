@@ -2,7 +2,7 @@
 (function(){
  'use strict';const M=window.TrainingNightlightMath;
  const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n;};
- const card=document.getElementById('nightlight-card');let mounted=null;
+ const card=document.getElementById('games-card'),pane=document.getElementById('nightlight-pane');let mounted=null;
  function mount(root){
   let saved=null,storageOK=true;try{saved=JSON.parse(localStorage.getItem(M.key)||'null');}catch(_){storageOK=false;}
   let s=M.restore(saved),view=null,playing=false,visible=true,disposed=false,last=0,frame=0,notice='',hintOpen=false;
@@ -34,7 +34,7 @@
   pause.addEventListener('click',()=>{playing=!playing;last=0;render();});step.addEventListener('click',()=>{playing=false;dispatch('tick',.5);});reset.addEventListener('click',()=>dispatch('reset'));
   hint.addEventListener('click',()=>{hintOpen=!hintOpen;render();});
   restart.addEventListener('click',()=>{if(!window.confirm('重新制作会清除这台浏览器的小夜灯章节进度，其他培训记录不受影响。继续吗？'))return;s=M.setup(0);playing=false;hintOpen=false;persist();render();});
-  practice.addEventListener('click',()=>{card.open=false;document.getElementById('games-card').open=true;document.getElementById('games-card').scrollIntoView({block:'start'});document.getElementById('games-card').querySelector('summary').focus({preventScroll:true});});
+  practice.textContent='返回器件关卡';practice.addEventListener('click',()=>{window.TrainingGameEntry.showLessons();card.scrollIntoView({block:'start'});document.getElementById('game-lessons').focus({preventScroll:true});});
   function pick(name){if(name==='button')return dispatch('primary');const values=name==='resistance'?M.resistors:name==='capacitance'?M.capacitors:name==='diode'?['none','forward','backward']:[];if(name==='mos')return dispatch('mos');if(values.length)dispatch(name,values[(values.indexOf(s[name])+1)%values.length]);}
   viewport.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('application/x-fruition-nightlight'))e.preventDefault();});viewport.addEventListener('drop',e=>{e.preventDefault();try{const d=JSON.parse(e.dataTransfer.getData('application/x-fruition-nightlight'));if(d.index!==s.index)return;dispatch(d.field,d.value);}catch(_){notice='请选择本关提供的器件。';render();}});
   let optionKey='';
@@ -67,18 +67,15 @@
    storage.textContent=storageOK?'进度保存在当前浏览器，不与会员账号同步。':'当前浏览器无法保存进度；本次仍可完成，刷新后需重新制作。';
    root.dataset.level=String(s.index);root.dataset.cleared=String(s.cleared);root.dataset.playing=String(playing);view?.update(s,r);summaryCount();
   }
-  function summaryCount(){document.getElementById('nightlight-count').textContent=s.cleared===5?'作品已完成 · 可以继续体验':'5项功能 · 已做成'+s.cleared+'项';}
+  function summaryCount(){window.dispatchEvent(new CustomEvent('training-nightlight-progress'));}
   try{view=window.TrainingNightlightScene.create(canvas,pick);}catch(_){canvas.hidden=true;viewport.append(node('p','当前浏览器无法显示3D；仍可用下面的器件和按钮制作，实时结果会显示在操作区。','nightlight-fallback'));}
   const lost=()=>{playing=false;notice='3D显示暂时中断；仍可用按钮观察数值，动画已暂停。';render();};canvas.addEventListener('nightlight-context-lost',lost);
   const restored=()=>{notice='3D已恢复，点击继续动画即可。';render();};canvas.addEventListener('webglcontextrestored',restored);
   const motionChanged=()=>{if(motion.matches){playing=false;render();}};motion.addEventListener('change',motionChanged);
   const observer=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});observer.observe(viewport);
-  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&card.open&&!document.hidden&&playing){if(s.running){s=M.action(s,'tick',dt);if(!s.running){playing=false;persist();}render();}view?.draw(dt);}frame=requestAnimationFrame(loop);}
+  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&card.open&&!pane.hidden&&!document.hidden&&playing){if(s.running){s=M.action(s,'tick',dt);if(!s.running){playing=false;persist();}render();}view?.draw(dt);}frame=requestAnimationFrame(loop);}
   render();view?.resize();frame=requestAnimationFrame(loop);
   return {snapshot:()=>({state:{...s},result:M.result(s),playing,storageOK,scene:view?.snapshot()}),dispose:()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);view?.dispose();}};
  }
- card.addEventListener('toggle',()=>{if(card.open){document.getElementById('games-card').open=false;if(!mounted)mounted=mount(document.getElementById('nightlight-body'));}});
- document.getElementById('games-card').addEventListener('toggle',e=>{if(e.target.open)card.open=false;});
- try{const r=M.validateRecord(JSON.parse(localStorage.getItem(M.key)||'null'));if(r.cleared)document.getElementById('nightlight-count').textContent=r.cleared===5?'作品已完成 · 可以继续体验':'继续制作 · 已做成'+r.cleared+'项';}catch(_){}
- window.TrainingNightlight=Object.freeze({current:()=>mounted});
+ window.TrainingNightlight=Object.freeze({current:()=>mounted,open:()=>{if(!window.TrainingGameProgress.eligible('nightlight'))return null;if(!mounted)mounted=mount(document.getElementById('nightlight-body'));return mounted;}});
 })();

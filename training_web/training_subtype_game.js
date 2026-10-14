@@ -4,7 +4,7 @@
  const B=window.TrainingBeginner;
  const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
  function mount(host,id){
-  const d=M.profile(id),chapter=C.lesson(id);sessions[id]??={challenge:M.create(id),free:M.create(id),mode:'challenge'};
+  const d=M.profile(id),chapter=C.lesson(id);sessions[id]??={challenge:window.TrainingGameProgress.restoreSubtype(id),free:M.create(id),mode:'challenge'};
   const session=sessions[id];let mode=session.mode,s=session[mode],view=null,disposed=false,visible=false,playing=!matchMedia('(prefers-reduced-motion:reduce)').matches,speed=1,last=0,paint=0,frame=0,failed=false,lastStatus='',drag=null;
   const motion=matchMedia('(prefers-reduced-motion:reduce)'),beginner=B.supported(id);let hintDepth=0;
   const root=node('div',undefined,'playground subtype-game');root.id='subgame-root';root.dataset.subtypeGame=id;if(beginner)root.classList.add('play-beginner');host.replaceChildren(root);
@@ -34,8 +34,9 @@
   const row=node('div',undefined,'play-action-row'),instruction=node('p',undefined,'play-instruction'),action=node('button','开始观察','play-primary'),next=node('button','下一关','play-primary'),help=node('button','提示'),hint=node('p',undefined,'play-mission-hint');instruction.id='subgame-instruction';instruction.setAttribute('aria-live','polite');action.type=next.type=help.type='button';action.id='subgame-action';next.id='subgame-next';help.id='subgame-help';hint.id='subgame-hint';hint.hidden=true;help.setAttribute('aria-expanded','false');help.setAttribute('aria-controls',hint.id);row.append(action,next,help);story.append(instruction,row,hint);
   help.addEventListener('click',()=>{if(beginner){hintDepth=(hintDepth+1)%3;hint.hidden=hintDepth===0;}else hint.hidden=!hint.hidden;help.setAttribute('aria-expanded',String(!hint.hidden));if(beginner)refresh();});
   action.addEventListener('click',()=>{if(!s.started)power.click();else if(s.observed>=1.2){s=M.start(s);startPlayback();session[mode]=s;refresh(true);}else{playing=false;updatePause();s=M.observe(s,.6);session[mode]=s;refresh(true);}});
-  next.addEventListener('click',()=>{if(!s.cleared.includes(s.index))return;if(s.index===2){s=M.create(id);session.challenge=s;refresh();}else visit(s.index+1);});
+  next.addEventListener('click',()=>{if(!s.cleared.includes(s.index))return;if(s.index===2){if(window.TrainingGameEntry.continueLearning(id))return;s=M.create(id);session.challenge=s;refresh();}else visit(s.index+1);});
   const controls=node('div',undefined,'play-controls'),pause=node('button'),slow=node('button','慢放 1×'),reset=node('button');pause.type=slow.type=reset.type='button';pause.id='subgame-pause';slow.id='subgame-speed';reset.id='subgame-reset';pause.className=reset.className='play-icon';
+  const retry=node('button','再练一遍');retry.type='button';retry.id='subgame-retry-chapter';retry.hidden=true;retry.addEventListener('click',()=>{s=M.create(id);session.challenge=s;refresh();});controls.append(retry);
   reset.setAttribute('aria-label','恢复当前关卡与视角');reset.title='恢复当前关卡与视角';reset.innerHTML=window.TrainingPlaygroundAssets.icons['arrow-path'];
   pause.addEventListener('click',()=>{playing=!playing;last=0;updatePause();refresh();});slow.addEventListener('click',()=>{speed=speed===1?.35:1;slow.textContent=speed===1?'慢放 1×':'慢放 0.35×';});reset.addEventListener('click',()=>{s=M.visit(s,s.index);session[mode]=s;hintDepth=0;view?.restore();hint.hidden=true;help.setAttribute('aria-expanded','false');refresh();});controls.append(pause,slow,reset,power);story.append(controls,node('h5','观察结果','play-result-title'),feedback,metrics,why);
   const status=node('p',undefined,'play-live sr-only');status.id='subgame-status';status.setAttribute('aria-live','polite');story.append(status);
@@ -51,7 +52,7 @@
   function cycle(){const f=beginner&&mode==='challenge'?d.fields.find(f=>B.fields(id,s.index).includes(f.key)):d.fields[0],i=f.options.findIndex(o=>o[0]===s.params[f.key]);choose(f.key,f.options[(i+1)%f.options.length][0]);}
   function visit(i){const next=M.visit(s,i);if(next===s)return;s=next;session[mode]=s;hintDepth=0;hint.hidden=true;help.setAttribute('aria-expanded','false');view?.restore();refresh();mission.scrollIntoView({block:'start'});}
   function refresh(announce=false){
-   if(disposed)return;const l=M.level(id,s.index),done=mode==='challenge'&&s.cleared.includes(s.index),r=M.evaluate(id,s.params,Math.min(1,s.observed));
+   if(disposed)return;const l=M.level(id,s.index),done=mode==='challenge'&&s.cleared.includes(s.index),r=M.evaluate(id,s.params,Math.min(1,s.observed));if(mode==='challenge')window.TrainingGameProgress.recordSubtype(s);
    root.dataset.mode=mode;root.dataset.level=String(s.index);root.dataset.cleared=String(s.cleared.length);root.dataset.started=String(s.started);root.dataset.playing=String(playing);mission.hidden=mode==='free';
    for(const b of modeBar.children)b.setAttribute('aria-pressed',String(b.dataset.subgameMode===mode));missionTitle.textContent='第 '+(s.index+1)+' / 3 关 · '+l.title;count.textContent='已通过 '+s.cleared.length+' / 3';
    for(const b of nav.children){const i=Number(b.dataset.subgameLevel);b.disabled=i>Math.min(s.cleared.length,2);b.setAttribute('aria-current',i===s.index?'step':'false');b.dataset.done=String(s.cleared.includes(i));}
@@ -60,7 +61,7 @@
    metrics.replaceChildren(...r.metrics.map(([label,value])=>{const card=node('div');card.append(node('small',label+(s.started?'':' · 条件试算')),node('strong',value));return card;}));reason.textContent=r.story;
    hudLabel.textContent=s.started?r.metrics[0][0]:'观察状态';hudValue.textContent=s.started?r.metrics[0][1]:'未开始';
    power.hidden=!s.started;power.setAttribute('aria-pressed',String(s.started));
-   next.hidden=!done;next.disabled=!done;next.textContent=s.index===2?'全部通关 · 再玩一次':'下一关';action.hidden=done;action.textContent=s.started?(s.observed>=1.2?'重新观察':'继续观察一步'):'开始观察';help.hidden=mode==='free'||done;if(help.hidden)hint.hidden=true;hint.textContent=beginner&&hintDepth===1?B.hint(id,s.index)+' 再点一次“提示”看操作建议。':l.hint;
+   next.hidden=!done;next.disabled=!done;next.textContent=s.index===2?window.TrainingGameProgress.nextLabel(id)||'全部通关 · 再玩一次':'下一关';retry.hidden=mode!=='challenge'||s.index!==2||s.cleared.length!==3||!window.TrainingGameProgress.nextLabel(id);action.hidden=done;action.textContent=s.started?(s.observed>=1.2?'重新观察':'继续观察一步'):'开始观察';help.hidden=mode==='free'||done;if(help.hidden)hint.hidden=true;hint.textContent=beginner&&hintDepth===1?B.hint(id,s.index)+' 再点一次“提示”看操作建议。':l.hint;
    const paused=s.started&&!playing?'动画已暂停，点 ▶ 继续动画；也可逐步观察。 ':'';instruction.textContent=paused+(done?'完成了！可以继续下一关。':!s.started?'选好条件，点“开始观察”。改变条件后需重新开始。':'看动画，或点“继续观察一步”手动推进。');
    for(const b of fields.querySelectorAll('button')){const f=d.fields.find(f=>f.key===b.dataset.subgameField);b.setAttribute('aria-pressed',String(s.params[f.key]===f.options[Number(b.dataset.subgameOption)][0]));}
    if(beginner)for(const group of fields.children)group.hidden=mode==='challenge'&&!B.fields(id,s.index).includes(group.dataset.beginnerField);
@@ -70,7 +71,7 @@
   canvas.addEventListener('subgame-context-lost',()=>{failed=true;playing=false;updatePause();refresh();});canvas.addEventListener('subgame-context-restored',()=>{failed=false;status.textContent='3D已恢复，可点击继续动画。';refresh();});
   const motionChanged=()=>{if(motion.matches){playing=false;updatePause();refresh();}};motion.addEventListener('change',motionChanged);
   const layout=window.TrainingPlaygroundLayout.mount(root);updatePause();refresh();view?.resize();const observer=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});observer.observe(viewport);
-  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open){const advance=playing?dt*speed:0;if(s.started&&advance){s=M.observe(s,advance);session[mode]=s;}if(now-paint>90){refresh();paint=now;}view?.draw(id==='cap-tantalum'&&s.observed>=1.2?0:advance);}frame=requestAnimationFrame(loop);}
+  function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open&&!root.closest('[data-game-pane]')?.hidden){const advance=playing?dt*speed:0;if(s.started&&advance){s=M.observe(s,advance);session[mode]=s;}if(now-paint>90){refresh();paint=now;}view?.draw(id==='cap-tantalum'&&s.observed>=1.2?0:advance);}frame=requestAnimationFrame(loop);}
   frame=requestAnimationFrame(loop);
   const api={id,snapshot:()=>({id,mode,progress:{...s,params:{...s.params},cleared:[...s.cleared]},result:M.evaluate(id,s.params,Math.min(1,s.observed)),playing,speed,scene:view?.snapshot()}),dispose:()=>{session[mode]=s;disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
  }

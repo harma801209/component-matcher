@@ -10,6 +10,36 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_learning_progress_requires_all_related_chapters_and_survives_reload(self):
+        script=r'''
+const a=require('node:assert/strict'),path=require('node:path'),p=require(process.argv[1]),base=path.dirname(process.argv[1]),l=require(path.join(base,'training_playground_levels.js')),s=require(path.join(base,'training_subtype_game_math.js'));
+const data=new Map(),storage={getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)};
+let g=p.createStore(storage);a(!g.eligible());a.equal(g.get('res-thick').cleared,0);
+let progress=l.create('resistor');for(let i=0;i<4;i++){let params={...l.level('resistor',i).setup,value:[330,100,330,1000][i],power:true};progress=l.action(progress,i===0?'power':'change');progress=l.record(progress,params,0);a.equal(progress.cleared.length,i+1);a.equal(g.recordBaseline('resistor',progress,params,0,'free'),false);a(g.recordBaseline('resistor',progress,params,0));if(i===0){g=p.createStore(storage);a.equal(g.restoreBaseline('resistor').progress.index,1);a.equal(g.restoreBaseline('resistor').progress.interacted,false);}if(i<3)progress=l.visit(progress,i+1);}
+a(!g.eligible());a.equal(g.restoreBaseline('resistor').params.value,1000);a.equal(g.restoreBaseline('resistor').progress.cleared.length,4);
+for(const [position,id] of ['dio-schottky','cap-aluminum','mos-n'].entries()){
+ let state=s.create(id);for(let index=0;index<3;index++){
+  const d=s.profile(id),mission=s.level(id,index);let combos=[{...mission.setup}];for(const field of d.fields)combos=combos.flatMap(o=>field.options.map(([v])=>({...o,[field.key]:v})));
+  const win=combos.find(o=>mission.check(o,s.evaluate(id,o).values));a(win);for(const [k,v] of Object.entries(win))state=s.change(state,k,v);
+  a.equal(g.recordSubtype(state),false);state=s.start(state);state=s.observe(state,.6);a.equal(g.recordSubtype(state),false);state=s.observe(state,.6);
+  a.equal(g.recordSubtype(state,'free'),false);a(g.recordSubtype(state));a.equal(g.get(id).cleared,index+1);
+  a.equal(g.eligible(),position===2&&index===2);if(index<2)state=s.visit(state,index+1);
+ }
+}
+const saved=g.snapshot();g=p.createStore(storage);a(g.eligible());a.equal(g.restoreSubtype('mos-n').cleared.length,3);a(s.judge(g.restoreSubtype('mos-n')).passed);
+a(!g.eligible('unknown'));a(!g.eligible('__proto__'));
+for(const id of p.requirements){const bad=JSON.parse(JSON.stringify(saved));delete bad.lessons[id];a(!p.eligible(p.validate(bad)));}
+const bad=JSON.parse(JSON.stringify(saved));bad.lessons['mos-n'].review.observed=0;a(!p.eligible(p.validate(bad)));
+const half=JSON.parse(JSON.stringify(saved));half.lessons['mos-n'].cleared=2;a(!p.eligible(p.validate(half)));
+a.equal(Object.keys(p.validate({version:2,lessons:saved.lessons}).lessons).length,0);
+g.merge({version:1,lessons:{}});a(g.eligible());a.equal(g.recordSubtype(s.create('mos-n')),false);a(g.eligible());
+const blocked=p.createStore({getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}});a(!blocked.storageOK());
+for(const [id,e] of Object.entries(saved.lessons)){const raw={version:1,lessons:{[id]:e}};blocked.merge(raw);}a(blocked.eligible());a(!blocked.storageOK());
+data.set(p.key,'{broken json');const recovered=p.createStore(storage);a(recovered.storageOK());const completed=g.restoreSubtype('mos-n');a(recovered.recordSubtype(completed));a.equal(JSON.parse(data.get(p.key)).lessons['mos-n'].cleared,3);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_progress.js')],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_nightlight_product_chapter_physics_progress_and_storage_validation(self):
         script=r'''
 const a=require('node:assert/strict'),m=require(process.argv[1]);
@@ -35,14 +65,16 @@ for(let i=0;i<5;i++)for(const resistance of m.resistors)for(const capacitance of
 
     def test_nightlight_assets_are_integrated_without_server_or_member_writes(self):
         page=build_training_html()
-        self.assertIn('id="nightlight-card"',page)
+        self.assertNotIn('id="nightlight-card"',page)
+        self.assertIn('id="nightlight-pane"',page)
         self.assertIn('window.TrainingNightlight=Object.freeze',page)
         self.assertIn('training.nightlight.v1',page)
         for name in ['training_nightlight_math.js','training_nightlight_scene.js','training_nightlight.js']:
             source=(WEB_ROOT/name).read_text(encoding='utf-8')
             for forbidden in ['fetch(', 'member_auth', 'cost_price', 'sqlite', 'localStorage.clear(']:
                 self.assertNotIn(forbidden,source)
-        self.assertIn('stageNodes.get(\'game\').append(document.getElementById(\'nightlight-card\')', (WEB_ROOT/'training_journey.js').read_text(encoding='utf-8'))
+        self.assertIn('stageNodes.get(\'game\').append(document.getElementById(\'games-card\')', (WEB_ROOT/'training_journey.js').read_text(encoding='utf-8'))
+        self.assertIn("window.TrainingGameProgress.eligible('nightlight')",(WEB_ROOT/'training_nightlight.js').read_text(encoding='utf-8'))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_mobile_layout_moves_same_nodes_and_restores_desktop_without_controls(self):

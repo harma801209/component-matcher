@@ -89,14 +89,14 @@ with sync_playwright() as p:
                     f.locator('.subtype-game .subgame-fields').screenshot(path=str(OUT/f'{prefix}-{id}-choices.png'))
                     f.locator('.subtype-game .play-action-row').screenshot(path=str(OUT/f'{prefix}-{id}-actions.png'))
                 if level<2:press('#subgame-next')
-            assert '全部通关' in f.locator('#subgame-next').inner_text()
+            assert ('全部通关' in f.locator('#subgame-next').inner_text()) or f.locator('#subgame-retry-chapter').is_visible()
             press('[data-subgame-level="0"]');assert len(state()['progress']['cleared'])==3
             press('[data-subgame-level="2"]');assert len(state()['progress']['cleared'])==3
             press('[data-subgame-mode="free"]');cfg=f.evaluate('(id)=>TrainingSubtypeGameMath.profile(id).fields',id)
             current_option=next(i for i,o in enumerate(cfg[0]['options']) if o[0]==state()['progress']['params'][cfg[0]['key']])
             choose(cfg[0]['key'],(current_option+1)%len(cfg[0]['options']))
             assert state()['mode']=='free';press('[data-subgame-mode="challenge"]');assert len(state()['progress']['cleared'])==3
-            press('#subgame-next');assert state()['progress']['cleared']==[] and state()['progress']['index']==0
+            press('#subgame-retry-chapter' if f.locator('#subgame-retry-chapter').is_visible() else '#subgame-next');assert state()['progress']['cleared']==[] and state()['progress']['index']==0
             assert not state()['progress']['started']
         assert total==78
         # Native drag, keyboard rotation and live pause/slow/recompute.
@@ -133,7 +133,7 @@ with sync_playwright() as p:
             f=next((x for x in page.frames if x.locator('#training-app').count()),None)
             if f and f.evaluate('typeof TrainingCatalogUI!=="undefined"'):break
             page.wait_for_timeout(250)
-        press('#games-card>summary');press('button[data-course="resistor"]');press('button[data-subtype="res-thin"]');assert state()['progress']['cleared']==[]
+        press('#games-card>summary');press('button[data-course="resistor"]');press('button[data-subtype="res-thin"]');assert state()['progress']['cleared']==[0,1,2]
         # Honest no-WebGL fallback, still solvable via the same model and controls.
         fallback=browser.new_context(viewport={'width':1440,'height':1024},reduced_motion='reduce')
         try:
