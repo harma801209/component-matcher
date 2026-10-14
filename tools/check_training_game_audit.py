@@ -115,9 +115,12 @@ with sync_playwright() as p:
             if args.phone:
                 page.set_viewport_size({'width':320,'height':640});capture('09-narrow-protection-review','.nightlight-console')
             page.reload(wait_until='domcontentloaded',timeout=90000)
-            f=next((f for f in page.frames if f.locator('#training-app').count()),None)
-            if not f:
-                page.wait_for_timeout(1500);f=next(f for f in page.frames if f.locator('#training-app').count())
+            deadline=time.monotonic()+90
+            while time.monotonic()<deadline:
+                f=next((f for f in page.frames if f.locator('#training-app').count()),None)
+                if f and f.evaluate('typeof TrainingGameProgress!=="undefined"&&typeof TrainingPlayground!=="undefined"&&TrainingPlayground.current()?.snapshot().canReplayCompleted===true'):break
+                page.wait_for_timeout(250)
+            else:raise AssertionError('Training did not finish loading after reload')
             assert f.evaluate('TrainingGameProgress.eligible("nightlight")')
         assert not errors,errors
         result={'status':'passed','before':args.before,'public':args.public,'phone_emulation':args.phone,'fallback':args.fallback,'findings':findings,'errors':errors}
