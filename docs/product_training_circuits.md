@@ -60,6 +60,13 @@ offscreen or hidden, and does not mutate quiz/storage or business data. Course
 changes reset circuit stages/options and stop playback through a separate event.
 Live numerical metrics are not an aria-live spam stream; stage changes are announced.
 
+Source arrows start at the positive terminal using a lesson-local visual clock,
+not the browser's elapsed page time. Pause/resume and PCB/schematic switches keep
+their position; a new stage, reset or replay returns to its own start. Electrical
+readouts and LED feedback still update together immediately, without waiting for
+an arrow to reach the component. Capacitor contributions retain separate visual
+lanes through the same IC and do not simulate conduction through the dielectric.
+
 ## Primary references (checked 2026-10-10)
 
 - TI, decoupling purpose and local IC supply connections:

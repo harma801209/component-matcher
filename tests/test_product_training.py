@@ -10,6 +10,43 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_circuit_arrows_use_local_time_and_preserve_pause_and_view(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),src=fs.readFileSync(process.argv[1],'utf8');
+const flow=src.split('\n').find(l=>l.startsWith(' function flow('));
+const render=src.split('\n').find(l=>l.startsWith('  for(const f of flowNodes){const current='));
+a(flow&&render);a(!src.includes('renderState(now)'));a(src.includes('resetArrowClock();'));
+const ctx={arrowClock:0,flows:{main:.003},flowNodes:[],onRender:null};vm.createContext(ctx);
+vm.runInContext(flow+'\nthis.flow=flow;this.render=()=>{'+render+'};',ctx);
+for(const id of ['main','source','supply'])a(ctx.flow(id,'M80 125').includes('data-arrow-position="0"'));
+a(ctx.flow('cap-load','M0 0','energy',.55).includes('data-arrow-position="0.55"'));
+const node=()=>({style:{},dataset:{},setAttribute(k,v){this[k]=v;}}),path=node(),arrow=node();
+path.dataset.arrowPosition='0';path.getPointAtLength=d=>({x:80+d,y:125});
+ctx.flowNodes=[{id:'main',path,arrow,length:930,activeSince:null,sign:1}];
+ctx.render();a.equal(arrow.dataset.distance,'0');a(arrow.transform.startsWith('translate(80 125)'));
+ctx.arrowClock=1000;ctx.render();a.equal(Number(arrow.dataset.distance),70);
+const stopped=arrow.transform;ctx.render();a.equal(arrow.transform,stopped);
+// Replacement SVG nodes keep their timeline when switching views.
+ctx.flowNodes[0]={...ctx.flowNodes[0],arrow:node()};ctx.render();a.equal(ctx.flowNodes[0].arrow.transform,stopped);
+ctx.arrowClock=1300;ctx.render();a.equal(Number(ctx.flowNodes[0].arrow.dataset.distance),91);
+ctx.flows.main=0;ctx.render();a.equal(ctx.flowNodes[0].activeSince,null);a.equal(path.style.opacity,'0');
+ctx.arrowClock=9000;ctx.flows.main=.003;ctx.render();a.equal(ctx.flowNodes[0].arrow.dataset.distance,'0');
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_circuit.js')],check=True,capture_output=True)
+
+    def test_mobile_explicit_start_resumes_both_game_engines_not_autoplay(self):
+        for name in ['training_playground.js','training_subtype_game.js']:
+            script=(WEB_ROOT/name).read_text(encoding='utf-8')
+            self.assertTrue("playing=!motion.matches" in script or "playing=!matchMedia('(prefers-reduced-motion:reduce)').matches" in script)
+            self.assertIn('function startPlayback(){playing=true;last=0;updatePause();}',script)
+            self.assertGreaterEqual(script.count('startPlayback();'),2)
+            self.assertIn('动画已暂停，点 ▶ 继续动画',script)
+            self.assertIn('playing=false;updatePause();refresh();',script)
+        subtype=(WEB_ROOT/'training_subtype_game.js').read_text(encoding='utf-8')
+        self.assertIn('else{playing=false;updatePause();s=M.observe(s,.6);',subtype)
+        self.assertIn("id==='cap-tantalum'&&s.observed>=1.2?0:advance",subtype)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_game_package_contact_maps_cover_all_thirty_chapters(self):
         script=r'''
 const dir=process.argv[1],p=require(dir+'/training_game_packages.js'),c=require(dir+'/training_catalog.js'),a=require('node:assert/strict');

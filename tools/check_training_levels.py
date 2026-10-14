@@ -28,11 +28,19 @@ with sync_playwright() as p:
                 action=f.locator('#playground-action')
                 if action.is_visible() and action.get_attribute('data-target')==selector.removeprefix('#playground-'):loc=action
             assert loc.is_visible(),selector
+            starts=loc.get_attribute('id') in ('playground-power','playground-trigger') or loc.get_attribute('data-target') in ('power','trigger')
             loc.focus();loc.press('Enter')
+            # Explicit starts now play even under reduced-motion. Pause through
+            # the real control before this test's deterministic manual steps.
+            if starts and state()['playing']:
+                pause=f.locator('#playground-pause');pause.focus();pause.press('Enter')
+                assert not state()['playing']
         def state():return f.evaluate('TrainingPlayground.current().snapshot()')
         def choose(value):press('[data-play-choice="'+str(value).lower()+'"]')
         def step(n):
-            for _ in range(n):press('#playground-step')
+            for _ in range(n):
+                if state()['progress']['index'] in state()['progress']['cleared']:break
+                press('#playground-step')
         def passed(count):
             assert len(state()['progress']['cleared'])==count,state()
             assert not f.locator('#playground-next').is_disabled()

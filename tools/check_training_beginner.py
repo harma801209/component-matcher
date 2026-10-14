@@ -34,7 +34,15 @@ with sync_playwright() as p:
         f = lesson_frame(page)
         def press(selector):
             b=f.locator(selector);assert b.count()==1 and b.is_visible(),selector
+            starts=b.get_attribute('id') in ('playground-power','playground-trigger','subgame-action') or b.get_attribute('data-target') in ('power','trigger') or selector=='.play-transfer>.play-secondary'
             b.focus();b.press('Enter')
+            if starts:
+                base=f.locator('#playground-canvas').count()>0
+                current=state(base)
+                if current['playing']:
+                    pause=f.locator('#playground-pause' if base else '#subgame-pause')
+                    pause.focus();pause.press('Enter')
+                    assert not state(base)['playing']
         def select(family,id):
             press('button[data-course="'+family+'"]');press('button[data-subtype="'+id+'"]')
         def fitted():
@@ -65,7 +73,8 @@ with sync_playwright() as p:
         def state(base):
             return f.evaluate('TrainingPlayground.current().snapshot()' if base else 'TrainingSubtypeGame.current().snapshot()')
         def observe():
-            for _ in range(3):press('#subgame-action')
+            for _ in range(3):
+                if f.locator('#subgame-action').is_visible():press('#subgame-action')
         def step(count=1):
             for _ in range(count):press('#playground-step' if f.locator('#playground-step').is_visible() else '#playground-action')
         def prediction():

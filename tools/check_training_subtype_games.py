@@ -37,7 +37,12 @@ with sync_playwright() as p:
         def choose(key,index):press('[data-subgame-field="'+key+'"][data-subgame-option="'+str(index)+'"]')
         def observe():
             press('#subgame-action');assert state()['progress']['started']
-            press('#subgame-action');press('#subgame-action')
+            assert state()['playing']
+            press('#subgame-pause');assert not state()['playing']
+            for _ in range(2):
+                # Autoplay may already have observed part of the trial before
+                # the native pause click; never restart a just-cleared mission.
+                if f.locator('#subgame-action').is_visible():press('#subgame-action')
         press('#games-card>summary')
         chapters=f.evaluate('TrainingCatalog.lessons.filter(d=>!d.baseline).map(d=>({id:d.id,family:d.family,title:d.title}))')
         assert len(chapters)==26
@@ -101,6 +106,7 @@ with sync_playwright() as p:
         assert state()['progress']['params']['resistance']==100 and not state()['progress']['started']
         press('#subgame-power');assert float(canvas.get_attribute('data-brightness'))>low;canvas.screenshot(path=str(OUT/f'{prefix}-led-high.png'))
         yaw=canvas.get_attribute('data-yaw');canvas.focus();canvas.press('ArrowRight');assert canvas.get_attribute('data-yaw')!=yaw
+        assert state()['playing'];press('#subgame-pause');assert not state()['playing']
         press('#subgame-pause');assert state()['playing'];page.wait_for_timeout(250);phase=canvas.get_attribute('data-flow-phase');page.wait_for_timeout(250);assert canvas.get_attribute('data-flow-phase')!=phase
         press('#subgame-pause');phase=canvas.get_attribute('data-flow-phase');page.wait_for_timeout(200);assert canvas.get_attribute('data-flow-phase')==phase
         press('#subgame-speed');assert state()['speed']==.35
