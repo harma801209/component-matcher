@@ -10,6 +10,41 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_nightlight_product_chapter_physics_progress_and_storage_validation(self):
+        script=r'''
+const a=require('node:assert/strict'),m=require(process.argv[1]);
+for(let i=0;i<5;i++)a.equal(m.passed(m.setup(i,i)),false);
+for(const bad of [null,{}, {version:1,cleared:6,index:4},{version:1,cleared:1,index:4},{version:2,cleared:5,index:4}])a.equal(m.restore(bad).cleared,0);
+let s=m.setup(0);s=m.action(s,'primary');a.equal(s.cleared,0);s=m.action(s,'resistance',330);a.equal(s.cleared,1);
+a.equal(m.action(m.setup(0),'visit',4).index,0);s=m.action(s,'next');a.equal(s.index,1);
+s=m.action(s,'resistance',1000);a.equal(s.cleared,1);s=m.action(s,'resistance',330);a.equal(s.cleared,2);a(Math.abs(m.result(s).current-3/330)<1e-12);
+s=m.action(s,'next');s=m.action(s,'primary');a(m.result(s).unknown);a.equal(s.cleared,2);
+s=m.action(s,'diode','backward');s=m.action(s,'primary');a(m.result(s).unknown);a.equal(s.cleared,2);
+s=m.action(s,'diode','forward');s=m.action(s,'primary');a.equal(m.result(s).current,0);a.equal(s.cleared,2);s=m.action(s,'primary');a.equal(s.cleared,3);
+s=m.action(s,'next');s=m.action(s,'primary');a.equal(m.result(s).source,'capacitor');for(let i=0;i<4;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,3);a(m.result(s).current<.004);
+s=m.action(s,'capacitance',.01);a.equal(s.elapsed,0);a(s.power);s=m.action(s,'primary');const initial=m.result(s);for(let i=0;i<3;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,3);s=m.action(s,'tick',.5);a.equal(s.cleared,4);a(m.result(s).current<initial.current);a(m.result(s).energy<initial.energy);a(m.result(s).current>=.004);
+const end=m.result(s).current;s=m.action(s,'tick',Infinity);a.equal(m.result(s).current,end);a.equal(m.action(s,'capacitance',-1).capacitance,.01);
+s=m.action(s,'next');s=m.action(s,'primary');a.equal(s.cleared,4);s=m.action(s,'mos',true);s=m.action(s,'primary');a.equal(s.cleared,4);a(m.result(s).current>0);s=m.action(s,'primary');a.equal(m.result(s).current,0);a.equal(s.cleared,4);s=m.action(s,'primary');a.equal(s.cleared,5);
+for(const state of [m.restore(m.record(s)),m.action(s,'visit',4)]){a(state.mos&&state.gate);a(m.result(state).current>0);a.equal(state.cleared,5);}
+a.equal(m.action(m.action(s,'visit',1),'resistance',330).cleared,5);
+for(let i=0;i<5;i++)for(const resistance of m.resistors)for(const capacitance of m.capacitors)for(const diode of ['none','forward','backward'])for(const power of [true,false])for(const reverse of [true,false]){
+ const r=m.result({...m.setup(i,i),resistance,capacitance,diode,power,reverse,elapsed:2,mos:true,gate:true});for(const name of ['voltage','current','brightness','resistorPower','energy'])a(Number.isFinite(r[name]));a(r.brightness>=0&&r.brightness<=1);
+}
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_nightlight_math.js')],check=True,capture_output=True)
+
+    def test_nightlight_assets_are_integrated_without_server_or_member_writes(self):
+        page=build_training_html()
+        self.assertIn('id="nightlight-card"',page)
+        self.assertIn('window.TrainingNightlight=Object.freeze',page)
+        self.assertIn('training.nightlight.v1',page)
+        for name in ['training_nightlight_math.js','training_nightlight_scene.js','training_nightlight.js']:
+            source=(WEB_ROOT/name).read_text(encoding='utf-8')
+            for forbidden in ['fetch(', 'member_auth', 'cost_price', 'sqlite', 'localStorage.clear(']:
+                self.assertNotIn(forbidden,source)
+        self.assertIn('stageNodes.get(\'game\').append(document.getElementById(\'nightlight-card\')', (WEB_ROOT/'training_journey.js').read_text(encoding='utf-8'))
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_mobile_layout_moves_same_nodes_and_restores_desktop_without_controls(self):
         script=r'''
 const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');

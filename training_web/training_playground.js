@@ -83,7 +83,7 @@
     next.disabled=!done;next.textContent=done?(s.index===3?'全部通关 · 再玩一次':'下一关'):'完成目标，解锁下一关';
     next.hidden=!done;action.hidden=done;
    }
-   const move=guidance();actionTarget=move.id;action.dataset.target=move.id;action.textContent=move.label;if(move.id==='choices')action.hidden=true;next.className=mode==='challenge'?'play-primary':'play-secondary';const nextText=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index)?'这关通过了！点“下一关”继续。':move.text,paused=p.power&&!playing?'动画已暂停，点 ▶ 继续动画；也可逐步观察。 ':'';if(instruction.textContent!==paused+nextText)instruction.textContent=paused+nextText;
+   const move=guidance();actionTarget=move.id;action.dataset.target=move.id;action.textContent=move.label;if(move.id==='choices')action.hidden=true;next.className=mode==='challenge'?'play-primary':'play-secondary';const nextText=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index)?(campaign.progress.index===3?'本器件章节已完成。可以重玩，也可以选择其他器件继续学习。':'这关通过了！点“下一关”继续。'):move.text,paused=p.power&&!playing?'动画已暂停，点 ▶ 继续动画；也可逐步观察。 ':'';if(instruction.textContent!==paused+nextText)instruction.textContent=paused+nextText;
    power.hidden=!p.power;
    for(const id of ['trigger','step','near','reverse']){const b=root.querySelector('#playground-'+id);if(b)b.hidden=!action.hidden&&move.id===id;}
    if(beginner&&mode==='challenge'&&course==='capacitor'){tray.hidden=campaign.progress.index!==1;root.querySelector('#playground-near').hidden=campaign.progress.index!==2||(!action.hidden&&move.id==='near');}
