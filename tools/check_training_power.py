@@ -83,7 +83,11 @@ with sync_playwright() as p:
         if d['id']=='res-thick':capture('01-cold');capture('01-board','.play-board-column')
         toggle(base);assert on(base) and state(base)['playing'];structure(base);visible_board(base)
         if not args.fallback:
-            phase=state(base)['scene']['phase'];page.wait_for_timeout(250);assert state(base)['scene']['phase']>phase
+            phase=state(base)['scene']['phase']
+            live='TrainingPlayground' if base else 'TrainingSubtypeGame'
+            # Scroll/iframe visibility and GPU scheduling need not settle in
+            # exactly 250 ms. Require an actual advancing frame, not a sleep.
+            f.wait_for_function('phase=>'+live+'.current().snapshot().scene.phase>phase',arg=phase,timeout=6000)
         if d['id']=='res-thick':
             expected=f"{state(base)['result']['current']*1000:.1f} mA"
             assert expected in f.locator('.play-hud').inner_text();capture('02-powered')
