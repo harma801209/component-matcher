@@ -12,7 +12,8 @@ import threading
 import time
 import unittest
 import warnings
-from datetime import date
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -5704,6 +5705,172 @@ class SystemRegressionTests(unittest.TestCase):
             app["current_timestamp_text"] = original_timestamp
             app["clear_cost_price_lookup_cache"]()
 
+    @contextmanager
+    def isolated_cost_history(self, name):
+        app = self.app
+        saved = {key: app[key] for key in ("COST_PRICE_DB_PATH", "current_timestamp_text", "current_member")}
+        state = app["st"].session_state
+        previous = state.get("_admin_query_cost_time")
+        try:
+            app["COST_PRICE_DB_PATH"] = os.path.join(self.temp_dir, name + ".sqlite")
+            app["current_member"] = lambda: {"id": 999, "username": "HistoryAdmin", "role": "admin"}
+            state.pop("_admin_query_cost_time", None)
+            app["clear_cost_price_lookup_cache"]()
+            yield app
+        finally:
+            app.update(saved)
+            state.pop("_admin_query_cost_time", None)
+            if previous is not None:
+                state["_admin_query_cost_time"] = previous
+            app["clear_cost_price_lookup_cache"]()
+
+    def upload_history_price(self, app, timestamp, price, customer="", extra=None):
+        app["current_timestamp_text"] = lambda: timestamp
+        rows = [{"品牌": "FOJAN", "型号": "FRC0603F1002TS", "成本": price,
+                 "MOQ": "5000PCS", "L&T": "2W"}] + (extra or [])
+        ok, message, list_id = app["import_cost_price_list_from_upload"](
+            UploadedBytes(timestamp.replace(":", "-") + ".xlsx", dataframe_to_xlsx_bytes(pd.DataFrame(rows))),
+            "regression", customer_type="existing" if customer else "new", customer_name=customer,
+        )
+        self.assertTrue(ok, message)
+        return list_id
+
+    def test_05h_uploaded_cost_as_of_dates_scopes_and_missing_prices(self):
+        with self.isolated_cost_history("uploaded-history") as app:
+            old_id = self.upload_history_price(app, "2026-08-31 10:00:00", "1.00", extra=[
+                {"品牌": "FOJAN", "型号": "REMOVEDMODEL", "成本": "5.00"}])
+            new_id = self.upload_history_price(app, "2026-09-10 12:00:00", "2.00")
+            self.upload_history_price(app, "2026-09-01 09:00:00", "0.80", "客户A")
+            self.upload_history_price(app, "2026-09-12 09:00:00", "0.70", "客户A")
+            self.upload_history_price(app, "2026-09-11 09:00:00", "0.50", "客户B")
+            model = {"品牌": "FOJAN", "型号": "FRC0603F1002TS"}
+            def price(cutoff, customer=""):
+                lookup = app["load_authorized_cost_price_lookup"](
+                    "existing" if customer else "new", customer, as_of=cutoff)
+                return app["lookup_active_cost_price_for_row"](model, lookup=lookup).get("cost", "")
+            for cutoff, expected in [("2026-09-01", "1"), ("2026-09-10 11:59:59", "1"),
+                                     ("2026-09-10 12:00:00", "2"), ("2026-09-11", "2"), (None, "2")]:
+                self.assertEqual(app["normalize_cost_value_for_compare"](price(cutoff)), expected)
+            self.assertEqual(app["normalize_cost_value_for_compare"](price("2026-09-01", "客户A")), "0.8")
+            self.assertEqual(app["normalize_cost_value_for_compare"](price("2026-09-01", "客户B")), "1")
+            missing = app["enrich_component_cost_columns"](pd.DataFrame([{**model, "成本": "999", "L&T": "CURRENT"}]),
+                lookup=app["load_active_cost_price_lookup"]("new", "", as_of="2026-08-01"))
+            self.assertEqual(missing.iloc[0]["成本"], "")
+            self.assertEqual(missing.iloc[0]["L&T"], "")
+            self.assertEqual(missing.iloc[0]["价格说明"], "该时间无历史价格")
+            app["st"].session_state["_admin_query_cost_time"] = {"member_id": 999, "as_of": "2026-08-01"}
+            self.assertIn("成本时间点", app["select_component_display_columns"](missing, "贴片电阻").columns)
+            self.assertNotIn("REMOVEDMODEL", app["load_active_cost_price_lookup"]("new", "", as_of="2026-09-11"))
+            self.assertEqual(app["get_active_cost_price_list"]("new", "")["id"], new_id)
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                self.assertEqual(conn.execute("SELECT active FROM cost_price_lists WHERE id=?", (old_id,)).fetchone()[0], 0)
+            tie_id = self.upload_history_price(app, "2026-09-10 12:00:00", "3.00")
+            self.assertEqual(app["normalize_cost_value_for_compare"](price("2026-09-10 12:00:00")), "3")
+            self.assertEqual(app["get_active_cost_price_list"]()["id"], tie_id)
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                cur = conn.execute("INSERT INTO cost_price_lists(file_name,uploaded_at,active) VALUES ('undated.xlsx','',0)")
+                conn.execute("INSERT INTO cost_price_items(list_id,brand,model,model_clean,cost) VALUES (?,'FOJAN','UNDATED','UNDATED','9')", (cur.lastrowid,))
+            self.assertNotIn("UNDATED", app["load_active_cost_price_lookup"]("new", "", as_of="2026-08-01"))
+
+    def test_05i_manual_cost_history_tracks_edits_status_and_scope(self):
+        with self.isolated_cost_history("manual-history") as app:
+            self.upload_history_price(app, "2026-08-31 10:00:00", "1.00")
+            app["current_timestamp_text"] = lambda: "2026-09-01 10:00:00"
+            ok, message, item_id = app["save_manual_cost_price_item"]("FOJAN", "FRC0603F1002TS", "0.9", moq="6000PCS")
+            self.assertTrue(ok, message)
+            app["current_timestamp_text"] = lambda: "2026-09-10 10:00:00"
+            self.assertTrue(app["save_manual_cost_price_item"]("FOJAN", "FRC0603F1002TS", "0.8", item_id=item_id)[0])
+            app["current_timestamp_text"] = lambda: "2026-09-11 10:00:00"
+            self.assertTrue(app["set_manual_cost_price_item_active"](item_id, False)[0])
+            app["current_timestamp_text"] = lambda: "2026-09-12 10:00:00"
+            self.assertTrue(app["set_manual_cost_price_item_active"](item_id, True)[0])
+            app["current_timestamp_text"] = lambda: "2026-09-13 10:00:00"
+            self.assertTrue(app["save_manual_cost_price_item"]("FOJAN", "RENAMEDMODEL", "0.7", item_id=item_id,
+                customer_type="existing", customer_name="客户A")[0])
+            for cutoff, cost in [("2026-09-01", "0.9"), ("2026-09-10", "0.8"), ("2026-09-11", "1"),
+                                  ("2026-09-12", "0.8"), ("2026-09-13", "1")]:
+                lookup = app["load_active_cost_price_lookup"]("new", "", as_of=cutoff)
+                actual = app["lookup_active_cost_price_for_row"]({"品牌": "FOJAN", "型号": "FRC0603F1002TS"}, lookup=lookup)
+                self.assertEqual(app["normalize_cost_value_for_compare"](actual["cost"]), cost)
+            customer_lookup = app["load_active_cost_price_lookup"]("existing", "客户A", as_of="2026-09-13")
+            self.assertEqual(customer_lookup["RENAMEDMODEL"][0]["cost"], "0.7")
+            self.assertNotIn("RENAMEDMODEL", app["load_active_cost_price_lookup"]("new", "", as_of="2026-09-13"))
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                events = conn.execute("SELECT event FROM cost_price_manual_versions ORDER BY id").fetchall()
+            self.assertEqual(events, [("save",), ("save",), ("status",), ("status",), ("save",)])
+
+    def test_05j_historical_permissions_account_isolation_and_legacy_gap(self):
+        with self.isolated_cost_history("history-permissions") as app:
+            self.upload_history_price(app, "2026-08-31 10:00:00", "1.00")
+            self.upload_history_price(app, "2026-09-10 10:00:00", "2.00")
+            state = app["st"].session_state
+            state["_admin_query_cost_time"] = {"member_id": 999, "as_of": "2026-09-01", "ready": True}
+            self.assertEqual(app["selected_admin_cost_as_of"](), "2026-09-01 23:59:59")
+            self.assertEqual(app["load_authorized_cost_price_lookup"]()["FRC0603F1002TS"][0]["cost"], "1.00")
+            key_old = app["make_query_cache_key"]("demo", "型号")
+            state["_admin_query_cost_time"]["as_of"] = "2026-09-11"
+            self.assertNotEqual(key_old, app["make_query_cache_key"]("demo", "型号"))
+            ordinary = {"id": 1000, "role": "member", "company": "富临通"}
+            self.assertEqual(app["selected_admin_cost_as_of"](ordinary), "")
+            self.assertEqual(app["selected_admin_cost_as_of"]({"id": 1000, "role": "admin"}), "")
+            with self.assertRaises(PermissionError):
+                app["load_authorized_cost_price_lookup"](member=ordinary, as_of="2026-09-01")
+            with self.assertRaises(PermissionError):
+                app["load_authorized_cost_price_lookup"](member={}, as_of="2026-09-01")
+            app["current_timestamp_text"] = lambda: "2026-09-15 10:00:00"
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                conn.execute("""INSERT INTO cost_price_manual_items (brand,model,model_clean,cost,active,created_at,updated_at)
+                    VALUES ('FOJAN','FRC0603F1002TS','FRC0603F1002TS','0.5',1,'2026-09-01 09:00:00','2026-09-12 09:00:00')""")
+            app["init_cost_price_db"]()
+            historic = app["load_active_cost_price_lookup"]("new", "", as_of="2026-09-11")
+            self.assertTrue(historic["__cost_time_context__"]["manual_history_gaps"])
+            self.assertNotIn("FRC0603F1002TS", historic)
+            self.assertEqual(app["load_active_cost_price_lookup"]("new", "")["FRC0603F1002TS"][0]["cost"], "0.5")
+            self.assertEqual(app["load_active_cost_price_lookup"]("new", "", as_of="2026-09-13")["FRC0603F1002TS"][0]["cost"], "0.5")
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                before = conn.execute("SELECT COUNT(*) FROM cost_price_manual_versions").fetchone()[0]
+            app["init_cost_price_db"]()
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM cost_price_manual_versions").fetchone()[0], before)
+
+    def test_05k_bom_historical_cost_is_frozen_and_exported(self):
+        with self.isolated_cost_history("bom-history") as app:
+            self.upload_history_price(app, "2026-08-31 10:00:00", "1.00")
+            self.upload_history_price(app, "2026-09-10 10:00:00", "2.00")
+            source = pd.DataFrame([{"型号": "FRC0603F1002TS"}, {"型号": "FRC0603F1002TS"}])
+            settings = {"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["FOJAN"], "cost_as_of": "2026-09-01"}
+            app["st"].session_state["_admin_query_cost_time"] = {"member_id": 999, "as_of": "2026-09-11"}
+            old = app["bom_dataframe_from_upload"](None, source, export_settings=settings)
+            self.assertEqual(old["自有成本"].tolist(), ["1.00", "1.00"])
+            self.assertEqual(old["成本时间点"].tolist(), ["2026-09-01 23:59:59"] * 2)
+            latest = app["bom_dataframe_from_upload"](None, source, export_settings={**settings, "cost_as_of": ""})
+            self.assertEqual(latest["自有成本"].tolist(), ["2.00", "2.00"])
+            self.assertNotIn("成本时间点", latest.columns)
+            export = app["build_bom_matched_export_df"](source, old)
+            self.assertEqual(export["匹配成本"].tolist(), ["1.00", "1.00"])
+            self.assertIn("成本时间点", export.columns)
+            workbook = load_workbook(BytesIO(app["bom_to_excel_bytes"](old, source_df=source)), data_only=True)
+            headers = [cell.value for cell in workbook.active[1]]
+            self.assertIn("成本时间点", headers)
+            self.assertEqual(str(workbook.active.cell(2, headers.index("匹配成本") + 1).value), "1.00")
+            workbook.close()
+            upload = UploadedBytes("bom.xlsx", dataframe_to_xlsx_bytes(source))
+            self.assertNotEqual(app["build_bom_workbook_run_signature"](upload, {}, settings),
+                app["build_bom_workbook_run_signature"](upload, {}, {**settings, "cost_as_of": "2026-09-11"}))
+
+    def test_05l_cost_time_normalization(self):
+        normalize = self.app["normalize_cost_as_of"]
+        self.assertEqual(normalize(None), "")
+        self.assertEqual(normalize(""), "")
+        self.assertEqual(normalize(date(2026, 9, 1)), "2026-09-01 23:59:59")
+        self.assertEqual(normalize("2026/09/01"), "2026-09-01 23:59:59")
+        self.assertEqual(normalize(datetime(2026, 9, 10, 12, 0, 0)), "2026-09-10 12:00:00")
+        self.assertEqual(normalize(datetime(2026, 9, 10, 4, tzinfo=timezone.utc)), "2026-09-10 12:00:00")
+        self.assertEqual(normalize("2026-09-10T12:00:00+08:00"), "2026-09-10 12:00:00")
+        for invalid in ("not a date", "2026-02-30", "2026-09-01 24:00:00"):
+            with self.assertRaises(ValueError):
+                normalize(invalid)
+
     def test_05c_cost_prices_are_isolated_by_customer(self):
         app = self.app
         original_cost_path = app["COST_PRICE_DB_PATH"]
@@ -8170,6 +8337,12 @@ class SystemRegressionTests(unittest.TestCase):
             restored_manual = app["list_manual_cost_price_items"](active_only=True, limit=10)
             self.assertEqual([row["id"] for row in restored_manual], [manual_id])
             self.assertEqual(restored_manual[0]["cost"], "1.23")
+            with sqlite3.connect(app["COST_PRICE_DB_PATH"]) as conn:
+                restored_versions = conn.execute(
+                    "SELECT snapshot_json FROM cost_price_manual_versions WHERE item_id=?", (manual_id,)
+                ).fetchall()
+            self.assertEqual(len(restored_versions), 1)
+            self.assertEqual(json.loads(restored_versions[0][0])["cost"], "1.23")
 
             ok, message, report_id = app["submit_no_match_report"]("REMOTE-UNMATCHED-PART", reason="regression")
             self.assertTrue(ok, message)

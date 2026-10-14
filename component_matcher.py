@@ -39,6 +39,12 @@ from jianghai_parameters import (
 from copy import copy, deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from cost_price_history import (
+    normalize_as_of as normalize_cost_as_of,
+    ensure_manual_history as ensure_cost_manual_history,
+    record_manual_version as record_cost_manual_version,
+    read_price_snapshot as read_cost_price_snapshot,
+)
 from decimal import Decimal
 from functools import lru_cache
 try:
@@ -317,7 +323,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-14T01:06:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-14T11:16:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -6210,6 +6216,7 @@ def member_matches_admin_keyword(member, keyword):
 COST_PRICE_TARGET_COLUMNS = ("品牌", "型号", "规格参数", "成本", "更新时间", "MOQ", "L&T")
 COST_PRICE_LOOKUP_COLUMNS = ("成本", "更新时间", "MOQ", "MOQ来源", "L&T")
 _COST_PRICE_LOOKUP_CACHE = {"signature": None, "lookup": None}
+_COST_TIME_FROM_SESSION = object()
 
 
 def format_file_size(value):
@@ -6521,6 +6528,7 @@ def init_cost_price_db():
             WHERE cost_updated_at = ''
             """
         )
+        ensure_cost_manual_history(conn, current_timestamp_text())
         conn.commit()
 
 
@@ -7348,6 +7356,63 @@ def list_selectable_sales_customers(member_id):
     return assigned + prospects
 
 
+def selected_admin_cost_as_of(member=None):
+    member = current_member() if member is None else member
+    if not member or member_cost_access_level(member) != "admin":
+        return ""
+    context = st.session_state.get("_admin_query_cost_time", {})
+    if not isinstance(context, dict) or context.get("member_id") != int(member.get("id", 0) or 0):
+        return ""
+    return normalize_cost_as_of(context.get("as_of"))
+
+
+def render_admin_cost_time_summary(customer_type, customer_name, ready=True):
+    cutoff = selected_admin_cost_as_of()
+    if not ready or not cutoff:
+        return
+    lookup = load_authorized_cost_price_lookup(customer_type, customer_name, as_of=cutoff)
+    context = lookup.get("__cost_time_context__", {})
+    if context.get("manual_history_gaps"):
+        st.warning("这个时间的部分单笔旧价格没有保存，无法准确还原；本次价格留空，不用最新价代替。")
+    elif not any(isinstance(value, list) and value for value in lookup.values()):
+        st.warning("这个时间之前没有保存的成本记录；可以匹配型号，但价格将留空。")
+    else:
+        versions = context.get("versions", [])
+        if versions:
+            st.caption("历史清单版本：" + "；".join(str(v["uploaded_at"]) for v in versions))
+
+
+def render_admin_cost_time_selector(member):
+    if member_cost_access_level(member or {}) != "admin":
+        return True
+    member_id = int(member.get("id", 0) or 0)
+    prefix = f"admin_query_cost_time_{member_id}"
+    mode = st.selectbox("成本时间", ["最新价格", "指定日期时间"], key=prefix + "_mode",
+                        help="只影响本次查询，不切换全系统当前清单。历史价格按清单上传时间选择。")
+    cutoff, ready = "", True
+    if mode == "指定日期时间":
+        date_col, time_col = st.columns(2)
+        with date_col:
+            day = st.date_input("成本日期", value=datetime.now(APP_TIMEZONE).date(), key=prefix + "_date")
+        with time_col:
+            clock = st.text_input("截至时刻（北京时间）", value="23:59:59", max_chars=8,
+                                 key=prefix + "_clock", help="24小时制 HH:MM:SS。默认包含当天全部更新。")
+        try:
+            if not re.fullmatch(r"\d{2}:\d{2}:\d{2}", clock.strip()):
+                raise ValueError()
+            cutoff = normalize_cost_as_of(datetime.combine(day, datetime.strptime(clock.strip(), "%H:%M:%S").time()))
+        except (ValueError, TypeError):
+            ready = False
+            st.warning("请填写有效日期及时间，例如 16:30:00。")
+    context = {"member_id": member_id, "as_of": cutoff, "ready": ready}
+    if st.session_state.get("_admin_query_cost_time") != context:
+        clear_customer_dependent_session_state()
+    st.session_state["_admin_query_cost_time"] = context
+    if cutoff:
+        st.caption(f"使用不晚于 {cutoff} 的最近一次成本更新。仅影响您的查询。")
+    return ready
+
+
 def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", restored_name=""):
     del restored_type
     member = current_member()
@@ -7418,6 +7483,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         key=selector_key,
         help=help_text,
     )
+    cost_time_ready = render_admin_cost_time_selector(member)
     if selected_name == new_customer_option:
         if is_admin:
             previous_selection = normalize_cost_customer_name(
@@ -7430,7 +7496,13 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
             st.success("当前客户：通用成本　·　价格来源：通用价格")
             st.caption("可直接搜索料号；选择已启用客户后查看专属价。")
-            return COST_CUSTOMER_TYPE_NEW, "", True
+            cutoff = selected_admin_cost_as_of(member)
+            st.session_state["_sales_authorized_price_scope"] = (
+                member_id, access_level, COST_CUSTOMER_TYPE_NEW, "",
+                get_cost_price_lookup_signature(COST_CUSTOMER_TYPE_NEW, "", as_of=cutoff),
+            )
+            render_admin_cost_time_summary(COST_CUSTOMER_TYPE_NEW, "", cost_time_ready)
+            return COST_CUSTOMER_TYPE_NEW, "", cost_time_ready
         if access_level == "none":
             st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = ""
             st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
@@ -7480,7 +7552,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         member, customer_type, customer_name
     )
     price_scope_signature = (member_id, access_level, customer_type, customer_name,
-                             get_cost_price_lookup_signature(customer_type, customer_name))
+                             get_cost_price_lookup_signature(customer_type, customer_name,
+                                                             as_of=selected_admin_cost_as_of(member)))
     previous_scope = st.session_state.get("_sales_authorized_price_scope")
     if previous_scope != price_scope_signature:
         clear_customer_dependent_session_state()
@@ -7506,7 +7579,8 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
         st.caption("只有后台分配给您的客户可使用专属价；其他客户使用通用价。")
     else:
         st.caption("如管理员把客户分配给此账号，该客户可使用专属价；其他客户使用通用价。")
-    return customer_type, customer_name, ready
+    render_admin_cost_time_summary(customer_type, customer_name, cost_time_ready)
+    return customer_type, customer_name, ready and cost_time_ready
 
 
 def cost_price_item_change_key(item):
@@ -8154,6 +8228,7 @@ def save_manual_cost_price_item(
                 )
                 record_id = int(cur.lastrowid)
                 action = "新增"
+            record_cost_manual_version(conn, record_id, now_text, "save")
             conn.commit()
     except sqlite3.IntegrityError:
         return False, "相同品牌和型号的单笔成本已经存在。", None
@@ -8179,6 +8254,7 @@ def set_manual_cost_price_item_active(item_id, active, updated_by=""):
     except Exception:
         return False, "单笔成本记录 ID 无效。"
     active_value = 1 if bool(active) else 0
+    event_time = current_timestamp_text()
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         cur = conn.execute(
             """
@@ -8186,8 +8262,10 @@ def set_manual_cost_price_item_active(item_id, active, updated_by=""):
             SET active=?, updated_at=?, updated_by=?
             WHERE id=?
             """,
-            (active_value, current_timestamp_text(), clean_text(updated_by), item_id),
+            (active_value, event_time, clean_text(updated_by), item_id),
         )
+        if cur.rowcount > 0:
+            record_cost_manual_version(conn, item_id, event_time, "status")
         conn.commit()
     if cur.rowcount <= 0:
         return False, "单笔成本记录不存在。"
@@ -9054,9 +9132,15 @@ def import_cost_price_list_from_upload(
     ), list_id
 
 
-def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, customer_name=""):
+def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, customer_name="", as_of=None):
     customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name)
     init_cost_price_db()
+    as_of = normalize_cost_as_of(as_of)
+    if as_of:
+        with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
+            lists = conn.execute("SELECT COUNT(*),MAX(id) FROM cost_price_lists").fetchone()
+            history = conn.execute("SELECT COUNT(*),MAX(id) FROM cost_price_manual_versions").fetchone()
+        return ("historical", customer_type, customer_key, as_of, tuple(lists), tuple(history), os.path.getmtime(COST_PRICE_DB_PATH))
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         list_rows = conn.execute(
             """
@@ -9121,12 +9205,13 @@ def get_cost_price_lookup_signature(customer_type=COST_CUSTOMER_TYPE_NEW, custom
     )
 
 
-def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowed_customer_codes=None):
+def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowed_customer_codes=None, as_of=None):
     if customer_type is None:
         customer_type, selected_name, _ = selected_sales_cost_customer_context()
         customer_name = selected_name
     customer_type, customer_name, customer_key = normalize_cost_customer_context(customer_type, customer_name or "")
-    signature = get_cost_price_lookup_signature(customer_type, customer_name)
+    as_of = normalize_cost_as_of(as_of)
+    signature = get_cost_price_lookup_signature(customer_type, customer_name, as_of=as_of)
     if signature is None:
         return {}
     if allowed_customer_codes is not None:
@@ -9146,7 +9231,11 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
         ]
     with sqlite3.connect(COST_PRICE_DB_PATH, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+        context = {}
+        if as_of:
+            rows, manual_rows, context = read_cost_price_snapshot(conn, as_of, customer_type, customer_key)
+        else:
+            rows = conn.execute(
             """
             SELECT i.brand, i.model, i.model_clean, i.spec_text, i.cost, i.cost_updated_at,
                    i.moq, i.lead_time, i.raw_json, l.customer_type AS list_customer_type,
@@ -9166,7 +9255,7 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
                 COST_CUSTOMER_TYPE_EXISTING, customer_key,
             ),
         ).fetchall()
-        manual_rows = conn.execute(
+            manual_rows = conn.execute(
             """
             SELECT
                 brand, model, model_clean, spec_text, cost,
@@ -9184,7 +9273,7 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
                 COST_CUSTOMER_TYPE_EXISTING, customer_key,
             ),
         ).fetchall()
-    lookup = {}
+    lookup = {"__cost_time_context__": context} if as_of else {}
     ranked_items = []
     for row in manual_rows:
         item = dict(row)
@@ -9196,6 +9285,8 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
         item["_scope_rank"] = 0 if is_exact_customer else 25
         item["cost_source"] = f"{customer_name} · 单笔成本" if is_exact_customer else "单笔成本"
         item["raw_json"] = ""
+        if as_of:
+            item["cost_source"] = "历史单笔成本" if not is_exact_customer else f"{customer_name} · 历史单笔成本"
         ranked_items.append(item)
     for row in rows:
         item = dict(row)
@@ -9213,7 +9304,7 @@ def load_active_cost_price_lookup(customer_type=None, customer_name=None, allowe
         elif rank == 10:
             item["cost_source"] = f"客户代码价：{customer_context.get('primary_code', '')}"
         else:
-            item["cost_source"] = "当前启用成本清单"
+            item["cost_source"] = "历史成本清单" if as_of else "当前启用成本清单"
         ranked_items.append(item)
 
     ranked_items.sort(key=lambda item: (int(item.get("_scope_rank", 99)), -int(item.get("id", 0) or item.get("item_id", 0) or 0)))
@@ -9278,8 +9369,11 @@ def filter_cost_lookup_for_member(lookup, member):
     return filtered
 
 
-def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, member=None):
+def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, member=None, as_of=_COST_TIME_FROM_SESSION):
     member = current_member() if member is None else member
+    as_of = selected_admin_cost_as_of(member) if as_of is _COST_TIME_FROM_SESSION else normalize_cost_as_of(as_of)
+    if as_of and member_cost_access_level(member or {}) != "admin":
+        raise PermissionError("历史成本查询仅限管理员账号。")
     if member and not member_can_view_cost(member):
         return {}
     refresh_runtime_store_remote_snapshot("cost-price")
@@ -9295,7 +9389,7 @@ def load_authorized_cost_price_lookup(customer_type=None, customer_name=None, me
             row["customer_code_key"] for row in list_sales_customers(active_only=True)
             if member_id > 0 and int(row.get("owner_member_id", 0) or 0) == member_id
         }
-    lookup = load_active_cost_price_lookup(authorized_type, authorized_name, allowed_customer_codes=allowed_codes)
+    lookup = load_active_cost_price_lookup(authorized_type, authorized_name, allowed_customer_codes=allowed_codes, as_of=as_of)
     return filter_cost_lookup_for_member(lookup, member)
 
 
@@ -9431,6 +9525,16 @@ def enrich_component_cost_columns(df, lookup=None):
     if out.empty:
         return out
     lookup = load_authorized_cost_price_lookup() if lookup is None else lookup
+    context = lookup.get("__cost_time_context__", {}) if isinstance(lookup, dict) else {}
+    historical = bool(context.get("as_of"))
+    if historical:
+        # Never retain embedded/current library prices when a historical snapshot
+        # has no record. Manufacturer packaging may still provide a non-price MOQ.
+        for column in COST_PRICE_LOOKUP_COLUMNS:
+            out[column] = ""
+        out["成本时间点"] = context["as_of"]
+        out["成本版本"] = ""
+        out["价格说明"] = "单笔历史未保存，无法还原此时间价格" if context.get("manual_history_gaps") else "该时间无历史价格"
     for idx, row in out.iterrows():
         price = lookup_active_cost_price_for_row(row, lookup=lookup) if lookup else {}
         manufacturer_packaging = lookup_manufacturer_packaging(row)
@@ -9449,6 +9553,9 @@ def enrich_component_cost_columns(df, lookup=None):
         for column, value in updates.items():
             if value != "":
                 out.at[idx, column] = value
+        if historical and clean_text(price.get("cost", "")):
+            out.at[idx, "成本版本"] = clean_text(price.get("snapshot_at", ""))
+            out.at[idx, "价格说明"] = "历史价格"
     return out
 
 
@@ -27624,7 +27731,7 @@ def select_component_display_columns(df, spec_or_type, prefix_columns=None, suff
     for col in schema_columns:
         if col in out.columns and col not in selected:
             selected.append(col)
-    for col in COST_PRICE_LOOKUP_COLUMNS:
+    for col in (*COST_PRICE_LOOKUP_COLUMNS, "成本时间点", "成本版本", "价格说明"):
         if col in out.columns and col not in selected:
             selected.append(col)
     for col in (suffix_columns or []):
@@ -31830,13 +31937,17 @@ def normalize_bom_export_settings(export_settings=None):
     if customer_type:
         customer_type, customer_name, _ = normalize_cost_customer_context(customer_type, customer_name)
     include_cost = bool(settings.get("include_cost", True))
-    return {
+    normalized = {
         "mode": mode,
         "brands": brands,
         "customer_type": customer_type,
         "customer_name": customer_name,
         "include_cost": include_cost,
     }
+    cutoff = normalize_cost_as_of(settings.get("cost_as_of"))
+    if cutoff:
+        normalized["cost_as_of"] = cutoff
+    return normalized
 
 
 def bom_output_selection_ready(export_mode, selected_brands=None):
@@ -32189,6 +32300,10 @@ def build_bom_own_brand_export_slots(
         slots[bom_own_brand_internal_column("自有MOQ", idx)] = item.get("MOQ", "")
         slots[bom_own_brand_internal_column("自有L&T", idx)] = item.get("L&T", "")
         slots[bom_own_brand_internal_column("自有匹配说明", idx)] = candidate_reason
+        if candidate_row is not None and clean_text(candidate_row.get("成本时间点", "")):
+            slots[bom_own_brand_internal_column("自有匹配说明", idx)] = "；".join(
+                value for value in (candidate_reason, clean_text(candidate_row.get("价格说明", ""))) if value
+            )
         slots[bom_own_brand_internal_column("自有匹配备注", idx)] = candidate_remark
     return slots
 
@@ -36410,6 +36525,7 @@ def get_query_cache_signature():
     try:
         signature = build_data_cache_signature()
         signature["public_code_stamp"] = PUBLIC_CODE_STAMP
+        signature["cost_as_of"] = selected_admin_cost_as_of()
         for path_key, path_value in (
             ("search_db", SEARCH_DB_PATH),
             ("mlcc_lcsc_dimension_cache", MLCC_LCSC_DIMENSION_CACHE_PATH),
@@ -48048,6 +48164,7 @@ def bom_dataframe_from_upload(
     cost_lookup = load_authorized_cost_price_lookup(
         normalized_export_settings.get("customer_type") or COST_CUSTOMER_TYPE_NEW,
         normalized_export_settings.get("customer_name", ""),
+        as_of=normalized_export_settings.get("cost_as_of"),
     )
     resistor_pricing_rules = load_resistor_series_pricing_rules()
     total_rows = len(records)
@@ -48256,6 +48373,8 @@ def bom_dataframe_from_upload(
     }
     emit_progress(total_rows, result_row=rows[-1] if rows else {"BOM行号": "", "解析输入": "BOM 匹配已完成"}, done=True)
     result_df = move_reference_model_columns_after_rank(result_df)
+    if normalized_export_settings.get("cost_as_of"):
+        result_df["成本时间点"] = normalized_export_settings["cost_as_of"]
     result_df.attrs["bom_metrics"] = metrics
     return result_df
 
@@ -48356,6 +48475,11 @@ def build_bom_own_brand_append_columns(result_df, row_count, include_cost=True):
     append_columns = [
         {"header": "匹配状态", "values": status_values},
     ]
+    if include_cost and member_cost_access_level(export_member or {}) == "admin" and "成本时间点" in result_work.columns:
+        append_columns.append({"header": "成本时间点", "values": [
+            clean_text(result_work.iloc[idx].get("成本时间点", "")) if idx < len(result_work) else ""
+            for idx in range(max_len)
+        ]})
     for idx in range(1, max_slot + 1):
         for header_base, internal_prefix in zip(BOM_OWN_BRAND_EXPORT_BASE_COLUMNS, BOM_OWN_BRAND_EXPORT_INTERNAL_PREFIXES):
             if not include_cost and internal_prefix in {"自有成本", "自有更新时间"}:
@@ -50087,6 +50211,7 @@ def render_bom_upload_page():
                             "customer_type": bom_customer_type,
                             "customer_name": bom_customer_name,
                             "include_cost": current_member_can_view_cost(),
+                            "cost_as_of": selected_admin_cost_as_of(),
                         }
                     )
                 else:
@@ -50096,6 +50221,7 @@ def render_bom_upload_page():
                         "customer_type": bom_customer_type,
                         "customer_name": bom_customer_name,
                         "include_cost": current_member_can_view_cost(),
+                        "cost_as_of": selected_admin_cost_as_of(),
                     }
 
                 cached_bom_result_df = pd.DataFrame()
@@ -50949,7 +51075,7 @@ if search_requested:
     if not require_member_login_for_action("搜索匹配"):
         st.stop()
     if not search_customer_ready:
-        st.warning("请先填写并保存客户名称。")
+        st.warning("请先确认客户及有效的成本日期时间。" if current_member_is_admin() else "请先填写并保存客户名称。")
         st.stop()
     if not query_input.strip():
         clear_pending_member_search()

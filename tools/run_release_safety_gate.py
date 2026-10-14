@@ -106,6 +106,7 @@ def main() -> int:
                 "component_matcher.py",
                 "bom_job_store.py",
                 "component_quality.py",
+                "cost_price_history.py",
                 "bom_image_ocr_runtime.py",
                 "bom_image_ocr_worker.py",
                 "bom_image_clipboard.py",
