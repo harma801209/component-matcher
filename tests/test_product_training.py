@@ -796,6 +796,26 @@ for(const id of ['mos-n','mos-p'])for(const drive of [0,2.5,10]){
         for term in ['play-cause', 'play-transfer', '换个场景', '控制端', '回充']:
             self.assertIn(term, script)
 
+    def test_training_journey_reuses_modules_and_adds_no_business_storage(self):
+        page=build_training_html()
+        journey=(WEB_ROOT/'training_journey.js').read_text(encoding='utf-8')
+        self.assertIn('window.TrainingJourney=Object.freeze',page)
+        self.assertLess(page.index('window.TrainingCatalogUI=Object.freeze'),page.index('window.TrainingJourney=Object.freeze'))
+        for term in ['fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+            self.assertNotIn(term,journey)
+        for step in ['recognize','circuit','game','specs','review']:
+            self.assertIn("['"+step+"'",journey)
+        for term in ['workspace.append(overview)', "quiz.hidden=false", "quizTabs.append(quizTab)", 'lesson-reference-more', 'aria-controls']:
+            self.assertIn(term,journey)
+
+    def test_quiz_is_separate_without_hiding_selected_knowledge_or_losing_progress(self):
+        script=(WEB_ROOT/'training.js').read_text(encoding='utf-8')
+        self.assertIn("if(key!=='quiz')knowledgeTab=key",script)
+        self.assertIn("$('panel-quiz').hidden=false",script)
+        self.assertIn("const tabs=['spec','performance','principle']",script)
+        self.assertIn("document.querySelector('#panel-quiz .complete')",script)
+        self.assertIn('选型工具中的错题本',script)
+
     def test_pcb_demo_is_separate_from_structure_and_device_labs(self):
         page=build_training_html()
         for word in ['PCB电路工作演示','限流电阻','电源接反','电容回充','续流路径','内部示意动画','约定电流方向','负载10 Ω','不是固定导通门槛']:

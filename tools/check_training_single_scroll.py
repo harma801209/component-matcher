@@ -41,7 +41,7 @@ with sync_playwright() as p:
         def press(n):n.focus();n.press('Enter')
         def fitted():
             f.wait_for_function('Math.abs(innerHeight-Math.ceil(document.querySelector("#training-app").getBoundingClientRect().height)-12)<=1')
-            dimensions=f.evaluate('({viewport:innerHeight,scroll:document.documentElement.scrollHeight,bottom:document.querySelector(".references").getBoundingClientRect().bottom})')
+            dimensions=f.evaluate('''()=>{const fold=document.querySelector('#lesson-reference-more'),tail=fold&&!fold.open?fold:document.querySelector('.references');return {viewport:innerHeight,scroll:document.documentElement.scrollHeight,bottom:tail.getBoundingClientRect().bottom};}''')
             assert dimensions['scroll']<=dimensions['viewport']+1,dimensions
             assert dimensions['bottom']<=dimensions['viewport'],dimensions
             assert f.evaluate('getComputedStyle(document.documentElement).overflowY')=='hidden'
@@ -74,6 +74,8 @@ with sync_playwright() as p:
             before=fitted();page.wait_for_timeout(250)
             assert fitted()==before,'Unexpected height growth'
             # Last reference text is reachable through the outer scroll area.
+            if f.locator('#lesson-reference-more').count() and f.locator('#lesson-reference-more').get_attribute('open') is None:
+                press(f.locator('#lesson-reference-more>summary'))
             f.locator('.references .source-note').scroll_into_view_if_needed()
             box=f.locator('.references .source-note').bounding_box()
             assert box and box['y']>=-1 and box['y']+box['height']<=1001,box

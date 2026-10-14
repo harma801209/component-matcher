@@ -172,6 +172,8 @@ with sync_playwright() as p:
             page.mouse.wheel(0,350);page.wait_for_timeout(150)
             assert scroller.evaluate('e=>e.scrollTop')>100
             assert f.evaluate('document.scrollingElement.scrollTop')==0
+            if f.locator('#lesson-reference-more').count() and f.locator('#lesson-reference-more').get_attribute('open') is None:
+                activate(f.locator('#lesson-reference-more>summary'))
             f.locator('.references .source-note').scroll_into_view_if_needed()
             bounds=f.locator('.references .source-note').bounding_box()
             assert bounds and bounds['y']>=-1 and bounds['y']+bounds['height']<=1001, bounds

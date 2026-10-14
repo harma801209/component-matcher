@@ -17,7 +17,7 @@ def build_training_html():
         "training_catalog.js", "training_catalog_geometry.js", "training_catalog_labs.js", "training_subtype_game_math.js",
         "training.js", "training_tools.js", "training_circuit.js",
         "training_playground_scene.js", "training_playground.js", "training_subtype_game_scene.js", "training_subtype_game.js", "training_playground_entry.js",
-        "training_catalog_ui.js", "training_embed.js",
+        "training_catalog_ui.js", "training_journey.js", "training_embed.js",
     ))
     assets = {
         "pcb": "data:image/webp;base64," + base64.b64encode((WEB_ROOT / "assets/playground-pcb.webp").read_bytes()).decode("ascii"),
