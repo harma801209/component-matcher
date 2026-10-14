@@ -60,7 +60,11 @@ with sync_playwright() as p:
                 # Tall iframe element screenshots can clip offscreen regions.
                 # Capture individually visible board and action areas instead.
                 f.locator('.play-viewport').screenshot(path=str(OUT/f'{prefix}-{name}-board.png'))
+                explanation=f.locator('.play-mobile-explanation')
+                opened=explanation.count() and explanation.get_attribute('open') is not None
+                if explanation.count() and not opened:press('.play-mobile-explanation>summary')
                 f.locator('.play-cause').screenshot(path=str(OUT/f'{prefix}-{name}-cause.png'))
+                if explanation.count() and not opened:press('.play-mobile-explanation>summary')
                 f.locator('.play-action-row').screenshot(path=str(OUT/f'{prefix}-{name}-actions.png'))
             else:
                 f.locator('.play-stage').screenshot(path=str(OUT/f'{prefix}-{name}.png'))

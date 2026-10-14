@@ -10,6 +10,49 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_mobile_layout_moves_same_nodes_and_restores_desktop_without_controls(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');
+class N{
+ constructor(tag,cls='',text=''){this.tagName=tag.toUpperCase();this.className=cls;this.textContent=text;this.children=[];this.parent=null;this.dataset={};this.attrs={};this.open=false;this.hidden=false;}
+ remove(){if(this.parent){this.parent.children.splice(this.parent.children.indexOf(this),1);this.parent=null;}}
+ append(...nodes){for(const n of nodes){n.remove();n.parent=this;this.children.push(n);}}
+ before(n){n.remove();const p=this.parent,i=p.children.indexOf(this);n.parent=p;p.children.splice(i,0,n);}
+ after(n){n.remove();const p=this.parent,i=p.children.indexOf(this);n.parent=p;p.children.splice(i+1,0,n);}
+ replaceChildren(...ns){for(const n of [...this.children])n.remove();this.append(...ns);}
+ matches(s){return s.split(',').some(x=>this.className.split(' ').includes(x.slice(1)));}
+ setAttribute(k,v){this.attrs[k]=v;}
+ contains(n){return this===n||this.children.some(c=>c.contains(n));}
+ getClientRects(){return [{}];}
+}
+const root=new N('section'),board=new N('div'),console=new N('aside'),intro=new N('section','play-beginner-intro'),cause=new N('section','play-cause'),goal=new N('p','play-goal'),fixed=new N('p','play-fixed-condition'),instruction=new N('p','play-instruction'),hint=new N('p','play-mission-hint'),live=new N('p','play-live'),outcome=new N('p','play-outcome'),text=new N('p'),title=new N('h5','play-result-title'),metrics=new N('div','subgame-metrics'),why=new N('details','play-why'),controls=new N('div','play-controls'),button=new N('button','', '1 · 第一关');
+root.append(board,console);board.append(cause);console.append(intro,goal,fixed,instruction,hint,controls,title,outcome,text,metrics,why,live);
+const map={'.play-console':console,'.play-beginner-intro':intro,'.play-cause':cause,'.play-result-title':title,'.subgame-metrics':metrics,'.play-why':why};root.querySelector=s=>map[s];root.querySelectorAll=()=>[button];
+const callbacks=new Set(),media={matches:true,addEventListener(_,f){callbacks.add(f);},removeEventListener(_,f){callbacks.delete(f);}},window={};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{window,document:{createElement:t=>new N(t),createComment:()=>new N('#comment'),activeElement:null},matchMedia:()=>media});
+const layout=window.TrainingPlaygroundLayout.mount(root),panel=console.children.find(n=>n.className==='play-mobile-explanation'),body=panel.children[1];
+a.equal(root.dataset.mobileLayout,'compact');a.equal(panel.hidden,false);a(body.contains(cause));a(body.contains(intro));a(body.contains(metrics));a(body.contains(text));
+for(const n of [goal,fixed,instruction,hint,live,outcome,controls]){a.equal(n.parent,console);a(!body.contains(n));}
+a.equal(button.attrs['aria-label'],'1 · 第一关');a.equal(button.children[1].attrs['aria-hidden'],'true');
+cause.textContent='30 mA';panel.open=true;media.matches=false;for(const f of callbacks)f();
+a.equal(root.dataset.mobileLayout,'desktop');a.equal(panel.hidden,true);a.equal(panel.open,false);a.equal(cause.parent,board);a.equal(intro.parent,console);a.equal(console.children.filter(n=>n.tagName!=='#COMMENT')[0],intro);a.equal(cause.textContent,'30 mA');
+media.matches=true;for(const f of callbacks)f();a.equal(root.dataset.mobileLayout,'compact');a.equal(body.children.filter(n=>n===cause).length,1);a.equal(body.children.filter(n=>n===intro).length,1);
+layout.dispose();a.equal(callbacks.size,0);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_playground_layout.js')],check=True,capture_output=True)
+
+    def test_mobile_layout_is_bundled_without_changing_game_or_business_state(self):
+        page=build_training_html()
+        self.assertTrue('window.TrainingPlaygroundLayout=Object.freeze' in page)
+        self.assertLess(page.index('window.TrainingPlaygroundLayout=Object.freeze'),page.index('const layout=window.TrainingPlaygroundLayout.mount'))
+        layout=(WEB_ROOT/'training_playground_layout.js').read_text(encoding='utf-8')
+        for forbidden in ['fetch(', 'localStorage', 'sessionStorage', 'sqlite', 'TrainingPlaygroundMath', 'TrainingSubtypeGameMath']:
+            self.assertNotIn(forbidden,layout)
+        for name in ['training_playground.js','training_subtype_game.js']:
+            script=(WEB_ROOT/name).read_text(encoding='utf-8')
+            self.assertTrue('layout.dispose();' in script)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_circuit_arrows_use_local_time_and_preserve_pause_and_view(self):
         script=r'''
 const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),src=fs.readFileSync(process.argv[1],'utf8');

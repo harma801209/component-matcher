@@ -86,3 +86,64 @@
 .play-transfer-feedback{color:#45678e}
 @media(max-width:760px){.play-beginner .play-board-column>.play-viewport{height:340px;min-height:0;flex:none}.play-cause{padding:14px 16px}.play-cause h5{font-size:15px}.play-cause p{font-size:13px}.play-device-focus{font-size:11px;padding:5px 7px}}
 @media(max-width:420px){.play-beginner .play-board-column>.play-viewport{height:290px}}
+
+/* Mobile game core: board -> choose -> act; explanations are optional below. */
+.play-level-index{display:none}
+.play-mobile-explanation{margin-top:10px;border-top:1px solid #dce8fa;color:#234e80}
+.play-mobile-explanation>summary{min-height:44px;padding:10px 0;font-size:13px;font-weight:650;line-height:1.6;cursor:pointer}
+.play-mobile-explanation-body .play-cause{border:0;border-radius:8px;padding:12px;margin:8px 0}
+.play-mobile-explanation-body .play-beginner-intro{padding:10px 0;margin:0}
+.play-mobile-explanation-body>p{font-size:13px;line-height:1.7;margin:8px 0}
+@media(max-width:760px){
+ .playground{padding:10px}
+ .play-heading{margin-bottom:8px;gap:0}
+ .play-heading h3{font-size:20px;line-height:1.35;margin:0}
+ .play-heading p,.play-heading .play-steps{display:none}
+ .play-mode-bar{margin-bottom:8px;gap:6px}
+ .play-mode-bar button{flex:1;min-height:44px;padding:8px;font-size:13px}
+ .play-workbench .play-mission{padding:8px 10px}
+ .play-mission-head{flex-direction:row;align-items:center;gap:8px}
+ .play-mission-head h4{font-size:14px;line-height:1.45}
+ .play-mission-head span{font-size:11px}
+ .play-workbench .play-level-nav,.play-workbench .subgame-level-nav{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px;margin:7px 0 0}
+ .play-workbench .subgame-level-nav{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+ .play-level-nav button{min-height:44px;text-align:center;padding:7px;font-size:14px}
+ .play-level-label{display:none}
+ .play-level-index{display:inline}
+ .play-workbench .play-stage>.play-viewport,.play-beginner .play-board-column>.play-viewport{height:230px;min-height:0;flex:none}
+ .play-workbench .play-console{padding:10px;border-left:0}
+ .play-console>small{font-size:11px;line-height:1.5}
+ .play-workbench .play-console>h4{font-size:16px;line-height:1.4;margin:2px 0 5px}
+ .play-workbench .play-console .play-goal{font-size:13px;line-height:1.5;margin:3px 0}
+ .play-fixed-condition{font-size:11px!important;line-height:1.5!important;margin:3px 0 0}
+ .play-workbench .play-console .play-tray{margin:8px 0 0}
+ .play-console .play-tray>div:first-child{margin-bottom:5px}
+ .play-console .play-tray strong{font-size:13px;line-height:1.4}
+ .play-console .play-tray p{display:none}
+ .play-console .play-choices{gap:6px}
+ .play-console .play-choices .play-choice{min-height:72px;padding:4px}
+ .play-console .play-choice canvas{height:40px}
+ .play-console .play-choice strong{font-size:13px}
+ .play-console .play-instruction{font-size:12px;line-height:1.5;margin-top:7px}
+ .play-console .play-action-row{margin-top:7px;gap:6px}
+ .play-console .play-action-row button{padding:8px 10px;font-size:13px;min-height:44px}
+ .play-console .play-action-row button.play-primary{min-height:44px;padding:8px 10px;font-size:14px}
+ .play-workbench .play-console .play-controls{margin-top:7px;gap:6px}
+ .play-console .play-controls button{padding:8px;min-height:44px}
+ .play-console .subgame-fields{margin:7px 0 0;gap:7px}
+ .play-console .subgame-field{padding:6px}
+ .play-console .subgame-choices{gap:5px}
+ .play-console .subgame-choice{min-height:44px;font-size:12px;line-height:1.4;padding:6px;flex-basis:75px}
+ .play-console .play-brightness{margin-top:7px}
+ .play-brightness small{font-size:11px}
+ .play-brightness meter{height:12px;margin-top:3px}
+ .play-workbench .play-console .play-outcome{font-size:12px;line-height:1.6;margin:7px 0 0}
+ .play-console .play-transfer{margin-top:8px;padding-top:5px}
+ .play-mobile-explanation{margin-top:7px}
+ .play-badge{top:10px;left:10px;font-size:10px;padding:3px 8px}
+ .play-labels{top:39px;left:8px;right:8px;font-size:10px;line-height:1.4}
+ .play-hud{bottom:27px;right:10px!important;padding:5px 9px;min-width:72px!important}
+ .play-hud strong{font-size:16px}
+ .play-device-focus{font-size:10px;padding:4px 6px}
+ .play-view-hint{bottom:6px;font-size:10px}
+}

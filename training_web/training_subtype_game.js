@@ -69,10 +69,10 @@
   try{view=window.TrainingSubtypeGameScene.create(canvas,id,cycle);}catch(_){failed=true;canvas.hidden=true;viewport.append(node('p','3D不可用，请启用图形加速；条件卡片与计算结果仍然可用。','play-fallback'));}
   canvas.addEventListener('subgame-context-lost',()=>{failed=true;playing=false;updatePause();refresh();});canvas.addEventListener('subgame-context-restored',()=>{failed=false;status.textContent='3D已恢复，可点击继续动画。';refresh();});
   const motionChanged=()=>{if(motion.matches){playing=false;updatePause();refresh();}};motion.addEventListener('change',motionChanged);
-  updatePause();refresh();view?.resize();const observer=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});observer.observe(viewport);
+  const layout=window.TrainingPlaygroundLayout.mount(root);updatePause();refresh();view?.resize();const observer=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});observer.observe(viewport);
   function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open){const advance=playing?dt*speed:0;if(s.started&&advance){s=M.observe(s,advance);session[mode]=s;}if(now-paint>90){refresh();paint=now;}view?.draw(id==='cap-tantalum'&&s.observed>=1.2?0:advance);}frame=requestAnimationFrame(loop);}
   frame=requestAnimationFrame(loop);
-  const api={id,snapshot:()=>({id,mode,progress:{...s,params:{...s.params},cleared:[...s.cleared]},result:M.evaluate(id,s.params,Math.min(1,s.observed)),playing,speed,scene:view?.snapshot()}),dispose:()=>{session[mode]=s;disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);view?.dispose();if(active===api)active=null;}};active=api;return api;
+  const api={id,snapshot:()=>({id,mode,progress:{...s,params:{...s.params},cleared:[...s.cleared]},result:M.evaluate(id,s.params,Math.min(1,s.observed)),playing,speed,scene:view?.snapshot()}),dispose:()=>{session[mode]=s;disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
  }
  window.TrainingSubtypeGame=Object.freeze({mount,current:()=>active});
 })();

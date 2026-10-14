@@ -96,11 +96,11 @@
   canvas.addEventListener('playground-context-lost',()=>{renderFailure=true;playing=false;updatePause();refresh(true);});canvas.addEventListener('webglcontextrestored',()=>{renderFailure=false;status.textContent='3D显示已恢复，点击继续即可。';refresh();});
   const motionChanged=()=>{if(motion.matches){playing=false;updatePause();refresh();}};motion.addEventListener('change',motionChanged);
   for(const b of choiceGroup.querySelectorAll('[data-play-choice]')){const value=d.choices.find(o=>String(o[0])===b.dataset.playChoice)[0];try{window.TrainingPlaygroundScene.thumbnail(course,value,b.querySelector('canvas'));}catch(_){b.querySelector('canvas').hidden=true;}}
-  updatePause();refresh();view?.resize();
+  const layout=window.TrainingPlaygroundLayout.mount(root);updatePause();refresh();view?.resize();
   const visibility=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});visibility.observe(canvas);
   function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open){const step=playing?dt*speed:0;if(p.power&&step&&(mode==='free'||campaign.progress.started)){if(course==='capacitor'){elapsed=Math.min(9,elapsed+step);}if(course==='inductor')elapsed=Math.min(3,elapsed+step);}if(now-lastPaint>80){refresh();lastPaint=now;}view?.draw(step);}frameID=requestAnimationFrame(loop);}
   frameID=requestAnimationFrame(loop);
-  const api={course,set,snapshot:()=>({params:{...p},phase:phase(),result:M.evaluate(course,p,phase()),playing,speed,mode,progress:{...campaign.progress,cleared:[...campaign.progress.cleared]},scene:view?.snapshot()}),dispose:()=>{if(mode==='challenge')campaign.elapsed=elapsed;disposed=true;cancelAnimationFrame(frameID);visibility.disconnect();motion.removeEventListener('change',motionChanged);view?.dispose();if(active===api)active=null;}};active=api;return api;
+  const api={course,set,snapshot:()=>({params:{...p},phase:phase(),result:M.evaluate(course,p,phase()),playing,speed,mode,progress:{...campaign.progress,cleared:[...campaign.progress.cleared]},scene:view?.snapshot()}),dispose:()=>{if(mode==='challenge')campaign.elapsed=elapsed;disposed=true;cancelAnimationFrame(frameID);visibility.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
  }
  window.TrainingPlayground=Object.freeze({mount,current:()=>active});
 })();
