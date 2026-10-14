@@ -31,7 +31,7 @@ with sync_playwright() as p:
         deadline=time.monotonic()+180;again=time.monotonic()+15
         while time.monotonic()<deadline:
             frame=next((x for x in page.frames if x.locator('#training-app').count()),None)
-            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
+            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"&&typeof TrainingGameFeedback!=="undefined"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
             if args.public and time.monotonic()>again:
                 page.reload(wait_until='domcontentloaded',timeout=90000);again=time.monotonic()+15
             page.wait_for_timeout(250)
@@ -77,6 +77,9 @@ with sync_playwright() as p:
         f.wait_for_function('n=>'+expression+'===n',arg=count,timeout=timeout)
         if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
             learned=f.evaluate('''base=>{const s=base?TrainingPlayground.current().snapshot():TrainingSubtypeGame.current().snapshot();return base?TrainingPlaygroundLevels.level(s.progress.course,s.progress.index).learned:TrainingSubtypeGameMath.level(s.id,s.progress.index).learned;}''',base)
+            # The model grades on RAF; the console paints at a bounded 90 ms
+            # cadence. Check the actual updated DOM, not the grading-frame gap.
+            f.wait_for_function('learned=>{const goal=document.querySelector(".play-goal");return goal&&!goal.hidden&&goal.textContent===learned;}',arg=learned,timeout=3000)
             assert f.locator('.play-goal').is_visible() and f.locator('.play-goal').inner_text()==learned
             assert f.locator('.play-instruction').is_hidden()
     def check_cycle(d):
