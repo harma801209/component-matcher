@@ -53,15 +53,18 @@
   if(type==='reset')return setup(s.index,s.cleared);
   if(type==='resistance'&&s.index<=1&&resistors.includes(value)){s.resistance=value;s.acted=true;}
   else if(type==='diode'&&s.index===2&&['none','forward','backward'].includes(value)){s.diode=value;s.tested=false;s.reverse=false;s.acted=true;}
-  else if(type==='capacitance'&&s.index===3&&capacitors.includes(value)){s.capacitance=value;s.power=true;s.elapsed=0;s.running=false;s.acted=true;}
+  else if(type==='capacitance'&&s.index===3&&capacitors.includes(value)){s.capacitance=value;s.elapsed=0;s.running=false;s.acted=true;}
   else if(type==='mos'&&s.index===4){s.mos=true;s.gate=false;s.sawOn=false;s.sawOff=false;s.acted=true;}
+  else if(type==='power'){
+   s.acted=true;s.power=!s.power;s.elapsed=0;s.running=s.index===3&&!s.power&&s.capacitance>0;
+  }
   else if(type==='primary'){
    s.acted=true;
    if(s.index===0)s.power=true;
    else if(s.index===1)s.power=true;
-   else if(s.index===2){s.reverse=!s.reverse;if(s.reverse&&s.diode==='forward')s.tested=true;}
+   else if(s.index===2&&s.power){s.reverse=!s.reverse;if(s.reverse&&s.diode==='forward')s.tested=true;}
    else if(s.index===3){if(s.power){s.power=false;s.elapsed=0;s.running=true;}else{s.power=true;s.elapsed=0;s.running=false;}}
-   else if(s.mos){s.gate=!s.gate;if(s.gate)s.sawOn=true;else if(s.sawOn)s.sawOff=true;}
+   else if(s.mos&&s.power){s.gate=!s.gate;if(s.gate)s.sawOn=true;else if(s.sawOn)s.sawOff=true;}
   }else if(type==='tick'&&s.index===3&&s.running&&Number.isFinite(value)&&value>0){s.elapsed=Math.min(2,s.elapsed+Math.min(value,.5));if(s.elapsed>=2)s.running=false;}
   return judge(s);
  }

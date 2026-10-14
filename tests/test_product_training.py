@@ -52,7 +52,7 @@ s=m.action(s,'next');s=m.action(s,'primary');a(m.result(s).unknown);a.equal(s.cl
 s=m.action(s,'diode','backward');s=m.action(s,'primary');a(m.result(s).unknown);a.equal(s.cleared,2);
 s=m.action(s,'diode','forward');s=m.action(s,'primary');a.equal(m.result(s).current,0);a.equal(s.cleared,2);s=m.action(s,'primary');a.equal(s.cleared,3);
 s=m.action(s,'next');s=m.action(s,'primary');a.equal(m.result(s).source,'capacitor');for(let i=0;i<4;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,3);a(m.result(s).current<.004);
-s=m.action(s,'capacitance',.01);a.equal(s.elapsed,0);a(s.power);s=m.action(s,'primary');const initial=m.result(s);for(let i=0;i<3;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,3);s=m.action(s,'tick',.5);a.equal(s.cleared,4);a(m.result(s).current<initial.current);a(m.result(s).energy<initial.energy);a(m.result(s).current>=.004);
+s=m.action(s,'capacitance',.01);a.equal(s.elapsed,0);a.equal(s.power,false);a.equal(m.result(s).current,0);s=m.action(s,'power');a(s.power);s=m.action(s,'power');const initial=m.result(s);for(let i=0;i<3;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,3);s=m.action(s,'tick',.5);a.equal(s.cleared,4);a(m.result(s).current<initial.current);a(m.result(s).energy<initial.energy);a(m.result(s).current>=.004);
 const end=m.result(s).current;s=m.action(s,'tick',Infinity);a.equal(m.result(s).current,end);a.equal(m.action(s,'capacitance',-1).capacitance,.01);
 s=m.action(s,'next');s=m.action(s,'primary');a.equal(s.cleared,4);s=m.action(s,'mos',true);s=m.action(s,'primary');a.equal(s.cleared,4);a(m.result(s).current>0);s=m.action(s,'primary');a.equal(m.result(s).current,0);a.equal(s.cleared,4);s=m.action(s,'primary');a.equal(s.cleared,5);
 for(const state of [m.restore(m.record(s)),m.action(s,'visit',4)]){a(state.mos&&state.gate);a(m.result(state).current>0);a.equal(state.cleared,5);}
@@ -100,8 +100,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{window,document:{cre
 const layout=window.TrainingPlaygroundLayout.mount(root),panel=console.children.find(n=>n.className==='play-mobile-explanation'),body=panel.children[1];
 const caption=board.children.find(n=>n.className==='play-scene-caption'),readout=board.children.find(n=>n.className==='play-scene-readout');
 a.deepEqual(viewport.children,[canvas]);a.deepEqual(caption.children,[badge,focus,labels]);a.deepEqual(readout.children,[viewHint,hud]);
-a.equal(controls.attrs.role,'group');a.equal(controls.attrs['aria-label'],'演示控制');
-const speedButton=new N('button');for(const speed of [1,.35,1]){window.TrainingPlaygroundLayout.setSpeedLabel(speedButton,speed);a.equal(speedButton.textContent,speed+'×');a.equal(speedButton.attrs['aria-pressed'],String(speed!==1));a(speedButton.attrs['aria-label'].includes(speed+'倍'));a.equal(speedButton.title,speedButton.attrs['aria-label']);}
+a.equal(window.TrainingPlaygroundLayout.setSpeedLabel,undefined);
 a(board.children.indexOf(caption)<board.children.indexOf(viewport));a(board.children.indexOf(readout)>board.children.indexOf(viewport));
 a.equal(root.dataset.mobileLayout,'compact');a.equal(panel.hidden,false);a(body.contains(cause));a(body.contains(intro));a(body.contains(metrics));a(body.contains(text));
 for(const n of [goal,fixed,instruction,hint,live,outcome,controls]){a.equal(n.parent,console);a(!body.contains(n));}
@@ -154,16 +153,17 @@ ctx.arrowClock=9000;ctx.flows.main=.003;ctx.render();a.equal(ctx.flowNodes[0].ar
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_circuit.js')],check=True,capture_output=True)
 
-    def test_mobile_explicit_start_resumes_both_game_engines_not_autoplay(self):
+    def test_games_use_one_explicit_power_toggle_without_media_controls(self):
         for name in ['training_playground.js','training_subtype_game.js']:
             script=(WEB_ROOT/name).read_text(encoding='utf-8')
-            self.assertTrue("playing=!motion.matches" in script or "playing=!matchMedia('(prefers-reduced-motion:reduce)').matches" in script)
-            self.assertIn('function startPlayback(){playing=true;last=0;updatePause();}',script)
-            self.assertGreaterEqual(script.count('startPlayback();'),2)
-            self.assertIn('动画已暂停，点 ▶ 继续动画',script)
-            self.assertIn('playing=false;updatePause();refresh();',script)
+            self.assertIn('playing=false',script)
+            self.assertIn('function switchPower(on)',script)
+            self.assertIn("?'关闭电源':'打开电源'",script)
+            for removed in ['play-controls','-pause','-speed','-reset','updatePause','startPlayback','继续动画']:
+                self.assertNotIn(removed,script)
+            self.assertIn('motion.matches',script)
         subtype=(WEB_ROOT/'training_subtype_game.js').read_text(encoding='utf-8')
-        self.assertIn('else{playing=false;updatePause();s=M.observe(s,.6);',subtype)
+        self.assertIn('const advance=s.started&&playing?dt:0',subtype)
         self.assertIn("id==='cap-tantalum'&&s.observed>=1.2?0:advance",subtype)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
@@ -301,7 +301,7 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
 
     def test_guided_controls_are_in_the_board_workbench_not_an_upper_module(self):
         ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
-        for text in ['playground-workbench','playground-action','playground-instruction','play-story play-console','story.append(instruction,actionRow,hintText)','story.append(controls','这一关不用换电阻','这关怎么玩']:
+        for text in ['playground-workbench','playground-action','playground-instruction','play-story play-console','story.append(instruction,actionRow,hintText)','actionRow.append(power,task,next,help)','这一关不用换电阻','这关怎么玩']:
             self.assertIn(text,ui)
         self.assertNotIn('viewport.append(power)',ui)
         self.assertNotIn('workbench.append(tray)',ui)
@@ -318,9 +318,9 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
         ui=(WEB_ROOT/'training_subtype_game.js').read_text(encoding='utf-8')
         self.assertIn('story.append(fields)',ui)
         self.assertIn('story.append(instruction,row,hint)',ui)
-        self.assertIn('power.hidden=!s.started&&!done',ui)
-        self.assertIn("power.textContent=s.started?'停止观察':'重新观察'",ui)
-        self.assertIn("power.hidden=!p.power&&!(mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index))",(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8'))
+        self.assertIn("action.hidden=false;action.textContent=s.started?'关闭电源':'打开电源'",ui)
+        self.assertIn('s=M.stop(session[mode])',ui)
+        self.assertIn('p.power=false;campaign.progress=L.attempt', (WEB_ROOT/'training_playground.js').read_text(encoding='utf-8'))
         self.assertNotIn('打开电源 / 开始观察',ui)
         css=(WEB_ROOT/'training_playground.css').read_text(encoding='utf-8')
         self.assertIn('.play-console .play-action-row',css)
@@ -356,9 +356,36 @@ const s=L.action(L.create('capacitor'),'trigger');a.equal(L.judge({...s,index:0}
         for forbidden in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
             self.assertNotIn(forbidden,source)
         ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
-        for text in ['闯关挑战','自由实验','playground-mission','playground-outcome','观察下一阶段','L.record','b.disabled=i>']:
+        for text in ['闯关挑战','自由实验','playground-mission','playground-outcome','打开电源','关闭电源','L.record','b.disabled=i>']:
             self.assertIn(text,ui)
+        self.assertIn('visibility.observe(viewport)',ui)
+        self.assertNotIn('visibility.observe(canvas)',ui)
         self.assertLess(build_training_html().index('root.TrainingPlaygroundLevels=api'),build_training_html().index('window.TrainingPlayground=Object.freeze'))
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_power_handlers_start_stop_and_preserve_earned_credit(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],L=require(dir+'/training_playground_levels.js'),M=require(dir+'/training_subtype_game_math.js');
+const handler=name=>fs.readFileSync(dir+'/'+name,'utf8').split('\n').find(line=>line.trim().startsWith('function switchPower(on)'));
+for(const course of ['resistor','inductor']){
+ const ctx={p:{power:false},playing:false,last:9,elapsed:2,triggered:true,mode:'challenge',course,L,campaign:{progress:L.create(course)},refresh(){},markInteraction(event){this.campaign.progress=L.action(this.campaign.progress,event);}};
+ // Match the controller's lexical callback rather than relying on a method receiver.
+ ctx.markInteraction=event=>ctx.campaign.progress=L.action(ctx.campaign.progress,event);vm.createContext(ctx);vm.runInContext(handler('training_playground.js')+';this.toggle=switchPower;',ctx);
+ ctx.toggle(true);a(ctx.p.power&&ctx.playing);a.equal(ctx.elapsed,0);a.equal(ctx.last,0);a.equal(ctx.campaign.progress.started,course==='inductor');
+ ctx.campaign.progress.cleared=[0];ctx.toggle(false);a(!ctx.p.power&&!ctx.playing);a.equal(ctx.campaign.progress.cleared.length,1);ctx.toggle(true);a(ctx.playing);a.equal(ctx.campaign.progress.cleared.length,1);
+}
+const ctx={s:M.create('res-thin'),M,playing:false,last:5,session:{},mode:'challenge',refresh(){}};vm.createContext(ctx);vm.runInContext(handler('training_subtype_game.js')+';this.toggle=switchPower;',ctx);ctx.toggle(true);a(ctx.s.started&&ctx.playing);ctx.s.cleared=[0];ctx.toggle(false);a(!ctx.s.started&&!ctx.playing);a.equal(ctx.s.cleared.length,1);ctx.toggle(true);a(ctx.playing);a.equal(ctx.s.observed,0);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_product_power_toggle_retains_capacitor_backup_and_real_mos_observation(self):
+        script=r'''
+const m=require(process.argv[1]),a=require('node:assert/strict');let s=m.action(m.setup(0),'resistance',330);a(!s.power);s=m.action(s,'power');a(s.power&&m.result(s).current>0);a.equal(s.cleared,1);s=m.action(s,'power');a(!s.power);a.equal(m.result(s).current,0);a.equal(s.cleared,1);
+s={...m.setup(3,3),power:false};s=m.action(s,'capacitance',.01);a(!s.power);a.equal(m.result(s).source,'off');s=m.action(s,'power');a(s.power&&!s.running);s=m.action(s,'power');a(!s.power&&s.running);a.equal(m.result(s).source,'capacitor');a(m.result(s).current>0);for(let i=0;i<4;i++)s=m.action(s,'tick',.5);a.equal(s.cleared,4);a.equal(s.elapsed,2);a(!s.running);a(m.result(s).current>=.004);s=m.action(s,'power');a(s.power);a.equal(s.elapsed,0);a.equal(s.cleared,4);
+s={...m.setup(4,4),power:false};s=m.action(s,'mos',true);s=m.action(s,'primary');a(!s.gate&&!s.sawOn);s=m.action(s,'power');for(let i=0;i<3;i++)s=m.action(s,'primary');a.equal(s.cleared,5);s=m.action(s,'power');a.equal(s.cleared,5);a.equal(m.result(s).current,0);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_nightlight_math.js')],check=True,capture_output=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_playground_live_values_validate_choices_and_preserve_current(self):

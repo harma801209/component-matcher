@@ -10,14 +10,14 @@
    {title:'低电流待机灯',goal:'灯仍要亮，但这次只允许最多4 mA。换件把电流降下来。',hint:'增加阻值；关闭电源不算完成，因为灯仍要亮。',learned:'较大的阻值可降低这条回路的电流。实际亮度和能否满足用途还要看LED规格。',setup:seed(330),check:(p,r)=>p.power&&r.current>0&&r.current<=.004}
   ],
   capacitor:[
-   {title:'叫醒备用储能',goal:'让芯片突然多用电，看橙色电流从电容送到芯片。',hint:'点击“模拟突然用电”；暂停时也可以用“观察下一阶段”。',learned:'电容放出的电流经过芯片并回到电容端子，和电源一起补上这次需求。',setup:seed(10),check:(p,r,phase,s)=>p.power&&s.started&&phase>=1&&r.storage<0},
+   {title:'叫醒备用储能',goal:'让芯片突然多用电，看橙色电流从电容送到芯片。',hint:'先打开电源，再点“模拟突然用电”，观察补电和回充。',learned:'电容放出的电流经过芯片并回到电容端子，和电源一起补上这次需求。',setup:seed(10),check:(p,r,phase,s)=>p.power&&s.started&&phase>=1&&r.storage<0},
    {title:'守住芯片电压',goal:'芯片再次突然用电。换容量，使整个补电阶段的最低电压不低于3.25 V。',hint:'先换容量，再模拟一次。相同用电时间内，有效容量越大，电压下降越小。',learned:'同样放出这些储能时，较大有效容量的电压下降较小；实际还受偏压和寄生参数影响。',setup:seed(1),check:(p,r,phase,s)=>p.power&&s.started&&phase>=2&&M.evaluate('capacitor',p,2).voltage>=3.25-1e-10},
-   {title:'把储备放在身边',goal:'电容离芯片较远。把它移回靠近芯片的位置，缩短补电回路。',hint:'点击“移动电容位置”，直接观察接线变短。',learned:'靠近芯片可缩短补电回路；本图只比较位置，不给距离编造电压数值。',setup:seed(22,{near:false}),check:p=>p.power&&p.near},
-   {title:'补电后也要补回来',goal:'再模拟一次突然用电，观察橙色电流回充，直到芯片回到3.3 V、回充停止。',hint:'用“模拟突然用电”开始；可等待动画，或分阶段观察到回充结束。',learned:'电容不是无限电源。补电后，需要电源把储能补回来才能继续应对变化。',setup:seed(22),check:(p,r,phase,s)=>p.power&&s.started&&phase===3&&r.storage===0&&Math.abs(r.voltage-3.3)<1e-10}
+   {title:'把储备放在身边',goal:'电容离芯片较远。把它移回靠近芯片的位置，缩短补电回路。',hint:'点击“把电容移近芯片”，直接观察接线变短。',learned:'靠近芯片可缩短补电回路；本图只比较位置，不给距离编造电压数值。',setup:seed(22,{near:false}),check:p=>p.power&&p.near},
+   {title:'补电后也要补回来',goal:'再模拟一次突然用电，观察橙色电流回充，直到芯片回到3.3 V、回充停止。',hint:'用“模拟突然用电”开始；等待这一轮动画完成，观察回充结束。',learned:'电容不是无限电源。补电后，需要电源把储能补回来才能继续应对变化。',setup:seed(22),check:(p,r,phase,s)=>p.power&&s.started&&phase===3&&r.storage===0&&Math.abs(r.voltage-3.3)<1e-10}
   ],
   inductor:[
-   {title:'看看电流爬坡',goal:'施加本例电压，观察电感电流从1 A开始逐渐上升。',hint:'先点“开始电流上升”；开始后可看动画，或用“观察下一阶段”看变化。',learned:'电感反对电流突变；电流变化伴随磁场储能变化，并非一通电就跳到任意值。',setup:seed(100),check:(p,r,phase,s)=>p.power&&s.started&&phase>=1.5&&!r.unknown&&r.current>1},
-   {title:'把爬坡速度放慢',goal:'换一个电感，完整观察20 µs；末端电流不要超过1.3 A。',hint:'选择更大的电感，再重播同样的电压和时间；不用背公式。',learned:'相同电压和时间下，电感量较大，电流增加得较慢。',setup:seed(22),check:(p,r,phase,s)=>p.power&&s.started&&phase===3&&!r.unknown&&r.current<=1.3+1e-10},
+   {title:'看看电流爬坡',goal:'施加本例电压，观察电感电流从1 A开始逐渐上升。',hint:'先点“打开电源”，观察电流逐渐上升。',learned:'电感反对电流突变；电流变化伴随磁场储能变化，并非一通电就跳到任意值。',setup:seed(100),check:(p,r,phase,s)=>p.power&&s.started&&phase>=1.5&&!r.unknown&&r.current>1},
+   {title:'把爬坡速度放慢',goal:'换一个电感，完整观察20 µs；末端电流不要超过1.3 A。',hint:'选择更大的电感，打开电源观察同样的电压和时间；不用背公式。',learned:'相同电压和时间下，电感量较大，电流增加得较慢。',setup:seed(22),check:(p,r,phase,s)=>p.power&&s.started&&phase===3&&!r.unknown&&r.current<=1.3+1e-10},
    {title:'找到不能继续算的边界',goal:'换件并重播，让电流触及本例Isat 3 A，看看为什么后面显示“不再预测”。',hint:'较小电感上升更快；观察到边界，不要把它当作烧毁动画。',learned:'触及题设Isat后，固定电感量的直线估算不能继续外推；这不等于器件烧毁。',setup:seed(220),check:(p,r,phase,s)=>p.power&&s.started&&r.unknown},
    {title:'换回可预测的范围',goal:'这次换件，使完整20 µs都不触及本例Isat，得到一个有效的末端结果。',hint:'从目前过快的爬坡中换一个较大的电感，再重播。',learned:'选型需考虑工作点与磁性能边界，也要另看Irms、温升和损耗；不能只看电感量。',setup:seed(22),check:(p,r,phase,s)=>p.power&&s.started&&phase===3&&!r.unknown&&r.current<3}
   ],
@@ -37,13 +37,13 @@
  function judge(s,p,phase){validate(s);const l=level(s.course,s.index),r=M.evaluate(s.course,p,phase),passed=s.interacted&&l.check(p,r,phase,s);let feedback=l.hint;
   if(!p.power)feedback='当前没有供电。先打开电源，再观察器件的作用。';
   else if(s.course==='capacitor'&&[0,1,3].includes(s.index)){
-   if(!s.started)feedback='换好器件后，启动一次突然用电；也可点击“观察下一阶段”。';
+   if(!s.started)feedback='换好器件后，点“模拟突然用电”，观察变化。';
    else if(s.index===1)feedback=phase<2?'这次补电还在进行，请观察到阶段结束。':'这次最低电压仍低于3.25 V。换较大的有效容量，再模拟一次。';
-   else if(s.index===3&&phase<3)feedback='这次补电与回充还没结束。继续观察，或点击“观察下一阶段”。';
+   else if(s.index===3&&phase<3)feedback='这次补电与回充还没结束。等待本轮观察完成；需要停止时可以关闭电源。';
   }else if(s.course==='inductor'){
-   if(!s.started)feedback='换好器件后点“开始电流上升”；开始后也可点击“观察下一阶段”。';
+   if(!s.started)feedback='换好器件后点“打开电源”，观察电流上升。';
    else if(r.unknown&&s.index!==2)feedback='已触及本例Isat，不能作为有效的末端估算。换更大的电感再试。';
-   else if(phase<3&&!passed)feedback='电流正在变化。继续观察到本次结果，或点击“观察下一阶段”。';
+   else if(phase<3&&!passed)feedback='电流正在变化。等待本轮观察完成；需要停止时可以关闭电源。';
   }
   return {passed,hint:l.hint,learned:l.learned,feedback};}
  function record(s,p,phase){const verdict=judge(s,p,phase);return verdict.passed&&s.index===s.cleared.length?{...s,cleared:[...s.cleared,s.index]}:s;}
