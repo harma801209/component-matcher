@@ -170,3 +170,24 @@
 
 .play-console .play-action-row .play-power-control{flex:1 1 140px;display:inline-flex;align-items:center;justify-content:center;min-height:44px}
 .play-tray button.play-secondary{min-height:44px;margin-top:6px;padding:8px 10px;border:1px solid #bed3ef;border-radius:7px;background:white;color:#294e7b}
+
+/* Two quiet columns compare one gesture, without adding a second game. */
+.play-comparison{margin-top:14px;padding-top:12px;border-top:1px solid #dce8fa;min-width:0}
+.play-comparison h5{font-size:14px;margin:0 0 4px;color:#234e80}
+.play-comparison-context{font-size:11px;line-height:1.5;color:#637b9c;margin:0 0 8px}
+.play-comparison-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.play-comparison-columns>section{padding:9px;border-radius:8px;background:#f6f8fc;min-width:0}
+.play-comparison-columns>section:last-child{background:#eef5ff}
+.play-comparison-side{font-size:11px;color:#637b9c}
+.play-comparison-columns p{margin:6px 0 0;line-height:1.5;overflow-wrap:anywhere}
+.play-comparison-field small,.play-comparison-metric small{display:block;font-size:11px;color:#637b9c}
+.play-comparison-field strong{display:block;font-size:15px;color:#234e80}
+.play-comparison-metric strong{display:block;font-size:14px;color:#234e80}
+.play-comparison-light{display:grid;grid-template-columns:10px minmax(0,1fr);gap:3px 5px;align-items:center}
+.play-comparison-light small{font-size:11px;color:#526d95}
+.play-comparison-light meter{grid-column:1/-1;width:100%;height:8px}
+.play-comparison-lamp{width:9px;height:9px;border-radius:50%;background:#e9b52b;opacity:calc(.15 + var(--lamp-level)*.85);box-shadow:0 0 calc(var(--lamp-level)*8px) #e9b52b}
+.playground[data-mode=challenge] .play-heading{margin-bottom:12px}
+.playground[data-mode=challenge] .play-heading h3{font-size:clamp(23px,2.6vw,32px);margin-bottom:0}
+.play-console .play-goal{margin:0}
+.nightlight .play-comparison[hidden]{display:none}

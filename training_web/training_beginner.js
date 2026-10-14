@@ -69,8 +69,8 @@
  }
  function create(id,viewport,console,verify){
   const l=lesson(id),make=(tag,text,cls)=>{const e=document.createElement(tag);if(text)e.textContent=text;if(cls)e.className=cls;return e;};
-  const intro=make('section',null,'play-beginner-intro'),purpose=make('p',l.purpose),words=make('details'),summary=make('summary','这些词是什么意思？');words.append(summary);for(const [name,text] of l.words){const row=make('p');row.append(make('strong',name+'：'),document.createTextNode(text));words.append(row);}intro.append(purpose,words);console.prepend(intro);
-  const scope=make('p',null,'play-fixed-condition');console.querySelector('.play-goal').after(scope);
+  const intro=make('section',null,'play-beginner-intro'),purpose=make('p',l.purpose),words=make('details'),summary=make('summary','这些词是什么意思？');words.append(summary,purpose);for(const [name,text] of l.words){const row=make('p');row.append(make('strong',name+'：'),document.createTextNode(text));words.append(row);}intro.append(words);console.prepend(intro);
+  const scope=make('p',null,'play-fixed-condition');words.append(scope);
   const board=make('div',null,'play-board-column');viewport.replaceWith(board);board.append(viewport);
   const focus=make('span',l.focus,'play-device-focus');focus.setAttribute('aria-hidden','true');viewport.append(focus);
   const cause=make('section',null,'play-cause'),causeTitle=make('h5'),change=make('p'),reason=make('p');cause.setAttribute('aria-label','器件发生了什么变化');cause.append(causeTitle,change,reason);board.append(cause);
@@ -78,7 +78,7 @@
   let key='',task=null,answer=null,verified=false;
   apply.addEventListener('click',()=>{verified=true;transfer.dataset.verified='true';verify(task.trial);apply.textContent='已换好条件 · 看电路验证';feedback.textContent='这次是验证练习，不会重复增加通关数。'+task.explanation;});
   function update({params,result,phase=0,started=true,index,mode,done},view){
-   const value=explain(id,params,result,phase,started);causeTitle.textContent=value.title;change.textContent=value.change;reason.textContent=value.why;scope.textContent=fixed(id,index);scope.hidden=mode==='free'||done;focus.hidden=!view;
+   const value=explain(id,params,result,phase,started);causeTitle.textContent=value.title;change.textContent=value.change;reason.textContent=value.why;scope.textContent=fixed(id,index);scope.hidden=mode==='free';focus.hidden=!view;cause.hidden=id==='resistor'||id==='capacitor'?!params.power:!started;
    transfer.hidden=mode!=='challenge'||!done;
    const newKey=mode+':'+index;if(newKey!==key){key=newKey;answer=null;verified=false;transfer.open=false;task=practice(id,index);question.textContent=task.question;answers.replaceChildren();feedback.textContent='可以试错，不扣分；也可以先继续下一关。';apply.hidden=true;apply.textContent=task.verify;
     // Keep the correct option in different positions across levels; do not teach a fixed button location.

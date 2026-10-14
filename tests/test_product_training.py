@@ -10,6 +10,46 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_feedback_comparisons_use_same_conditions_and_preserve_unknowns(self):
+        script=r'''
+const a=require('node:assert/strict'),f=require(process.argv[1]),path=require('node:path'),dir=path.dirname(process.argv[1]),m=require(dir+'/training_playground_math.js'),s=require(dir+'/training_subtype_game_math.js'),n=require(dir+'/training_nightlight_math.js');
+const p=value=>({value,power:false,reverse:false,near:true});
+const r=f.baseline('resistor',p(1000),p(330));a.equal(r.before.metrics[0][1],'3.0 mA');a.equal(r.after.metrics[0][1],'9.1 mA');a(r.before.brightness<r.after.brightness);a.equal(f.baseline('resistor',p(330),p(330)),null);
+const c=f.baseline('capacitor',p(10),p(22));a.equal(c.before.metrics[0][1],m.evaluate('capacitor',{...p(10),power:true},2).voltage.toFixed(3)+' V');a.equal(c.after.metrics[0][1],m.evaluate('capacitor',{...p(22),power:true},2).voltage.toFixed(3)+' V');a(c.context.includes('末端'));
+const i=f.baseline('inductor',p(22),p(100));a(i.before.metrics[0][1].includes('不再预测'));a.equal(i.after.metrics[0][1],'1.600 A');
+const position=f.baseline('capacitor',p(22),{...p(22),near:false});a.equal(position.before.metrics[0][1],'较短');a.equal(position.after.metrics[0][1],'较长');a(!JSON.stringify(position).includes('V'));
+const d=f.baseline('diode',p(true),{...p(true),reverse:true});a.equal(d.after.metrics[0][1],'0.0 V');
+for(const id of require(dir+'/training_catalog.js').lessons.filter(d=>!d.baseline).map(d=>d.id)){
+ const profile=s.profile(id),before={...s.level(id,0).setup},saved=JSON.stringify(before);
+ a.equal(f.subtype(id,before,before),null);
+ for(const field of profile.fields)for(const [value] of field.options){const after={...before,[field.key]:value},result=f.subtype(id,before,after);if(value===before[field.key]){a.equal(result,null);continue;}a.deepEqual(result.before.metrics,s.evaluate(id,before,1).metrics);a.deepEqual(result.after.metrics,s.evaluate(id,after,1).metrics);a.equal(JSON.stringify(before),saved);a.equal(result.fields.length,1);}
+}
+const unknown=f.subtype('mos-n',{drive:10,load:2},{drive:2.5,load:2});a(unknown.after.metrics.some(x=>x[1].includes('不预测')));a.equal(unknown.after.brightness,undefined);
+const before={...n.setup(3,3),power:false,capacitance:.00047},after={...before,capacitance:.01},saved=JSON.stringify(before),backup=f.nightlight(before,after);a(backup.context.includes('2秒'));a.equal(backup.after.metrics[0][1],(n.result({...after,running:true,elapsed:2}).current*1000).toFixed(1)+' mA');a.equal(JSON.stringify(before),saved);a(backup.after.brightness>backup.before.brightness);a.equal(f.nightlight(n.setup(0),{...n.setup(0),resistance:330}),null);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_feedback.js')],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_feedback_view_is_one_optional_nonpersistent_comparison(self):
+        script=r'''
+const a=require('node:assert/strict'),f=require(process.argv[1]);class N{constructor(tag){this.tagName=tag;this.children=[];this.attrs={};this.style={setProperty(){}};}append(...ns){this.children.push(...ns);}replaceChildren(...ns){this.children=ns;}setAttribute(k,v){this.attrs[k]=v;}}
+global.document={createElement:t=>new N(t)};const host=new N('aside'),v=f.mount(host),p=value=>({value,power:false,reverse:false,near:true}),data=f.baseline('resistor',p(1000),p(330));a.equal(host.children.length,1);a(v.element.hidden);v.render(data,false);a(v.element.hidden);v.render(data,true);a(!v.element.hidden);a.equal(v.element.children[2].children.length,2);const column=v.element.children[2];v.render(data,true);a.equal(v.element.children[2],column);v.render(null,false);a(v.element.hidden);a.equal(host.children.length,1);delete global.document;
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_feedback.js')],check=True,capture_output=True)
+
+    def test_feedback_is_bundled_in_both_engines_without_business_or_progress_writes(self):
+        source=(WEB_ROOT/'training_game_feedback.js').read_text(encoding='utf-8')
+        for forbidden in ['fetch(', 'localStorage', 'sessionStorage', 'sqlite', 'member_token', 'recordBaseline', 'recordSubtype']:
+            self.assertNotIn(forbidden,source)
+        page=build_training_html()
+        self.assertLess(page.index('root.TrainingGameFeedback=api'),page.index('window.TrainingPlayground=Object.freeze'))
+        for name in ['training_playground.js','training_subtype_game.js','training_nightlight.js']:
+            ui=(WEB_ROOT/name).read_text(encoding='utf-8')
+            self.assertIn('comparisonView.render',ui)
+            self.assertIn('comparison=null',ui)
+            self.assertIn('可以这样向客户解释',ui)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_learning_progress_requires_all_related_chapters_and_survives_reload(self):
         script=r'''
 const a=require('node:assert/strict'),path=require('node:path'),p=require(process.argv[1]),base=path.dirname(process.argv[1]),l=require(path.join(base,'training_playground_levels.js')),s=require(path.join(base,'training_subtype_game_math.js'));
@@ -301,7 +341,7 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
 
     def test_guided_controls_are_in_the_board_workbench_not_an_upper_module(self):
         ui=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
-        for text in ['playground-workbench','playground-action','playground-instruction','play-story play-console','story.append(instruction,actionRow,hintText)','actionRow.append(power,task,next,help)','这一关不用换电阻','这关怎么玩']:
+        for text in ['playground-workbench','playground-action','playground-instruction','play-story play-console','story.append(instruction,actionRow,hintText)','actionRow.append(power,task,next,help)','不用换电阻','本关目标']:
             self.assertIn(text,ui)
         self.assertNotIn('viewport.append(power)',ui)
         self.assertNotIn('workbench.append(tray)',ui)

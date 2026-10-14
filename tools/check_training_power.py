@@ -75,6 +75,10 @@ with sync_playwright() as p:
         visible_board(base)
         expression='TrainingPlayground.current().snapshot().progress.cleared.length' if base else 'TrainingSubtypeGame.current().snapshot().progress.cleared.length'
         f.wait_for_function('n=>'+expression+'===n',arg=count,timeout=timeout)
+        if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
+            learned=f.evaluate('''base=>{const s=base?TrainingPlayground.current().snapshot():TrainingSubtypeGame.current().snapshot();return base?TrainingPlaygroundLevels.level(s.progress.course,s.progress.index).learned:TrainingSubtypeGameMath.level(s.id,s.progress.index).learned;}''',base)
+            assert f.locator('.play-goal').is_visible() and f.locator('.play-goal').inner_text()==learned
+            assert f.locator('.play-instruction').is_hidden()
     def check_cycle(d):
         base=d['baseline'];select(d);assert not on(base) and not state(base)['playing'];structure(base)
         if not args.fallback:
@@ -169,6 +173,9 @@ with sync_playwright() as p:
         assert snapshot()['result']['source']=='capacitor' and snapshot()['playing']
         f.locator('.nightlight-viewport').scroll_into_view_if_needed();f.wait_for_function('TrainingNightlight.current().snapshot().state.cleared===4',timeout=6000)
         assert snapshot()['result']['current']>=.004 and not snapshot()['playing'];capture('product-backup','.nightlight-console')
+        if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
+            assert snapshot()['comparison']['context'].endswith('断电2秒结果试算')
+            assert f.locator('.nightlight-console>h4').inner_text()==f.evaluate('TrainingNightlightMath.chapters[3].learned')
         press('#nightlight-action');choose('mos',True);press('#nightlight-power')
         for _ in range(3):press('#nightlight-action')
         assert snapshot()['state']['cleared']==5;press('#nightlight-power');assert snapshot()['result']['current']==0
