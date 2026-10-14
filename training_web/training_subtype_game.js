@@ -43,7 +43,7 @@
   assumptions.append(node('p','本例端子：'+packageExample.pins.map(p=>p.number+' '+p.role).join(' · ')+'。封装相同也要按具体料号确认引脚。'));
   const packageLink=node('a','查看本例封装资料 ↗');packageLink.href=packageExample.source;packageLink.target='_blank';packageLink.rel='noopener noreferrer';assumptions.append(packageLink);
   function switchPower(on){s=on?M.start(s):M.stop(s);playing=on;last=0;session[mode]=s;refresh(true);}
-  function choose(key,value){if(beginner&&mode==='challenge'&&!B.fields(id,s.index).includes(key))return;const on=s.started,before={...s.params};s=M.change(s,key,value);comparison=F.subtype(id,before,s.params)||comparison;if(on)s=M.start(s);playing=on;last=0;session[mode]=s;hintDepth=0;hint.hidden=true;help.setAttribute('aria-expanded','false');refresh(true);}
+  function choose(key,value){if(beginner&&mode==='challenge'&&!B.fields(id,s.index).includes(key))return;if(Object.hasOwn(s.params,key)&&s.params[key]===value)return;const on=s.started,before={...s.params};s=M.change(s,key,value);comparison=F.subtype(id,before,s.params)||comparison;if(on)s=M.start(s);playing=on;last=0;session[mode]=s;hintDepth=0;hint.hidden=true;help.setAttribute('aria-expanded','false');refresh(true);}
   function cycle(){const f=beginner&&mode==='challenge'?d.fields.find(f=>B.fields(id,s.index).includes(f.key)):d.fields[0],i=f.options.findIndex(o=>o[0]===s.params[f.key]);choose(f.key,f.options[(i+1)%f.options.length][0]);}
   function visit(i){const next=M.visit(s,i);if(next===s)return;comparison=null;s=next;session[mode]=s;playing=false;last=0;hintDepth=0;hint.hidden=true;help.setAttribute('aria-expanded','false');view?.restore();refresh();mission.scrollIntoView({block:'start'});}
   function refresh(announce=false){

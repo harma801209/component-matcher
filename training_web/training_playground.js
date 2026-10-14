@@ -41,17 +41,17 @@
   function runTrigger(){if(!p.power)return;elapsed=3;triggered=true;playing=true;last=0;markInteraction('trigger');refresh(true);}
   function phase(){return course==='capacitor'?Math.min(3,elapsed/3):course==='inductor'?Math.min(3,elapsed):0;}
   function markInteraction(event='change'){interacted=true;if(beginner){hintDepth=0;hintText.hidden=true;help.setAttribute('aria-expanded','false');}if(mode==='challenge')campaign.progress=L.action(campaign.progress,event);else onInteract?.();}
-  function set(value){if(!d.choices.some(o=>o[0]===value))return false;const before={...p};p.value=value;comparison=F.baseline(course,before,p)||comparison;if(course==='inductor'||course==='capacitor'){elapsed=0;triggered=false;if(mode==='challenge')campaign.progress=L.attempt(campaign.progress);}markInteraction(course==='inductor'&&p.power?'trigger':'change');refresh(true);return true;}
-  function setCondition(key,value){const before={...p};p[key]=value;comparison=F.baseline(course,before,p)||comparison;markInteraction(key);refresh(true);}
+  function set(value){if(!d.choices.some(o=>o[0]===value))return false;if(p.value===value)return true;const before={...p};p.value=value;comparison=F.baseline(course,before,p)||comparison;if(course==='inductor'||course==='capacitor'){elapsed=0;triggered=false;if(mode==='challenge')campaign.progress=L.attempt(campaign.progress);}markInteraction(course==='inductor'&&p.power?'trigger':'change');refresh(true);return true;}
+  function setCondition(key,value){if(p[key]===value)return;const before={...p};p[key]=value;comparison=F.baseline(course,before,p)||comparison;markInteraction(key);refresh(true);}
   function nextChoice(){if(!p.power){power.click();return;}if(beginner&&mode==='challenge'&&((course==='capacitor'&&campaign.progress.index!==1)||(course==='resistor'&&campaign.progress.index===0))){if(!task.hidden)task.click();return;}set(d.choices[(d.choices.findIndex(o=>o[0]===p.value)+1)%d.choices.length][0]);}
   function guidance(){
    const s=campaign.progress;
    if(!p.power)return {id:'power',label:'打开电源',text:mode==='challenge'&&course==='resistor'&&s.index===0?'点“打开电源”，不用换电阻。':'选好器件，点“打开电源”。'};
-   if(mode==='challenge'&&course==='capacitor'&&s.index===2)return {id:'near',label:p.near?'移远电容':'把电容移近芯片',text:'这一关看位置：点旁边按钮移动电容，观察补电回路变短。'};
+   if(mode==='challenge'&&course==='capacitor'&&s.index===2)return {id:'near',label:p.near?'移远电容':'把电容移近芯片',text:p.near?'把电容移远，比较补电回路长度。':'把电容移近芯片，观察回路变短。'};
    if(course==='capacitor'){
     return {id:'trigger',label:'模拟突然用电',text:phase()===0||phase()===3?'点“模拟突然用电”，看电容如何补电和回充。':'正在补电与回充；关电源会停止本例，再打开可重新观察。'};
    }
-   if(mode==='challenge'&&course==='diode'&&s.index===1)return {id:'reverse',label:'试着接反电源',text:'保持当前器件方向，点旁边按钮接反电源，观察负载电压与电流。'};
+   if(mode==='challenge'&&course==='diode'&&s.index===1)return {id:'reverse',label:p.reverse?'恢复电源方向':'试着接反电源',text:p.reverse?'恢复电源方向，比较负载电压与电流。':'保持器件方向，接反电源，观察负载电压与电流。'};
    if(mode==='challenge'&&course==='diode'&&s.index===3&&p.reverse)return {id:'reverse',label:'恢复电源方向',text:'先点旁边按钮恢复电源，再用器件卡片检查A/K方向。'};
    return {id:'choices',label:course==='diode'?'选择器件方向':'选择器件',text:course==='diode'?'点击方向卡片，观察电路与读数变化。':'点击器件卡片，观察灯光和读数变化。'};
   }
@@ -79,7 +79,7 @@
     next.disabled=!done;next.textContent=done?(s.index===3?(course==='resistor'?window.TrainingGameProgress.nextLabel('res-thick'):null)||'全部通关 · 再玩一次':'下一关'):'完成目标，解锁下一关';
     next.hidden=!done;
    }
-   const done=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index),move=guidance();task.dataset.target=move.id;task.textContent=move.label;task.hidden=!p.power||done||!['trigger','near','reverse'].includes(move.id);task.disabled=move.id==='trigger'&&phase()>0&&phase()<3;next.className='play-primary';const nextText=done?'':move.text;if(instruction.textContent!==nextText)instruction.textContent=nextText;instruction.hidden=done;comparisonView.render(comparison,p.power);titles.querySelector('p').hidden=mode==='challenge';trayTitle.querySelector('p').hidden=true;story.querySelector('.play-result-title').hidden=mode==='challenge';
+   const done=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index),move=guidance();task.dataset.target=move.id;task.textContent=move.label;task.hidden=!p.power||!['trigger','near','reverse'].includes(move.id);task.disabled=move.id==='trigger'&&phase()>0&&phase()<3;next.className='play-primary';const nextText=done?'':move.text;if(instruction.textContent!==nextText)instruction.textContent=nextText;instruction.hidden=done;comparisonView.render(comparison,p.power);titles.querySelector('p').hidden=mode==='challenge';trayTitle.querySelector('p').hidden=true;story.querySelector('.play-result-title').hidden=mode==='challenge';
    retry.hidden=mode!=='challenge'||course!=='resistor'||campaign.progress.index!==3||campaign.progress.cleared.length!==4;
    if(beginner&&mode==='challenge'&&course==='capacitor')tray.hidden=campaign.progress.index!==1;
    condition.hidden=mode!=='free'||!['capacitor','diode'].includes(course);condition.textContent=course==='capacitor'?(p.near?'电容位置：靠近芯片':'电容位置：远离芯片'):(p.reverse?'电源方向：接反':'电源方向：正常');condition.setAttribute('aria-pressed',String(course==='capacitor'?p.near:p.reverse));trayTitle.hidden=condition.hidden;brightness.hidden=course!=='resistor'||!p.power||!!comparison;
@@ -95,7 +95,7 @@
   const visibility=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});visibility.observe(viewport);
   function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&!document.hidden&&root.closest('details')?.open&&!root.closest('[data-game-pane]')?.hidden){const step=p.power&&playing?dt:0;if(step){if(course==='capacitor'&&triggered)elapsed=Math.min(9,elapsed+step);if(course==='inductor')elapsed=Math.min(3,elapsed+step);if(now-lastPaint>80){refresh();lastPaint=now;}view?.draw(step);}}frameID=requestAnimationFrame(loop);}
   frameID=requestAnimationFrame(loop);
-  const api={course,set,snapshot:()=>({params:{...p},phase:phase(),result:M.evaluate(course,p,phase()),playing,speed:1,mode,comparison:comparison?JSON.parse(JSON.stringify(comparison)):null,progress:{...campaign.progress,cleared:[...campaign.progress.cleared]},scene:view?.snapshot()}),dispose:()=>{if(mode==='challenge')campaign.elapsed=elapsed;disposed=true;cancelAnimationFrame(frameID);visibility.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
+  const api={course,set,snapshot:()=>({params:{...p},phase:phase(),result:M.evaluate(course,p,phase()),playing,speed:1,mode,canReplayCompleted:true,comparison:comparison?JSON.parse(JSON.stringify(comparison)):null,progress:{...campaign.progress,cleared:[...campaign.progress.cleared]},scene:view?.snapshot()}),dispose:()=>{if(mode==='challenge')campaign.elapsed=elapsed;disposed=true;cancelAnimationFrame(frameID);visibility.disconnect();motion.removeEventListener('change',motionChanged);layout.dispose();view?.dispose();if(active===api)active=null;}};active=api;return api;
  }
  window.TrainingPlayground=Object.freeze({mount,current:()=>active});
 })();

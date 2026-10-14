@@ -10,6 +10,42 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_reselecting_existing_component_does_not_reset_live_observation(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_playground_math.js'),L=require(dir+'/training_playground_levels.js'),S=require(dir+'/training_subtype_game_math.js'),F=require(dir+'/training_game_feedback.js');
+const handler=(name,prefix)=>fs.readFileSync(dir+'/'+name,'utf8').split('\n').find(line=>line.trim().startsWith(prefix));
+const ctx={d:M.lesson('capacitor'),p:{value:10,power:true,reverse:false,near:true},course:'capacitor',comparison:null,F,elapsed:4.5,triggered:true,playing:true,mode:'challenge',campaign:{progress:L.create('capacitor')},L,calls:0,markInteraction(){ctx.calls++;},refresh(){ctx.calls++;}};vm.createContext(ctx);vm.runInContext(handler('training_playground.js','function set(value)')+';this.choose=set;',ctx);a(ctx.choose(10));a.equal(ctx.elapsed,4.5);a(ctx.triggered&&ctx.playing);a.equal(ctx.calls,0);a(ctx.choose(22));a.equal(ctx.elapsed,0);a(!ctx.triggered);a(ctx.comparison);a.equal(ctx.calls,2);
+let state=S.observe(S.start(S.change(S.create('cap-tantalum'),'forward',true)),.6);const sub={s:state,M:S,F,id:'cap-tantalum',beginner:false,mode:'free',playing:true,last:9,session:{},comparison:null,hintDepth:0,hint:{hidden:false},help:{setAttribute(){}},calls:0,refresh(){sub.calls++;}};vm.createContext(sub);vm.runInContext(handler('training_subtype_game.js','function choose(key,value)')+';this.choose=choose;',sub);sub.choose('capacitance',10);a.equal(sub.s,state);a.equal(sub.s.observed,.6);a.equal(sub.last,9);a.equal(sub.calls,0);sub.choose('capacitance',22);a(sub.s.started);a.equal(sub.s.observed,0);a.equal(sub.calls,1);a(sub.comparison);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_product_reselection_and_review_experiment_preserve_credit_and_polarity(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_nightlight_math.js'),F=require(dir+'/training_game_feedback.js'),source=fs.readFileSync(dir+'/training_nightlight.js','utf8');
+const code=source.slice(source.indexOf('function dispatch(type,value){'),source.indexOf("primary.addEventListener('click'"));
+let s=M.action(M.setup(2,2),'diode','forward');s=M.action(M.action(s,'primary'),'primary');a.equal(s.cleared,3);s=M.action(s,'primary');a(s.reverse&&s.tested);
+const ctx={s,M,F,comparison:null,notice:'',reviewing:true,playing:true,last:9,hintOpen:false,detail:{open:false},title:{focus(){}},root:{scrollIntoView(){}},writes:0,renders:0,persist(){ctx.writes++;},render(){ctx.renders++;}};vm.createContext(ctx);vm.runInContext(code+';this.dispatch=dispatch;',ctx);ctx.dispatch('diode','forward');a.equal(ctx.s,s);a(ctx.s.reverse&&ctx.s.tested);a.equal(ctx.writes,0);ctx.dispatch('experiment');a(!ctx.s.reverse);a.equal(ctx.s.index,2);a.equal(ctx.s.cleared,3);ctx.dispatch('primary');a.equal(ctx.s.index,3);a(!ctx.s.power&&!ctx.s.running);a.equal(ctx.s.cleared,3);
+ctx.s={...M.setup(4,5),power:false};const off=ctx.s,writes=ctx.writes;ctx.dispatch('primary');a.equal(ctx.s,off);a.equal(ctx.writes,writes);ctx.dispatch('power');a(ctx.s.power);ctx.dispatch('primary');a(!ctx.s.gate);a.equal(ctx.s.cleared,5);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
+
+    def test_completed_games_keep_real_experiments_and_review_choices(self):
+        baseline=(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8')
+        self.assertNotIn('task.hidden=!p.power||done||',baseline)
+        self.assertIn("label:p.reverse?'恢复电源方向':'试着接反电源'",baseline)
+        night=(WEB_ROOT/'training_nightlight.js').read_text(encoding='utf-8')
+        self.assertIn('options.hidden=finished;',night)
+        self.assertNotIn('options.hidden=finished||done',night)
+        self.assertIn("experiment.id='nightlight-experiment'",night)
+        self.assertIn('experiment.disabled=!s.power',night)
+        self.assertIn('primary.disabled=!(done&&s.index<4)&&(!s.power||s.index===4&&!s.mos)',night)
+        self.assertIn("label='继续制作';",night)
+        self.assertIn("primary.setAttribute('aria-label',done&&!finished?'继续制作：'",night)
+        css=(WEB_ROOT/'training_nightlight.css').read_text(encoding='utf-8')
+        self.assertIn('flex:1 1 130px;min-width:0',css)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_feedback_comparisons_use_same_conditions_and_preserve_unknowns(self):
         script=r'''
 const a=require('node:assert/strict'),f=require(process.argv[1]),path=require('node:path'),dir=path.dirname(process.argv[1]),m=require(dir+'/training_playground_math.js'),s=require(dir+'/training_subtype_game_math.js'),n=require(dir+'/training_nightlight_math.js');
