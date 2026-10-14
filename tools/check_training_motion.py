@@ -128,6 +128,10 @@ with sync_playwright() as p:
             # Setting changes may pause; a deliberate gesture can still resume.
             if selected:
                 page.emulate_media(reduced_motion='no-preference')
+                f.wait_for_function('!matchMedia("(prefers-reduced-motion:reduce)").matches')
+                # Deliver the first native media change before requesting its
+                # opposite; remote nested frames can coalesce rapid flips.
+                f.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
                 page.emulate_media(reduced_motion='reduce')
                 f.wait_for_function(engine+'.current().snapshot().playing===false')
                 tap('#'+base+'-pause')
@@ -188,7 +192,7 @@ with sync_playwright() as p:
             ctx.close()
     browser.close()
 
-(OUT/f'{prefix}-results.json').write_text(json.dumps(records,ensure_ascii=False,indent=2),encoding='utf-8')
+(OUT/f'{prefix}-{args.scope}-{args.preference}-results.json').write_text(json.dumps(records,ensure_ascii=False,indent=2),encoding='utf-8')
 print(json.dumps({'status':'passed','public':args.public,'touch_mobile':True,
                   'reduced_motion_chapters':sum(r['preference']=='reduce' for r in records),
                   'ordinary_motion_chapters':sum(r['preference']=='no-preference' for r in records),
