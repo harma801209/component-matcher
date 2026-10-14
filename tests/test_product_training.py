@@ -10,6 +10,55 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_game_package_contact_maps_cover_all_thirty_chapters(self):
+        script=r'''
+const dir=process.argv[1],p=require(dir+'/training_game_packages.js'),c=require(dir+'/training_catalog.js'),a=require('node:assert/strict');
+a.deepEqual([...p.ids].sort(),c.lessons.map(d=>d.id).sort());
+for(const id of p.ids){const d=p.profile(id);a(Object.isFrozen(d));a(d.title&&d.source.startsWith('https://'));a.equal(new Set(d.pins.map(q=>q.number)).size,d.pins.length);a.equal(new Set(d.pins.map(q=>q.point.join(','))).size,d.pins.length);}
+for(const id of ['mos-n','mos-p','bjt-npn','bjt-pnp','bjt-darlington','bjt-digital']){const d=p.profile(id);a.equal(d.pins.length,3);a.equal(d.pins.filter(q=>q.point[2]>0).length,2);a.equal(d.pins.filter(q=>q.point[2]<0).length,1);}
+a.deepEqual(p.profile('mos-n').pins.map(q=>q.role),['G','S','D']);a.deepEqual(p.profile('bjt-npn').pins.map(q=>q.role),['B','E','C']);a.deepEqual(p.profile('bjt-digital').pins.map(q=>q.role),['IN','GND','OUT']);
+const dual=p.profile('mos-dual');a.equal(dual.pins.length,6);a.equal(dual.pins.filter(q=>q.point[2]>0).length,3);a.equal(dual.pins.filter(q=>q.point[2]<0).length,3);a.deepEqual(dual.pins.map(q=>q.role),['S1','G1','D2','S2','G2','D1']);
+for(const id of ['xtal-passive','xtal-active','xtal-tcxo','xtal-vcxo']){const d=p.profile(id);a.equal(d.pins.length,4);a.equal(new Set(d.pins.map(q=>Math.sign(q.point[0])+','+Math.sign(q.point[2]))).size,4);}
+a.deepEqual(p.profile('xtal-passive').pins.map(q=>q.role),['X1','外壳','X2','外壳']);a.deepEqual(p.profile('xtal-active').pins.map(q=>q.role),['ST','GND','OUT','VDD']);a.deepEqual(p.profile('xtal-vcxo').pins.map(q=>q.role),['VC','GND','OUT','VDD']);
+a.deepEqual(p.profile('ind-common').pins.map(q=>q.role),['L1入','L2入','L2出','L1出']);
+a.throws(()=>p.profile('unknown'),RangeError);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_game_packages_have_seated_feet_and_readable_polarity(self):
+        script=r'''
+const p=require(process.argv[1]),a=require('node:assert/strict'),near=(x,y)=>a(Math.abs(x-y)<1e-8);
+for(const id of p.ids)for(const forward of [false,true]){const model=p.build(id,{forward});a(model.items.length>2&&model.items.length<300);for(const q of model.items){for(const v of [...q.p||[],...q.size||[],...q.a||[],...q.b||[],...q.rotation||[]])a(Number.isFinite(v),id);if(q.size)a(q.size.every(v=>v>0));if(q.r!==undefined)a(q.r>0);}
+ const d=p.profile(id);for(const pin of d.pins){const foot=model.items.find(q=>q.part===(d.throughHole?'lead-':'foot-')+pin.number);a(foot,id+' missing foot');if(d.throughHole){a(foot.a[1]<0&&foot.b[1]>0);near(foot.a[0],pin.point[0]);near(foot.a[2],pin.point[2]);}else{near(foot.p[1]-foot.size[1]/2,0);near(foot.p[0],pin.point[0]);near(foot.p[2],pin.point[2]);}}
+}
+for(const id of ['dio-switch','dio-rectifier','dio-led','cap-tantalum']){const a1=p.layout(id,{forward:true}),b=p.layout(id,{forward:false}),role=id==='cap-tantalum'?'+':'K';near(a1.pins.find(q=>q.role===role).point[0],-b.pins.find(q=>q.role===role).point[0]);a.equal(b.angle,Math.PI);a.equal(a1.angle,0);}
+for(const id of ['dio-switch','dio-zener','dio-rectifier','dio-schottky','dio-tvs','dio-led'])a(p.build(id).items.some(q=>/cathode/.test(q.part)),id);
+a(p.build('cap-aluminum').items.some(q=>q.part==='negative-stripe'));a(p.build('cap-aluminum').items.filter(q=>q.text==='−').length>=2);a(p.build('cap-tantalum').items.some(q=>q.part==='positive-band'));
+a(p.profile('dio-tvs').title.includes('单向'));a(!p.profile('res-sulfur').title.includes('蓝色'));
+a.deepEqual(p.build('mos-n').items,p.build('mos-p').items);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_packages.js')],check=True,capture_output=True)
+
+    def test_game_model_assets_use_one_package_builder_without_changing_internal_materials(self):
+        page=build_training_html()
+        self.assertIn('root.TrainingGamePackages=api',page)
+        self.assertIn('inspectContacts',page)
+        for name in ['training_playground_scene.js','training_subtype_game_scene.js']:
+            text=(WEB_ROOT/name).read_text(encoding='utf-8')
+            self.assertIn('P.build(',text)
+            self.assertIn('P.inspectContacts(',text)
+            self.assertIn('seatingGap',text)
+            self.assertIn('pinContacts',text)
+        self.assertNotIn("TrainingCatalogGeometry.build(id,'exterior'",(WEB_ROOT/'training_subtype_game_scene.js').read_text(encoding='utf-8'))
+        self.assertIn('positiveLead',(WEB_ROOT/'training_subtype_game_scene.js').read_text(encoding='utf-8'))
+        self.assertIn('selected.positive',(WEB_ROOT/'training_playground_scene.js').read_text(encoding='utf-8'))
+        self.assertIn('封装示例：',page)
+        text=(WEB_ROOT/'training_game_packages.js').read_text(encoding='utf-8')
+        for forbidden in ['fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'member_token', 'sqlite']:
+            self.assertNotIn(forbidden,text)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_resistor_local_drop_heat_and_equal_current_do_not_wait_for_arrow(self):
         script=r'''
 const m=require(process.argv[1]),e=require(process.argv[2]),a=require('node:assert/strict');
@@ -307,7 +356,7 @@ a.throws(()=>g.deck('resistor',()=>1),RangeError);a.throws(()=>g.deck('resistor'
         for term in ['fetch(', 'localStorage', 'sessionStorage', 'member_token', 'sqlite', 'setInterval(', 'setTimeout(']:
             self.assertNotIn(term,game_js)
         self.assertIn('TrainingPlayground.mount',game_js)
-        self.assertIn('[x,Y,.77]',(WEB_ROOT/'training_playground_scene.js').read_text(encoding='utf-8'))
+        self.assertIn('selected.negative',(WEB_ROOT/'training_playground_scene.js').read_text(encoding='utf-8'))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_capacitor_internal_overlay_reuses_exposed_layers_and_cover_anchors(self):

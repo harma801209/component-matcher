@@ -323,7 +323,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-14T11:16:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-14T13:45:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -50943,9 +50943,12 @@ if process_member_logout_request():
 render_member_auth_browser_persistence_bridge()
 logo_b64 = image_to_base64(LOGO_PATH)
 workbench_active = requested_page_mode()
+workbench_member = current_member()
 workbench_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
 workbench_links = []
 for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("training", "产品培训"), ("member", "会员中心"), ("admin", "管理后台")]:
+    if nav_key == "admin" and not current_member_is_admin():
+        continue
     nav_updates = {"admin": "1" if nav_key == "admin" else "0", "member": "1" if nav_key == "member" else "0", "bom": "1" if nav_key == "bom" else "0", "training": "1" if nav_key == "training" else "0", "login_return": "", ADMIN_BACKEND_MODULE_QUERY_PARAM: ""}
     if workbench_token:
         nav_updates[MEMBER_AUTH_QUERY_PARAM] = workbench_token
@@ -50956,7 +50959,8 @@ workbench_login_href = build_app_href(
     login_return=workbench_return if workbench_return in {"search", "bom", "training", "admin"} else "search",
     **{ADMIN_BACKEND_MODULE_QUERY_PARAM: ""},
 )
-render_workbench_header(st, logo_b64, workbench_active, workbench_links, current_member(), login_href=workbench_login_href, is_trial=os.getenv("COMPONENT_MATCHER_UI_TRIAL") == "1")
+workbench_logout_href = build_app_href(**{MEMBER_LOGOUT_QUERY_PARAM: "1", MEMBER_AUTH_QUERY_PARAM: workbench_token}) if workbench_member else None
+render_workbench_header(st, logo_b64, workbench_active, workbench_links, workbench_member, login_href=workbench_login_href, is_trial=os.getenv("COMPONENT_MATCHER_UI_TRIAL") == "1", logout_href=workbench_logout_href)
 
 last_report_message = st.session_state.pop("_no_match_report_last_message", None)
 if isinstance(last_report_message, dict) and clean_text(last_report_message.get("message", "")) != "":

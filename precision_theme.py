@@ -48,6 +48,9 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-nav a {display:flex;align-items:center;gap:8px;padding:14px 10px;color:#d4dfef;text-decoration:none;white-space:nowrap;font-size:15px;font-weight:600;border-left:3px solid transparent;}
 .wb-nav a:hover,.wb-nav a:focus-visible {background:#1555e8;color:#fff;border-left-color:#75a9ff;}
 .wb-nav-icon {width:22px;height:22px;flex:none;display:block;}
+.wb-sidebar {display:flex;flex-direction:column;overflow-y:auto;}
+.wb-logout {margin-top:auto;display:flex;align-items:center;gap:8px;padding:16px 13px max(16px,env(safe-area-inset-bottom));min-height:52px;box-sizing:border-box;color:#d4dfef!important;text-decoration:none!important;font-size:14px;font-weight:600;border-top:1px solid #294463;}
+.wb-logout:hover,.wb-logout:focus-visible {background:#294463;color:#fff!important;}
 .wb-header {display:flex;align-items:center;gap:14px;height:var(--wb-header-height);min-height:var(--wb-header-height);box-sizing:border-box;background:#fff;border-bottom:0;margin:-2rem -1.5rem 20px;padding:2px 20px;}
 .wb-logo {width:112px;height:46px;object-fit:contain;}
 .wb-brand {font-size:19px;font-weight:750;color:#172b4d;border-left:1px solid #cdd9e8;padding-left:16px;white-space:nowrap;}
@@ -123,6 +126,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 @media(min-width:761px) {.wb-nav a:first-child {height:var(--wb-header-height);box-sizing:border-box;}}
 @media(max-width:1100px) {:root {--wb-header-height:50.4px;}.wb-sidebar {width:140px;}.wb-nav a {padding:14px 9px;font-size:14px;gap:8px;}.block-container,[data-testid="stMainBlockContainer"] {width:calc(100% - 140px)!important;margin-left:140px!important;padding:1rem 1.25rem!important;}.wb-header {margin:-2rem -1.25rem 18px;padding:1px 16px;gap:12px;}.wb-brand {font-size:18px;padding-left:12px;}.wb-logo {width:105px;}}
 @media(max-width:760px) {.wb-sidebar {position:static;width:auto;padding:0;background:#193253;border-radius:7px;margin:0 0 14px;}.wb-nav {flex-direction:row;flex-wrap:wrap;gap:0;}.wb-nav a {flex:1 1 45%;padding:10px 10px;font-size:13px;gap:8px;border-left:0;border-bottom:3px solid transparent;}.wb-nav a:hover,.wb-nav a:focus-visible {border-bottom-color:#75a9ff;}.block-container,[data-testid="stMainBlockContainer"] {width:100%!important;margin-left:0!important;padding:.8rem!important;}.wb-header {height:auto;min-height:64px;margin:0 0 16px;padding:8px 10px;gap:8px;flex-wrap:wrap;border:1px solid #d9e3ef;border-radius:8px;}.wb-brand {font-size:17px;padding-left:10px;}.wb-logo {width:95px;height:40px;}.wb-badge {font-size:12px;padding:5px 10px;}.wb-user {font-size:13px;}.wb-title {font-size:23px;}.wb-subtitle {font-size:14px;}.st-key-workbench-search-panel {padding:14px 12px;}}
+@media(max-width:760px) {.wb-logout {margin-top:0;min-height:44px;padding:10px 13px;justify-content:flex-end;}}
 </style>
 """
 
@@ -135,17 +139,19 @@ def navigation_icon(name):
         "person": '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 21v-2a7.5 5.5 0 0 1 15 0v2Z"/>',
         "settings": '<path d="m9 3-.7 2.3-2 .9-2.3-.5-1.5 2.6 1.7 1.8-.2 2.2-1.5 1.8L4 16.7l2.3-.5 2 .9.7 2.3h3l.7-2.3 2-.9 2.3.5 1.5-2.6-1.5-1.8-.2-2.2 1.7-1.8L17 5.7l-2.3.5-2-.9L12 3Z"/><circle cx="10.5" cy="11.2" r="3"/>',
         "training": '<path d="M12 5v15M3 4c3-1 6-1 9 1 3-2 6-2 9-1v15c-3-1-6-1-9 1-3-2-6-2-9-1Z"/>',
+        "logout": '<path d="M9 4H4v16h5M17 8l4 4-4 4M9 12h12"/>',
     }
     return '<svg class="wb-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + shapes[name] + '</svg>'
 
 
-def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False):
+def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False, logout_href=None):
     icons = {"search": "search", "bom": "list_alt", "training": "training", "member": "person", "admin": "settings"}
     nav = "".join(
         f'<a href="{html.escape(href, quote=True)}" target="_self" class="{"active" if key == active else ""}"'
         f'{" aria-current=\"page\"" if key == active else ""}>'
         f'{navigation_icon(icons[key])}{html.escape(label)}</a>'
         for key, label, href in links
+        if key != "admin" or (member and str(member.get("role", "")).strip().lower() == "admin")
     )
     member_href = next((href for key, _, href in links if key == "member"), "?member=1")
     if member:
@@ -163,8 +169,12 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
     }
     title, description = titles[active]
     badge = '<span class="wb-badge" title="本机测试版，业务资料独立，不同步到正式系统">测试版</span>' if is_trial else ""
+    logout = (
+        f'<a class="wb-logout" href="{html.escape(logout_href, quote=True)}" target="_self" aria-label="退出登录">{navigation_icon("logout")}退出登录</a>'
+        if member and logout_href else ""
+    )
     st.markdown(
-        f'<aside class="wb-sidebar"><nav class="wb-nav" aria-label="主导航">{nav}</nav></aside>'
+        f'<aside class="wb-sidebar"><nav class="wb-nav" aria-label="主导航">{nav}</nav>{logout}</aside>'
         f'<div class="wb-header"><img class="wb-logo" src="data:image/png;base64,{logo_b64}" alt="Fruition 富临通">'
         f'<span class="wb-brand">富临通元器件匹配系统</span>{badge}<div class="wb-account">{account}</div></div>'
         f'<div class="wb-page-heading"><div class="wb-title">{title}</div><div class="wb-subtitle">{description}</div></div>',
