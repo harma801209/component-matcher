@@ -24,7 +24,7 @@ with sync_playwright() as p:
         deadline = time.monotonic()+150; next_reload = time.monotonic()+12
         while time.monotonic()<deadline:
             found = next((x for x in pg.frames if x.locator('#training-app').count()), None)
-            if found and found.evaluate('typeof TrainingBeginner!=="undefined" && TrainingBeginner.create.toString().includes("legend.offsetTop")'):return found
+            if found and found.evaluate('typeof TrainingBeginner!=="undefined"') and found.locator('.play-scene-caption').count():return found
             if args.public and time.monotonic()>next_reload:
                 pg.reload(wait_until='domcontentloaded',timeout=90000);next_reload=time.monotonic()+12
             pg.wait_for_timeout(250)
@@ -54,8 +54,10 @@ with sync_playwright() as p:
             sel='#playground-canvas' if f.locator('#playground-canvas').count() else '#subgame-canvas'
             frames=int(f.locator(sel).get_attribute('data-frames') or 0)
             f.wait_for_function('({sel,frames})=>Number(document.querySelector(sel).dataset.frames)>frames+2',arg={'sel':sel,'frames':frames})
-            focus=f.locator('.play-device-focus');legend=f.locator('.play-labels')
-            assert focus.bounding_box()['y']>=legend.bounding_box()['y']+legend.bounding_box()['height']-1
+            assert f.locator('.play-scene-caption .play-device-focus').count()==1
+            assert f.locator('.play-viewport .play-device-focus,.play-viewport .play-labels').count()==0
+            caption=f.locator('.play-scene-caption').bounding_box()
+            assert caption['y']+caption['height']<=board.bounding_box()['y']+1
             if page.viewport_size['width']<760:
                 # Tall iframe element screenshots can clip offscreen regions.
                 # Capture individually visible board and action areas instead.

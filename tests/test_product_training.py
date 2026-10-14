@@ -92,18 +92,26 @@ class N{
  contains(n){return this===n||this.children.some(c=>c.contains(n));}
  getClientRects(){return [{}];}
 }
-const root=new N('section'),board=new N('div'),console=new N('aside'),intro=new N('section','play-beginner-intro'),cause=new N('section','play-cause'),goal=new N('p','play-goal'),fixed=new N('p','play-fixed-condition'),instruction=new N('p','play-instruction'),hint=new N('p','play-mission-hint'),live=new N('p','play-live'),outcome=new N('p','play-outcome'),text=new N('p'),title=new N('h5','play-result-title'),metrics=new N('div','subgame-metrics'),why=new N('details','play-why'),controls=new N('div','play-controls'),button=new N('button','', '1 · 第一关');
-root.append(board,console);board.append(cause);console.append(intro,goal,fixed,instruction,hint,controls,title,outcome,text,metrics,why,live);
-const map={'.play-console':console,'.play-beginner-intro':intro,'.play-cause':cause,'.play-result-title':title,'.subgame-metrics':metrics,'.play-why':why};root.querySelector=s=>map[s];root.querySelectorAll=()=>[button];
+const root=new N('section'),board=new N('div','play-board-column'),viewport=new N('div','play-viewport'),canvas=new N('canvas'),badge=new N('span','play-badge'),focus=new N('span','play-device-focus'),labels=new N('p','play-labels'),hud=new N('div','play-hud'),viewHint=new N('p','play-view-hint'),console=new N('aside'),intro=new N('section','play-beginner-intro'),cause=new N('section','play-cause'),goal=new N('p','play-goal'),fixed=new N('p','play-fixed-condition'),instruction=new N('p','play-instruction'),hint=new N('p','play-mission-hint'),live=new N('p','play-live'),outcome=new N('p','play-outcome'),text=new N('p'),title=new N('h5','play-result-title'),metrics=new N('div','subgame-metrics'),why=new N('details','play-why'),controls=new N('div','play-controls'),button=new N('button','', '1 · 第一关');
+root.append(board,console);board.append(viewport,cause);viewport.append(canvas,badge,focus,labels,hud,viewHint);console.append(intro,goal,fixed,instruction,hint,controls,title,outcome,text,metrics,why,live);
+const map={'.play-console':console,'.play-viewport':viewport,'.play-board-column':board,'.play-beginner-intro':intro,'.play-cause':cause,'.play-result-title':title,'.subgame-metrics':metrics,'.play-why':why};root.querySelector=s=>map[s];root.querySelectorAll=()=>[button];viewport.querySelector=s=>viewport.children.find(n=>n.matches(s));
 const callbacks=new Set(),media={matches:true,addEventListener(_,f){callbacks.add(f);},removeEventListener(_,f){callbacks.delete(f);}},window={};
 vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{window,document:{createElement:t=>new N(t),createComment:()=>new N('#comment'),activeElement:null},matchMedia:()=>media});
 const layout=window.TrainingPlaygroundLayout.mount(root),panel=console.children.find(n=>n.className==='play-mobile-explanation'),body=panel.children[1];
+const caption=board.children.find(n=>n.className==='play-scene-caption'),readout=board.children.find(n=>n.className==='play-scene-readout');
+a.deepEqual(viewport.children,[canvas]);a.deepEqual(caption.children,[badge,focus,labels]);a.deepEqual(readout.children,[viewHint,hud]);
+a(board.children.indexOf(caption)<board.children.indexOf(viewport));a(board.children.indexOf(readout)>board.children.indexOf(viewport));
 a.equal(root.dataset.mobileLayout,'compact');a.equal(panel.hidden,false);a(body.contains(cause));a(body.contains(intro));a(body.contains(metrics));a(body.contains(text));
 for(const n of [goal,fixed,instruction,hint,live,outcome,controls]){a.equal(n.parent,console);a(!body.contains(n));}
 a.equal(button.attrs['aria-label'],'1 · 第一关');a.equal(button.children[1].attrs['aria-hidden'],'true');
 cause.textContent='30 mA';panel.open=true;media.matches=false;for(const f of callbacks)f();
 a.equal(root.dataset.mobileLayout,'desktop');a.equal(panel.hidden,true);a.equal(panel.open,false);a.equal(cause.parent,board);a.equal(intro.parent,console);a.equal(console.children.filter(n=>n.tagName!=='#COMMENT')[0],intro);a.equal(cause.textContent,'30 mA');
 media.matches=true;for(const f of callbacks)f();a.equal(root.dataset.mobileLayout,'compact');a.equal(body.children.filter(n=>n===cause).length,1);a.equal(body.children.filter(n=>n===intro).length,1);
+a.deepEqual(viewport.children,[canvas]);a.equal(labels.parent,caption);a.equal(hud.parent,readout);
+// Non-beginner scenes start without the board column; use the same two rails.
+const other=new N('section'),stage=new N('div'),v2=new N('div','play-viewport'),c2=new N('aside'),cv2=new N('canvas'),b2=new N('span','play-badge'),l2=new N('p','play-labels'),h2=new N('div','play-hud');other.append(stage);stage.append(v2,c2);v2.append(cv2,b2,l2,h2);
+other.querySelector=s=>s==='.play-viewport'?v2:s==='.play-console'?c2:null;other.querySelectorAll=()=>[];v2.querySelector=s=>v2.children.find(n=>n.matches(s));
+const layout2=window.TrainingPlaygroundLayout.mount(other);a.equal(stage.children[0].className,'play-board-column');a.equal(v2.parent,stage.children[0]);a.deepEqual(v2.children,[cv2]);a.equal(b2.parent.className,'play-scene-caption');a.equal(l2.parent,b2.parent);a.equal(h2.parent.className,'play-scene-readout');layout2.dispose();
 layout.dispose();a.equal(callbacks.size,0);
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_playground_layout.js')],check=True,capture_output=True)
