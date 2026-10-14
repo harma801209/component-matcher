@@ -32,7 +32,7 @@ with sync_playwright() as p:
         while time.monotonic() < deadline:
             f = next((x for x in page.frames if x.locator('#training-app').count()), None)
             if f and f.evaluate('typeof TrainingPlaygroundLayout!=="undefined"'):
-                if args.before or f.locator('.play-scene-caption').count(): break
+                if args.before or f.locator('.play-scene-caption').count() and f.locator('.play-controls[aria-label="演示控制"]').count(): break
             if args.public and time.monotonic() > reload_at:
                 page.reload(wait_until='domcontentloaded', timeout=90000)
                 reload_at = time.monotonic()+15
@@ -67,6 +67,8 @@ with sync_playwright() as p:
                 assert f.frame_element().get_attribute('scrolling')=='no'
                 assert m['canvas']['height']==(230 if f.evaluate('innerWidth<=760') else 440), m
                 assert f.locator('.play-console .play-action-row').count()==1
+                assert f.locator('.play-controls[role="group"][aria-label="演示控制"]').count()==1
+                assert f.locator('.play-controls button:visible').evaluate_all('es=>es.every(e=>e.getBoundingClientRect().height>=44&&getComputedStyle(e).borderTopStyle==="none")')
             records.append({'id':id,'view':view,**m})
 
         def capture(name):
@@ -91,6 +93,24 @@ with sync_playwright() as p:
             page.wait_for_timeout(350)
             assert canvas.get_attribute('data-flow-phase') != phase, 'Current motion stopped'
             check('res-thick','phone-powered'); capture('phone-powered')
+            f.locator('.play-console').screenshot(path=str(OUT/f'{prefix}-phone-next-controls.png'))
+            press('#playground-pause')
+            assert not f.evaluate('TrainingPlayground.current().snapshot().playing')
+            press('#playground-speed')
+            assert f.evaluate('TrainingPlayground.current().snapshot().speed')==.35
+            assert f.locator('#playground-speed').inner_text()=='0.35×'
+            assert '0.35倍' in f.locator('#playground-speed').get_attribute('aria-label')
+            press('#playground-speed')
+            assert f.evaluate('TrainingPlayground.current().snapshot().speed')==1
+            press('#playground-power')
+            assert '0.0 mA' in f.locator('.play-hud').inner_text()
+            assert f.locator('#playground-power').get_attribute('aria-pressed')=='false'
+            press('#playground-power')
+            assert '9.1 mA' in f.locator('.play-hud').inner_text()
+            assert f.locator('#playground-power').get_attribute('aria-pressed')=='true'
+            press('#playground-reset')
+            assert '0.0 mA' in f.locator('.play-hud').inner_text()
+            press('#playground-power')
             press('#playground-next')
             press('[data-play-choice="100"]')
             assert '30.0 mA' in f.locator('.play-hud').inner_text()
@@ -117,6 +137,13 @@ with sync_playwright() as p:
                     check(d['id'],'desktop')
                     capture(d['id']+'-desktop')
                     page.set_viewport_size({'width':393,'height':659})
+                if d['id']=='mos-n':
+                    press('#subgame-speed')
+                    assert f.evaluate('TrainingSubtypeGame.current().snapshot().speed')==.35
+                    assert f.locator('#subgame-speed').inner_text()=='0.35×'
+                    assert f.locator('#subgame-speed').get_attribute('aria-pressed')=='true'
+                    press('#subgame-speed')
+                    assert f.evaluate('TrainingSubtypeGame.current().snapshot().speed')==1
             assert f.locator('.play-viewport .play-device-focus').count()==0
             assert not errors,errors
         result={'status':'captured' if args.before else 'passed','public':args.public,'cases':records,'browser_errors':errors,'phone':'iPhone 15 Pro Chrome emulation, not physical Safari'}

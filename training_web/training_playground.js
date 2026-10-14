@@ -29,7 +29,7 @@
   const controls=node('div',undefined,'play-controls'),status=node('p',undefined,'play-live');status.id='playground-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   function button(label,icon,fn){const b=node('button');b.type='button';b.setAttribute('aria-label',label);b.title=label;b.className='play-icon';if(icons()[icon])b.innerHTML=icons()[icon];else b.textContent=label;b.addEventListener('click',fn);controls.append(b);return b;}
   const pause=button('暂停动画','pause',()=>{playing=!playing;last=0;updatePause();refresh();});pause.id='playground-pause';
-  const slow=node('button','慢放 1×');slow.type='button';slow.id='playground-speed';slow.addEventListener('click',()=>{speed=speed===1?.35:1;slow.textContent=speed===1?'慢放 1×':'慢放 0.35×';});controls.append(slow);
+  const slow=node('button');slow.type='button';slow.id='playground-speed';window.TrainingPlaygroundLayout.setSpeedLabel(slow,speed);slow.addEventListener('click',()=>{speed=speed===1?.35:1;window.TrainingPlaygroundLayout.setSpeedLabel(slow,speed);});controls.append(slow);
   const reset=button('恢复原状','arrow-path',()=>{Object.assign(p,mode==='challenge'?L.level(course,campaign.progress.index).setup:{value:d.initial,power:true,reverse:false,near:true});if(mode==='challenge')campaign.progress=L.attempt(campaign.progress);elapsed=0;interacted=false;hintDepth=0;hintText.hidden=true;help.setAttribute('aria-expanded','false');view?.restore();refresh(true);});reset.id='playground-reset';
   const retry=node('button','再练一遍');retry.type='button';retry.id='playground-retry-chapter';retry.hidden=true;retry.addEventListener('click',()=>{campaign.progress=L.create(course);goLevel(0);});controls.append(retry);
   const power=node('button',course==='inductor'?'停止例题':'关闭电源');power.type='button';power.id='playground-power';power.addEventListener('click',()=>{p.power=!p.power;if(p.power){elapsed=0;startPlayback();}markInteraction('power');refresh(true);});controls.append(power);
@@ -86,7 +86,7 @@
    }
    const move=guidance();actionTarget=move.id;action.dataset.target=move.id;action.textContent=move.label;if(move.id==='choices')action.hidden=true;next.className=mode==='challenge'?'play-primary':'play-secondary';const nextText=mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index)?(campaign.progress.index===3?'本器件章节已完成。可以重玩，也可以选择其他器件继续学习。':'这关通过了！点“下一关”继续。'):move.text,paused=p.power&&!playing?'动画已暂停，点 ▶ 继续动画；也可逐步观察。 ':'';if(instruction.textContent!==paused+nextText)instruction.textContent=paused+nextText;
    retry.hidden=mode!=='challenge'||course!=='resistor'||campaign.progress.index!==3||campaign.progress.cleared.length!==4;
-   power.hidden=!p.power;
+   power.hidden=!p.power&&!(mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index));
    for(const id of ['trigger','step','near','reverse']){const b=root.querySelector('#playground-'+id);if(b)b.hidden=!action.hidden&&move.id===id;}
    if(beginner&&mode==='challenge'&&course==='capacitor'){tray.hidden=campaign.progress.index!==1;root.querySelector('#playground-near').hidden=campaign.progress.index!==2||(!action.hidden&&move.id==='near');}
    if(course==='inductor'&&mode==='challenge'&&!campaign.progress.started)state.textContent='尚未开始 · 等待施加本例电压';

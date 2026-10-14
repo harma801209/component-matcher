@@ -167,3 +167,18 @@
  .play-scene-readout .play-view-hint{font-size:10px}
  .play-workbench .play-board-column>.play-viewport{height:230px}
 }
+
+/* Secondary playback tools share one quiet rail below the primary game action. */
+.play-workbench .play-console .play-controls{gap:2px;margin-top:8px;padding:2px 4px;border:0;border-radius:8px;background:#f4f6fa}
+.play-workbench .play-console .play-controls::before{content:'演示';font-size:11px;color:#637b9c;padding:0 5px}
+.play-workbench .play-console .play-controls button{min-height:44px;min-width:44px;margin:0;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:#526987;font-size:12px}
+.play-workbench .play-console .play-controls button:hover{background:#e7edf7;color:#234e80}
+.play-workbench .play-console .play-controls .play-icon{width:44px;height:44px;padding:12px}
+.play-controls .play-icon svg{width:19px;height:19px}
+.play-workbench .play-console .play-controls button[id$='-speed'][aria-pressed=true]{background:#e8efff;color:#1555e8}
+.play-workbench .play-console .play-controls button[id$='-power']{position:relative;padding-left:32px;padding-right:9px;border-radius:22px;font-size:11px}
+.play-controls button[id$='-power']::before,.play-controls button[id$='-power']::after{content:'';position:absolute;top:50%;transform:translateY(-50%);border-radius:10px}
+.play-controls button[id$='-power']::before{left:7px;width:20px;height:12px;background:#a4b1c3}
+.play-controls button[id$='-power']::after{left:9px;width:8px;height:8px;background:white}
+.play-controls button[id$='-power'][aria-pressed=true]::before{background:#158675}
+.play-controls button[id$='-power'][aria-pressed=true]::after{left:17px}

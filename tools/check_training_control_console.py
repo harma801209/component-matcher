@@ -79,6 +79,15 @@ with sync_playwright() as p:
             assert f.evaluate('TrainingSubtypeGame.current().snapshot().progress.cleared')==[0]
             assert f.locator('#subgame-next').is_visible()
             capture('04-completed')
+            press('#subgame-power')
+            assert f.locator('#subgame-power').is_visible()
+            assert f.locator('#subgame-power').inner_text()=='重新观察'
+            assert not f.evaluate('TrainingSubtypeGame.current().snapshot().progress.started')
+            assert f.evaluate('TrainingSubtypeGame.current().snapshot().progress.cleared')==[0]
+            assert f.locator('#subgame-next').is_visible()
+            press('#subgame-power')
+            assert f.evaluate('TrainingSubtypeGame.current().snapshot().progress.started')
+            assert f.evaluate('TrainingSubtypeGame.current().snapshot().progress.cleared')==[0]
             press('#subgame-reset')
             press('[data-subgame-mode="free"]');assert f.locator('#subgame-help').is_hidden()
             for width in [1440,900,390]:

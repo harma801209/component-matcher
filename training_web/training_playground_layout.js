@@ -1,8 +1,15 @@
 /* Keep text outside the rotating model; move existing nodes, never duplicate controls. */
 (function(){
  'use strict';
+ function setSpeedLabel(button,speed){
+  button.textContent=speed+'×';
+  const label='播放速度：'+speed+'倍，点击'+(speed===1?'慢放':'恢复正常速度');
+  button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(speed!==1));button.title=label;
+ }
  function mount(root){
   const console=root.querySelector('.play-console'),media=matchMedia('(max-width:760px)'),moves=[];
+  const controls=root.querySelector('.play-controls');
+  if(controls){controls.setAttribute('role','group');controls.setAttribute('aria-label','演示控制');}
   const viewport=root.querySelector('.play-viewport');
   let board=root.querySelector('.play-board-column');
   if(!board){board=document.createElement('div');board.className='play-board-column';viewport.before(board);board.append(viewport);}
@@ -32,5 +39,5 @@
   media.addEventListener('change',sync);sync();
   return {dispose(){media.removeEventListener('change',sync);}};
  }
- window.TrainingPlaygroundLayout=Object.freeze({mount});
+ window.TrainingPlaygroundLayout=Object.freeze({mount,setSpeedLabel});
 })();

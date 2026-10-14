@@ -94,12 +94,14 @@ class N{
 }
 const root=new N('section'),board=new N('div','play-board-column'),viewport=new N('div','play-viewport'),canvas=new N('canvas'),badge=new N('span','play-badge'),focus=new N('span','play-device-focus'),labels=new N('p','play-labels'),hud=new N('div','play-hud'),viewHint=new N('p','play-view-hint'),console=new N('aside'),intro=new N('section','play-beginner-intro'),cause=new N('section','play-cause'),goal=new N('p','play-goal'),fixed=new N('p','play-fixed-condition'),instruction=new N('p','play-instruction'),hint=new N('p','play-mission-hint'),live=new N('p','play-live'),outcome=new N('p','play-outcome'),text=new N('p'),title=new N('h5','play-result-title'),metrics=new N('div','subgame-metrics'),why=new N('details','play-why'),controls=new N('div','play-controls'),button=new N('button','', '1 · 第一关');
 root.append(board,console);board.append(viewport,cause);viewport.append(canvas,badge,focus,labels,hud,viewHint);console.append(intro,goal,fixed,instruction,hint,controls,title,outcome,text,metrics,why,live);
-const map={'.play-console':console,'.play-viewport':viewport,'.play-board-column':board,'.play-beginner-intro':intro,'.play-cause':cause,'.play-result-title':title,'.subgame-metrics':metrics,'.play-why':why};root.querySelector=s=>map[s];root.querySelectorAll=()=>[button];viewport.querySelector=s=>viewport.children.find(n=>n.matches(s));
+const map={'.play-console':console,'.play-controls':controls,'.play-viewport':viewport,'.play-board-column':board,'.play-beginner-intro':intro,'.play-cause':cause,'.play-result-title':title,'.subgame-metrics':metrics,'.play-why':why};root.querySelector=s=>map[s];root.querySelectorAll=()=>[button];viewport.querySelector=s=>viewport.children.find(n=>n.matches(s));
 const callbacks=new Set(),media={matches:true,addEventListener(_,f){callbacks.add(f);},removeEventListener(_,f){callbacks.delete(f);}},window={};
 vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{window,document:{createElement:t=>new N(t),createComment:()=>new N('#comment'),activeElement:null},matchMedia:()=>media});
 const layout=window.TrainingPlaygroundLayout.mount(root),panel=console.children.find(n=>n.className==='play-mobile-explanation'),body=panel.children[1];
 const caption=board.children.find(n=>n.className==='play-scene-caption'),readout=board.children.find(n=>n.className==='play-scene-readout');
 a.deepEqual(viewport.children,[canvas]);a.deepEqual(caption.children,[badge,focus,labels]);a.deepEqual(readout.children,[viewHint,hud]);
+a.equal(controls.attrs.role,'group');a.equal(controls.attrs['aria-label'],'演示控制');
+const speedButton=new N('button');for(const speed of [1,.35,1]){window.TrainingPlaygroundLayout.setSpeedLabel(speedButton,speed);a.equal(speedButton.textContent,speed+'×');a.equal(speedButton.attrs['aria-pressed'],String(speed!==1));a(speedButton.attrs['aria-label'].includes(speed+'倍'));a.equal(speedButton.title,speedButton.attrs['aria-label']);}
 a(board.children.indexOf(caption)<board.children.indexOf(viewport));a(board.children.indexOf(readout)>board.children.indexOf(viewport));
 a.equal(root.dataset.mobileLayout,'compact');a.equal(panel.hidden,false);a(body.contains(cause));a(body.contains(intro));a(body.contains(metrics));a(body.contains(text));
 for(const n of [goal,fixed,instruction,hint,live,outcome,controls]){a.equal(n.parent,console);a(!body.contains(n));}
@@ -316,7 +318,9 @@ near(r('bjt-darlington',{base:20,load:2}).values.loss,2);a(r('bjt-digital',{inpu
         ui=(WEB_ROOT/'training_subtype_game.js').read_text(encoding='utf-8')
         self.assertIn('story.append(fields)',ui)
         self.assertIn('story.append(instruction,row,hint)',ui)
-        self.assertIn('power.hidden=!s.started',ui)
+        self.assertIn('power.hidden=!s.started&&!done',ui)
+        self.assertIn("power.textContent=s.started?'停止观察':'重新观察'",ui)
+        self.assertIn("power.hidden=!p.power&&!(mode==='challenge'&&campaign.progress.cleared.includes(campaign.progress.index))",(WEB_ROOT/'training_playground.js').read_text(encoding='utf-8'))
         self.assertNotIn('打开电源 / 开始观察',ui)
         css=(WEB_ROOT/'training_playground.css').read_text(encoding='utf-8')
         self.assertIn('.play-console .play-action-row',css)
