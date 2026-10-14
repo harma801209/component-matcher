@@ -78,7 +78,10 @@ with sync_playwright() as p:
         tap('.play-mobile-explanation>summary')
         # Same nodes, live values and progress after a phone rotation / desktop resize.
         saved=f.evaluate('TrainingPlayground.current().snapshot().progress.cleared')
-        page.set_viewport_size({'width':900,'height':659})
+        # The formal sidebar reduces the lesson iframe's width; 900px outer
+        # width can correctly still be a compact lesson. Cross its real cutoff.
+        page.set_viewport_size({'width':1440,'height':900})
+        f.wait_for_function('innerWidth>760')
         f.wait_for_function('document.getElementById("playground").dataset.mobileLayout==="desktop"')
         assert f.locator('.play-board-column>.play-cause').is_visible()
         assert f.locator('.play-console>.play-beginner-intro').is_visible()
