@@ -10,6 +10,25 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_model_callouts_stay_outside_geometry_without_hiding_labels(self):
+        script=r'''
+const a=require('node:assert/strict'),l=require(process.argv[1]);
+for(const width of [160,245,318,600,960])for(const height of [300,330,360])for(const count of [1,2,4,6,8]){
+ const bounds={left:56,right:width-56,top:55,bottom:height-55};
+ const anchors=Array.from({length:count},(_,i)=>({id:'p'+i,point:[bounds.left+(bounds.right-bounds.left)*(i%3)/2,70+(height-140)*(i%5)/4,0]}));
+ const placed=l.layout(anchors,bounds,width,height);a.equal(placed.length,count);a.equal(new Set(placed.map(p=>p.id)).size,count);
+ for(let i=0;i<count;i++){const p=placed[i];a.deepEqual(p.point,anchors[i].point.slice(0,2));a(p.x-22>=0&&p.x+22<=width&&p.y-22>=48&&p.y+22<=height-30);a(p.x+22<=bounds.left-7.99||p.x-22>=bounds.right+7.99);
+  for(let j=0;j<i;j++)a(Math.abs(p.x-placed[j].x)>=44||Math.abs(p.y-placed[j].y)>=44);
+ }
+ a.deepEqual(l.layout(anchors,bounds,width,height),placed);
+}
+a.deepEqual(l.layout([],{left:0,right:0},0,0),[]);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_model_labels.js')],check=True,capture_output=True)
+        self.assertIn('drawLabelLeader(label)',(WEB_ROOT/'training.js').read_text(encoding='utf-8'))
+        self.assertLess(build_training_html().index('root.TrainingModelLabels=api'),build_training_html().index('function modelLabelLayout('))
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_game_choices_start_empty_and_are_not_inferred_from_setup(self):
         script=r'''
 const a=require('node:assert/strict'),Q=require(process.argv[1]);

@@ -113,11 +113,12 @@
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
   const base=Math.min(width/6.5,height/4.6);
   for(const face of faces)for(const p of face.p){const q=rotated(p),s=base*9/(9-q[2]),x=q[0]*s,y=-q[1]*s;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
-  const room=modelMode==='materials'?materialRoom():{width:width-40,height:height-56};
-  fitScale=Math.min(1,room.width/Math.max(1,maxX-minX),room.height/Math.max(1,maxY-minY));
+  // Keep the complete rotating/zoomed model out of the callout side rails.
+  const room=materialRoom(),zoomRoom=Math.max(1,zoom);
+  fitScale=Math.min(1,room.width/(Math.max(1,maxX-minX)*zoomRoom),room.height/(Math.max(1,maxY-minY)*zoomRoom));
   fitX=-(minX+maxX)/2*fitScale;fitY=-(minY+maxY)/2*fitScale;
  }
- function materialRoom(){return {width:width-64,height:height-110,cy:height*.5};}
+ function materialRoom(){return {width:Math.max(24,width-112),height:Math.max(40,height-110),cy:height*.5};}
  function project(p){const q=rotated(p),s=zoom*fitScale*Math.min(width/6.5,height/4.6)*9/(9-q[2]);return [width/2+zoom*fitX+q[0]*s,(modelMode==='materials'?materialRoom().cy:height*.5-4)+zoom*fitY-q[1]*s,q[2]];}
  function drawLine(points,color,line=1.5){ctx.beginPath();points.forEach((p,i)=>{const s=project(p);i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);});ctx.strokeStyle=color;ctx.lineWidth=line;ctx.stroke();}
  function drawFrame(){
@@ -131,18 +132,12 @@
   if(animation&&(active==='capacitor'?modelMode==='materials':modelMode==='exterior'))drawPrinciple();drawLabels();canvas.dataset.resistorMarking=active==='resistor'?(window.TrainingResistorMarking.encode(params.r,markingProfile)?.code||''):'';canvas.dataset.resistorUnderline=String(active==='resistor'&&Boolean(window.TrainingResistorMarking.encode(params.r,markingProfile)?.underline));canvas.dataset.markingFaces=String(mesh.filter(f=>f.ink).length);canvas.dataset.mode=modelMode;canvas.dataset.frames=String(Number(canvas.dataset.frames||0)+1);canvas.dataset.meshFaces=String(faces.length);canvas.dataset.course=active;canvas.dataset.yaw=yaw.toFixed(3);canvas.dataset.zoom=zoom.toFixed(3);if(active==='capacitor'&&modelMode==='exterior')$('state-badge').textContent='完整外观';dirty=false;
  }
  function dot(p,color,r=3){const s=project(p);ctx.beginPath();ctx.arc(s[0],s[1],r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();}
+ function modelLabelLayout(anchors){const points=faceCache.flatMap(f=>f.screen),bounds={left:Math.min(...points.map(p=>p[0])),right:Math.max(...points.map(p=>p[0])),top:Math.min(...points.map(p=>p[1])),bottom:Math.max(...points.map(p=>p[1]))},labels=window.TrainingModelLabels.layout(anchors.map(p=>({id:p.id,point:project(p.point)})),bounds,width,height);canvas.dataset.labelLayout=JSON.stringify(labels);return labels;}
+ function drawLabelLeader(label,radius=16){const dx=label.point[0]-label.x,dy=label.point[1]-label.y,d=Math.hypot(dx,dy)||1;ctx.save();ctx.beginPath();ctx.moveTo(label.x+dx/d*radius,label.y+dy/d*radius);ctx.lineTo(...label.point);ctx.strokeStyle=label.id===part?'#1555e8':'#7896bb';ctx.lineWidth=1;ctx.stroke();ctx.beginPath();ctx.arc(...label.point,1.6,0,Math.PI*2);ctx.fillStyle=ctx.strokeStyle;ctx.fill();ctx.restore();}
  function drawMaterialLabels(anchors=materialMesh.anchors){
-  const placed=[],radius=22,gap=44;
-  anchors.forEach(p=>{
-   const button=$('model-labels').querySelector('[data-model-material="'+p.id+'"],[data-model-part="'+p.id+'"]'),point=project(p.point);
-   // Prefer the physical anchor; gently separate projected numbers when layers overlap.
-   let position=null;
-   for(let ring=0;ring<=6&&!position;ring++)for(let k=0;k<(ring?16:1);k++){
-    const a=k/16*Math.PI*2,x=clamp(point[0]+Math.cos(a)*ring*12,radius,width-radius),y=clamp(point[1]+Math.sin(a)*ring*12,58,height-48);
-    if(placed.every(q=>Math.abs(x-q[0])>=gap||Math.abs(y-q[1])>=gap)){position=[x,y];break;}
-   }
-   if(!position)position=[clamp(point[0],radius,width-radius),clamp(point[1],58,height-48)];
-   placed.push(position);button.style.left=(position[0]-radius)+'px';button.style.top=(position[1]-radius)+'px';
+  modelLabelLayout(anchors).forEach(label=>{
+   const button=$('model-labels').querySelector('[data-model-material="'+label.id+'"],[data-model-part="'+label.id+'"]');
+   button.style.left=(label.x-22)+'px';button.style.top=(label.y-22)+'px';drawLabelLeader(label);
   });
  }
  function drawPrinciple(){
@@ -154,7 +149,7 @@
   if(active==='inductor'&&params.i>0){for(const side of [-1,1]){const points=Array.from({length:40},(_,i)=>{const a=i/39*2*Math.PI;return [side*(.7+.5*Math.sin(a)),1.45*Math.cos(a),0];});drawLine(points,evaluate().saturated?'#c56463':'#568ece',1.3);dot(points[Math.floor((time*.15)%1*39)],'#397de0',3);}}
   if(active==='diode'&&params.v>0&&evaluate().current>1e-6){for(let i=0;i<5;i++)dot([-2+((time*.6+i/5)%1)*4,-.75,0],'#337aec');drawLine([[-1.4,-.75,0],[1.4,-.75,0]],'rgba(38,104,210,.35)',1);}
  }
- function drawLabels(){if(modelMode==='materials'){drawMaterialLabels();return;}if(active==='capacitor'){drawMaterialLabels(window.TrainingMaterialGeometry.buildCapacitorExterior({box,tube}).anchors);return;}let labels=active==='resistor'?[['substrate',[-.5,-.45,.7]],['film',[.4,.18+explosion*.65,.4]],['cover',[1.1,.36+explosion*1.5,0]],['terminal',[1.75,0,0]]]:active==='inductor'?[['core',[0,.55,.58]],['winding',[1,.15,0]],['cover',[0,1.08+explosion*1.4,0]],['terminal',[1.2,-1.22,0]]]:[['p',[-.65,0,.4]],['junction',[0,.25,.4]],['n',[.65,0,.4]],['cover',[0,.65+explosion*1.5,0]],['terminal',[2.2,0,0]]];for(let i=0;i<labels.length;i++){const [id,p]=labels[i],s=project(p);if(explosion<.15&&['film','p','junction','n','core','winding'].includes(id))continue;ctx.beginPath();ctx.arc(s[0],s[1],10,0,2*Math.PI);ctx.fillStyle=id===part?'#1555e8':'#ffffffed';ctx.fill();ctx.strokeStyle='#7b9fce';ctx.lineWidth=1;ctx.stroke();ctx.fillStyle=id===part?'white':'#234d83';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='11px "Segoe UI",sans-serif';ctx.fillText(String(i+1),s[0],s[1]);}}
+ function drawLabels(){if(modelMode==='materials'){drawMaterialLabels();return;}if(active==='capacitor'){drawMaterialLabels(window.TrainingMaterialGeometry.buildCapacitorExterior({box,tube}).anchors);return;}const labels=(active==='resistor'?[['substrate',[-.5,-.45,.7]],['film',[.4,.18+explosion*.65,.4]],['cover',[1.1,.36+explosion*1.5,0]],['terminal',[1.75,0,0]]]:active==='inductor'?[['core',[0,.55,.58]],['winding',[1,.15,0]],['cover',[0,1.08+explosion*1.4,0]],['terminal',[1.2,-1.22,0]]]:[['p',[-.65,0,.4]],['junction',[0,.25,.4]],['n',[.65,0,.4]],['cover',[0,.65+explosion*1.5,0]],['terminal',[2.2,0,0]]]).map(([id,point],i)=>({id,point,number:i+1})).filter(p=>explosion>=.15||!['film','p','junction','n','core','winding'].includes(p.id));const positions=modelLabelLayout(labels);for(let i=0;i<positions.length;i++){const p=positions[i];drawLabelLeader(p,10);ctx.beginPath();ctx.arc(p.x,p.y,10,0,2*Math.PI);ctx.fillStyle=p.id===part?'#1555e8':'#ffffffed';ctx.fill();ctx.strokeStyle='#7b9fce';ctx.lineWidth=1;ctx.stroke();ctx.fillStyle=p.id===part?'white':'#234d83';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='11px "Segoe UI",sans-serif';ctx.fillText(String(labels[i].number),p.x,p.y);}}
  function contains(p,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;}
  function resize(){const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;const dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);if(ctx)ctx.setTransform(dpr,0,0,dpr,0,0);dirty=true;}
  const pointers=new Map();let start=null,moved=false,lastPinch=0;
