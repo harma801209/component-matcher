@@ -7,9 +7,13 @@
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(35,1,.1,70),world=new T.Group();scene.add(world);
   scene.add(new T.HemisphereLight(0xe9f3ff,0x41604f,3));const sun=new T.DirectionalLight(0xffffff,3);sun.position.set(-3,8,5);scene.add(sun);
   const room=new T.RoomEnvironment(),pm=new T.PMREMGenerator(renderer),env=pm.fromScene(room,.04);scene.environment=env.texture;room.dispose();pm.dispose();
-  const map=new T.Texture();map.colorSpace=T.SRGBColorSpace;const image=new Image();image.onload=()=>{map.image=image;map.needsUpdate=true;};image.src=window.TrainingPlaygroundAssets.pcb;
   const solid=new T.Group(),moving=new T.Group();world.add(solid,moving);
   let key='',textures=[],markers=[],hot=null,indicator=null,fieldRing=null,lightMaterials=[],waves=[],result=null,params=null,running=false,clockPhase=0,azimuth=.35,elevation=.8,distance=12,alive=true,disposed=false,installed=null,loadPins=null,connections=[];
+  // Loading must not depend on electricity or a camera drag to repaint.
+  const pcbFallback=document.createElement('canvas');pcbFallback.width=pcbFallback.height=1;const pcbContext=pcbFallback.getContext('2d');pcbContext.fillStyle='#26a34b';pcbContext.fillRect(0,0,1,1);
+  const map=new T.Texture(pcbFallback);map.colorSpace=T.SRGBColorSpace;map.needsUpdate=true;canvas.dataset.textureLoaded='false';
+  // Reallocate GPU storage when replacing the 1px fallback with the full image.
+  const image=new Image();image.onload=()=>{if(disposed)return;map.dispose();map.image=image;map.needsUpdate=true;canvas.dataset.textureLoaded='true';draw(0);};image.src=window.TrainingPlaygroundAssets.pcb;
   const ledLight=new T.PointLight(0x409aff,0,3);world.add(ledLight);
   const V=p=>new T.Vector3(...p),color=rgb=>new T.Color().setRGB(rgb[0]/255,rgb[1]/255,rgb[2]/255,T.SRGBColorSpace);
   const mat=(c,extra={})=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.15,...extra});
@@ -200,7 +204,7 @@
   canvas.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','0','Enter',' '].includes(e.key))return;e.preventDefault();if(e.key==='ArrowLeft')azimuth-=.12;if(e.key==='ArrowRight')azimuth+=.12;if(e.key==='ArrowUp')elevation=Math.min(1.2,elevation+.1);if(e.key==='ArrowDown')elevation=Math.max(.35,elevation-.1);if(e.key==='0'){azimuth=.35;elevation=.8;}if(e.key==='Enter'||e.key===' ')onPick();draw(0);});
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();alive=false;canvas.dispatchEvent(new CustomEvent('subgame-context-lost'));});canvas.addEventListener('webglcontextrestored',()=>{alive=true;canvas.dispatchEvent(new CustomEvent('subgame-context-restored'));draw(0);});
   function focusPoint(){const point=V(d.topology==='switch-high'?[0,1.5,top]:[right,1.5,.2]).project(camera);return {x:(point.x+1)/2,y:(1-point.y)/2};}
-  return {update,draw,resize,hit,focusPoint,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({id,renderer:'WebGL',topology:d.topology,markers:markers.length,signalMarkers:markers.filter(m=>m.kind==='clock').length,phase:clockPhase,package:installed?.layout.title,contacts:JSON.parse(canvas.dataset.pinContacts||'[]'),seating:installed?.seating,connections,contactError:Number(canvas.dataset.contactError||0)}),dispose:()=>{disposed=true;observer.disconnect();purge(solid);purge(moving);textures.forEach(t=>t.dispose());map.dispose();env.dispose();renderer.dispose();renderer.forceContextLoss();}};
+  return {update,draw,resize,hit,focusPoint,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({id,renderer:'WebGL',topology:d.topology,markers:markers.length,signalMarkers:markers.filter(m=>m.kind==='clock').length,phase:clockPhase,package:installed?.layout.title,contacts:JSON.parse(canvas.dataset.pinContacts||'[]'),seating:installed?.seating,connections,contactError:Number(canvas.dataset.contactError||0)}),dispose:()=>{disposed=true;image.onload=null;observer.disconnect();purge(solid);purge(moving);textures.forEach(t=>t.dispose());map.dispose();env.dispose();renderer.dispose();renderer.forceContextLoss();}};
  }
  window.TrainingSubtypeGameScene=Object.freeze({create});
 })();

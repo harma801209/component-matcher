@@ -10,6 +10,25 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_pcb_texture_load_repaints_without_advancing_or_reviving_disposed_scene(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1];
+for(const [file,mapName,imageName] of [['training_playground_scene.js','pcbMap','image'],['training_subtype_game_scene.js','map','image'],['training_nightlight_scene.js','pcbMap','pcbImage']]){
+ const source=fs.readFileSync(dir+'/'+file,'utf8'),callback=source.match(new RegExp(imageName+'\\.onload=(\\(\\)=>\\{.*?\\});'+imageName+'\\.src='));a(callback,file);
+ a(source.includes('new T.Texture(pcbFallback)'));a(source.includes("pcbContext.fillStyle='#26a34b'"));a(source.includes(imageName+'.onload=null'));
+ // Evaluate the actual load handler, including a context-loss-like inactive
+ // scene. Texture readiness is independent of power/context visibility.
+ const map={image:'fallback',needsUpdate:false,disposed:0,dispose(){this.disposed++;}},image={},canvas={dataset:{}},steps=[];
+ const ctx={disposed:false,alive:false,live:false,canvas,[mapName]:map,[imageName]:image,draw(dt){steps.push(dt);}};
+ vm.createContext(ctx);const loaded=vm.runInContext(callback[1],ctx);loaded();
+ a.equal(map.image,image);a.equal(map.needsUpdate,true);a.equal(map.disposed,1);a.equal(canvas.dataset.textureLoaded,'true');a.deepEqual(steps,[0]);
+ ctx.disposed=true;map.image='disposed';map.needsUpdate=false;canvas.dataset.textureLoaded='false';loaded();
+ a.equal(map.image,'disposed');a.equal(map.needsUpdate,false);a.equal(map.disposed,1);a.equal(canvas.dataset.textureLoaded,'false');a.deepEqual(steps,[0]);
+}
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_reselecting_existing_component_does_not_reset_live_observation(self):
         script=r'''
 const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_playground_math.js'),L=require(dir+'/training_playground_levels.js'),S=require(dir+'/training_subtype_game_math.js'),F=require(dir+'/training_game_feedback.js');

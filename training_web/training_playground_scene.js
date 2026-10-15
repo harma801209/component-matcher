@@ -7,9 +7,13 @@
   const room=new T.RoomEnvironment(),pmrem=new T.PMREMGenerator(renderer),environment=pmrem.fromScene(room,.04);scene.environment=environment.texture;room.dispose();pmrem.dispose();
   const sun=new T.DirectionalLight(0xffffff,3.5);sun.position.set(-4,10,6);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-8;sun.shadow.camera.right=8;sun.shadow.camera.top=8;sun.shadow.camera.bottom=-8;sun.shadow.normalBias=.03;scene.add(sun);
   const ground=new T.Mesh(new T.PlaneGeometry(200,200),new T.ShadowMaterial({opacity:.13}));ground.rotation.x=-Math.PI/2;ground.position.y=-.37;ground.receiveShadow=true;scene.add(ground);
-  let course='resistor',key='',parts=new T.Group(),flows=new T.Group(),ledMaterials=[],labelTextures=[],phase=0,alive=true,azimuth=.35,elevation=.8,distance=13.4,lastResult=null,heatRing=null,selected=null,consumer=null,connections=[];
+  let course='resistor',key='',parts=new T.Group(),flows=new T.Group(),ledMaterials=[],labelTextures=[],phase=0,alive=true,disposed=false,azimuth=.35,elevation=.8,distance=13.4,lastResult=null,heatRing=null,selected=null,consumer=null,connections=[];
   world.add(parts,flows);const glow=new T.PointLight(0xffbd3e,0,3);world.add(glow);
-  const pcbMap=new T.Texture();pcbMap.colorSpace=T.SRGBColorSpace;const image=new Image();image.onload=()=>{pcbMap.image=image;pcbMap.needsUpdate=true;};image.src=textureSource;
+  // A valid green texel avoids a black first frame while the image decodes.
+  const pcbFallback=document.createElement('canvas');pcbFallback.width=pcbFallback.height=1;const pcbContext=pcbFallback.getContext('2d');pcbContext.fillStyle='#26a34b';pcbContext.fillRect(0,0,1,1);
+  const pcbMap=new T.Texture(pcbFallback);pcbMap.colorSpace=T.SRGBColorSpace;pcbMap.needsUpdate=true;canvas.dataset.textureLoaded='false';
+  // Reallocate GPU storage when replacing the 1px fallback with the full image.
+  const image=new Image();image.onload=()=>{if(disposed)return;pcbMap.dispose();pcbMap.image=image;pcbMap.needsUpdate=true;canvas.dataset.textureLoaded='true';draw(0);};image.src=textureSource;
   const v=p=>new T.Vector3(...p),silver=0xbcbdb3;
   function material(color,extra={}){return new T.MeshStandardMaterial({color,roughness:.36,metalness:.12,...extra});}
   function mesh(geometry,mat,pos,group=parts){const m=new T.Mesh(geometry,mat);m.position.set(...pos);m.castShadow=true;m.receiveShadow=true;group.add(m);return m;}
@@ -74,7 +78,7 @@
    canvas.dataset.flowCount=String(markers.length);canvas.dataset.energyThroughLoad=String(c==='capacitor'&&r.storage<0&&markers.some(m=>m.set.color===0xf29923));
   }
   function cameraPosition(){camera.position.set(Math.sin(azimuth)*Math.cos(elevation)*distance,Math.sin(elevation)*distance,Math.cos(azimuth)*Math.cos(elevation)*distance);camera.lookAt(0,.05,0);}
-  function draw(dt){if(!alive)return;phase+=dt*.15;for(const m of markers){const s=sample(m.set.points,(phase+m.index/m.set.count)%1);m.mesh.position.copy(s.point);m.mesh.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),s.direction);}cameraPosition();renderer.render(scene,camera);canvas.dataset.frames=String(Number(canvas.dataset.frames||0)+1);canvas.dataset.flowPhase=String(phase);canvas.dataset.yaw=String(azimuth);}
+  function draw(dt){if(!alive||disposed)return;phase+=dt*.15;for(const m of markers){const s=sample(m.set.points,(phase+m.index/m.set.count)%1);m.mesh.position.copy(s.point);m.mesh.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),s.direction);}cameraPosition();renderer.render(scene,camera);canvas.dataset.frames=String(Number(canvas.dataset.frames||0)+1);canvas.dataset.flowPhase=String(phase);canvas.dataset.yaw=String(azimuth);}
   function resize(){const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return;camera.aspect=rect.width/rect.height;distance=11.3*Math.max(1,1.7/camera.aspect);camera.updateProjectionMatrix();renderer.setSize(rect.width,rect.height,false);draw(0);}
   const observer=new ResizeObserver(resize);observer.observe(canvas);
   const raycaster=new T.Raycaster(),pointer=new T.Vector2();function hit(x,y){const b=canvas.getBoundingClientRect();pointer.set((x-b.left)/b.width*2-1,-(y-b.top)/b.height*2+1);raycaster.setFromCamera(pointer,camera);return raycaster.intersectObjects(parts.children,true).some(i=>i.object.userData.playgroundSocket);}
@@ -82,7 +86,7 @@
   canvas.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','0','Enter',' '].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft')azimuth-=.12;if(e.key==='ArrowRight')azimuth+=.12;if(e.key==='ArrowUp')elevation=Math.min(1.25,elevation+.1);if(e.key==='ArrowDown')elevation=Math.max(.35,elevation-.1);if(e.key==='0'){azimuth=.35;elevation=.8;}if(e.key==='Enter'||e.key===' ')onPick();draw(0);}});
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();alive=false;canvas.dispatchEvent(new CustomEvent('playground-context-lost'));});canvas.addEventListener('webglcontextrestored',()=>{alive=true;draw(0);});
   function focusPoint(){const point=v(focusTarget).project(camera);return {x:(point.x+1)/2,y:(1-point.y)/2};}
-  return {update,draw,resize,hit,focusPoint,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({course,current:lastResult?.current,markers:markers.length,renderer:'WebGL',phase,package:selected?.layout.title,contacts:selected?.contacts,seating:selected?.seating,connections,contactError:0}),dispose:()=>{alive=false;observer.disconnect();purge(parts);purge(flows);labelTextures.forEach(t=>t.dispose());pcbMap.dispose();environment.dispose();renderer.dispose();}};
+  return {update,draw,resize,hit,focusPoint,restore:()=>{azimuth=.35;elevation=.8;draw(0);},snapshot:()=>({course,current:lastResult?.current,markers:markers.length,renderer:'WebGL',phase,package:selected?.layout.title,contacts:selected?.contacts,seating:selected?.seating,connections,contactError:0}),dispose:()=>{disposed=true;alive=false;image.onload=null;observer.disconnect();purge(parts);purge(flows);labelTextures.forEach(t=>t.dispose());pcbMap.dispose();environment.dispose();renderer.dispose();}};
  }
  let previewRenderer=null;
  function thumbnail(course,value,canvas){

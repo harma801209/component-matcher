@@ -6,8 +6,11 @@
   const scene=new T.Scene(),world=new T.Group(),parts=new T.Group(),flows=new T.Group(),camera=new T.PerspectiveCamera(35,1,.1,80);scene.add(world);world.add(parts,flows);
   scene.add(new T.HemisphereLight(0xffffff,0x355566,1.8));const sun=new T.DirectionalLight(0xffffff,2.4);sun.position.set(-4,8,5);scene.add(sun);
   const lampLight=new T.PointLight(0xffc766,0,7);lampLight.position.set(2.7,1.5,-.1);world.add(lampLight);
-  const pcbMap=new T.Texture();pcbMap.colorSpace=T.SRGBColorSpace;const pcbImage=new Image();pcbImage.onload=()=>{if(live){pcbMap.image=pcbImage;pcbMap.needsUpdate=true;canvas.dataset.textureLoaded='true';draw(0);}};pcbImage.src=window.TrainingPlaygroundAssets.pcb;
-  const v=p=>new T.Vector3(...p),Y=.08;let live=true,key='',yaw=.15,elevation=.86,distance=13,phase=0,flowKind='',markers=[],glowing=[],maps=[],contacts=[],currentState=null,halo=null;
+  const v=p=>new T.Vector3(...p),Y=.08;let live=true,disposed=false,key='',yaw=.15,elevation=.86,distance=13,phase=0,flowKind='',markers=[],glowing=[],maps=[],contacts=[],currentState=null,halo=null;
+  const pcbFallback=document.createElement('canvas');pcbFallback.width=pcbFallback.height=1;const pcbContext=pcbFallback.getContext('2d');pcbContext.fillStyle='#26a34b';pcbContext.fillRect(0,0,1,1);
+  const pcbMap=new T.Texture(pcbFallback);pcbMap.colorSpace=T.SRGBColorSpace;pcbMap.needsUpdate=true;canvas.dataset.textureLoaded='false';
+  // Reallocate GPU storage when replacing the 1px fallback with the full image.
+  const pcbImage=new Image();pcbImage.onload=()=>{if(disposed)return;pcbMap.dispose();pcbMap.image=pcbImage;pcbMap.needsUpdate=true;canvas.dataset.textureLoaded='true';draw(0);};pcbImage.src=window.TrainingPlaygroundAssets.pcb;
   function mesh(g,m,p,group=parts){const n=new T.Mesh(g,m);n.position.set(...p);group.add(n);return n;}
   function mat(c,extra={}){return new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12,...extra});}
   function box(p,size,c,group=parts){return mesh(new T.BoxGeometry(...size),mat(c),p,group);}
@@ -62,7 +65,7 @@
    const kind=r.current>1e-9&&!r.unknown?r.source:'off';if(kind!==flowKind){flowKind=kind;phase=0;purge(flows);markers=[];if(kind!=='off')for(let i=0;i<7;i++){const n=mesh(new T.CylinderGeometry(0,.075,.22,8),new T.MeshBasicMaterial({color:kind==='capacitor'?0xed9c24:0x46b7ff}),[0,0,0],flows);markers.push(n);}}
    canvas.dataset.current=String(r.current);canvas.dataset.brightness=String(r.brightness);canvas.dataset.flowSource=kind;draw(0);
   }
-  function draw(dt){if(!live)return;phase+=dt*.26;const path=flowKind==='capacitor'?capPath:supplyPath;markers.forEach((m,i)=>{const age=phase-i*.12;m.visible=age>=0;if(m.visible){const p=sample(path,age%1);m.position.copy(p.point);m.position.y+=.10;m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),p.direction);}});camera.position.set(Math.sin(yaw)*Math.cos(elevation)*distance,Math.sin(elevation)*distance,Math.cos(yaw)*Math.cos(elevation)*distance);camera.lookAt(0,.45,0);renderer.render(scene,camera);canvas.dataset.phase=String(phase);canvas.dataset.frames=String(Number(canvas.dataset.frames||0)+1);}
+  function draw(dt){if(!live||disposed)return;phase+=dt*.26;const path=flowKind==='capacitor'?capPath:supplyPath;markers.forEach((m,i)=>{const age=phase-i*.12;m.visible=age>=0;if(m.visible){const p=sample(path,age%1);m.position.copy(p.point);m.position.y+=.10;m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),p.direction);}});camera.position.set(Math.sin(yaw)*Math.cos(elevation)*distance,Math.sin(elevation)*distance,Math.cos(yaw)*Math.cos(elevation)*distance);camera.lookAt(0,.45,0);renderer.render(scene,camera);canvas.dataset.phase=String(phase);canvas.dataset.frames=String(Number(canvas.dataset.frames||0)+1);}
   function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;camera.aspect=r.width/r.height;camera.updateProjectionMatrix();distance=11*Math.max(1,1.6/camera.aspect);renderer.setSize(r.width,r.height,false);draw(0);}
   const observer=new ResizeObserver(resize);observer.observe(canvas);const raycaster=new T.Raycaster();let down=null,moved=false;
   const begin=e=>{canvas.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);down={x:e.clientX,y:e.clientY};moved=false;};
@@ -71,7 +74,7 @@
   const keyboard=e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','0','Enter',' '].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft')yaw-=.12;if(e.key==='ArrowRight')yaw+=.12;if(e.key==='ArrowUp')elevation=Math.min(1.2,elevation+.08);if(e.key==='ArrowDown')elevation=Math.max(.35,elevation-.08);if(e.key==='0'){yaw=.15;elevation=.86;}if(e.key==='Enter'||e.key===' ')onPick(currentState.index===4?'button':['resistance','resistance','diode','capacitance'][currentState.index]);draw(0);}};
   canvas.addEventListener('pointerdown',begin);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',()=>{down=null;});canvas.addEventListener('keydown',keyboard);
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();live=false;canvas.dispatchEvent(new CustomEvent('nightlight-context-lost'));});canvas.addEventListener('webglcontextrestored',()=>{live=true;draw(0);});
-  return {update,draw,resize,snapshot:()=>({contacts,phase,flowKind,renderer:'WebGL'}),dispose:()=>{live=false;observer.disconnect();purge(parts);purge(flows);maps.forEach(m=>m.dispose());pcbMap.dispose();renderer.dispose();}};
+  return {update,draw,resize,snapshot:()=>({contacts,phase,flowKind,renderer:'WebGL'}),dispose:()=>{disposed=true;live=false;pcbImage.onload=null;observer.disconnect();purge(parts);purge(flows);maps.forEach(m=>m.dispose());pcbMap.dispose();renderer.dispose();}};
  }
  window.TrainingNightlightScene=Object.freeze({create});
 })();
