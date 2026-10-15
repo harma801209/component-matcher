@@ -3533,6 +3533,56 @@ class SystemRegressionTests(unittest.TestCase):
         )
         self.assertIn('class="bom-preview-table-wrap"', preview_html)
 
+    def test_03_underscore_resistor_spec_keeps_all_explicit_requirements(self):
+        app = self.app
+        cases = [
+            ("0201_56k_1/32W_0.5%", "0201", 56000.0, "1/32W", "0.5"),
+            ("0402_5.6k_1/16W_0.1%", "0402", 5600.0, "1/16W", "0.1"),
+            ("0402_91Ω_1/16W_0.1%", "0402", 91.0, "1/16W", "0.1"),
+            ("0805_100mR_1/4W_1%", "0805", 0.1, "1/4W", "1"),
+            ("0402_4K7_1/16W_1%", "0402", 4700.0, "1/16W", "1"),
+            ("0402_1M_1/16W_5%", "0402", 1000000.0, "1/16W", "5"),
+            ("0402_R100_1/16W_1%", "0402", 0.1, "1/16W", "1"),
+        ]
+        for query, size, resistance, power, tolerance in cases:
+            with self.subTest(query=query):
+                parsed = app["parse_resistor_spec_query"](query)
+                self.assertIsNotNone(parsed)
+                self.assertEqual(parsed["型号"], query)
+                self.assertEqual(parsed["尺寸（inch）"], size)
+                self.assertAlmostEqual(parsed["_resistance_ohm"], resistance)
+                self.assertEqual(parsed["_power"], power)
+                self.assertEqual(parsed["容值误差"], tolerance)
+                self.assertEqual(app["count_query_params"](parsed), 4)
+                spaced = app["parse_resistor_spec_query"](query.replace("_", " "))
+                for field in ("尺寸（inch）", "_resistance_ohm", "_power", "容值误差", "器件类型"):
+                    self.assertEqual(parsed[field], spaced[field], field)
+                mode, detected = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
+                self.assertNotIn(mode, ("规格不足", "无法识别", "暂不支持"))
+                self.assertEqual(detected["_resistance_ohm"], resistance)
+        # Model-internal digits/units must not become standalone resistances.
+        for model in ("RC0402FR_075K6L", "FRC0402F5601TS", "CC0603KRX7R9BB104"):
+            self.assertIsNone(app["find_resistance_in_text"](model), model)
+
+    def test_03_underscore_resistor_search_matches_space_delimited_search(self):
+        app = self.app
+        for query in ("0201_56k_1/32W_0.5%", "0402_5.6k_1/16W_0.1%", "0402_91Ω_1/16W_0.1%"):
+            with self.subTest(query=query):
+                results = []
+                for text in (query, query.replace("_", " ")):
+                    resolved = app["resolve_search_query_dataframe_and_spec"](text)
+                    self.assertEqual(resolved["mode"], "贴片电阻")
+                    self.assertEqual(app["count_query_params"](resolved["spec"]), 4)
+                    matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+                    results.append(set(matched["型号"].astype(str)) if not matched.empty else set())
+                    if not matched.empty:
+                        for _, row in matched.iterrows():
+                            if row.get("推荐等级") == "完全匹配":
+                                self.assertAlmostEqual(float(row["_resistance_ohm"]), resolved["spec"]["_resistance_ohm"])
+                                self.assertEqual(app["clean_tol_for_match"](row["容值误差"]), resolved["spec"]["容值误差"])
+                                self.assertEqual(app["parse_power_to_watts"](row["_power"]), app["parse_power_to_watts"](resolved["spec"]["_power"]))
+                self.assertEqual(results[0], results[1])
+
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
         yageo_ac_resistor = app["parse_model_rule"]("AC1206FR-7W2R2L")

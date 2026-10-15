@@ -323,7 +323,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-14T13:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-15T12:57:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13445,7 +13445,9 @@ SPEC_EMBEDDED_MATERIALS = [
     ("X6S", "X6S"),
     ("Y5V", "Y5V"),
 ]
-RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s/\\|;,:()\-]|$)"
+# Purchasing specifications also use underscores between fields. Treat them
+# as token boundaries without rewriting manufacturer model identifiers.
+RESISTOR_TOKEN_BOUNDARY = r"(?:\+/-|[\s_/\\|;,:()\-]|$)"
 RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫欧|[RKM]|\s*Ω)|\d+[RKM]\d+)(?=" + RESISTOR_TOKEN_BOUNDARY + r")", flags=re.I)
 RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
 EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(
