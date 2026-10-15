@@ -31,7 +31,7 @@ with sync_playwright() as p:
         deadline=time.monotonic()+180;again=time.monotonic()+15
         while time.monotonic()<deadline:
             frame=next((x for x in page.frames if x.locator('#training-app').count()),None)
-            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"&&typeof TrainingGameFeedback!=="undefined"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
+            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"&&typeof TrainingGameFeedback?.mountTakeaway==="function"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
             if args.public and time.monotonic()>again:
                 page.reload(wait_until='domcontentloaded',timeout=90000);again=time.monotonic()+15
             page.wait_for_timeout(250)
@@ -51,6 +51,15 @@ with sync_playwright() as p:
         press('button[data-course="'+d['family']+'"]');press('button[data-subtype="'+d['id']+'"]');press('[data-learning-target="game"]')
     def state(base):return f.evaluate('TrainingPlayground.current().snapshot()' if base else 'TrainingSubtypeGame.current().snapshot()')
     def on(base):return state(base)['params']['power'] if base else state(base)['progress']['started']
+    questions={}
+    def question(base):
+        data=f.evaluate('''base=>{const s=base?TrainingPlayground.current().snapshot():TrainingSubtypeGame.current().snapshot();if(s.mode!=="challenge")return null;const p=s.progress,l=base?TrainingPlaygroundLevels.level(p.course,p.index):TrainingSubtypeGameMath.level(s.id,p.index);return {key:(base?p.course:s.id)+":"+p.index,goal:base?TrainingGameFeedback.goal(p.course,p.index,l.goal):l.goal,learned:l.learned,done:p.cleared.includes(p.index)};}''',base)
+        if data is None:
+            assert f.locator('.play-takeaway').is_hidden();return
+        f.wait_for_function('''d=>{const q=document.querySelector(".play-goal"),p=document.querySelector(".play-takeaway");return q&&!q.hidden&&q.textContent===d.goal&&p&&p.hidden===!d.done&&(!d.done||p.querySelector("p").textContent===d.learned);}''',arg=data,timeout=3000)
+        actual=f.locator('.play-goal').inner_text();assert actual==questions.setdefault(data['key'],actual)
+        assert f.locator('.play-goal').is_visible() and f.locator('.play-console>h4').inner_text()=='本关目标'
+        if data['done']:assert f.locator('.play-takeaway').is_visible()
     def toggle(base):press('#playground-action' if base else '#subgame-action')
     def visible_board(base):
         f.locator('.play-viewport').scroll_into_view_if_needed();page.wait_for_timeout(80)
@@ -67,6 +76,7 @@ with sync_playwright() as p:
         assert n.bounding_box()['height']>=44
         for e in f.locator('.play-scene-caption,.play-scene-readout').all():
             assert e.evaluate('e=>{const r=e.getBoundingClientRect(),c=document.querySelector(".play-viewport canvas").getBoundingClientRect();return r.bottom<=c.top+1||r.top>=c.bottom-1;}')
+        if not on(base):question(base)
         fit()
     def capture(name,selector='.play-console'):
         fit();f.locator(selector).scroll_into_view_if_needed();page.wait_for_timeout(200)
@@ -75,13 +85,9 @@ with sync_playwright() as p:
         visible_board(base)
         expression='TrainingPlayground.current().snapshot().progress.cleared.length' if base else 'TrainingSubtypeGame.current().snapshot().progress.cleared.length'
         f.wait_for_function('n=>'+expression+'===n',arg=count,timeout=timeout)
-        if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
-            learned=f.evaluate('''base=>{const s=base?TrainingPlayground.current().snapshot():TrainingSubtypeGame.current().snapshot();return base?TrainingPlaygroundLevels.level(s.progress.course,s.progress.index).learned:TrainingSubtypeGameMath.level(s.id,s.progress.index).learned;}''',base)
-            # The model grades on RAF; the console paints at a bounded 90 ms
-            # cadence. Check the actual updated DOM, not the grading-frame gap.
-            f.wait_for_function('learned=>{const goal=document.querySelector(".play-goal");return goal&&!goal.hidden&&goal.textContent===learned;}',arg=learned,timeout=3000)
-            assert f.locator('.play-goal').is_visible() and f.locator('.play-goal').inner_text()==learned
-            assert f.locator('.play-instruction').is_hidden()
+        # Grade and DOM paint are separate frames; retain the original question
+        # and show the takeaway separately after the real completion is painted.
+        question(base);assert f.locator('.play-instruction').is_hidden()
     def check_cycle(d):
         base=d['baseline'];select(d);assert not on(base) and not state(base)['playing'];structure(base)
         if not args.fallback:
@@ -115,6 +121,7 @@ with sync_playwright() as p:
         for i in range(4):
             assert state(True)['progress']['index']==i and not on(True)
             assert state(True)['progress']['cleared']==list(range(i))
+            question(True)
             if course=='resistor':
                 if i:base_choice([330,100,330,1000][i])
                 toggle(True)
@@ -138,6 +145,7 @@ with sync_playwright() as p:
             wait_clear(True,i+1);structure(True)
             assert f.locator('#playground-next').is_visible()
             toggle(True);assert not on(True);assert len(state(True)['progress']['cleared'])==i+1
+            question(True)
             assert f.locator('#playground-next').is_visible()
             if i==0:toggle(True);assert len(state(True)['progress']['cleared'])==1;toggle(True)
             if i<3:press('#playground-next')
@@ -147,10 +155,12 @@ with sync_playwright() as p:
         select(d)
         for i in range(3):
             assert state(False)['progress']['index']==i and not on(False)
+            question(False)
             for field,option in winner(d,i).items():press('[data-subgame-field="'+field+'"][data-subgame-option="'+str(option)+'"]')
             assert len(state(False)['progress']['cleared'])==i
             toggle(False);wait_clear(False,i+1);structure(False)
             toggle(False);assert not on(False);assert len(state(False)['progress']['cleared'])==i+1
+            question(False)
             assert f.locator('#subgame-next').is_visible()
             if i<2:press('#subgame-next')
     def product():
@@ -158,16 +168,26 @@ with sync_playwright() as p:
         press('#game-projects')
         snapshot=lambda:f.evaluate('TrainingNightlight.current().snapshot()')
         choose=lambda field,value:press('[data-nightlight-field="'+field+'"][data-nightlight-value="'+str(value).lower()+'"]')
+        def product_question():
+            data=f.evaluate('''()=>{const s=TrainingNightlight.current().snapshot().state,c=TrainingNightlightMath.chapters[s.index];return {goal:c.goal,learned:c.learned,done:s.cleared>s.index};}''')
+            assert f.locator('.nightlight-console>h4').inner_text()==data['goal']
+            assert f.locator('.nightlight-console>h4').is_visible()
+            assert f.locator('.nightlight-console>.play-takeaway').is_visible()==data['done']
+            if data['done']:assert f.locator('.nightlight-console>.play-takeaway p').inner_text()==data['learned']
+        product_question()
         assert not snapshot()['state']['power'] and not snapshot()['playing']
         assert f.locator('.nightlight-controls,#nightlight-pause,#nightlight-step,#nightlight-reset').count()==0
         assert f.locator('#nightlight-power').is_disabled()
         choose('resistance',330);press('#nightlight-power');assert snapshot()['state']['cleared']==1
+        product_question()
         press('#nightlight-power');assert snapshot()['result']['current']==0 and snapshot()['state']['cleared']==1
         assert f.locator('#nightlight-action').is_visible();press('#nightlight-action')
         assert not snapshot()['state']['power'];choose('resistance',330);assert snapshot()['state']['cleared']==1
-        press('#nightlight-power');assert snapshot()['state']['cleared']==2;press('#nightlight-action')
+        press('#nightlight-power');assert snapshot()['state']['cleared']==2;product_question();press('#nightlight-action')
+        product_question()
         choose('diode','forward');press('#nightlight-power');press('#nightlight-action')
         assert snapshot()['result']['current']==0;press('#nightlight-action');assert snapshot()['state']['cleared']==3
+        product_question()
         press('#nightlight-action');choose('capacitance',.00047);assert not snapshot()['state']['power']
         press('#nightlight-power');press('#nightlight-power');f.locator('.nightlight-viewport').scroll_into_view_if_needed()
         f.wait_for_function('TrainingNightlight.current().snapshot().state.elapsed===2',timeout=6000)
@@ -178,10 +198,11 @@ with sync_playwright() as p:
         assert snapshot()['result']['current']>=.004 and not snapshot()['playing'];capture('product-backup','.nightlight-console')
         if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
             assert snapshot()['comparison']['context'].endswith('断电2秒结果试算')
-            assert f.locator('.nightlight-console>h4').inner_text()==f.evaluate('TrainingNightlightMath.chapters[3].learned')
+            product_question()
         press('#nightlight-action');choose('mos',True);press('#nightlight-power')
         for _ in range(3):press('#nightlight-action')
         assert snapshot()['state']['cleared']==5;press('#nightlight-power');assert snapshot()['result']['current']==0
+        product_question()
         assert snapshot()['state']['cleared']==5;capture('product-finished','.nightlight-console')
     def transfer(d):
         base=d['baseline'];select(d)

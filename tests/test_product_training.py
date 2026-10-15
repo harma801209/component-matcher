@@ -83,7 +83,17 @@ global.document={createElement:t=>new N(t)};const host=new N('aside'),v=f.mount(
             ui=(WEB_ROOT/name).read_text(encoding='utf-8')
             self.assertIn('comparisonView.render',ui)
             self.assertIn('comparison=null',ui)
-            self.assertIn('可以这样向客户解释',ui)
+            self.assertIn('F.mountTakeaway',ui)
+            self.assertIn('takeawayView.render',ui)
+            self.assertNotIn('goal.textContent=done?',ui)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_takeaway_does_not_replace_the_question_or_persist_progress(self):
+        script=r'''
+const a=require('node:assert/strict'),f=require(process.argv[1]);class N{constructor(tag){this.tagName=tag;this.children=[];this.attrs={};this.textContent='';}append(...ns){this.children.push(...ns);}setAttribute(k,v){this.attrs[k]=v;}}
+global.document={createElement:t=>new N(t)};const host=new N('aside'),question=new N('p');question.textContent='让LED亮起来。';host.append(question);const v=f.mountTakeaway(host);a(v.element.hidden);v.render('电阻不是电源。');a(!v.element.hidden);a.equal(host.children.length,2);a.equal(question.textContent,'让LED亮起来。');a.equal(v.element.children[1].textContent,'电阻不是电源。');const paragraph=v.element.children[1];v.render('电阻不是电源。');a.equal(v.element.children[1],paragraph);v.render(null);a(v.element.hidden);a.equal(question.textContent,'让LED亮起来。');v.render('<script>not markup</script>');a.equal(paragraph.textContent,'<script>not markup</script>');a.equal(paragraph.children.length,0);delete global.document;
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_feedback.js')],check=True,capture_output=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_learning_progress_requires_all_related_chapters_and_survives_reload(self):

@@ -25,7 +25,7 @@ with sync_playwright() as p:
         while time.monotonic()<deadline:
             f=next((f for f in page.frames if f.locator('#training-app').count()),None)
             if f and f.evaluate('typeof TrainingPlayground!=="undefined"'):
-                if args.before or f.evaluate('typeof TrainingGameFeedback!=="undefined"'):break
+                if args.before or f.evaluate('typeof TrainingGameFeedback!=="undefined"&&typeof TrainingGameFeedback.mountTakeaway==="function"'):break
             if args.public and time.monotonic()>reload_at:page.reload(wait_until='domcontentloaded',timeout=90000);reload_at=time.monotonic()+15
             page.wait_for_timeout(250)
         else:raise AssertionError('Expected feedback version is not available')
@@ -55,7 +55,8 @@ with sync_playwright() as p:
             assert f.locator('.play-fixed-condition:visible,.play-outcome:visible,.play-result-title:visible').count()==0
         press('#playground-action');capture('02-learned')
         if not args.before:
-            assert '电阻不是电源' in f.locator('.play-goal').inner_text()
+            assert f.locator('.play-goal').inner_text()=='让LED亮起来。'
+            assert '电阻不是电源' in f.locator('.play-takeaway p').inner_text()
             assert f.locator('.play-instruction').is_hidden()
             assert not any(t in f.locator('.play-console').inner_text() for t in ['这关通过','已解锁','本关观察完成','完成了！'])
         press('#playground-next');press('#playground-action');press('[data-play-choice="330"]')

@@ -34,6 +34,10 @@
  }
  const goals={resistor:['让LED亮起来。','把灯调亮到相对亮度80%以上。','做一盏柔和提示灯：回路电流8～12 mA。','灯仍要亮，回路电流不超过4 mA。']};
  function goal(course,index,fallback){return goals[course]?.[index]||fallback;}
+ function mountTakeaway(host){
+  const panel=document.createElement('section'),title=document.createElement('h5'),text=document.createElement('p');panel.className='play-takeaway';panel.hidden=true;panel.setAttribute('aria-label','通关知识总结');title.textContent='可以这样向客户解释';panel.append(title,text);host.append(panel);
+  return {element:panel,render(learned){const value=learned||'';panel.hidden=!value;if(text.textContent!==value)text.textContent=value;}};
+ }
  function mount(host){
   const make=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
   const panel=make('section',undefined,'play-comparison');panel.hidden=true;panel.setAttribute('aria-label','调整前后，同条件比较');host.append(panel);let last='';
@@ -52,5 +56,5 @@
   }
   return {render,element:panel};
  }
- const api=Object.freeze({baseline,subtype,nightlight,goal,mount});if(common)module.exports=api;else root.TrainingGameFeedback=api;
+ const api=Object.freeze({baseline,subtype,nightlight,goal,mountTakeaway,mount});if(common)module.exports=api;else root.TrainingGameFeedback=api;
 })(typeof globalThis==='undefined'?this:globalThis);

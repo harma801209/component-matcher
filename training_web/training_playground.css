@@ -191,3 +191,7 @@
 .playground[data-mode=challenge] .play-heading h3{font-size:clamp(23px,2.6vw,32px);margin-bottom:0}
 .play-console .play-goal{margin:0}
 .nightlight .play-comparison[hidden]{display:none}
+.play-takeaway{margin-top:12px;padding-top:10px;border-top:1px solid #dce8fa;min-width:0}
+.play-takeaway[hidden]{display:none}
+.play-takeaway h5{font-size:13px;line-height:1.5;margin:0 0 4px;color:#234e80}
+.play-takeaway p{font-size:13px;line-height:1.65;margin:0;color:#526d95;overflow-wrap:anywhere}
