@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright
 
 parser=argparse.ArgumentParser()
 for flag in ['public','phone','full','fallback']:parser.add_argument('--'+flag,action='store_true')
+parser.add_argument('--requirements-only',action='store_true',help='Play the 13 real prerequisite missions and all 5 product stages')
 args=parser.parse_args()
 OUT=Path(__file__).resolve().parents[2]/'ocr-diagnostic-20261015/training-power'
 OUT.mkdir(parents=True,exist_ok=True)
@@ -31,7 +32,7 @@ with sync_playwright() as p:
         deadline=time.monotonic()+180;again=time.monotonic()+15
         while time.monotonic()<deadline:
             frame=next((x for x in page.frames if x.locator('#training-app').count()),None)
-            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"&&typeof TrainingGameFeedback?.mountTakeaway==="function"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
+            if frame and frame.evaluate('typeof TrainingPlayground!=="undefined"&&typeof TrainingGameChoices!=="undefined"') and frame.locator('#playground-action[aria-pressed]').count() and not frame.locator('.play-controls').count():return frame
             if args.public and time.monotonic()>again:
                 page.reload(wait_until='domcontentloaded',timeout=90000);again=time.monotonic()+15
             page.wait_for_timeout(250)
@@ -60,7 +61,24 @@ with sync_playwright() as p:
         actual=f.locator('.play-goal').inner_text();assert actual==questions.setdefault(data['key'],actual)
         assert f.locator('.play-goal').is_visible() and f.locator('.play-console>h4').inner_text()=='本关目标'
         if data['done']:assert f.locator('.play-takeaway').is_visible()
-    def toggle(base):press('#playground-action' if base else '#subgame-action')
+    def fresh_choices(base):
+        assert state(base)['selection']=={}
+        selector='[data-play-choice]' if base else '[data-subgame-field]'
+        assert f.locator(selector+'[aria-pressed="true"]').count()==0
+        button=f.locator('#playground-action' if base else '#subgame-action')
+        required=f.locator('.play-tray').is_visible() if base else any(g.is_visible() for g in f.locator('.subgame-field').all())
+        assert button.is_disabled()==required
+    def toggle(base):
+        if not on(base):
+            if base:
+                if f.locator('#playground-action').is_disabled():base_choice(state(True)['params']['value'])
+            else:
+                for group in f.locator('.subgame-field').all():
+                    if not group.is_visible() or group.locator('[aria-pressed="true"]').count():continue
+                    field=group.get_attribute('data-beginner-field');value=state(False)['progress']['params'][field]
+                    option=f.evaluate('''({id,key,value})=>TrainingSubtypeGameMath.profile(id).fields.find(f=>f.key===key).options.findIndex(o=>o[0]===value)''',{'id':state(False)['id'],'key':field,'value':value})
+                    press('[data-subgame-field="'+field+'"][data-subgame-option="'+str(option)+'"]')
+        press('#playground-action' if base else '#subgame-action')
     def visible_board(base):
         f.locator('.play-viewport').scroll_into_view_if_needed();page.wait_for_timeout(80)
     def fit():
@@ -89,7 +107,7 @@ with sync_playwright() as p:
         # and show the takeaway separately after the real completion is painted.
         question(base);assert f.locator('.play-instruction').is_hidden()
     def check_cycle(d):
-        base=d['baseline'];select(d);assert not on(base) and not state(base)['playing'];structure(base)
+        base=d['baseline'];select(d);assert not on(base) and not state(base)['playing'];fresh_choices(base);structure(base)
         if not args.fallback:
             assert state(base)['scene']['markers']==0
             phase=state(base)['scene']['phase'];page.wait_for_timeout(200);assert state(base)['scene']['phase']==phase
@@ -121,6 +139,7 @@ with sync_playwright() as p:
         for i in range(4):
             assert state(True)['progress']['index']==i and not on(True)
             assert state(True)['progress']['cleared']==list(range(i))
+            fresh_choices(True)
             question(True)
             if course=='resistor':
                 if i:base_choice([330,100,330,1000][i])
@@ -155,6 +174,7 @@ with sync_playwright() as p:
         select(d)
         for i in range(3):
             assert state(False)['progress']['index']==i and not on(False)
+            fresh_choices(False)
             question(False)
             for field,option in winner(d,i).items():press('[data-subgame-field="'+field+'"][data-subgame-option="'+str(option)+'"]')
             assert len(state(False)['progress']['cleared'])==i
@@ -168,6 +188,10 @@ with sync_playwright() as p:
         press('#game-projects')
         snapshot=lambda:f.evaluate('TrainingNightlight.current().snapshot()')
         choose=lambda field,value:press('[data-nightlight-field="'+field+'"][data-nightlight-value="'+str(value).lower()+'"]')
+        def project_fresh():
+            assert snapshot()['selection']=={}
+            assert f.locator('[data-nightlight-field][aria-pressed="true"]').count()==0
+            assert f.locator('#nightlight-power').is_disabled()
         def product_question():
             data=f.evaluate('''()=>{const s=TrainingNightlight.current().snapshot().state,c=TrainingNightlightMath.chapters[s.index];return {goal:c.goal,learned:c.learned,done:s.cleared>s.index};}''')
             assert f.locator('.nightlight-console>h4').inner_text()==data['goal']
@@ -175,20 +199,20 @@ with sync_playwright() as p:
             assert f.locator('.nightlight-console>.play-takeaway').is_visible()==data['done']
             if data['done']:assert f.locator('.nightlight-console>.play-takeaway p').inner_text()==data['learned']
         product_question()
-        assert not snapshot()['state']['power'] and not snapshot()['playing']
+        assert not snapshot()['state']['power'] and not snapshot()['playing'];project_fresh()
         assert f.locator('.nightlight-controls,#nightlight-pause,#nightlight-step,#nightlight-reset').count()==0
         assert f.locator('#nightlight-power').is_disabled()
         choose('resistance',330);press('#nightlight-power');assert snapshot()['state']['cleared']==1
         product_question()
         press('#nightlight-power');assert snapshot()['result']['current']==0 and snapshot()['state']['cleared']==1
         assert f.locator('#nightlight-action').is_visible();press('#nightlight-action')
-        assert not snapshot()['state']['power'];choose('resistance',330);assert snapshot()['state']['cleared']==1
+        assert not snapshot()['state']['power'];project_fresh();choose('resistance',330);assert snapshot()['state']['cleared']==1
         press('#nightlight-power');assert snapshot()['state']['cleared']==2;product_question();press('#nightlight-action')
-        product_question()
+        product_question();project_fresh()
         choose('diode','forward');press('#nightlight-power');press('#nightlight-action')
         assert snapshot()['result']['current']==0;press('#nightlight-action');assert snapshot()['state']['cleared']==3
         product_question()
-        press('#nightlight-action');choose('capacitance',.00047);assert not snapshot()['state']['power']
+        press('#nightlight-action');project_fresh();choose('capacitance',.00047);assert not snapshot()['state']['power']
         press('#nightlight-power');press('#nightlight-power');f.locator('.nightlight-viewport').scroll_into_view_if_needed()
         f.wait_for_function('TrainingNightlight.current().snapshot().state.elapsed===2',timeout=6000)
         assert snapshot()['state']['cleared']==3
@@ -199,7 +223,7 @@ with sync_playwright() as p:
         if f.evaluate('typeof TrainingGameFeedback!=="undefined"'):
             assert snapshot()['comparison']['context'].endswith('断电2秒结果试算')
             product_question()
-        press('#nightlight-action');choose('mos',True);press('#nightlight-power')
+        press('#nightlight-action');project_fresh();choose('mos',True);press('#nightlight-power')
         for _ in range(3):press('#nightlight-action')
         assert snapshot()['state']['cleared']==5;press('#nightlight-power');assert snapshot()['result']['current']==0
         product_question()
@@ -224,16 +248,19 @@ with sync_playwright() as p:
         return 4 if base else 3
     try:
         chapters=f.evaluate('TrainingCatalog.lessons.map(d=>({id:d.id,family:d.family,baseline:!!d.baseline}))')
-        if args.full:
-            for d in chapters:
+        targets=[d for d in chapters if d['id'] in f.evaluate('TrainingGameProgress.requirements')] if args.requirements_only else chapters
+        if args.full or args.requirements_only:
+            for d in targets:
                 (play_base if d['baseline'] else play_sub)(d);missions+=4 if d['baseline'] else 3
                 print(json.dumps({'chapter':d['id'],'missions':missions}),flush=True)
-            assert missions==94
-            for d in chapters:
-                if d['id'] in ['res-thick','cap-mlcc','mos-n','mos-p']:trials+=transfer(d)
-            assert trials==14;print(json.dumps({'transfer_trials':trials}),flush=True);product()
+            assert missions==(13 if args.requirements_only else 94)
+            if args.full and not args.requirements_only:
+                for d in chapters:
+                    if d['id'] in ['res-thick','cap-mlcc','mos-n','mos-p']:trials+=transfer(d)
+                assert trials==14;print(json.dumps({'transfer_trials':trials}),flush=True)
+            product()
             f=load();assert f.evaluate('TrainingGameProgress.eligible("nightlight")')
-        for d in chapters:check_cycle(d)
+        for d in targets:check_cycle(d)
         select(next(d for d in chapters if d['id']=='res-thick'))
         press('[data-play-mode="free"]');assert not on(True);base_choice(1000);assert not on(True)
         toggle(True);assert state(True)['result']['current']==.003
@@ -242,7 +269,7 @@ with sync_playwright() as p:
         for width in [320,1440,393]:
             page.set_viewport_size({'width':width,'height':659 if width<760 else 1000});structure(True)
         assert not errors,errors
-        result={'status':'passed','public':args.public,'phone_emulation':args.phone,'fallback':args.fallback,'chapters':len(cases),'missions':missions,'transfer_trials':trials,'product_steps':5 if args.full else 0,'cold_start_and_one_power':True,'off_stops_motion':True,'credits_preserved':True,'errors':errors}
+        result={'status':'passed','public':args.public,'phone_emulation':args.phone,'fallback':args.fallback,'chapters':len(cases),'missions':missions,'transfer_trials':trials,'product_steps':5 if args.full or args.requirements_only else 0,'cold_start_and_one_power':True,'off_stops_motion':True,'credits_preserved':True,'errors':errors}
         (OUT/(label+'-results.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
         print(json.dumps(result),flush=True)
     except Exception:

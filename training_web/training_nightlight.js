@@ -6,7 +6,7 @@
  function mount(root){
   let saved=null,storageOK=true;try{saved=JSON.parse(localStorage.getItem(M.key)||'null');}catch(_){storageOK=false;}
   let s={...M.restore(saved),power:false,running:false,elapsed:0},view=null,playing=false,visible=true,disposed=false,last=0,frame=0,notice='',hintOpen=false,comparison=null,reviewing=s.cleared>s.index;
-  const motion=matchMedia('(prefers-reduced-motion:reduce)');root.replaceChildren();root.className='nightlight';
+  const motion=matchMedia('(prefers-reduced-motion:reduce)'),picks=window.TrainingGameChoices.create();root.replaceChildren();root.className='nightlight';
   const head=node('div',null,'nightlight-head'),title=node('h3'),count=node('span'),map=node('nav',null,'nightlight-map');map.setAttribute('aria-label','小夜灯制作步骤');head.append(title,count);root.append(head,map);
   for(const [i,c] of M.chapters.entries()){const b=node('button',String(i+1)+' · '+c.title);b.type='button';b.dataset.nightlightLevel=String(i);b.setAttribute('aria-label',String(i+1)+' · '+c.title);b.addEventListener('click',()=>dispatch('visit',i));map.append(b);}
   const stage=node('div',null,'nightlight-stage'),viewport=node('div',null,'nightlight-viewport'),canvas=node('canvas');canvas.id='nightlight-canvas';canvas.tabIndex=0;canvas.setAttribute('aria-label','3D小夜灯；拖动或方向键旋转，0复位，点击亮起位置安装器件，也可使用右侧按钮');viewport.append(canvas);
@@ -20,13 +20,16 @@
   const collection=node('ul',null,'nightlight-collection');collection.setAttribute('aria-label','已完成的产品功能');root.append(collection);
   const footer=node('div',null,'nightlight-footer'),storage=node('small'),restart=node('button','重新制作');restart.type='button';restart.id='nightlight-restart';footer.append(storage,restart);root.append(footer);
   function persist(){try{localStorage.setItem(M.key,JSON.stringify(M.record(s)));storageOK=true;}catch(_){storageOK=false;}}
+  function choiceReady(){const field=['resistance','resistance','diode','capacitance','mos'][s.index];return s.index===4&&s.cleared===5||picks.has(field,s[field]);}
   function dispatch(type,value){
-   if(['resistance','diode','capacitance','mos'].includes(type)&&s[type]===(type==='mos'?true:value))return;
+   if(['resistance','diode','capacitance','mos'].includes(type)&&s[type]===(type==='mos'?true:value)){const chosen=type==='mos'?true:value;if(!picks.has(type,chosen)){picks.select(type,chosen);render();}return;}
    if(['primary','experiment'].includes(type)&&!s.power&&!(type==='primary'&&s.cleared>s.index&&s.index<4))return;
    if(type==='primary'&&s.cleared>s.index&&s.index<4){type='next';}
    if(type==='experiment')type='primary';
+   if((type==='power'&&!s.power||type==='primary')&&!choiceReady())return;
    const before=JSON.stringify(M.record(s)),beforeState={...s};s=M.action(s,type,value);notice='';if(['resistance','diode','capacitance','mos'].includes(type))comparison=F.nightlight(beforeState,s)||comparison;
-   if(['visit','next','reset'].includes(type)){comparison=null;s={...s,power:false,running:false,elapsed:0};reviewing=s.cleared>s.index;hintOpen=false;detail.open=false;}playing=s.power||s.running;last=0;
+   if(['resistance','diode','capacitance','mos'].includes(type))picks.select(type,type==='mos'?true:value);
+   if(['visit','next','reset'].includes(type)){picks.clear();comparison=null;s={...s,power:false,running:false,elapsed:0};reviewing=s.cleared>s.index;hintOpen=false;detail.open=false;}playing=s.power||s.running;last=0;
    if(before!==JSON.stringify(M.record(s))||type!=='tick')persist();render();
    if(type==='next'||type==='visit'){title.focus({preventScroll:true});root.scrollIntoView({block:'start',behavior:'auto'});}
   }
@@ -34,7 +37,7 @@
   experiment.addEventListener('click',()=>dispatch('experiment'));
   power.addEventListener('click',()=>dispatch('power'));
   hint.addEventListener('click',()=>{hintOpen=!hintOpen;render();});
-  restart.addEventListener('click',()=>{if(!window.confirm('重新制作会清除这台浏览器的小夜灯章节进度，其他培训记录不受影响。继续吗？'))return;comparison=null;reviewing=false;s=M.setup(0);playing=false;hintOpen=false;persist();render();});
+  restart.addEventListener('click',()=>{if(!window.confirm('重新制作会清除这台浏览器的小夜灯章节进度，其他培训记录不受影响。继续吗？'))return;picks.clear();comparison=null;reviewing=false;s=M.setup(0);playing=false;hintOpen=false;persist();render();});
   practice.textContent='返回器件关卡';practice.addEventListener('click',()=>{window.TrainingGameEntry.showLessons();card.scrollIntoView({block:'start'});document.getElementById('game-lessons').focus({preventScroll:true});});
   function pick(name){if(name==='button')return dispatch('primary');const values=name==='resistance'?M.resistors:name==='capacitance'?M.capacitors:name==='diode'?['none','forward','backward']:[];if(name==='mos')return dispatch('mos');if(values.length)dispatch(name,values[(values.indexOf(s[name])+1)%values.length]);}
   viewport.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('application/x-fruition-nightlight'))e.preventDefault();});viewport.addEventListener('drop',e=>{e.preventDefault();try{const d=JSON.parse(e.dataTransfer.getData('application/x-fruition-nightlight'));if(d.index!==s.index)return;dispatch(d.field,d.value);}catch(_){notice='请选择本关提供的器件。';render();}});
@@ -46,7 +49,7 @@
    for(const b of map.children){const i=Number(b.dataset.nightlightLevel);b.disabled=i>Math.min(s.cleared,4);b.setAttribute('aria-current',String(i===s.index?'step':'false'));b.dataset.done=String(i<s.cleared);}
    goal.textContent=c.goal;takeawayView.render(done?c.learned:null);
    if(optionKey!==String(s.index)){optionKey=String(s.index);choices.replaceChildren();if(s.index<=1){legend.textContent='点击或拖入一个电阻';for(const v of M.resistors){const b=choice('resistance',v,v===1000?'1 kΩ':v+' Ω'),thumb=node('canvas');thumb.width=170;thumb.height=95;b.prepend(thumb);try{window.TrainingPlaygroundScene.thumbnail('resistor',v,thumb);}catch(_){thumb.remove();}}}else if(s.index===2){legend.textContent='选择保护二极管的接法';choice('diode','none','暂不安装');choice('diode','forward','A → K');choice('diode','backward','K → A');}else if(s.index===3){legend.textContent='选择有效容量';for(const v of M.capacitors)choice('capacitance',v,Math.round(v*1e6).toLocaleString('en-US')+' µF');}else{legend.textContent='装上灯的电子开关';choice('mos',true,'安装N沟道MOS');}}
-   options.hidden=finished;for(const b of choices.children)b.setAttribute('aria-pressed',String(b.dataset.nightlightField==='mos'?s.mos:String(s[b.dataset.nightlightField])===b.dataset.nightlightValue));
+   options.hidden=finished;for(const b of choices.children){const field=b.dataset.nightlightField,value=field==='mos'?true:field==='diode'?b.dataset.nightlightValue:Number(b.dataset.nightlightValue);b.setAttribute('aria-pressed',String(picks.has(field,value)));}
    let text='',label='';
    if(s.index===0){text=s.resistance===null?'先点一个电阻装到电路板上。':'电阻已装好，现在打开电源。';label='打开电源';}
    if(s.index===1){text='试换一个电阻，看灯光和电流有没有达到要求。';label='检查灯光';}
@@ -56,7 +59,7 @@
    if(done&&!finished){text='这项功能已做成。下一步会为同一盏灯加上新功能。';label='继续制作';}
    if(finished)text='蓝色是供电，按钮改变MOS的控制状态；灯的电能仍来自电源。';
    if(!s.power&&!s.running&&!done)text=s.index===3?'先打开电源储能，再关闭电源看补电。':'选好器件，点“打开电源”。';const reviewPrompt=done&&!s.power&&!s.running&&(reviewing||finished);instruction.textContent=reviewPrompt?(s.index===4?'先打开电源，再用按钮开关灯。':s.index===3?'选电容、打开电源储能，再关闭电源看补电。':'选好器件，打开电源再观察。'):done?'':text;instruction.hidden=done&&!reviewPrompt;primary.textContent=label;primary.disabled=!(done&&s.index<4)&&(!s.power||s.index===4&&!s.mos);experiment.hidden=!done||s.index!==2;experiment.disabled=!s.power;experiment.textContent=s.reverse?'恢复正常供电':'测试电源接反';comparisonView.render(comparison,s.power||s.running||s.elapsed>0);
-   power.textContent=s.power?'关闭电源':'打开电源';power.className=s.power?'nightlight-secondary':'nightlight-primary';power.setAttribute('aria-pressed',String(s.power));power.disabled=s.index===0&&s.resistance===null;
+   power.textContent=s.power?'关闭电源':'打开电源';power.className=s.power?'nightlight-secondary':'nightlight-primary';power.setAttribute('aria-pressed',String(s.power));power.disabled=!s.power&&!choiceReady();root.dataset.choiceReady=String(choiceReady());if(!choiceReady()){instruction.textContent='请先点选本关的器件或条件，再打开电源。';instruction.hidden=false;}
    primary.setAttribute('aria-label',done&&!finished?'继续制作：'+M.chapters[s.index+1].title:label);primary.title=primary.getAttribute('aria-label');primary.hidden=!done&&![2,4].includes(s.index);hint.hidden=done&&!reviewing;hintText.hidden=!hintOpen||hint.hidden;hintText.textContent=c.hint;hint.setAttribute('aria-expanded',String(hintOpen));
    const message=s.index===3&&!s.power?'已观察 '+s.elapsed.toFixed(1)+' / 2.0 秒 · '+(r.current*1000).toFixed(1)+' mA':s.acted&&!done?'当前回路 '+(r.current*1000).toFixed(1)+' mA':'';
    const nextStatus=notice||(r.unknown?'当前接法会让负载受到反向供电，未预测电流；请修正保护方向。':message);if(status.textContent!==nextStatus)status.textContent=nextStatus;status.hidden=!notice&&!r.unknown;
@@ -75,7 +78,7 @@
   const observer=new IntersectionObserver(es=>{visible=es[0].isIntersecting;last=0;});observer.observe(viewport);
   function loop(now){if(disposed)return;const dt=last?Math.min(.06,(now-last)/1000):0;last=now;if(visible&&card.open&&!pane.hidden&&!document.hidden&&playing){if(s.running){s=M.action(s,'tick',dt);if(!s.running){playing=false;persist();}render();}view?.draw(dt);}frame=requestAnimationFrame(loop);}
   render();view?.resize();frame=requestAnimationFrame(loop);
-  return {snapshot:()=>({state:{...s},result:M.result(s),playing,storageOK,comparison:comparison?JSON.parse(JSON.stringify(comparison)):null,scene:view?.snapshot()}),dispose:()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);view?.dispose();}};
+  return {snapshot:()=>({state:{...s},selection:picks.snapshot(),result:M.result(s),playing,storageOK,comparison:comparison?JSON.parse(JSON.stringify(comparison)):null,scene:view?.snapshot()}),dispose:()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener('change',motionChanged);view?.dispose();}};
  }
  window.TrainingNightlight=Object.freeze({current:()=>mounted,open:()=>{if(!window.TrainingGameProgress.eligible('nightlight'))return null;if(!mounted)mounted=mount(document.getElementById('nightlight-body'));return mounted;}});
 })();

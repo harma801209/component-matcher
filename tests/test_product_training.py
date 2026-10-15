@@ -10,6 +10,22 @@ from precision_theme import render_header
 
 class ProductTrainingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_game_choices_start_empty_and_are_not_inferred_from_setup(self):
+        script=r'''
+const a=require('node:assert/strict'),Q=require(process.argv[1]);
+const x=Q.create(),y=Q.create();a.deepEqual(x.snapshot(),{});a(!x.has('load',3));a.deepEqual(x.missing(['drive','load']),['drive','load']);
+x.select('drive',0);a(x.has('drive',0));a.deepEqual(x.missing(['drive','load']),['load']);x.select('load',3);a.deepEqual(x.missing(['drive','load']),[]);
+x.select('forward',false);a(x.has('forward',false));a(!x.has('forward',0));const copy=x.snapshot();copy.load=1;a(x.has('load',3));a.deepEqual(y.snapshot(),{});
+x.clear();a.deepEqual(x.snapshot(),{});a.deepEqual(x.missing(['load']),['load']);a.deepEqual(x.missing([]),[]);
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_game_choices.js')],check=True,capture_output=True)
+        page=build_training_html()
+        self.assertLess(page.index('root.TrainingGameChoices=api'),page.index('window.TrainingPlayground=Object.freeze'))
+        source=(WEB_ROOT/'training_game_choices.js').read_text(encoding='utf-8')
+        for term in ['localStorage','sessionStorage','fetch(', 'sqlite']:
+            self.assertNotIn(term,source)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_pcb_texture_load_repaints_without_advancing_or_reviving_disposed_scene(self):
         script=r'''
 const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1];
@@ -31,20 +47,20 @@ for(const [file,mapName,imageName] of [['training_playground_scene.js','pcbMap',
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_reselecting_existing_component_does_not_reset_live_observation(self):
         script=r'''
-const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_playground_math.js'),L=require(dir+'/training_playground_levels.js'),S=require(dir+'/training_subtype_game_math.js'),F=require(dir+'/training_game_feedback.js');
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_playground_math.js'),L=require(dir+'/training_playground_levels.js'),S=require(dir+'/training_subtype_game_math.js'),F=require(dir+'/training_game_feedback.js'),Q=require(dir+'/training_game_choices.js');
 const handler=(name,prefix)=>fs.readFileSync(dir+'/'+name,'utf8').split('\n').find(line=>line.trim().startsWith(prefix));
-const ctx={d:M.lesson('capacitor'),p:{value:10,power:true,reverse:false,near:true},course:'capacitor',comparison:null,F,elapsed:4.5,triggered:true,playing:true,mode:'challenge',campaign:{progress:L.create('capacitor')},L,calls:0,markInteraction(){ctx.calls++;},refresh(){ctx.calls++;}};vm.createContext(ctx);vm.runInContext(handler('training_playground.js','function set(value)')+';this.choose=set;',ctx);a(ctx.choose(10));a.equal(ctx.elapsed,4.5);a(ctx.triggered&&ctx.playing);a.equal(ctx.calls,0);a(ctx.choose(22));a.equal(ctx.elapsed,0);a(!ctx.triggered);a(ctx.comparison);a.equal(ctx.calls,2);
-let state=S.observe(S.start(S.change(S.create('cap-tantalum'),'forward',true)),.6);const sub={s:state,M:S,F,id:'cap-tantalum',beginner:false,mode:'free',playing:true,last:9,session:{},comparison:null,hintDepth:0,hint:{hidden:false},help:{setAttribute(){}},calls:0,refresh(){sub.calls++;}};vm.createContext(sub);vm.runInContext(handler('training_subtype_game.js','function choose(key,value)')+';this.choose=choose;',sub);sub.choose('capacitance',10);a.equal(sub.s,state);a.equal(sub.s.observed,.6);a.equal(sub.last,9);a.equal(sub.calls,0);sub.choose('capacitance',22);a(sub.s.started);a.equal(sub.s.observed,0);a.equal(sub.calls,1);a(sub.comparison);
+const ctx={d:M.lesson('capacitor'),p:{value:10,power:true,reverse:false,near:true},picks:Q.create(),course:'capacitor',comparison:null,F,elapsed:4.5,triggered:true,playing:true,mode:'challenge',campaign:{progress:L.create('capacitor')},L,calls:0,markInteraction(){ctx.calls++;},refresh(){ctx.calls++;}};ctx.picks.select('value',10);vm.createContext(ctx);vm.runInContext(handler('training_playground.js','function set(value)')+';this.choose=set;',ctx);a(ctx.choose(10));a.equal(ctx.elapsed,4.5);a(ctx.triggered&&ctx.playing);a.equal(ctx.calls,0);a(ctx.choose(22));a.equal(ctx.elapsed,0);a(!ctx.triggered);a(ctx.comparison);a.equal(ctx.calls,2);ctx.picks.clear();ctx.elapsed=4.5;ctx.triggered=true;ctx.choose(22);a(ctx.picks.has('value',22));a.equal(ctx.elapsed,4.5);a(ctx.triggered);a.equal(ctx.calls,3);
+let state=S.observe(S.start(S.change(S.create('cap-tantalum'),'forward',true)),.6);const sub={s:state,M:S,F,picks:Q.create(),id:'cap-tantalum',beginner:false,mode:'free',playing:true,last:9,session:{},comparison:null,hintDepth:0,hint:{hidden:false},help:{setAttribute(){}},calls:0,refresh(){sub.calls++;}};sub.picks.select('capacitance',10);vm.createContext(sub);vm.runInContext(handler('training_subtype_game.js','function choose(key,value)')+';this.choose=choose;',sub);sub.choose('capacitance',10);a.equal(sub.s,state);a.equal(sub.s.observed,.6);a.equal(sub.last,9);a.equal(sub.calls,0);sub.choose('capacitance',22);a(sub.s.started);a.equal(sub.s.observed,0);a.equal(sub.calls,1);a(sub.comparison);sub.picks.clear();const previous=sub.s;sub.choose('capacitance',22);a.equal(sub.s,previous);a(sub.picks.has('capacitance',22));a.equal(sub.calls,2);
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
     def test_product_reselection_and_review_experiment_preserve_credit_and_polarity(self):
         script=r'''
-const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_nightlight_math.js'),F=require(dir+'/training_game_feedback.js'),source=fs.readFileSync(dir+'/training_nightlight.js','utf8');
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],M=require(dir+'/training_nightlight_math.js'),F=require(dir+'/training_game_feedback.js'),Q=require(dir+'/training_game_choices.js'),source=fs.readFileSync(dir+'/training_nightlight.js','utf8');
 const code=source.slice(source.indexOf('function dispatch(type,value){'),source.indexOf("primary.addEventListener('click'"));
 let s=M.action(M.setup(2,2),'diode','forward');s=M.action(M.action(s,'primary'),'primary');a.equal(s.cleared,3);s=M.action(s,'primary');a(s.reverse&&s.tested);
-const ctx={s,M,F,comparison:null,notice:'',reviewing:true,playing:true,last:9,hintOpen:false,detail:{open:false},title:{focus(){}},root:{scrollIntoView(){}},writes:0,renders:0,persist(){ctx.writes++;},render(){ctx.renders++;}};vm.createContext(ctx);vm.runInContext(code+';this.dispatch=dispatch;',ctx);ctx.dispatch('diode','forward');a.equal(ctx.s,s);a(ctx.s.reverse&&ctx.s.tested);a.equal(ctx.writes,0);ctx.dispatch('experiment');a(!ctx.s.reverse);a.equal(ctx.s.index,2);a.equal(ctx.s.cleared,3);ctx.dispatch('primary');a.equal(ctx.s.index,3);a(!ctx.s.power&&!ctx.s.running);a.equal(ctx.s.cleared,3);
+const ctx={s,M,F,picks:Q.create(),choiceReady:()=>true,comparison:null,notice:'',reviewing:true,playing:true,last:9,hintOpen:false,detail:{open:false},title:{focus(){}},root:{scrollIntoView(){}},writes:0,renders:0,persist(){ctx.writes++;},render(){ctx.renders++;}};vm.createContext(ctx);vm.runInContext(code+';this.dispatch=dispatch;',ctx);ctx.dispatch('diode','forward');a.equal(ctx.s,s);a(ctx.picks.has('diode','forward'));a(ctx.s.reverse&&ctx.s.tested);a.equal(ctx.writes,0);ctx.dispatch('experiment');a(!ctx.s.reverse);a.equal(ctx.s.index,2);a.equal(ctx.s.cleared,3);ctx.dispatch('primary');a.equal(ctx.s.index,3);a(!ctx.s.power&&!ctx.s.running);a.equal(ctx.s.cleared,3);a.deepEqual(ctx.picks.snapshot(),{});
 ctx.s={...M.setup(4,5),power:false};const off=ctx.s,writes=ctx.writes;ctx.dispatch('primary');a.equal(ctx.s,off);a.equal(ctx.writes,writes);ctx.dispatch('power');a(ctx.s.power);ctx.dispatch('primary');a(!ctx.s.gate);a.equal(ctx.s.cleared,5);
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
@@ -473,13 +489,13 @@ const s=L.action(L.create('capacitor'),'trigger');a.equal(L.judge({...s,index:0}
 const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),dir=process.argv[1],L=require(dir+'/training_playground_levels.js'),M=require(dir+'/training_subtype_game_math.js');
 const handler=name=>fs.readFileSync(dir+'/'+name,'utf8').split('\n').find(line=>line.trim().startsWith('function switchPower(on)'));
 for(const course of ['resistor','inductor']){
- const ctx={p:{power:false},playing:false,last:9,elapsed:2,triggered:true,mode:'challenge',course,L,campaign:{progress:L.create(course)},refresh(){},markInteraction(event){this.campaign.progress=L.action(this.campaign.progress,event);}};
+ const ctx={p:{power:false},choiceReady:()=>false,playing:false,last:9,elapsed:2,triggered:true,mode:'challenge',course,L,campaign:{progress:L.create(course)},refresh(){},markInteraction(event){this.campaign.progress=L.action(this.campaign.progress,event);}};
  // Match the controller's lexical callback rather than relying on a method receiver.
  ctx.markInteraction=event=>ctx.campaign.progress=L.action(ctx.campaign.progress,event);vm.createContext(ctx);vm.runInContext(handler('training_playground.js')+';this.toggle=switchPower;',ctx);
- ctx.toggle(true);a(ctx.p.power&&ctx.playing);a.equal(ctx.elapsed,0);a.equal(ctx.last,0);a.equal(ctx.campaign.progress.started,course==='inductor');
+ ctx.toggle(true);a(!ctx.p.power&&!ctx.playing);a.equal(ctx.elapsed,2);a.equal(ctx.last,9);ctx.choiceReady=()=>true;ctx.toggle(true);a(ctx.p.power&&ctx.playing);a.equal(ctx.elapsed,0);a.equal(ctx.last,0);a.equal(ctx.campaign.progress.started,course==='inductor');
  ctx.campaign.progress.cleared=[0];ctx.toggle(false);a(!ctx.p.power&&!ctx.playing);a.equal(ctx.campaign.progress.cleared.length,1);ctx.toggle(true);a(ctx.playing);a.equal(ctx.campaign.progress.cleared.length,1);
 }
-const ctx={s:M.create('res-thin'),M,playing:false,last:5,session:{},mode:'challenge',refresh(){}};vm.createContext(ctx);vm.runInContext(handler('training_subtype_game.js')+';this.toggle=switchPower;',ctx);ctx.toggle(true);a(ctx.s.started&&ctx.playing);ctx.s.cleared=[0];ctx.toggle(false);a(!ctx.s.started&&!ctx.playing);a.equal(ctx.s.cleared.length,1);ctx.toggle(true);a(ctx.playing);a.equal(ctx.s.observed,0);
+const ctx={s:M.create('res-thin'),M,missingChoices:()=>['tcr'],playing:false,last:5,session:{},mode:'challenge',refresh(){}};vm.createContext(ctx);vm.runInContext(handler('training_subtype_game.js')+';this.toggle=switchPower;',ctx);ctx.toggle(true);a(!ctx.s.started&&!ctx.playing);a.equal(ctx.last,5);ctx.missingChoices=()=>[];ctx.toggle(true);a(ctx.s.started&&ctx.playing);ctx.s.cleared=[0];ctx.toggle(false);a(!ctx.s.started&&!ctx.playing);a.equal(ctx.s.cleared.length,1);ctx.toggle(true);a(ctx.playing);a.equal(ctx.s.observed,0);
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT)],check=True,capture_output=True)
 
