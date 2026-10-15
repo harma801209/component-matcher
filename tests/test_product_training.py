@@ -287,9 +287,29 @@ ctx.arrowClock=1000;ctx.render();a.equal(Number(arrow.dataset.distance),70);
 const stopped=arrow.transform;ctx.render();a.equal(arrow.transform,stopped);
 // Replacement SVG nodes keep their timeline when switching views.
 ctx.flowNodes[0]={...ctx.flowNodes[0],arrow:node()};ctx.render();a.equal(ctx.flowNodes[0].arrow.transform,stopped);
-ctx.arrowClock=1300;ctx.render();a.equal(Number(ctx.flowNodes[0].arrow.dataset.distance),91);
+ctx.arrowClock=1300;ctx.render();a(Math.abs(Number(ctx.flowNodes[0].arrow.dataset.distance)-91)<1e-9);
+// Finite playback reaches the return terminal, without wrapping to the source.
+ctx.arrowClock=930/.07;ctx.render();a.equal(Number(ctx.flowNodes[0].arrow.dataset.distance),930);
+ctx.arrowClock+=400;ctx.render();a.equal(Number(ctx.flowNodes[0].arrow.dataset.distance),930);
 ctx.flows.main=0;ctx.render();a.equal(ctx.flowNodes[0].activeSince,null);a.equal(path.style.opacity,'0');
 ctx.arrowClock=9000;ctx.flows.main=.003;ctx.render();a.equal(ctx.flowNodes[0].arrow.dataset.distance,'0');
+'''
+        subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_circuit.js')],check=True,capture_output=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
+    def test_circuit_powered_steps_wait_for_the_whole_return_path(self):
+        script=r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict'),src=fs.readFileSync(process.argv[1],'utf8');
+const duration=src.slice(src.indexOf(' function stepDuration(){'),src.indexOf(' function buildDrawing(){'));
+const ctx={course:'resistor',step:1,flowNodes:[{id:'main',length:930}]};vm.createContext(ctx);vm.runInContext(duration+'this.duration=stepDuration;',ctx);
+for(const course of ['resistor','inductor','diode']){
+ ctx.course=course;ctx.flowNodes[0].id=course==='inductor'?'supply':'main';
+ for(const length of [930,1400]){ctx.flowNodes[0].length=length;ctx.step=1;a.equal(ctx.duration(),length/.07+400);a((ctx.duration()-400)*.07>=length-1e-8);}
+ ctx.step=0;a.equal(ctx.duration(),2000);
+ ctx.step=2;a.equal(ctx.duration(),course==='resistor'?1400/.07+400:4500);
+}
+ctx.course='capacitor';ctx.step=1;a.equal(ctx.duration(),4500);
+a(src.includes('const duration=stepDuration();'));
 '''
         subprocess.run([shutil.which('node'),'-e',script,str(WEB_ROOT/'training_circuit.js')],check=True,capture_output=True)
 

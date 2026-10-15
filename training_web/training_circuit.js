@@ -19,6 +19,13 @@
  function switchShape(){return '<circle class="switch-pad" cx="140" cy="95" r="4"/><circle class="switch-pad" cx="180" cy="95" r="4"/><path id="circuit-switch" class="switch-blade" d="M140 95L178 75"/><text x="160" y="57" text-anchor="middle">S1 开关</text>';}
  function flow(id,d,color='source',anchor=['main','source','supply'].includes(id)?0:.58){return '<path id="flow-'+id+'" class="flow-track '+color+'" data-arrow-position="'+anchor+'" d="'+d+'"/><path id="arrow-'+id+'" class="current-arrow '+color+'" d="M-7 -5L7 0L-7 5Z"/>';}
  function resetArrowClock(){arrowClock=0;for(const f of flowNodes)f.activeSince=null;}
+ function stepDuration(){
+  if(step===0)return 2000;
+  // A powered source-to-return path must finish before the lesson advances.
+  // Keep the existing visual speed, then show arrival at the negative terminal.
+  const powered=course==='resistor'||(step===1&&['inductor','diode'].includes(course));
+  return powered?Math.max(4500,...flowNodes.filter(f=>['main','supply'].includes(f.id)).map(f=>f.length/.07+400)):4500;
+ }
  function buildDrawing(){
   const previous=new Map(flowNodes.map(f=>[f.id,f]));
   let shapes='',flows='';
@@ -50,7 +57,7 @@
   const r=evaluate(),flows=M.currentFlows(course,r);
   // A lesson-local visual clock: source arrows start at the positive terminal.
   // Pausing, switching views or hiding the page never relocates the arrow.
-  for(const f of flowNodes){const current=flows[f.id]||0,on=Math.abs(current)>1e-7,sign=current<0?-1:1;if(!on)f.activeSince=null;else if(f.activeSince===null||f.sign!==sign)f.activeSince=arrowClock;f.sign=sign;f.path.style.opacity=on?'1':'0';f.arrow.style.opacity=on?'1':'0';f.path.dataset.current=String(current);const travel=f.activeSince===null?0:(arrowClock-f.activeSince)*.07*sign,distance=((f.length*Number(f.path.dataset.arrowPosition)+travel)%f.length+f.length)%f.length;f.arrow.dataset.distance=String(distance);const p=f.path.getPointAtLength(distance),q=f.path.getPointAtLength(Math.min(f.length,distance+1));f.arrow.setAttribute('transform','translate('+p.x+' '+p.y+') rotate('+(Math.atan2(q.y-p.y,q.x-p.x)*180/Math.PI+(sign<0?180:0))+')');}
+  for(const f of flowNodes){const current=flows[f.id]||0,on=Math.abs(current)>1e-7,sign=current<0?-1:1;if(!on)f.activeSince=null;else if(f.activeSince===null||f.sign!==sign)f.activeSince=arrowClock;f.sign=sign;f.path.style.opacity=on?'1':'0';f.arrow.style.opacity=on?'1':'0';f.path.dataset.current=String(current);const travel=f.activeSince===null?0:(arrowClock-f.activeSince)*.07*sign,raw=f.length*Number(f.path.dataset.arrowPosition)+travel,distance=['main','supply'].includes(f.id)?Math.max(0,Math.min(f.length,raw)):((raw%f.length)+f.length)%f.length;f.arrow.dataset.distance=String(distance);const p=f.path.getPointAtLength(distance),q=f.path.getPointAtLength(Math.min(f.length,distance+1)),before=f.path.getPointAtLength(Math.max(0,distance-1));f.arrow.setAttribute('transform','translate('+p.x+' '+p.y+') rotate('+(Math.atan2(q.y-before.y,q.x-before.x)*180/Math.PI+(sign<0?180:0))+')');}
   if(course==='resistor'){
    $('circuit-r-value').textContent=r.r+' Ω';$('circuit-led-glow').style.opacity=String(r.brightness*.75);$('circuit-led').classList.toggle('lit',r.i>0);$('circuit-switch').setAttribute('d',r.closed?'M140 95H180':'M140 95L178 75');
    // Local voltage/energy feedback and whole-loop current use the same result,
@@ -74,7 +81,7 @@
   renderEffects(r);
   $('circuit-card').dataset.course=course;$('circuit-card').dataset.step=String(step);$('circuit-card').dataset.progress=u.toFixed(3);
  }
- function selectStep(next,progress=0){stop();step=next;u=progress;elapsed=u*4500;resetArrowClock();const c=content[course];$('circuit-stage').textContent='第 '+(step+1)+' / 3 步';$('circuit-headline').textContent=c.head[step];$('circuit-story').textContent=c.story[step];document.querySelectorAll('[data-circuit-step]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.circuitStep)===step)));$('circuit-next').disabled=step===2;$('circuit-next').title=step===2?'已是最后一步':'下一步';renderState();$('circuit-status').textContent=$('circuit-headline').textContent;}
+ function selectStep(next,progress=0){stop();step=next;u=progress;elapsed=u*stepDuration();resetArrowClock();const c=content[course];$('circuit-stage').textContent='第 '+(step+1)+' / 3 步';$('circuit-headline').textContent=c.head[step];$('circuit-story').textContent=c.story[step];document.querySelectorAll('[data-circuit-step]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.circuitStep)===step)));$('circuit-next').disabled=step===2;$('circuit-next').title=step===2?'已是最后一步':'下一步';renderState();$('circuit-status').textContent=$('circuit-headline').textContent;}
  function renderCourse(){stop();step=0;u=0;elapsed=0;options={r:1000,cap:true};const c=content[course];$('circuit-title').textContent=c.title;$('circuit-takeaway').textContent=c.takeaway;$('circuit-assumptions').textContent=c.assumptions;$('circuit-sources').replaceChildren(...c.sources.map(([label,url])=>{const a=node('a',label+' ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}));$('circuit-steps').replaceChildren(...c.steps.map((title,i)=>{const b=node('button',(i+1)+' · '+title);b.type='button';b.dataset.circuitStep=String(i);b.setAttribute('aria-pressed','false');b.addEventListener('click',()=>selectStep(i));return b;}));$('circuit-options').replaceChildren();if(course==='resistor'){const label=node('label','对比阻值 '),select=node('select');select.id='circuit-resistance';select.setAttribute('aria-label','PCB限流电阻阻值');for(const r of [220,1000]){const o=node('option',r+' Ω');o.value=String(r);select.append(o);}select.value='1000';select.addEventListener('change',()=>{options.r=Number(select.value);selectStep(2);});label.append(select);$('circuit-options').append(label);}if(course==='capacitor'){const b=node('button','对比：移除C1');b.id='circuit-remove-cap';b.type='button';b.setAttribute('aria-pressed','false');b.addEventListener('click',()=>{stop();options.cap=!options.cap;b.setAttribute('aria-pressed',String(!options.cap));b.textContent=options.cap?'对比：移除C1':'恢复C1';if(step===0)selectStep(1);else renderState();});$('circuit-options').append(b);}buildDrawing();selectStep(0);}
  function setView(next){view=next;$('circuit-pcb').setAttribute('aria-pressed',String(view==='pcb'));$('circuit-schematic').setAttribute('aria-pressed',String(view==='schematic'));buildDrawing();renderState();}
  $('circuit-pcb').addEventListener('click',()=>setView('pcb'));$('circuit-schematic').addEventListener('click',()=>setView('schematic'));
@@ -83,7 +90,7 @@
  window.addEventListener('training-course-change',e=>{course=e.detail.course;renderCourse();});
  new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;last=0;}).observe($('circuit-card'));
  document.addEventListener('visibilitychange',()=>{last=0;});
- let painted=0;function loop(now){if(playing&&visible&&!document.hidden){if(last){const dt=Math.min(100,now-last);elapsed+=dt;arrowClock+=dt;}last=now;const duration=step===0?2000:4500;u=Math.min(1,elapsed/duration);if(now-painted>50){painted=now;renderState();}if(u===1){if(step<2){const next=step+1;selectStep(next);playing=true;syncPlayControl();last=now;}else{stop();renderState();$('circuit-status').textContent='演示结束，可以逐步复看。';}}}else last=0;requestAnimationFrame(loop);}
+ let painted=0;function loop(now){if(playing&&visible&&!document.hidden){if(last){const dt=Math.min(100,now-last);elapsed+=dt;arrowClock+=dt;}last=now;const duration=stepDuration();u=Math.min(1,elapsed/duration);if(now-painted>50){painted=now;renderState();}if(u===1){if(step<2){const next=step+1;selectStep(next);playing=true;syncPlayControl();last=now;}else{stop();renderState();$('circuit-status').textContent='演示结束，可以逐步复看。';}}}else last=0;requestAnimationFrame(loop);}
  renderCourse();requestAnimationFrame(loop);
  window.TrainingCircuit=Object.freeze({current:()=>({course,step,u,view,playing,visualTime:arrowClock,options:{...options},result:evaluate()}),selectStep:(s,p=0)=>selectStep(s,p)});
 })();
