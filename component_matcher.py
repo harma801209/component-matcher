@@ -47861,8 +47861,22 @@ def build_search_progress_state(
         "summary_lines": summary_lines or [],
     }
 
+def load_bom_native_excel_runtime():
+    # Cloud intentionally disables Streamlit's file watcher. The already-running
+    # entrypoint notices component_matcher updates, not arbitrary helper edits.
+    # Reload this stateless transport here as well as in the newer entrypoint.
+    import importlib as _native_importlib
+    from pathlib import Path as _NativePath
+    import bom_native_excel as _native
+    stamp = _NativePath(_native.__file__).stat().st_mtime_ns
+    if getattr(_native, "_loaded_source_stamp", None) != stamp:
+        _native = _native_importlib.reload(_native)
+        _native._loaded_source_stamp = stamp
+    return _native
+
+
 def revoke_bom_native_excel_link():
-    import bom_native_excel
+    bom_native_excel = load_bom_native_excel_runtime()
     link = st.session_state.pop("_bom_native_excel_link", {})
     _, secret, _ = get_member_auth_remote_config()
     owner = link.get("owner", "") if isinstance(link, dict) else ""
@@ -47878,7 +47892,7 @@ def revoke_bom_native_excel_link():
 
 
 def prepare_bom_native_excel_link(data_bytes, filename):
-    import bom_native_excel
+    bom_native_excel = load_bom_native_excel_runtime()
     member = current_member()
     token = clean_text(st.session_state.get("_member_auth_token", ""))
     _, secret, enabled = get_member_auth_remote_config()

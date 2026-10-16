@@ -24,6 +24,9 @@ class NativeExcelTests(unittest.TestCase):
         entry=(ROOT/'streamlit_app.py').read_text(encoding='utf-8')
         self.assertIn('importlib.reload(importlib.import_module("bom_native_excel"))',entry)
         self.assertIn('native_excel_stat.st_mtime_ns',entry)
+        source=(ROOT/'component_matcher.py').read_text(encoding='utf-8')
+        self.assertEqual(source.count('bom_native_excel = load_bom_native_excel_runtime()'),2)
+        self.assertIn('_native_importlib.reload(_native)',source)
 
     def test_owner_is_secret_derived_and_uri_is_short_read_only_https(self):
         owner = native.owner_key('session-token', 'server-secret')
@@ -69,7 +72,8 @@ class NativeExcelTests(unittest.TestCase):
         warnings=[]; state={'_member_auth_token':'login'}
         ns={'st':SimpleNamespace(session_state=state,warning=warnings.append),
             'current_member':lambda:{'id':1}, 'clean_text':lambda v:str(v or '').strip(),
-            'hashlib':hashlib,'time':time,'get_member_auth_remote_config':lambda:('unused','secret',True)}
+            'hashlib':hashlib,'time':time,'get_member_auth_remote_config':lambda:('unused','secret',True),
+            'load_bom_native_excel_runtime':lambda:native}
         exec(compile(ast.Module(body=nodes,type_ignores=[]),'native-session-tests','exec'),ns)
         def issued(secret,owner,raw,filename):
             return {'owner':owner,'digest':hashlib.sha256(raw).hexdigest(),'expires':time.time()+300,'url':URL}

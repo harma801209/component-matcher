@@ -24,6 +24,8 @@ Cloudflare Worker 在 Streamlit 引导之前处理 `/api/bom-excel` 与 `/x/<随
 全局临时文件总量最多64MiB、128个入口，每段256KiB，HTTP请求体和单文件另有限制。
 过期在每次读取时强制验证；密文在到期访问或下次创建/撤销请求时惰性清理，没有永久公开文件。
 响应设 private/no-store、nosniff、no-referrer、noindex，日志不写文件内容、凭据或管理密钥。
+后端请求使用明确的服务 User-Agent；默认 Python 请求标识在正式安全网关会被403拦截。
+公网关闭了 Streamlit 文件监视，故业务层也按源文件时间戳重载这个无状态传输模块，不能仅依赖入口脚本重新编译。
 
 ## 验证和回退
 
