@@ -47842,6 +47842,7 @@ def build_bom_download_footer_html(
     label="另存 BOM 匹配后 Excel",
     container_class="result-table-footer",
     bridge_channel="",
+    initial_sheet="",
 ):
     safe_class = html.escape(clean_text(container_class) or "result-table-footer", quote=True)
     safe_label = clean_text(label) or "另存 BOM 匹配后 Excel"
@@ -47864,6 +47865,18 @@ html, body {{ margin: 0; background: transparent; overflow: hidden; }}
 </style>
 '''
 
+    try:
+        import importlib as _preview_importlib
+        from pathlib import Path as _PreviewPath
+        import bom_excel_preview as _workbook_preview
+        _preview_stamp = _PreviewPath(_workbook_preview.__file__).stat().st_mtime_ns
+        if getattr(_workbook_preview, "_loaded_source_stamp", None) != _preview_stamp:
+            _workbook_preview = _preview_importlib.reload(_workbook_preview)
+            _workbook_preview._loaded_source_stamp = _preview_stamp
+        preview_html, preview_reason = _workbook_preview.build_bom_workbook_viewer_html(data_bytes, safe_filename, initial_sheet)
+    except Exception:
+        preview_html, preview_reason = "", "在线预览暂不可用，请使用下载 Excel；原文件不会被修改。"
+    preview_base64 = base64.b64encode(preview_html.encode("utf-8")).decode("ascii") if preview_html else ""
     data_base64 = base64.b64encode(data_bytes).decode("ascii")
     def script_json(value):
         return (
@@ -47877,25 +47890,42 @@ html, body {{ margin: 0; background: transparent; overflow: hidden; }}
 
     template = r'''
 <div class="__CONTAINER_CLASS__ bom-save-as-wrap">
-  <button id="__BUTTON_ID__" class="bom-save-as-btn" type="button">__BUTTON_LABEL__</button>
+  <a id="__BUTTON_ID__-preview" class="bom-save-as-btn bom-open-excel" target="_blank" rel="noopener noreferrer" aria-label="在线打开匹配后 Excel，新标签页只读预览">在线打开<span class="excel-word"> Excel</span></a>
+  <button id="__BUTTON_ID__" class="bom-save-as-btn" type="button" title="__BUTTON_LABEL__">下载 Excel</button>
 </div>
 <style>
 html, body { margin: 0; background: transparent; overflow: hidden; }
-.bom-save-as-wrap { width: 100%; }
+.bom-save-as-wrap { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .bom-save-as-btn {
+  box-sizing: border-box; min-width: 0;
   width: 100%; height: 46px; padding: 0 14px; border: 1px solid #cbd3df;
   border-radius: 8px; background: #ffffff; color: #263244;
-  font: 600 16px/1 system-ui, sans-serif; cursor: pointer;
+  font: 600 14px/1 system-ui, sans-serif; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .bom-save-as-btn:hover { border-color: #8090a6; background: #f7f9fb; }
 .bom-save-as-btn:focus-visible { outline: 3px solid rgba(37, 99, 235, .22); outline-offset: 1px; }
 .bom-save-as-btn:disabled { cursor: wait; color: #637083; background: #f4f6f8; }
+.bom-open-excel { display: flex; align-items: center; justify-content: center; text-decoration: none; color: #1651eb; border-color: #b5c9f2; }
+.bom-open-excel[aria-disabled=true] { color: #78869b; pointer-events: none; background: #f4f6f8; }
+@media(max-width:300px){ .bom-save-as-btn {font-size:12px;padding:0 7px} .excel-word {display:none} }
 </style>
 <script>
 (() => {
   const button = document.getElementById(__BUTTON_ID_JSON__);
-  const defaultLabel = __BUTTON_LABEL_JSON__;
+  const defaultLabel = "下载 Excel";
+  const preview = document.getElementById(__BUTTON_ID_JSON__ + "-preview");
+  const previewEncoded = __PREVIEW_BASE64_JSON__;
+  if (previewEncoded) {
+    const binary = atob(previewEncoded);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    preview.href = URL.createObjectURL(new Blob([bytes], {type: "text/html;charset=utf-8"}));
+    preview.title = "在新标签页在线打开完整匹配工作簿（只读）";
+  } else {
+    preview.setAttribute("aria-disabled", "true");
+    preview.textContent = "预览暂不可用";
+    preview.title = __PREVIEW_REASON_JSON__;
+  }
   const filename = __FILENAME_JSON__;
   const bridgeChannel = __BRIDGE_CHANNEL_JSON__;
   const targetOrigin = __TARGET_ORIGIN_JSON__;
@@ -48025,10 +48055,11 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
         "__BRIDGE_CHANNEL_JSON__": script_json(clean_text(bridge_channel)),
         "__TARGET_ORIGIN_JSON__": script_json(MEMBER_AUTH_OUTER_SHELL_ORIGIN),
         "__DATA_BASE64_JSON__": script_json(data_base64),
+        "__PREVIEW_BASE64_JSON__": script_json(preview_base64),
+        "__PREVIEW_REASON_JSON__": script_json(preview_reason),
     }
-    for marker, replacement in replacements.items():
-        template = template.replace(marker, replacement)
-    return template
+    import re as _marker_re
+    return _marker_re.sub("|".join(_marker_re.escape(key) for key in replacements), lambda match: replacements[match.group(0)], template)
 
 
 def get_query_param_text(name):
@@ -50796,6 +50827,7 @@ def render_bom_upload_page():
                                     ),
                                     bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM),
                                     container_class=download_key,
+                                    initial_sheet=selected_sheet_name,
                                 ),
                                 height=48,
                                 scrolling=False,
