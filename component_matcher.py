@@ -5125,6 +5125,7 @@ def set_current_member_from_admin_login(username, password):
 
 
 def logout_member():
+    revoke_bom_native_excel_link()
     token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
     st.session_state.pop("_member_auth_token", None)
     st.session_state.pop("_member_display_name", None)
@@ -7324,6 +7325,7 @@ def resolve_member_customer_price_scope(customer_name, existing_customers=None):
 
 
 def clear_customer_dependent_session_state():
+    revoke_bom_native_excel_link()
     for key in [
         SALES_COST_CUSTOMER_TYPE_KEY,
         SALES_COST_CUSTOMER_NAME_KEY,
@@ -44519,6 +44521,7 @@ def on_bom_upload_changed():
     Do not delete stored jobs: only stop this page from automatically resuming
     one the user has deliberately removed or replaced.
     """
+    revoke_bom_native_excel_link()
     for key in (
         BOM_PENDING_UPLOAD_CACHE_KEY, BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY,
         BOM_POST_LOGIN_RESUME_STAGE_KEY, BOM_POST_LOGIN_AUTO_RESUME_AT_KEY,
@@ -47858,6 +47861,43 @@ def build_search_progress_state(
         "summary_lines": summary_lines or [],
     }
 
+def revoke_bom_native_excel_link():
+    import bom_native_excel
+    link = st.session_state.pop("_bom_native_excel_link", {})
+    _, secret, _ = get_member_auth_remote_config()
+    owner = link.get("owner", "") if isinstance(link, dict) else ""
+    token = clean_text(st.session_state.get("_member_auth_token", ""))
+    if not owner and token and secret:
+        owner = bom_native_excel.owner_key(token, secret)
+    if owner and secret:
+        try:
+            bom_native_excel.revoke(secret, owner)
+        except Exception:
+            # Be explicit: revocation cannot recall files Excel already read.
+            st.warning("临时 Excel 链接暂未能撤销，最迟 5 分钟后自动失效。已打开的文件不会被远程关闭。")
+
+
+def prepare_bom_native_excel_link(data_bytes, filename):
+    import bom_native_excel
+    member = current_member()
+    token = clean_text(st.session_state.get("_member_auth_token", ""))
+    _, secret, enabled = get_member_auth_remote_config()
+    if not member or not token or not secret or not enabled:
+        return {}, "需登录并连接正式版文件服务；也可使用下载 Excel。"
+    owner = bom_native_excel.owner_key(token, secret)
+    digest = hashlib.sha256(data_bytes).hexdigest()
+    cached = st.session_state.get("_bom_native_excel_link", {})
+    if (isinstance(cached, dict) and cached.get("owner") == owner
+            and cached.get("digest") == digest and cached.get("expires", 0) > time.time() + 10):
+        return cached, ""
+    try:
+        link = bom_native_excel.issue(secret, owner, data_bytes, filename)
+        st.session_state["_bom_native_excel_link"] = link
+        return link, ""
+    except Exception:
+        return {}, "临时打开链接暂不可用或文件超过 8MB，请使用下载 Excel。"
+
+
 def build_bom_download_footer_html(
     data_bytes,
     filename,
@@ -47865,6 +47905,8 @@ def build_bom_download_footer_html(
     container_class="result-table-footer",
     bridge_channel="",
     initial_sheet="",
+    native_link=None,
+    native_reason="",
 ):
     safe_class = html.escape(clean_text(container_class) or "result-table-footer", quote=True)
     safe_label = clean_text(label) or "另存 BOM 匹配后 Excel"
@@ -47887,18 +47929,9 @@ html, body {{ margin: 0; background: transparent; overflow: hidden; }}
 </style>
 '''
 
-    try:
-        import importlib as _preview_importlib
-        from pathlib import Path as _PreviewPath
-        import bom_excel_preview as _workbook_preview
-        _preview_stamp = _PreviewPath(_workbook_preview.__file__).stat().st_mtime_ns
-        if getattr(_workbook_preview, "_loaded_source_stamp", None) != _preview_stamp:
-            _workbook_preview = _preview_importlib.reload(_workbook_preview)
-            _workbook_preview._loaded_source_stamp = _preview_stamp
-        preview_html, preview_reason = _workbook_preview.build_bom_workbook_viewer_html(data_bytes, safe_filename, initial_sheet)
-    except Exception:
-        preview_html, preview_reason = "", "在线预览暂不可用，请使用下载 Excel；原文件不会被修改。"
-    preview_base64 = base64.b64encode(preview_html.encode("utf-8")).decode("ascii") if preview_html else ""
+    from bom_native_excel import excel_uri
+    native_link = native_link if isinstance(native_link, dict) else {}
+    native_uri = excel_uri(native_link.get("url", ""))
     data_base64 = base64.b64encode(data_bytes).decode("ascii")
     def script_json(value):
         return (
@@ -47912,9 +47945,10 @@ html, body {{ margin: 0; background: transparent; overflow: hidden; }}
 
     template = r'''
 <div class="__CONTAINER_CLASS__ bom-save-as-wrap">
-  <a id="__BUTTON_ID__-preview" class="bom-save-as-btn bom-open-excel" target="_blank" rel="noopener noreferrer" aria-label="在线打开匹配后 Excel，新标签页只读预览">在线打开<span class="excel-word"> Excel</span></a>
+  <a id="__BUTTON_ID__-preview" class="bom-save-as-btn bom-open-excel" role="link" target="_blank" rel="noopener noreferrer" aria-label="用本机 Excel 打开匹配后文件（只读）">本机 Excel（只读）</a>
   <button id="__BUTTON_ID__" class="bom-save-as-btn" type="button" title="__BUTTON_LABEL__">下载 Excel</button>
 </div>
+<div class="bom-excel-help" id="__BUTTON_ID__-help">需安装 Excel；链接 5 分钟有效，过期请刷新页面。</div>
 <style>
 html, body { margin: 0; background: transparent; overflow: hidden; }
 .bom-save-as-wrap { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
@@ -47930,6 +47964,7 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
 .bom-save-as-btn:disabled { cursor: wait; color: #637083; background: #f4f6f8; }
 .bom-open-excel { display: flex; align-items: center; justify-content: center; text-decoration: none; color: #1651eb; border-color: #b5c9f2; }
 .bom-open-excel[aria-disabled=true] { color: #78869b; pointer-events: none; background: #f4f6f8; }
+.bom-excel-help {font:12px/18px system-ui,sans-serif;color:#64748b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:300px){ .bom-save-as-btn {font-size:12px;padding:0 7px} .excel-word {display:none} }
 </style>
 <script>
@@ -47937,16 +47972,26 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
   const button = document.getElementById(__BUTTON_ID_JSON__);
   const defaultLabel = "下载 Excel";
   const preview = document.getElementById(__BUTTON_ID_JSON__ + "-preview");
-  const previewEncoded = __PREVIEW_BASE64_JSON__;
-  if (previewEncoded) {
-    const binary = atob(previewEncoded);
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    preview.href = URL.createObjectURL(new Blob([bytes], {type: "text/html;charset=utf-8"}));
-    preview.title = "在新标签页在线打开完整匹配工作簿（只读）";
+  const nativeURI = __NATIVE_URI_JSON__;
+  const expiresAt = __NATIVE_EXPIRY_JSON__;
+  const help = document.getElementById(__BUTTON_ID_JSON__ + "-help");
+  if (nativeURI) {
+    preview.href = nativeURI;
+    preview.title = "用本机 Excel 打开（只读）；浏览器可能要求确认打开应用";
+    preview.addEventListener("click", event => {
+      if (Date.now() >= expiresAt * 1000) { event.preventDefault(); expire(); return; }
+      help.textContent = "请确认打开 Excel；如未弹出，请安装 Excel 或使用下载。";
+    });
+    function expire() {
+      preview.removeAttribute("href"); preview.setAttribute("aria-disabled", "true");
+      preview.textContent = "链接已过期";
+      help.textContent = "刷新页面可更新打开链接；下载 Excel 不受影响。";
+    }
+    setTimeout(expire, Math.max(0, expiresAt * 1000 - Date.now()));
   } else {
     preview.setAttribute("aria-disabled", "true");
-    preview.textContent = "预览暂不可用";
-    preview.title = __PREVIEW_REASON_JSON__;
+    preview.title = __NATIVE_REASON_JSON__;
+    help.textContent = __NATIVE_REASON_JSON__;
   }
   const filename = __FILENAME_JSON__;
   const bridgeChannel = __BRIDGE_CHANNEL_JSON__;
@@ -48077,8 +48122,9 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
         "__BRIDGE_CHANNEL_JSON__": script_json(clean_text(bridge_channel)),
         "__TARGET_ORIGIN_JSON__": script_json(MEMBER_AUTH_OUTER_SHELL_ORIGIN),
         "__DATA_BASE64_JSON__": script_json(data_base64),
-        "__PREVIEW_BASE64_JSON__": script_json(preview_base64),
-        "__PREVIEW_REASON_JSON__": script_json(preview_reason),
+        "__NATIVE_URI_JSON__": script_json(native_uri),
+        "__NATIVE_EXPIRY_JSON__": script_json(float(native_link.get("expires", 0))),
+        "__NATIVE_REASON_JSON__": script_json(native_reason or "本机打开暂不可用，请使用下载 Excel。"),
     }
     import re as _marker_re
     return _marker_re.sub("|".join(_marker_re.escape(key) for key in replacements), lambda match: replacements[match.group(0)], template)
@@ -50510,6 +50556,7 @@ def render_bom_upload_page():
                             total_workbook_rows,
                         )
                     if start_bom_matching and (stored_bom_signature != current_bom_signature or force_requested_rerun):
+                        revoke_bom_native_excel_link()
                         st.session_state.pop("_bom_result_signature", None)
                         st.session_state.pop("_bom_result_df", None)
                         st.session_state.pop("_bom_export_bytes", None)
@@ -50841,6 +50888,7 @@ def render_bom_upload_page():
                         with result_header_cols[1]:
                             download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
                             download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
+                            native_link, native_reason = prepare_bom_native_excel_link(export_bytes, export_filename)
                             components.html(
                                 build_bom_download_footer_html(
                                     export_bytes,
@@ -50853,8 +50901,10 @@ def render_bom_upload_page():
                                     bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM),
                                     container_class=download_key,
                                     initial_sheet=selected_sheet_name,
+                                    native_link=native_link,
+                                    native_reason=native_reason,
                                 ),
-                                height=48,
+                                height=72,
                                 scrolling=False,
                             )
                         clickable_bom_html = render_clickable_result_table(

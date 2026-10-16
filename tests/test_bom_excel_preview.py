@@ -111,16 +111,18 @@ class BomExcelPreviewTests(unittest.TestCase):
         self.assertIn('下载', reason)
         footer = footer_builder()(b'not-xlsx', 'bad.xlsx')
         self.assertIn('browserDownload(blob)', footer)
-        self.assertIn('预览暂不可用', footer)
+        self.assertIn('本机打开暂不可用', footer)
         self.assertIn(base64.b64encode(b'not-xlsx').decode(), footer)
 
-    def test_footer_has_two_actions_private_blob_viewer_and_initial_sheet(self):
+    def test_footer_has_native_read_only_action_and_separate_download(self):
         raw = fixture_bytes()
-        footer = footer_builder()(raw, 'matched.xlsx', initial_sheet='其他工作表', bridge_channel='qa-channel')
-        self.assertIn('在线打开', footer)
+        footer = footer_builder()(raw, 'matched.xlsx', initial_sheet='其他工作表', bridge_channel='qa-channel',
+                                  native_link={'url':'https://fruition-component.pages.dev/x/'+'A'*43+'/BOM.xlsx','expires':1999999999})
+        self.assertIn('本机 Excel（只读）', footer)
         self.assertIn('下载 Excel', footer)
         self.assertIn('rel="noopener noreferrer"', footer)
-        self.assertIn('type: "text/html;charset=utf-8"', footer)
+        self.assertIn('ms-excel:ofv|u|https://', footer)
+        self.assertNotIn('type: "text/html;charset=utf-8"', footer)
         self.assertIn('fruition-file-save', footer)
         self.assertNotIn('__PREVIEW_', footer)
         self.assertIn('showSaveFilePicker', footer)
@@ -149,7 +151,7 @@ class BomExcelPreviewTests(unittest.TestCase):
             footer = builder(b'original-export', 'result.xlsx')
         self.assertIn('browserDownload(blob)', footer)
         self.assertIn(base64.b64encode(b'original-export').decode(), footer)
-        self.assertIn('预览暂不可用', footer)
+        self.assertIn('本机打开暂不可用', footer)
 
 
 if __name__ == '__main__':

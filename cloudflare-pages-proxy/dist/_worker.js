@@ -21,15 +21,178 @@ const STATIC_PREFIXES = [
 const APP_RUNTIME_PREFIX = "/~/+";
 const ROOT_PATHS = new Set(["/", APP_RUNTIME_PREFIX]);
 
+export { handleBomExcel };
+
 export default {
   async fetch(request, env) {
     return proxyRequest(request, env);
   },
 };
 
+const BOM_EXCEL_MAX_BYTES = 8 * 1024 * 1024;
+const BOM_EXCEL_TTL = 300;
+let bomExcelSchemaReady;
+
+function bomExcelResponse(body, status = 200, extra = {}) {
+  return new Response(body, {status, headers: {
+    "Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache",
+    "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'", ...extra,
+  }});
+}
+
+async function ensureBomExcelSchema(db) {
+  if (!bomExcelSchemaReady) {
+    bomExcelSchemaReady = db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS bom_excel_tickets (
+        token_hash TEXT PRIMARY KEY, owner_hash TEXT NOT NULL,
+        expires_at INTEGER NOT NULL, size INTEGER NOT NULL,
+        filename TEXT NOT NULL, iv TEXT NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS bom_excel_chunks (
+        token_hash TEXT NOT NULL, part INTEGER NOT NULL, data BLOB NOT NULL,
+        PRIMARY KEY(token_hash, part))`),
+      db.prepare("CREATE INDEX IF NOT EXISTS bom_excel_ticket_expiry ON bom_excel_tickets(expires_at)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS bom_excel_ticket_owner ON bom_excel_tickets(owner_hash)"),
+    ]).catch(error => { bomExcelSchemaReady = undefined; throw error; });
+  }
+  await bomExcelSchemaReady;
+}
+
+async function bomExcelHash(text) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function bomExcelKey(token) {
+  return crypto.subtle.importKey("raw", await crypto.subtle.digest("SHA-256",
+    new TextEncoder().encode("bom-excel-v1:" + token)), "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+function bomExcelAAD(row) {
+  return new TextEncoder().encode(JSON.stringify([row.owner_hash, row.expires_at, row.filename]));
+}
+
+async function readBomExcelJSON(request) {
+  const limit = Math.ceil(BOM_EXCEL_MAX_BYTES * 4 / 3) + 4096;
+  if (Number(request.headers.get("content-length") || 0) > limit) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const chunks = []; let size = 0;
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) { await reader.cancel(); return null; }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch (_) { return null; }
+}
+
+async function handleBomExcel(request, env, path = new URL(request.url).pathname) {
+  if (!env?.MEMBER_DB || !env?.MEMBER_STORE_API_SECRET) return bomExcelResponse("暂不可用", 503);
+  const db = env.MEMBER_DB;
+  const now = Math.floor(Date.now() / 1000);
+  if (path === "/api/bom-excel") {
+    const auth = request.headers.get("authorization") || "";
+    if (!(await memberStoreSecretMatches(auth.startsWith("Bearer ") ? auth.slice(7) : "", env.MEMBER_STORE_API_SECRET))) {
+      return bomExcelResponse("unauthorized", 403);
+    }
+    if (!["POST", "DELETE"].includes(request.method)) return bomExcelResponse("method not allowed", 405);
+    const payload = await readBomExcelJSON(request);
+    if (!payload || !/^[a-f0-9]{64}$/.test(payload.owner || "")) return bomExcelResponse("invalid request", 400);
+    await ensureBomExcelSchema(db);
+    // Only this new namespace is touched; never member/cost/snapshot tables.
+    await db.batch([
+      db.prepare("DELETE FROM bom_excel_chunks WHERE token_hash IN (SELECT token_hash FROM bom_excel_tickets WHERE expires_at <= ? OR owner_hash = ?)").bind(now, payload.owner),
+      db.prepare("DELETE FROM bom_excel_tickets WHERE expires_at <= ? OR owner_hash = ?").bind(now, payload.owner),
+    ]);
+    if (request.method === "DELETE") return bomExcelResponse('{"revoked":true}', 200, {"Content-Type": "application/json"});
+    if (typeof payload.dataBase64 !== "string" || payload.dataBase64.length > Math.ceil(BOM_EXCEL_MAX_BYTES * 4 / 3)) return bomExcelResponse("too large", 413);
+    let raw;
+    try { raw = Uint8Array.from(atob(payload.dataBase64), c => c.charCodeAt(0)); } catch (_) { return bomExcelResponse("invalid workbook", 400); }
+    if (raw.length < 4 || raw.length > BOM_EXCEL_MAX_BYTES || raw[0] !== 80 || raw[1] !== 75 || raw[2] !== 3 || raw[3] !== 4) return bomExcelResponse("invalid workbook", 400);
+    const filename = String(payload.filename || "BOM.xlsx").replace(/[\x00-\x1f\x7f/\\"|]/g, "_").slice(0, 120);
+    const token = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+      .replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+    const hash = await bomExcelHash(token);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const row = {owner_hash: payload.owner, expires_at: now + BOM_EXCEL_TTL, filename};
+    // The database stores ciphertext only. The decryption key comes from the
+    // unguessable capability, which is never stored (nor a member login token).
+    const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+      {name: "AES-GCM", iv, additionalData: bomExcelAAD(row)}, await bomExcelKey(token), raw));
+    const statements = [db.prepare(`INSERT INTO bom_excel_tickets
+      (token_hash, owner_hash, expires_at, size, filename, iv)
+      SELECT ?, ?, ?, ?, ?, ? WHERE
+      (SELECT COALESCE(SUM(size),0) FROM bom_excel_tickets) + ? <= 67108864
+      AND (SELECT COUNT(*) FROM bom_excel_tickets) < 128`)
+      .bind(hash, payload.owner, row.expires_at, raw.length, filename,
+        btoa(String.fromCharCode(...iv)), raw.length)];
+    for (let pos = 0, part = 0; pos < encrypted.length; pos += 262144, part++) {
+      statements.push(db.prepare(`INSERT INTO bom_excel_chunks (token_hash, part, data)
+        SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM bom_excel_tickets WHERE token_hash = ?)`)
+        .bind(hash, part, encrypted.slice(pos, pos + 262144).buffer, hash));
+    }
+    const saved = await db.batch(statements);
+    if (!saved[0].meta.changes) return bomExcelResponse("temporary capacity reached; use download", 503);
+    return bomExcelResponse(JSON.stringify({url: `https://fruition-component.pages.dev/x/${token}/BOM.xlsx`, expiresAt: row.expires_at}), 201, {"Content-Type": "application/json"});
+  }
+  const match = /^\/x\/([A-Za-z0-9_-]{43})\/BOM\.xlsx$/.exec(path);
+  if (!match) return bomExcelResponse("文件链接无效或已过期，请回到匹配页面重新打开。", 404);
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) return bomExcelResponse("read only", 405, {Allow: "GET, HEAD, OPTIONS"});
+  await ensureBomExcelSchema(db);
+  const hash = await bomExcelHash(match[1]);
+  const row = await db.prepare("SELECT * FROM bom_excel_tickets WHERE token_hash = ? AND expires_at > ?").bind(hash, now).first();
+  if (!row) {
+    // Lazy deletion is bounded to this ticket; expired ciphertext is unreadable.
+    await db.batch([db.prepare("DELETE FROM bom_excel_chunks WHERE token_hash = ?").bind(hash),
+      db.prepare("DELETE FROM bom_excel_tickets WHERE token_hash = ? AND expires_at <= ?").bind(hash, now)]);
+    return bomExcelResponse(request.method === "HEAD" ? null : "文件链接无效或已过期，请回到匹配页面重新打开。", 404);
+  }
+  const headers = {"Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": `inline; filename="BOM.xlsx"; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+    "Accept-Ranges": "bytes", "Content-Length": String(row.size), Allow: "GET, HEAD, OPTIONS"};
+  if (request.method === "OPTIONS") return bomExcelResponse(null, 204, {Allow: "GET, HEAD, OPTIONS"});
+  if (request.method === "HEAD") return bomExcelResponse(null, 200, headers);
+  let start = 0, end = row.size - 1, status = 200;
+  const range = request.headers.get("range");
+  if (range) {
+    const r = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!r || (!r[1] && !r[2])) return bomExcelResponse(null, 416, {"Content-Range": `bytes */${row.size}`});
+    if (!r[1]) start = Math.max(0, row.size - Number(r[2]));
+    else { start = Number(r[1]); if (r[2]) end = Math.min(end, Number(r[2])); }
+    if (start > end || start >= row.size) return bomExcelResponse(null, 416, {"Content-Range": `bytes */${row.size}`});
+    status = 206; headers["Content-Range"] = `bytes ${start}-${end}/${row.size}`;
+    headers["Content-Length"] = String(end - start + 1);
+  }
+  const parts = await db.prepare("SELECT data FROM bom_excel_chunks WHERE token_hash = ? ORDER BY part").bind(hash).all();
+  const cipher = new Uint8Array(row.size + 16); let offset = 0;
+  for (const part of parts.results) { const bytes = new Uint8Array(part.data); cipher.set(bytes, offset); offset += bytes.length; }
+  if (offset !== cipher.length) return bomExcelResponse("文件链接已失效", 404);
+  const raw = await crypto.subtle.decrypt({name: "AES-GCM", iv: Uint8Array.from(atob(row.iv), c => c.charCodeAt(0)),
+    additionalData: bomExcelAAD(row)}, await bomExcelKey(match[1]), cipher);
+  // A concurrent remove/logout must win over an in-flight read where possible.
+  const stillValid = await db.prepare("SELECT token_hash FROM bom_excel_tickets WHERE token_hash = ? AND expires_at > ?")
+    .bind(hash, Math.floor(Date.now() / 1000)).first();
+  if (!stillValid) return bomExcelResponse("文件链接已失效", 404);
+  return bomExcelResponse(raw.slice(start, end + 1), status, headers);
+}
+
 async function proxyRequest(request, env) {
   const incomingUrl = new URL(request.url);
   const dispatchPath = normalizeDispatchPath(incomingUrl.pathname);
+
+  if (dispatchPath === "/api/bom-excel" || dispatchPath.startsWith("/x/")) {
+    try {
+      return await handleBomExcel(request, env, dispatchPath);
+    } catch (_) {
+      // Do not log capability URLs, BOM contents or credentials.
+      return bomExcelResponse("文件暂不可用，请回到匹配页面重新打开或下载。", 503);
+    }
+  }
 
   if (dispatchPath === "/api/member-store/snapshot") {
     return handleMemberStoreSnapshot(request, env);
