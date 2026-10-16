@@ -323,7 +323,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-15T12:57:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-16T17:29:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -38919,10 +38919,18 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
     if fojan_high_ohmic_series_required(spec):
         requested_tokens.add("高阻值")
     trigger_tokens = requested_tokens - {"无卤", "无铅"}
+    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    # Precision is already explicit in a sub-1% tolerance. Do not require the
+    # user to repeat it as a "高精度" keyword or alter their original spec.
+    implicit_precision = False
     if not trigger_tokens:
+        try:
+            implicit_precision = 0.0 < float(tolerance) < 1.0
+        except (TypeError, ValueError):
+            pass
+    if not trigger_tokens and not implicit_precision:
         return pd.DataFrame()
     size = clean_size(spec.get("尺寸（inch）", ""))
-    tolerance = clean_tol_for_match(spec.get("容值误差", ""))
     resistance_ohm = spec.get("_resistance_ohm", None)
     power = format_power_display(spec.get("_power", ""))
     if size == "" or tolerance == "" or resistance_ohm is None:
@@ -38930,6 +38938,13 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
 
     rows = []
     for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items():
+        if implicit_precision:
+            # Only existing general-purpose precision profiles are inferred;
+            # automotive/anti-sulfur and other special families stay opt-in.
+            if series not in {"FRH", "FRT", "FTH"}:
+                continue
+            if component_type != "贴片电阻" and profile.get("component_type") != component_type:
+                continue
         profile_tokens = set(special_use_tokens(profile.get("special_use", "")))
         if not requested_tokens.issubset(profile_tokens):
             continue

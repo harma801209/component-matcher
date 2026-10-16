@@ -3705,6 +3705,100 @@ class SystemRegressionTests(unittest.TestCase):
                                 self.assertEqual(app["parse_power_to_watts"](row["_power"]), app["parse_power_to_watts"](resolved["spec"]["_power"]))
                 self.assertEqual(results[0], results[1])
 
+    def test_03_precision_tolerance_alone_adds_existing_fojan_precision_profiles(self):
+        app = self.app
+        for text, expected in (
+            ("0402_5.6k_1/16W_0.1%", "FRH0402B5601TS"),
+            ("0402_91Ω_1/16W_0.1%", "FRH0402B91R0TS"),
+        ):
+            with self.subTest(query=text):
+                spec = app["parse_resistor_spec_query"](text)
+                original = dict(spec)
+                generated = app["build_fojan_special_resistor_candidates_from_spec"](spec)
+                self.assertFalse(generated.empty)
+                self.assertIn(expected, set(generated["型号"]))
+                self.assertEqual(set(generated["系列"]), {"FRH", "FRT", "FTH"})
+                self.assertEqual(spec, original)
+                self.assertEqual(app["count_query_params"](spec), 4)
+                self.assertNotIn("高精度", str(spec.get("特殊用途", "")))
+                resolved = app["resolve_search_query_dataframe_and_spec"](text)
+                matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+                own = matched[matched["品牌"].astype(str).str.contains("FOJAN", case=False, na=False)]
+                self.assertIn(expected, set(own["型号"]))
+                for _, row in own.iterrows():
+                    self.assertEqual(row["推荐等级"], "完全匹配")
+                    self.assertEqual(app["clean_tol_for_match"](row["容值误差"]), "0.1")
+                    self.assertEqual(app["parse_power_to_watts"](row["功率"]), 1 / 16)
+                    self.assertAlmostEqual(float(row["_resistance_ohm"]), spec["_resistance_ohm"])
+
+    def test_03_implicit_precision_keeps_brand_and_resistor_subtype_constraints(self):
+        app = self.app
+        for component_type, expected_series in (("厚膜电阻", {"FRH"}), ("薄膜电阻", {"FRT", "FTH"})):
+            spec = app["parse_resistor_spec_query"]("0402 5.6k 1/16W 0.1%")
+            spec["器件类型"] = component_type
+            generated = app["build_fojan_special_resistor_candidates_from_spec"](spec)
+            self.assertFalse(generated.empty)
+            self.assertEqual(set(generated["系列"]), expected_series)
+        for brand, has_fojan in (("FOJAN(富捷)", True), ("国巨YAGEO", False)):
+            resolved = app["resolve_search_query_dataframe_and_spec"](
+                "0402_5.6k_1/16W_0.1%", brand_mode=app["SEARCH_BRAND_MODE_CUSTOM"], selected_brands=[brand]
+            )
+            matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+            self.assertFalse(matched.empty)
+            self.assertEqual(matched["品牌"].astype(str).str.contains("FOJAN", case=False, na=False).any(), has_fojan)
+            if has_fojan:
+                self.assertTrue(matched["品牌"].eq("FOJAN(富捷)").all())
+
+    def test_03_implicit_precision_does_not_invent_0201_or_relax_profile_limits(self):
+        app = self.app
+        for text in (
+            "0201_56k_1/32W_0.5%", "0402_5.6k_1/8W_0.1%", "0402_5.6k_1/16W_0.2%",
+            "0402_100GΩ_1/16W_0.1%", "0402_5.6k_1/16W_1%", "0402_5.6k_1/16W_5%",
+        ):
+            with self.subTest(query=text):
+                spec = app["parse_resistor_spec_query"](text)
+                self.assertTrue(app["build_fojan_special_resistor_candidates_from_spec"](spec).empty)
+        resolved = app["resolve_search_query_dataframe_and_spec"]("0201_56k_1/32W_0.5%")
+        self.assertTrue(app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"]).empty)
+
+    def test_03_implicit_precision_preserves_explicit_special_requirements(self):
+        app = self.app
+        for suffix, required in (("抗硫化", "抗硫化"), ("车规级", "车规"), ("高精度", "高精度")):
+            spec = app["merge_query_text_hints_into_spec"](
+                app["parse_resistor_spec_query"]("0402 5.6k 1/16W 0.1% " + suffix),
+                "0402 5.6k 1/16W 0.1% " + suffix,
+            )
+            generated = app["build_fojan_special_resistor_candidates_from_spec"](spec)
+            self.assertFalse(generated.empty)
+            for value in generated["特殊用途"]:
+                self.assertIn(required, app["special_use_tokens"](value))
+        spec = app["parse_resistor_spec_query"]("0402 5.6k 1/16W 0.1% 无卤")
+        spec = app["merge_query_text_hints_into_spec"](spec, "0402 5.6k 1/16W 0.1% 无卤")
+        self.assertFalse(app["build_fojan_special_resistor_candidates_from_spec"](spec).empty)
+
+    def test_03_precision_spec_bom_uses_fojan_rules_without_keyword_or_fake_0201(self):
+        app = self.app
+        for query, ohm in (("0402_5.6k_1/16W_0.1%", 5600.0), ("0402_91Ω_1/16W_0.1%", 91.0)):
+            result = app["build_bom_upload_result_row"](
+                pd.DataFrame(), 0, {"型号": "", "规格": query, "品名": "贴片电阻"},
+                {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+                export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+            )
+            self.assertEqual(result.get("自有品牌"), "FOJAN(富捷)")
+            model = result.get("自有型号", "")
+            parsed = app["parse_fojan_catalog_resistor_model"](model, brand="FOJAN")
+            self.assertIsNotNone(parsed, model)
+            self.assertAlmostEqual(parsed["_resistance_ohm"], ohm)
+            self.assertEqual(app["clean_tol_for_match"](parsed["容值误差"]), "0.1")
+            self.assertEqual(app["parse_power_to_watts"](parsed["功率"]), 1 / 16)
+        no_match = app["build_bom_upload_result_row"](
+            pd.DataFrame(), 0, {"型号": "", "规格": "0201_56k_1/32W_0.5%", "品名": "贴片电阻"},
+            {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+            export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+        )
+        self.assertEqual(no_match.get("自有型号", ""), "")
+        self.assertEqual(no_match.get("推荐型号", ""), "")
+
     def test_03_resistor_value_size_and_power_guards(self):
         app = self.app
         yageo_ac_resistor = app["parse_model_rule"]("AC1206FR-7W2R2L")
