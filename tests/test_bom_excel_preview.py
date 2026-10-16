@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
-from bom_excel_preview import workbook_preview_payload, build_bom_workbook_viewer_html
+from bom_excel_preview import workbook_preview_payload, build_bom_workbook_viewer_html, _display
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,6 +60,13 @@ def footer_builder():
 
 
 class BomExcelPreviewTests(unittest.TestCase):
+    def test_display_rounding_matches_excel_not_binary_float_or_bankers_rounding(self):
+        self.assertEqual(_display(2.675, '0.00'), '2.68')
+        self.assertEqual(_display(-2.675, '0.00'), '-2.68')
+        self.assertEqual(_display(.02675, '0.00%'), '2.68%')
+        self.assertEqual(_display(1234.565, '#,##0.00'), '1,234.57')
+        self.assertEqual(_display(.125, 'General'), '0.125')
+
     def test_whole_workbook_not_filtered_page_and_original_bytes_unchanged(self):
         raw = fixture_bytes()
         before = hashlib.sha256(raw).hexdigest()

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 import io
 import json
 import math
@@ -110,6 +111,14 @@ def _metadata(archive, path):
             'hidden_columns': hidden_columns, 'widths': widths, 'formulas': formulas}
 
 
+def _rounded(value, precision, grouped=False):
+    number = Decimal(str(value))
+    with localcontext() as context:
+        context.prec = max(32, len(number.as_tuple().digits) + max(0, number.adjusted()) + precision + 4)
+        rounded = number.quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_UP)
+        return format(rounded, (',' if grouped else '') + f'.{precision}f')
+
+
 def _display(value, number_format='General'):
     if value is None:
         return ''
@@ -121,15 +130,15 @@ def _display(value, number_format='General'):
         return value.isoformat()
     if isinstance(value, numbers.Real) and math.isfinite(value):
         code = number_format.split(';', 1)[0]
-        bare = re.sub(r'"[^"]*"|\[[^\]]*\]', '', code)
+        bare = re.sub(r'"[^"]*"|\[[^\]]*\]|\\.', '', code)
         decimals = re.search(r'\.([0#]+)', bare)
         precision = min(12, len(decimals.group(1))) if decimals else 0
         if '%' in bare:
-            return f'{value * 100:.{precision}f}%'
+            return _rounded(Decimal(str(value)) * 100, precision) + '%'
         if re.fullmatch('0{2,}', bare) and value == int(value):
             return str(int(value)).zfill(min(50, len(bare)))
         if decimals or '#,##' in bare:
-            return format(value, (',' if '#,##' in bare else '') + f'.{precision}f')
+            return _rounded(value, precision, '#,##' in bare)
         return str(int(value)) if value == int(value) else str(value)
     return str(value)
 
