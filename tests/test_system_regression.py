@@ -2773,18 +2773,22 @@ class SystemRegressionTests(unittest.TestCase):
         selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in {"_source_segment_with_original_lines", "load_component_matcher_runtime"}]
         saved_theme = sys.modules.get("precision_theme")
         saved_upload_bridge = sys.modules.get("bom_image_clipboard")
+        saved_native_excel = sys.modules.get("bom_native_excel")
         with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
             root = Path(folder)
             theme = root / "precision_theme.py"
             theme.write_text('PUBLIC_STYLE_MARKER = "before"\n', encoding="utf-8")
             upload_bridge = root / 'bom_image_clipboard.py'
             upload_bridge.write_text('PUBLIC_UPLOAD_MARKER = "before"\n',encoding='utf-8')
-            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
+            native_excel = root / 'bom_native_excel.py'
+            native_excel.write_text('PUBLIC_NATIVE_MARKER = "before"\n',encoding='utf-8')
+            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\nfrom bom_native_excel import PUBLIC_NATIVE_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
             runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
             namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
             sys.path.insert(0, folder)
             sys.modules.pop("precision_theme", None)
             sys.modules.pop("bom_image_clipboard",None)
+            sys.modules.pop("bom_native_excel",None)
             try:
                 exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
                 cached, _ = namespace["load_component_matcher_runtime"]()
@@ -2802,6 +2806,11 @@ class SystemRegressionTests(unittest.TestCase):
                 cached,_=namespace['load_component_matcher_runtime']()
                 self.assertEqual(cached['base_namespace']['PUBLIC_UPLOAD_MARKER'],'after-upload-bridge-update')
                 self.assertIsNot(cached['base_namespace'],theme_namespace)
+                bridge_namespace=cached['base_namespace']
+                native_excel.write_text('PUBLIC_NATIVE_MARKER = "after-native-transport-update"\n',encoding='utf-8')
+                cached,_=namespace['load_component_matcher_runtime']()
+                self.assertEqual(cached['base_namespace']['PUBLIC_NATIVE_MARKER'],'after-native-transport-update')
+                self.assertIsNot(cached['base_namespace'],bridge_namespace)
             finally:
                 sys.path.pop(0)
                 sys.modules.pop("precision_theme", None)
@@ -2810,6 +2819,9 @@ class SystemRegressionTests(unittest.TestCase):
                 sys.modules.pop('bom_image_clipboard',None)
                 if saved_upload_bridge is not None:
                     sys.modules['bom_image_clipboard']=saved_upload_bridge
+                sys.modules.pop('bom_native_excel',None)
+                if saved_native_excel is not None:
+                    sys.modules['bom_native_excel']=saved_native_excel
 
     def test_02ba_page_modes_are_mutually_exclusive(self):
         app = self.app

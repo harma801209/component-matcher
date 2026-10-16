@@ -39,10 +39,16 @@ try {
   const db = await mf.getD1Database('MEMBER_DB');
   const stored = await db.prepare('SELECT token_hash, data FROM bom_excel_chunks').all();
   assert.ok(stored.results.length > 1, 'large workbook is chunked below D1 row limits');
-  assert.ok(!JSON.stringify(stored).includes('SYNTHETIC-NATIVE-EXCEL-PRIVATE'));
+  const ciphertext = Buffer.concat(stored.results.map(row=>Buffer.from(row.data)));
+  assert.ok(!ciphertext.includes(Buffer.from('SYNTHETIC-NATIVE-EXCEL-PRIVATE')));
+  assert.notDeepEqual(ciphertext.subarray(0,raw.length),raw);
   assert.ok(!JSON.stringify(stored).includes(ticket.url.split('/')[4]));
   await manage('DELETE',{owner:otherOwner});
   assert.equal((await mf.dispatchFetch(ticket.url)).status,200);
+  const damaged = Uint8Array.from(stored.results[0].data); damaged[0] ^= 1;
+  await db.prepare('UPDATE bom_excel_chunks SET data = ? WHERE token_hash = ? AND part = 0')
+    .bind(damaged.buffer,stored.results[0].token_hash).run();
+  assert.equal((await mf.dispatchFetch(ticket.url)).status,503,'tampered ciphertext must not be returned');
   const replacement = await (await issue()).json();
   assert.equal((await mf.dispatchFetch(ticket.url)).status,404);
   await manage('DELETE',{owner});

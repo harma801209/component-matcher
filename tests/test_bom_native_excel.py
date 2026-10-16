@@ -15,6 +15,16 @@ URL = native.PUBLIC_ORIGIN + '/x/' + 'A' * 43 + '/BOM.xlsx'
 
 
 class NativeExcelTests(unittest.TestCase):
+    def test_transport_identifies_service_and_hot_reload_refreshes_helper(self):
+        with patch.object(native.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as opened:
+            self.assertEqual(native._request('test-service-secret','DELETE',{'owner':'a'*64}),{})
+            request=opened.call_args.args[0]
+            self.assertEqual(request.get_header('User-agent'),'fruition-component-matcher/bom-native-excel')
+            self.assertEqual(request.get_header('Accept'),'application/json')
+        entry=(ROOT/'streamlit_app.py').read_text(encoding='utf-8')
+        self.assertIn('importlib.reload(importlib.import_module("bom_native_excel"))',entry)
+        self.assertIn('native_excel_stat.st_mtime_ns',entry)
+
     def test_owner_is_secret_derived_and_uri_is_short_read_only_https(self):
         owner = native.owner_key('session-token', 'server-secret')
         self.assertEqual(len(owner), 64)

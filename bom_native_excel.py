@@ -25,7 +25,8 @@ def _request(api_secret, method, payload):
     request = urllib.request.Request(
         PUBLIC_ORIGIN + "/api/bom-excel",
         data=json.dumps(payload, separators=(",", ":")).encode(),
-        headers={"Authorization": "Bearer " + api_secret, "Content-Type": "application/json"},
+        headers={"Authorization": "Bearer " + api_secret, "Content-Type": "application/json",
+                 "Accept": "application/json", "User-Agent": "fruition-component-matcher/bom-native-excel"},
         method=method,
     )
     with urllib.request.urlopen(request, timeout=12, context=ssl.create_default_context()) as response:
