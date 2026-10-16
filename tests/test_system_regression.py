@@ -2762,6 +2762,32 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('.wb-user-link {display:inline-flex', CSS)
         self.assertIn('border:1px solid #cbdcf6;border-radius:999px;background:#e8efff', CSS)
 
+    def test_bom_omits_duplicate_heading_without_changing_other_pages(self):
+        from precision_theme import render_header
+        rendered = []
+        fake_st = type("FakeStreamlit", (), {"markdown": lambda _, value, **kwargs: rendered.append(value)})()
+        links = [("search", "元器件搜索", "?"), ("bom", "BOM批量匹配", "?bom=1"),
+                 ("member", "会员中心", "?member=1"), ("admin", "管理后台", "?admin=1")]
+        for member in (None, {"display_name": "Fixture", "role": "member"}, {"display_name": "Fixture", "role": "admin"}):
+            with self.subTest(member=member):
+                render_header(fake_st, "", "bom", links, member, logout_href="?logout=1")
+                markup = rendered[-1]
+                self.assertNotIn('class="wb-page-heading"', markup)
+                self.assertNotIn('class="wb-title"', markup)
+                self.assertNotIn("上传、复核、指定品牌匹配", markup)
+                self.assertIn('class="wb-header"', markup)
+                self.assertIn('class="wb-brand">富临通元器件匹配系统', markup)
+                self.assertIn('class="active" aria-current="page"', markup)
+                self.assertIn("BOM批量匹配", markup)
+                self.assertEqual('class="wb-logout"' in markup, member is not None)
+                self.assertEqual("管理后台" in markup, member is not None and member["role"] == "admin")
+        for active, title in (("search", "元器件搜索"), ("training", "产品培训"),
+                              ("member", "会员中心"), ("admin", "管理后台")):
+            with self.subTest(active=active):
+                render_header(fake_st, "", active, links, None)
+                self.assertIn('class="wb-page-heading"', rendered[-1])
+                self.assertIn(f'class="wb-title">{title}</div>', rendered[-1])
+
     def test_02b_workbench_theme_hot_update_refreshes_runtime_cache(self):
         import ast
         import importlib

@@ -173,10 +173,14 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
         f'<a class="wb-logout" href="{html.escape(logout_href, quote=True)}" target="_self" aria-label="退出登录">{navigation_icon("logout")}退出登录</a>'
         if member and logout_href else ""
     )
+    page_heading = (
+        f'<div class="wb-page-heading"><div class="wb-title">{title}</div><div class="wb-subtitle">{description}</div></div>'
+        if active != "bom" else ""
+    )
     st.markdown(
         f'<aside class="wb-sidebar"><nav class="wb-nav" aria-label="主导航">{nav}</nav>{logout}</aside>'
         f'<div class="wb-header"><img class="wb-logo" src="data:image/png;base64,{logo_b64}" alt="Fruition 富临通">'
         f'<span class="wb-brand">富临通元器件匹配系统</span>{badge}<div class="wb-account">{account}</div></div>'
-        f'<div class="wb-page-heading"><div class="wb-title">{title}</div><div class="wb-subtitle">{description}</div></div>',
+        f'{page_heading}',
         unsafe_allow_html=True,
     )
