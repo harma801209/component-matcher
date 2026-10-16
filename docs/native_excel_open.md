@@ -1,9 +1,24 @@
-# 本机 Excel 只读打开
+# 本机软件预览（Excel 直开／WPS 链接打开）
 
-匹配结果保留“下载 Excel”，原“在线打开”替换为“本机 Excel（只读）”。
+匹配结果的“本机预览”先让用户选择已安装的软件，保留独立的“下载 Excel”。
+首次没有默认选择；仅将用户选择的 `wps`、`excel` 或 `other` 存到本浏览器的 `fruition.bom.preview-app.v1`，不存文件链接、内容或会员凭据。
+记住选择不会自动启动软件、复制或下载，始终需要用户再点击预览操作。浏览器禁止本地存储时仍可正常使用。
+
+## 打开方式与实际限制
+
+- **Excel**：选择后显示“本机 Excel（只读）”，点击唤起本机 Excel。网站只发起打开请求，不将其报告为已成功打开。
+- **WPS**：显示“复制预览链接”。用户在 WPS 的“打开文件”中将链接粘贴到文件名处并打开，不必先在浏览器下载保存，也不安装助手/加载项。这不是网页一键唤起 WPS；不同版本/平台的文件打开对话框可能不同。
+- **其他软件**：同样提供复制链接，仅适用于能打开网络文件的软件，不保证所有 `.xlsx` 默认程序均支持。
+- 复制失败时显示可选中的只读链接，供用户手动 Ctrl+C/⌘C；不导航到 HTTPS 文件，不自动转为下载。链接持有者可读取文件，提示勿分享。
+- 到期禁用两种预览操作并清空手动链接输入框；换软件不能恢复过期链接。下载只在用户明确点“下载 Excel”时执行。
+
+Excel 直开
 使用微软 Office URI `ms-excel:ofv|u|https://…/BOM.xlsx`，不是下载按钮改名，也不在服务器启动 Excel。
-电脑需要安装并注册 Excel，浏览器第一次可能要求确认打开应用。手机或未安装 Excel 时可下载。
+电脑需要安装并注册对应协议处理程序，浏览器第一次可能要求确认打开应用。
 用户不用先手动保存；Excel 仍会经网络读取，并可能在本机产生临时缓存/受保护视图。
+WPS/其他软件读取链接时也可能生成本地缓存；不能将“不必手动下载保存”承诺成“本机绝无文件”。临时入口只提供读取，任何软件的内存编辑不能写回系统。
+
+网页不探测全部已安装应用，不自动按 WPS/Excel/默认程序轮流启动。WPS 官方的网页加载项集成需要加载项配置，本功能未安装、启用或借用任何加载项，也不使用未验证的 WPS 唤起协议。用户的系统默认程序、注册表、浏览器和 Office 安全策略均保持不变。
 
 ## 文件与访问边界
 
@@ -32,8 +47,10 @@ Cloudflare Worker 在 Streamlit 引导之前处理 `/api/bom-excel` 与 `/x/<随
 - Python：`tests.test_bom_native_excel`、`tests.test_bom_excel_preview`、`tests.test_bom_save_as` 纳入完整安全门禁。
 - Worker真实隔离D1：`node tests/test_bom_native_excel.mjs`（MINIFLARE_MODULE可指定已有miniflare安装路径，不使用远程数据库）。
 - Chrome桌面/手机布局、定时失效后下载字节不变：`python tools/check_bom_native_excel.py [--phone]`。
+- 复制/选择的专门浏览器验收包含初始空选择、WPS 实际复制、仅保存软件名、刷新不自动打开/复制、Excel URI、其他软件限制、过期后换软件不可复活、存储/剪贴板被拒时手动复制路径；预览流程不触发下载或请求 XLSX。
+- 本机 WPS 12.1.0.28505 独立自动化实例成功只读读取同一临时 HTTPS 文件，两个工作表及末行哨兵完整；未访问、改动或关闭用户已打开的 WPS 文档。该验证证明当前版本可读取链接，不等同于网页一键唤起或所有 WPS 版本的文件对话框验收。
 - 正式验收用合成BOM，通过正常会员登录；核对 native URI、HTTPS文件全部工作表和下载字节，移除/注销后的404，以及本机安装的Excel只读读取。
 - 不更改系统协议注册、浏览器确认策略、Excel信任中心或受保护视图。
 - 回退可恢复上一版结果操作控件；新增表不必删除，短期入口自然到期。不要替换任何会员/成本数据库或运行快照。
 
-参考：[微软 Office URI 规范](https://learn.microsoft.com/en-us/office/client-developer/office-uri-schemes)。
+参考：[微软 Office URI 规范](https://learn.microsoft.com/en-us/office/client-developer/office-uri-schemes)、[WPS 加载项集成说明](https://open.wps.cn/documents/app-integration-dev/wps365/client/wpsoffice/wps-integration-mode/wps-addin-development/wps-addin-integration-business-system-development)。

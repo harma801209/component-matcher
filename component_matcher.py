@@ -47958,13 +47958,28 @@ html, body {{ margin: 0; background: transparent; overflow: hidden; }}
         )
 
     template = r'''
+<div class="bom-local-preview-panel">
+<label class="bom-preview-choice" for="__BUTTON_ID__-app">本机预览
+  <select id="__BUTTON_ID__-app" aria-label="本机预览软件">
+    <option value="">选择打开软件</option>
+    <option value="wps">WPS · 复制链接打开</option>
+    <option value="excel">Excel · 一键只读预览</option>
+    <option value="other">其他软件 · 复制链接打开</option>
+  </select>
+</label>
 <div class="__CONTAINER_CLASS__ bom-save-as-wrap">
-  <a id="__BUTTON_ID__-preview" class="bom-save-as-btn bom-open-excel" role="link" target="_blank" rel="noopener noreferrer" aria-label="用本机 Excel 打开匹配后文件（只读）">本机 Excel（只读）</a>
+  <a id="__BUTTON_ID__-preview" class="bom-save-as-btn bom-open-excel" role="link" target="_blank" rel="noopener noreferrer" aria-label="用本机 Excel 打开匹配后文件（只读）" hidden>本机 Excel（只读）</a>
+  <button id="__BUTTON_ID__-copy" class="bom-save-as-btn bom-copy-preview" type="button" disabled>选择软件后预览</button>
   <button id="__BUTTON_ID__" class="bom-save-as-btn" type="button" title="__BUTTON_LABEL__">下载 Excel</button>
 </div>
-<div class="bom-excel-help" id="__BUTTON_ID__-help">需安装 Excel；链接 5 分钟有效，过期请刷新页面。</div>
+<div class="bom-excel-help" id="__BUTTON_ID__-help" role="status" aria-live="polite">不必先下载保存，也不需要安装助手。请选择已安装的软件。</div>
+<input id="__BUTTON_ID__-url" class="bom-preview-url" aria-label="临时预览链接" title="链接 5 分钟有效；持有链接可读取文件，请勿分享" type="text" readonly spellcheck="false" autocomplete="off" hidden>
+</div>
 <style>
 html, body { margin: 0; background: transparent; overflow: hidden; }
+.bom-local-preview-panel { padding: 2px; box-sizing: border-box; }
+.bom-preview-choice { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #526784; font: 13px/20px system-ui,sans-serif; }
+.bom-preview-choice select { box-sizing: border-box; flex: 1; min-width: 0; height: 32px; border: 1px solid #cbd3df; border-radius: 6px; background: #fff; color: #263244; font: 13px system-ui,sans-serif; }
 .bom-save-as-wrap { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .bom-save-as-btn {
   box-sizing: border-box; min-width: 0;
@@ -47975,10 +47990,13 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
 }
 .bom-save-as-btn:hover { border-color: #8090a6; background: #f7f9fb; }
 .bom-save-as-btn:focus-visible { outline: 3px solid rgba(37, 99, 235, .22); outline-offset: 1px; }
-.bom-save-as-btn:disabled { cursor: wait; color: #637083; background: #f4f6f8; }
+.bom-save-as-btn:disabled { cursor: not-allowed; color: #637083; background: #f4f6f8; }
 .bom-open-excel { display: flex; align-items: center; justify-content: center; text-decoration: none; color: #1651eb; border-color: #b5c9f2; }
 .bom-open-excel[aria-disabled=true] { color: #78869b; pointer-events: none; background: #f4f6f8; }
-.bom-excel-help {font:12px/18px system-ui,sans-serif;color:#64748b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bom-copy-preview { color: #1651eb; border-color: #b5c9f2; }
+.bom-excel-help {font:12px/18px system-ui,sans-serif;color:#64748b;margin-top:6px;overflow-wrap:anywhere}
+.bom-preview-url { box-sizing:border-box; width:100%; height:34px; margin-top:6px; padding:6px; border:1px solid #b5c9f2; border-radius:6px; color:#263244; font:12px system-ui,sans-serif; }
+[hidden] { display: none !important; }
 @media(max-width:300px){ .bom-save-as-btn {font-size:12px;padding:0 7px} .excel-word {display:none} }
 </style>
 <script>
@@ -47986,27 +48004,128 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
   const button = document.getElementById(__BUTTON_ID_JSON__);
   const defaultLabel = "下载 Excel";
   const preview = document.getElementById(__BUTTON_ID_JSON__ + "-preview");
+  const appChoice = document.getElementById(__BUTTON_ID_JSON__ + "-app");
+  const copyPreview = document.getElementById(__BUTTON_ID_JSON__ + "-copy");
+  const urlInput = document.getElementById(__BUTTON_ID_JSON__ + "-url");
   const nativeURI = __NATIVE_URI_JSON__;
+  const documentURL = __NATIVE_URL_JSON__;
   const expiresAt = __NATIVE_EXPIRY_JSON__;
   const help = document.getElementById(__BUTTON_ID_JSON__ + "-help");
-  if (nativeURI) {
-    preview.href = nativeURI;
-    preview.title = "用本机 Excel 打开（只读）；浏览器可能要求确认打开应用";
-    preview.addEventListener("click", event => {
-      if (Date.now() >= expiresAt * 1000) { event.preventDefault(); expire(); return; }
-      help.textContent = "请确认打开 Excel；如未弹出，请安装 Excel 或使用下载。";
+  const preferenceKey = "fruition.bom.preview-app.v1";
+  const supportedChoices = ["wps", "excel", "other"];
+  const panel = document.querySelector(".bom-local-preview-panel");
+  let resizeQueued = false;
+  function resizePanel() {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => {
+      resizeQueued = false;
+      const height = Math.ceil(panel.getBoundingClientRect().height) + 4;
+      // HTML components use a same-origin srcdoc iframe, not the custom-
+      // component message API. Resize only this frame and its own container.
+      try {
+        const frame = window.frameElement;
+        if (frame) {
+          frame.style.setProperty("height", height + "px", "important");
+          frame.style.setProperty("min-height", "0", "important");
+          frame.style.setProperty("max-height", "none", "important");
+          const container = frame.closest('[data-testid="stElementContainer"]') || frame.closest('.element-container');
+          if (container) {
+            container.style.setProperty("height", "auto", "important");
+            container.style.setProperty("flex", "0 0 auto", "important");
+            container.style.setProperty("min-height", "0", "important");
+            container.style.setProperty("max-height", "none", "important");
+          }
+        }
+      } catch (error) {}
     });
-    function expire() {
-      preview.removeAttribute("href"); preview.setAttribute("aria-disabled", "true");
-      preview.textContent = "链接已过期";
-      help.textContent = "刷新页面可更新打开链接；下载 Excel 不受影响。";
+  }
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(resizePanel).observe(panel);
+  window.addEventListener("resize", resizePanel);
+  if (document.fonts) document.fonts.ready.then(resizePanel);
+  function validLink() { return !!documentURL && Number.isFinite(expiresAt) && Date.now() < expiresAt * 1000; }
+  function expire() {
+    preview.removeAttribute("href"); preview.setAttribute("aria-disabled", "true");
+    preview.textContent = "链接已过期";
+    copyPreview.disabled = true; copyPreview.textContent = "链接已过期";
+    urlInput.value = ""; urlInput.hidden = true;
+    help.textContent = "预览链接已过期，请刷新页面重新生成。下载按钮不受影响。";
+    resizePanel();
+  }
+  function renderChoice() {
+    const app = appChoice.value;
+    preview.hidden = app !== "excel";
+    copyPreview.hidden = app === "excel";
+    urlInput.hidden = true; urlInput.value = "";
+    if (!documentURL) {
+      copyPreview.disabled = true; appChoice.disabled = true;
+      preview.setAttribute("aria-disabled", "true");
+      preview.title = __NATIVE_REASON_JSON__;
+      help.textContent = __NATIVE_REASON_JSON__;
+    } else if (!validLink()) {
+      expire(); return;
+    } else {
+      copyPreview.disabled = !supportedChoices.includes(app);
+      copyPreview.textContent = app ? "复制预览链接" : "选择软件后预览";
+      preview.href = nativeURI; preview.removeAttribute("aria-disabled");
+      preview.title = "用本机 Excel 打开（只读）；浏览器可能要求确认打开应用";
+      if (app === "excel") help.textContent = "确认浏览器打开 Excel 即可预览，无需先下载保存。链接 5 分钟有效。";
+      else if (app === "wps") help.textContent = "复制后：WPS → 打开文件 → 在文件名处粘贴链接并打开。无需先下载保存。";
+      else if (app === "other") help.textContent = "复制链接后，在支持网络链接的表格软件中打开；并非所有软件都支持。";
+      else help.textContent = "不必先下载保存，也不需要安装助手。请选择已安装的软件。";
     }
+    resizePanel();
+  }
+  try {
+    const savedApp = localStorage.getItem(preferenceKey);
+    if (supportedChoices.includes(savedApp)) appChoice.value = savedApp;
+  } catch (error) {}
+  appChoice.addEventListener("change", () => {
+    const app = appChoice.value;
+    try {
+      if (supportedChoices.includes(app)) localStorage.setItem(preferenceKey, app);
+      else localStorage.removeItem(preferenceKey);
+    } catch (error) {}
+    renderChoice();
+  });
+  renderChoice();
+  preview.addEventListener("click", event => {
+    if (!validLink()) { event.preventDefault(); expire(); return; }
+    help.textContent = "请确认打开 Excel；未打开可切换软件。网站不会自动下载。";
+    resizePanel();
+  });
+  if (documentURL && Number.isFinite(expiresAt)) {
     setTimeout(expire, Math.max(0, expiresAt * 1000 - Date.now()));
   } else {
     preview.setAttribute("aria-disabled", "true");
-    preview.title = __NATIVE_REASON_JSON__;
-    help.textContent = __NATIVE_REASON_JSON__;
   }
+  copyPreview.addEventListener("click", async () => {
+    if (!validLink()) { expire(); return; }
+    if (!["wps", "other"].includes(appChoice.value)) return;
+    const selectedApp = appChoice.value;
+    // Copy is explicit. Never navigate to HTTPS (which might download), launch
+    // an undocumented WPS protocol, or infer successful native-app opening.
+    urlInput.value = documentURL; urlInput.hidden = false;
+    urlInput.focus({preventScroll:true}); urlInput.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) {}
+    if (!copied) {
+      try { await navigator.clipboard.writeText(documentURL); copied = true; } catch (error) {}
+    }
+    if (!validLink()) { expire(); return; }
+    if (appChoice.value !== selectedApp) { renderChoice(); return; }
+    if (copied) {
+      urlInput.hidden = true; urlInput.value = "";
+      copyPreview.focus({preventScroll:true});
+      help.textContent = selectedApp === "wps"
+        ? "链接已复制：到 WPS 的“打开文件”中粘贴。5 分钟内有效，请勿分享。"
+        : "链接已复制：在支持网络链接的软件中打开。5 分钟内有效，请勿分享。";
+    } else {
+      help.textContent = "浏览器未允许复制，请选中下方链接后按 Ctrl+C（Mac：⌘C），再在软件中打开。";
+      urlInput.focus({preventScroll:true}); urlInput.select();
+    }
+    resizePanel();
+  });
   const filename = __FILENAME_JSON__;
   const bridgeChannel = __BRIDGE_CHANNEL_JSON__;
   const targetOrigin = __TARGET_ORIGIN_JSON__;
@@ -48137,6 +48256,7 @@ html, body { margin: 0; background: transparent; overflow: hidden; }
         "__TARGET_ORIGIN_JSON__": script_json(MEMBER_AUTH_OUTER_SHELL_ORIGIN),
         "__DATA_BASE64_JSON__": script_json(data_base64),
         "__NATIVE_URI_JSON__": script_json(native_uri),
+        "__NATIVE_URL_JSON__": script_json(native_link.get("url", "") if native_uri else ""),
         "__NATIVE_EXPIRY_JSON__": script_json(float(native_link.get("expires", 0))),
         "__NATIVE_REASON_JSON__": script_json(native_reason or "本机打开暂不可用，请使用下载 Excel。"),
     }
@@ -50918,7 +51038,7 @@ def render_bom_upload_page():
                                     native_link=native_link,
                                     native_reason=native_reason,
                                 ),
-                                height=72,
+                                height=220,
                                 scrolling=False,
                             )
                         clickable_bom_html = render_clickable_result_table(

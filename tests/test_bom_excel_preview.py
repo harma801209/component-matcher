@@ -127,6 +127,41 @@ class BomExcelPreviewTests(unittest.TestCase):
         self.assertNotIn('__PREVIEW_', footer)
         self.assertIn('showSaveFilePicker', footer)
 
+    def test_local_preview_choices_are_explicit_and_only_remember_app_name(self):
+        footer = footer_builder()(fixture_bytes(), 'matched.xlsx',
+                                  native_link={'url':'https://fruition-component.pages.dev/x/'+'A'*43+'/BOM.xlsx','expires':1999999999})
+        self.assertIn('aria-label="本机预览软件"', footer)
+        for option in ['value="wps"', 'value="excel"', 'value="other"']:
+            self.assertIn(option, footer)
+        self.assertIn('选择打开软件', footer)
+        self.assertIn('localStorage.setItem(preferenceKey, app)', footer)
+        self.assertNotIn('localStorage.setItem(preferenceKey, documentURL)', footer)
+        self.assertNotIn('ksowebstartup', footer)
+        self.assertNotIn('ksoet:', footer)
+        self.assertIn('复制预览链接', footer)
+        self.assertIn('并非所有软件都支持', footer)
+
+    def test_link_copy_never_starts_download_and_expiry_clears_manual_url(self):
+        footer = footer_builder()(fixture_bytes(), 'matched.xlsx',
+                                  native_link={'url':'https://fruition-component.pages.dev/x/'+'A'*43+'/BOM.xlsx','expires':1999999999})
+        copy_handler = footer[footer.index('copyPreview.addEventListener('):footer.index('const filename =')]
+        self.assertNotIn('browserDownload(', copy_handler)
+        self.assertNotIn('showSaveFilePicker', copy_handler)
+        self.assertNotIn('fetch(', copy_handler)
+        self.assertIn('document.execCommand("copy")', copy_handler)
+        self.assertIn('navigator.clipboard.writeText(documentURL)', copy_handler)
+        self.assertIn('urlInput.value = ""', footer)
+        self.assertIn('copyPreview.disabled = true', footer)
+        self.assertIn('const frame = window.frameElement', footer)
+        self.assertIn('ResizeObserver(resizePanel)', footer)
+
+    def test_untrusted_preview_url_never_enters_copy_control(self):
+        bad_url = 'https://evil.invalid/steal.xlsx?token=private'
+        footer = footer_builder()(fixture_bytes(), 'matched.xlsx',
+                                  native_link={'url':bad_url,'expires':1999999999})
+        self.assertNotIn(bad_url, footer)
+        self.assertIn('const documentURL = ""', footer)
+
     def test_saved_formula_values_are_read_without_recalculation(self):
         raw = fixture_bytes()
         output = io.BytesIO()
