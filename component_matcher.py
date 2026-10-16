@@ -44511,6 +44511,28 @@ def get_cached_bom_uploaded_file():
     return SessionCachedUploadedFile(file_cache)
 
 
+def on_bom_upload_changed():
+    """Detach the previous input only on an actual uploader change (including X).
+
+    A missing widget value on login/navigation is not a user removal, so normal
+    reruns still retain their cached input and persisted checkpoint recovery.
+    Do not delete stored jobs: only stop this page from automatically resuming
+    one the user has deliberately removed or replaced.
+    """
+    for key in (
+        BOM_PENDING_UPLOAD_CACHE_KEY, BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY,
+        BOM_POST_LOGIN_RESUME_STAGE_KEY, BOM_POST_LOGIN_AUTO_RESUME_AT_KEY,
+        "_bom_workbook_signature", "_bom_workbook_state", "_bom_parsed_upload_cache",
+        "_bom_result_signature", "_bom_result_df", "_bom_export_bytes",
+        "_bom_sheet_results", "_bom_sheet_mappings", "_bom_image_review",
+        "_bom_manual_mapping_open", "_bom_preview_html_cache",
+        "_bom_match_checkpoint", "_bom_retry_requested_signature",
+        "_active_bom_job_id", "_bom_restored_job",
+    ):
+        st.session_state.pop(key, None)
+    update_query_params(**{BOM_JOB_QUERY_PARAM: ""})
+
+
 def get_effective_bom_uploaded_file(uploaded_file):
     cached_uploaded = cache_uploaded_bom_file(uploaded_file)
     if cached_uploaded is not None:
@@ -50004,14 +50026,17 @@ def render_bom_image_review_tools(source, current, raw_bytes, review, sheet_name
 def render_bom_upload_page():
     st.markdown('<div class="result-title">BOM批量上传匹配</div>', unsafe_allow_html=True)
     startup_trace("after_bom_title")
-    uploaded_file = st.file_uploader("上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES, key="bom_upload_file")
+    uploaded_file = st.file_uploader(
+        "上传 BOM Excel/CSV/图片", type=BOM_UPLOAD_FILE_TYPES,
+        key="bom_upload_file", on_change=on_bom_upload_changed,
+    )
     from bom_image_clipboard import build_bom_image_clipboard_html
     components.html(build_bom_image_clipboard_html(), height=0, scrolling=False)
     startup_trace("after_file_uploader")
     effective_uploaded_file = get_effective_bom_uploaded_file(uploaded_file)
     if effective_uploaded_file is None:
         effective_uploaded_file = restore_persisted_bom_job_upload()
-    render_bom_post_login_resume_transition(effective_uploaded_file)
+    bom_resume_action = render_bom_post_login_resume_transition(effective_uploaded_file)
 
     if effective_uploaded_file is not None:
         if not require_member_login_for_action("BOM 批量上传匹配"):
@@ -50458,7 +50483,7 @@ def render_bom_upload_page():
                         current_bom_signature,
                         bom_export_mode,
                         start_clicked=match_start_clicked,
-                    ) or checkpoint_available or retry_requested
+                    ) or checkpoint_available or retry_requested or bom_resume_action == "resume"
                     if start_bom_matching:
                         st.session_state.pop("_bom_retry_requested_signature", None)
                     force_requested_rerun = (
@@ -50504,7 +50529,7 @@ def render_bom_upload_page():
                     if len(parse_columns) != len(set(parse_columns)):
                         st.info("当前有重复列被同时用于多个角色，系统会按你的选择继续解析。")
 
-                    if stored_bom_signature != current_bom_signature:
+                    if stored_bom_signature != current_bom_signature and start_bom_matching:
                         if start_bom_matching and not ensure_component_data_ready("BOM 匹配"):
                             render_bom_progress_card(
                                 progress_placeholder,

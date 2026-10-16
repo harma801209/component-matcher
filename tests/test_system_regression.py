@@ -3402,6 +3402,90 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(original_resume_values)
 
+    def test_bom_upload_change_detaches_old_file_and_job_without_touching_member(self):
+        app = self.app
+        originals = {key: app[key] for key in ('st', 'update_query_params', 'get_query_param_value', 'get_bom_job', 'current_bom_job_member_key')}
+        query = {app['BOM_JOB_QUERY_PARAM']: 'old-job', 'bom': '1'}
+        old_file = {'name': 'old.xlsx', 'bytes': b'old workbook', 'size': 12}
+        state = {
+            'bom_upload_file': None, app['BOM_PENDING_UPLOAD_CACHE_KEY']: old_file,
+            app['BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY']: True,
+            app['BOM_POST_LOGIN_RESUME_STAGE_KEY']: app['BOM_POST_LOGIN_STAGE_UPLOAD_RESTORED'],
+            app['BOM_POST_LOGIN_AUTO_RESUME_AT_KEY']: 1,
+            '_member_auth_token': 'preserve-token', 'unrelated': 'preserve-value',
+        }
+        stale_keys = ('_bom_workbook_signature', '_bom_workbook_state', '_bom_parsed_upload_cache',
+                      '_bom_result_signature', '_bom_result_df', '_bom_export_bytes', '_bom_sheet_results',
+                      '_bom_sheet_mappings', '_bom_image_review', '_bom_manual_mapping_open',
+                      '_bom_preview_html_cache', '_bom_match_checkpoint', '_bom_retry_requested_signature',
+                      '_active_bom_job_id', '_bom_restored_job')
+        state.update({key: 'old-state' for key in stale_keys})
+        try:
+            app['st'] = type('FakeST', (), {'session_state': state})()
+            def update(**values):
+                for key, value in values.items():
+                    if value:
+                        query[key] = value
+                    else:
+                        query.pop(key, None)
+            app['update_query_params'] = update
+            app['get_query_param_value'] = lambda key: query.get(key, '')
+            app['current_bom_job_member_key'] = lambda: 'id:7'
+            app['get_bom_job'] = lambda *a, **kw: self.fail('Removed upload must not restore its persisted job')
+            app['on_bom_upload_changed']()
+            self.assertIsNone(app['get_effective_bom_uploaded_file'](None))
+            self.assertIsNone(app['restore_persisted_bom_job_upload']())
+            for key in stale_keys:
+                self.assertNotIn(key, state)
+            self.assertNotIn(app['BOM_PENDING_UPLOAD_CACHE_KEY'], state)
+            self.assertFalse(state.get(app['BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY']))
+            self.assertNotIn(app['BOM_POST_LOGIN_RESUME_STAGE_KEY'], state)
+            self.assertNotIn(app['BOM_POST_LOGIN_AUTO_RESUME_AT_KEY'], state)
+            self.assertEqual(query, {'bom': '1'})
+            self.assertEqual(state['_member_auth_token'], 'preserve-token')
+            self.assertEqual(state['unrelated'], 'preserve-value')
+        finally:
+            app.update(originals)
+
+    def test_bom_replacement_is_new_input_but_ordinary_rerun_keeps_upload(self):
+        app = self.app
+        originals = {key: app[key] for key in ('st', 'update_query_params')}
+        new_file = UploadedBytes('same-name.xlsx', b'new file content')
+        state = {'bom_upload_file': new_file, '_bom_workbook_signature': 'old',
+                 '_bom_match_checkpoint': {'signature': 'old', 'sheet_rows': {'Sheet1': {'0': {}}}},
+                 '_bom_restored_job': {'settings': {'mode': app['BOM_EXPORT_MODE_AUTO']}}}
+        try:
+            app['st'] = type('FakeST', (), {'session_state': state})()
+            app['update_query_params'] = lambda **kw: None
+            app['on_bom_upload_changed']()
+            self.assertIs(state['bom_upload_file'], new_file)
+            self.assertNotIn('_bom_match_checkpoint', state)
+            self.assertNotIn('_bom_restored_job', state)
+            cached = app['get_effective_bom_uploaded_file'](new_file)
+            self.assertEqual(cached.getvalue(), b'new file content')
+            # No callback on a normal rerun/login transition: cached input survives.
+            state['_bom_workbook_signature'] = app['build_uploaded_file_signature'](cached)
+            self.assertEqual(app['get_effective_bom_uploaded_file'](None).getvalue(), b'new file content')
+            state.pop('_bom_workbook_signature')
+            state[app['BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY']] = True
+            self.assertEqual(app['get_effective_bom_uploaded_file'](None).getvalue(), b'new file content')
+        finally:
+            app.update(originals)
+
+    def test_bom_renderer_requires_start_or_resume_and_registers_upload_callback(self):
+        import ast
+        from pathlib import Path
+        source = Path(self.base_dir, 'component_matcher.py').read_text(encoding='utf-8')
+        page = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'render_bom_upload_page')
+        uploader = next(n for n in ast.walk(page) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'file_uploader')
+        self.assertEqual(ast.unparse(next(k.value for k in uploader.keywords if k.arg == 'on_change')), 'on_bom_upload_changed')
+        guarded = [n for n in ast.walk(page) if isinstance(n, ast.If)
+                   and ast.unparse(n.test) == 'stored_bom_signature != current_bom_signature and start_bom_matching']
+        self.assertEqual(len(guarded), 1, 'Changing brand/reading a file cannot run matching without Start or a real checkpoint')
+        start = next(n.value for n in ast.walk(page) if isinstance(n, ast.Assign)
+                     and any(isinstance(t, ast.Name) and t.id == 'start_bom_matching' for t in n.targets))
+        self.assertIn("bom_resume_action == 'resume'", ast.unparse(start), 'Keep the explicit post-login continuation')
+
     def test_02d_compact_search_summary_and_read_only_runtime_snapshot(self):
         app = self.app
         progress_state = app["build_search_progress_state"](
