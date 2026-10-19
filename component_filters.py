@@ -246,10 +246,19 @@ def where_clause(fields, component_type, selected, ranges, keyword="", omit=""):
     return ' AND '.join(clauses), params
 
 
-def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, verified_unique=False):
+def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, sort_key="", sort_desc=False, verified_unique=False):
     table, fields = available_profile(conn, component_type)
     selected, ranges = selected or {}, ranges or {}
     where, params = where_clause(fields, component_type, selected, ranges, keyword)
+    sortable = {f.key:f.expression for f in fields} | {'型号':'"型号"', '品牌':'"品牌"'}
+    if sort_key and sort_key not in sortable:
+        raise ValueError('无效的排序字段。')
+    if sort_key == '_tol':
+        text='TRIM(CAST("_tol" AS TEXT))'
+        # Normalized percentages are stored as text: 2% must precede 10%,
+        # while unspecified sentinels/compound markings stay unknown/last.
+        sortable['_tol']=f'CASE WHEN {text} NOT GLOB \'*[^0-9.]*\' AND {text} GLOB \'*[0-9]*\' AND LENGTH({text})-LENGTH(REPLACE({text},\'.\',\'\'))<=1 AND CAST({text} AS REAL)>0 AND CAST({text} AS REAL)<=100 THEN CAST({text} AS REAL) END'
+    order = (f'({sortable[sort_key]}) {"DESC" if sort_desc else "ASC"} NULLS LAST,' if sort_key else '') + '"品牌","型号"'
     identity = 'COALESCE("品牌",\'\')||char(0)||"型号"'
     # The app caches an actual uniqueness audit by database revision and kind.
     # Never assume a table is unique just because the normal builder dedupes it.
@@ -274,7 +283,7 @@ def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=
         # One real source record per pair; do not combine conflicting fields
         # from different records into a synthetic specification.
         group = '' if verified_unique else 'GROUP BY "品牌","型号"'
-        cursor = conn.execute(f'SELECT "品牌","型号"{projection} FROM "{table}" WHERE {where} {group} ORDER BY "品牌","型号" LIMIT ? OFFSET ?', params + [size, (page - 1) * size])
+        cursor = conn.execute(f'SELECT "品牌","型号"{projection} FROM "{table}" WHERE {where} {group} ORDER BY {order} LIMIT ? OFFSET ?', params + [size, (page - 1) * size])
         columns = [d[0] for d in cursor.description]
         rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
     return {'total':total, 'facets':facets, 'page':page, 'pages':pages, 'page_size':size, 'rows':rows, 'fields':fields}
@@ -314,7 +323,7 @@ def choice_key(field_key, value):
     return PREFIX + 'choice_' + field_key + '_' + hashlib.sha256(str(value).encode('utf-8')).hexdigest()[:20]
 
 
-def render(st, categories, get_snapshot, on_login, is_member, on_match):
+def render(st, categories, get_snapshot, on_login, is_member, on_match, results_renderer=None):
     """Streamlit UI; counts are public catalogue metadata, models require login."""
     st.markdown('### 按规格查找库内器件')
     st.caption('每个数量按该品类的“品牌＋型号”去重，不是库存数量；只统计库内条目，不含规则推导的候选型号。')
@@ -344,7 +353,7 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match):
                     ranges[field.key] = bounds
             elif st.session_state.get(PREFIX+field.key):
                 selected[field.key] = list(st.session_state[PREFIX+field.key])
-        result = get_snapshot(kind, selected, ranges, st.session_state.get(PREFIX+'keyword', ''), int(st.session_state.get(PREFIX+'page', 1)), int(st.session_state.get(PREFIX+'size', 20)), bool(is_member))
+        result = get_snapshot(kind, selected, ranges, st.session_state.get(PREFIX+'keyword', ''), int(st.session_state.get(PREFIX+'page', 1)), int(st.session_state.get(PREFIX+'size', 20)), bool(is_member), st.session_state.get(PREFIX+'sort',''), bool(st.session_state.get(PREFIX+'desc',False)))
     except ValueError as exc:
         st.warning(str(exc))
         # Keep invalid input editable; don't display old results as current.
@@ -425,41 +434,21 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match):
     if invalid:
         st.info('请修正范围后查看结果；当前没有展示旧结果。')
         return
-    st.caption('已选条件：' + ('；'.join(active) if active else '该品类全部库内条目'))
-    st.markdown(f'#### 找到 {result["total"]:,} 个库内型号')
-    st.caption('缺失参数仅在“不限”或“未提供”时纳入；选择数值范围后，不会把未知值当作 0。筛选结果不代表可替代性或供货承诺。')
+    condition = '；'.join(active) if active else '该品类全部库内条目'
     if not is_member:
+        st.caption('已选条件：'+condition)
+        st.markdown(f'#### 找到 {result["total"]:,} 个库内型号')
         st.info('登录会员后可查看具体型号；价格仍按原有账号和客户权限显示。')
         if st.button('登录查看筛选结果', type='primary'):
             on_login()
         return
     if not result['total']:
+        st.markdown('#### 找到 0 个库内型号')
         st.warning('没有同时满足这些条件的库内型号。可移除部分条件或清空筛选；这不代表厂家不能生产。')
         return
-    pager = st.columns([2, 2, 3])
-    pager[0].selectbox('每页型号数', [20, 50, 100], key=PREFIX+'size', on_change=changed)
-    # A changed filter can reduce the maximum page; synchronize before widget.
-    st.session_state[PREFIX+'page'] = result['page']
-    pager[1].number_input('页码', min_value=1, max_value=result['pages'], step=1, key=PREFIX+'page', on_change=lambda: st.session_state.pop(PREFIX+'picked', None))
-    pager[2].caption(f'第 {result["page"]} / {result["pages"]} 页 · 总计 {result["total"]:,} 个型号')
-    import pandas as pd
-    shown = []
-    for row in result['rows']:
-        item = {'品牌':row.get('品牌',''), '型号':row['型号'], '器件品类':kind}
-        for field in result['fields']:
-            if field.key == '品牌':
-                continue
-            value = row.get(field.key)
-            if field.units and value is not None:
-                unit, scale = field.units[0]
-                item[field.label] = f'{float(value)/scale:g} {unit}'
-            else:
-                item[field.label] = option_label(field, value)
-        shown.append(item)
-    st.dataframe(pd.DataFrame(shown), hide_index=True, use_container_width=True, height=min(640, 40+35*len(shown)))
-    by_pair = {(row.get('品牌') or '', row['型号']):row for row in result['rows']}
-    if st.session_state.get(PREFIX+'picked') is not None and st.session_state[PREFIX+'picked'] not in by_pair:
-        st.session_state.pop(PREFIX+'picked', None)
-    picked = st.selectbox('选择型号，继续查看价格与替代型号', [None]+list(by_pair), key=PREFIX+'picked', format_func=lambda pair: '请选择一个型号' if pair is None else f'{pair[0]} · {pair[1]}')
-    st.button('查看价格与替代型号', type='primary', disabled=picked is None, on_click=on_match, args=(by_pair[picked]['型号'] if picked is not None else '',), use_container_width=True)
-    st.caption('此处不展示成本。继续后使用原有搜索、客户和成本时间设置，不会自动放宽规格。')
+    from catalog_result_table import build_payload, render_table, handle_request
+    payload = build_payload(result, kind, condition, selected, ranges, st.session_state.get(PREFIX+'keyword',''), st.session_state.get(PREFIX+'sort',''), bool(st.session_state.get(PREFIX+'desc',False)))
+    request = (results_renderer or render_table)(payload, key=PREFIX+'result_table')
+    if handle_request(st.session_state, payload, request, on_match):
+        st.rerun()
+    st.caption('未知参数不按 0 处理；筛选不代表可直接替代或供货承诺。点击型号查看匹配，价格沿用原有账号、客户和成本时间权限。')

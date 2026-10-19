@@ -258,8 +258,13 @@ fixture=CatalogFilterTests()
 fixture.setUp()
 def match(model):
     st.session_state['matched_from_catalog']=model
-render(st,category_counts(fixture.conn),lambda *args: snapshot(fixture.conn,*args),lambda: st.write('LOGIN-REQUIRED'),True,match)
-fixture.tearDown()
+def table(payload,key):
+    st.json(payload)
+    return st.session_state.pop('fixture_action',None)
+try:
+    render(st,category_counts(fixture.conn),lambda *args: snapshot(fixture.conn,*args),lambda: st.write('LOGIN-REQUIRED'),True,match,table)
+finally:
+    fixture.tearDown()
 '''
 
     def test_render_state_changes_invalid_range_clear_and_handoff(self):
@@ -275,9 +280,11 @@ fixture.tearDown()
         at.selectbox(key=PREFIX+'_res_ohm_unit').select('kΩ').run()
         at.text_input(key=PREFIX+'_res_ohm_high').set_value('5.6').run()
         self.assertFalse(at.exception)
-        self.assertTrue(any('找到 1 个' in item.value for item in at.markdown))
-        at.selectbox(key=PREFIX+'picked').select(('B','R3')).run()
-        next(b for b in at.button if b.label=='查看价格与替代型号').click().run()
+        import json
+        payload=json.loads(at.json[0].value)
+        self.assertEqual(payload['total'],1)
+        at.session_state['fixture_action']=dict(action='match',view=payload['view'],event='test-match',id=payload['rows'][0]['id'])
+        at.run()
         self.assertEqual(at.session_state['matched_from_catalog'], 'R3')
         at.text_input(key=PREFIX+'_res_ohm_high').set_value('1').run()
         self.assertFalse(at.exception)
@@ -291,7 +298,7 @@ fixture.tearDown()
         import platform
         platform._wmi = None
         from streamlit.testing.v1 import AppTest
-        at = AppTest.from_string(self.SOURCE.replace('True,match)', 'False,match)'), default_timeout=30).run()
+        at = AppTest.from_string(self.SOURCE.replace('True,match,table)', 'False,match,table)'), default_timeout=30).run()
         at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
         at.checkbox(key=choice_key('_size','0402')).check().run()
         at.selectbox(key=PREFIX+'category').select('MLCC').run()
@@ -313,9 +320,11 @@ fixture.tearDown()
         self.assertEqual(at.selectbox(key=PREFIX+'category').options,['请选择品类 · 查看全部已收录种类','厚膜电阻（6）'])
         at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
         self.assertFalse(at.exception)
-        self.assertIsNone(at.selectbox(key=PREFIX+'picked').value)
+        self.assertEqual(len(at.json),1)
+        self.assertFalse(any(s.key==PREFIX+'picked' for s in at.selectbox))
         at.selectbox(key=PREFIX+'family').select('MOS管').run()
         at.selectbox(key=PREFIX+'category').select('MOSFET').run()
-        self.assertTrue(any('找到 1 个' in item.value for item in at.markdown))
+        import json
+        self.assertEqual(json.loads(at.json[0].value)['total'],1)
         at.button(key=PREFIX+'clear').click().run()
         self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
