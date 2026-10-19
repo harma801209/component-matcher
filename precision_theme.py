@@ -67,6 +67,11 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-subtitle {color:#4d6384;font-size:14px;line-height:1.55;margin:0 0 14px;}
 .wb-test-note {font-size:13px;color:#4d6384;margin:0 0 18px;}
 .st-key-workbench-search-panel {background:#fff;border:1px solid #d9e3ef;border-radius:10px;padding:18px 20px;margin-bottom:16px;}
+.st-key-catalog-search-panel {background:#fff;border:1px solid #d9e3ef;border-radius:10px;padding:18px 20px;margin-bottom:16px;}
+.st-key-catalog-search-panel [data-testid="stMultiSelect"] {min-width:0;}
+.st-key-catalog-search-panel [data-testid="stTextInput"] [data-baseweb="input"] {border:1px solid #b8c9df!important;border-radius:7px!important;background:#fff!important;}
+.st-key-catalog-search-panel [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {border-color:#1555e8!important;}
+@media(max-width:760px) {.st-key-catalog-search-panel {padding:14px 12px;}.st-key-catalog-search-panel [data-testid="stHorizontalBlock"] {flex-direction:column;gap:8px;}.st-key-catalog-search-panel [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}}
 .st-key-workbench-search-panel [data-testid="stButton"] button[kind="primary"] {min-height:42px!important;width:150px!important;}
 .main-title,.result-title,.section-title {color:#172b4d!important;font-weight:700!important;}
 .sub-title,.sub-title-2 {color:#4d6384!important;}
@@ -161,7 +166,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
         href = html.escape(login_href or member_href, quote=True)
         account = f'<a class="wb-login-button" href="{href}" target="_self" role="button" aria-label="会员登录">{navigation_icon("person")}会员登录</a>'
     titles = {
-        "search": ("元器件搜索", "支持完整型号与规格参数，每行一条。系统按原有规则匹配同规格品牌型号与对应价格。"),
+        "search": ("元器件搜索", "输入型号或文字规格，也可按库内品类与参数筛选。价格与替代匹配仍按原有规则和权限处理。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),
         "training": ("产品培训", "学习电容、电阻、电感、晶振、MOS管、二极管和三极管，掌握常用品类、结构与电路作用。"),
         "member": ("会员中心", "管理账号资料、客户与使用记录。"),

@@ -67,9 +67,11 @@ from fojan_resistor_catalog import get_fojan_special_resistor_series
 import member_auth_runtime as member_auth_runtime_state
 import importlib as _workbench_importlib
 import precision_theme as _workbench_theme
+import component_filters as _catalog_filters
 # Existing cloud script caches may still use the previous entrypoint loader.
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
+_workbench_importlib.reload(_catalog_filters)
 from precision_theme import CSS as WORKBENCH_CSS, TABLE_CSS as WORKBENCH_TABLE_CSS, render_header as render_workbench_header
 from bom_job_store import (
     create_or_update_job as _create_or_update_bom_job,
@@ -323,7 +325,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-16T17:29:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-19T09:20:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49611,6 +49613,79 @@ def official_verify_dataframe(lines, brand_mode="自动判断"):
     return pd.DataFrame(rows)
 
 
+def catalog_filter_data_signature():
+    signature = {"version": PUBLIC_CODE_STAMP}
+    add_path_signature_fields(signature, "catalog", SEARCH_DB_PATH)
+    add_path_signature_fields(signature, "catalog_wal", SEARCH_DB_PATH + "-wal")
+    return json.dumps(signature, sort_keys=True)
+
+
+@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+def cached_catalog_categories(data_signature):
+    conn = open_search_db_connection(timeout_sec=10)
+    if conn is None:
+        raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")
+    try:
+        return _catalog_filters.category_counts(conn)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=3600, max_entries=32, show_spinner=False)
+def cached_catalog_unique(data_signature, component_type):
+    conn = open_search_db_connection(timeout_sec=10)
+    if conn is None:
+        return False
+    try:
+        return _catalog_filters.has_unique_model_rows(conn, component_type)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
+def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows):
+    verified_unique = cached_catalog_unique(data_signature, component_type)
+    conn = open_search_db_connection(timeout_sec=10)
+    if conn is None:
+        raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")
+    try:
+        return _catalog_filters.snapshot(conn, component_type, selected, ranges, keyword, page, page_size, include_rows, verified_unique)
+    finally:
+        conn.close()
+
+
+def handoff_catalog_model_to_search(model):
+    model = clean_text(model)
+    if model:
+        st.session_state["_catalog_match_model"] = model
+        st.session_state["search_entry_mode"] = _catalog_filters.TEXT_MODE
+
+
+def render_catalog_member_prompt():
+    # A login form must remain mounted on its submit rerun, not only on the
+    # first "login to view" click. Reuse the existing per-run duplicate guard.
+    action = clean_text(st.session_state.get("_member_auth_prompt_action", ""))
+    if action and not current_member():
+        render_member_auth_panel(action)
+
+
+def render_catalog_search_page():
+    try:
+        signature = catalog_filter_data_signature()
+        with st.spinner("正在读取库内品类和筛选数量…"):
+            categories = cached_catalog_categories(signature)
+        _catalog_filters.render(
+            st, categories,
+            lambda *args: cached_catalog_snapshot(signature, *args),
+            lambda: require_member_login_for_action("查看规格筛选结果"),
+            bool(current_member()), handoff_catalog_model_to_search,
+        )
+    except (ValueError, sqlite3.DatabaseError) as exc:
+        logging.warning("Catalogue filter unavailable: %s", type(exc).__name__)
+        st.warning("筛选暂时不可用，请稍后重试；您仍可切换到型号／文字搜索。")
+    render_catalog_member_prompt()
+
+
 def load_search_dataframe_for_action(action_label):
     cache_signature = get_data_cache_signature()
     with st.spinner(f"正在加载元件库，准备{action_label}..."):
@@ -51246,6 +51321,19 @@ if workbench_active == "training":
 pending_search_after_login = resumable_member_search_query()
 pending_brand_mode, pending_search_brands = resumable_member_search_brand_settings()
 pending_customer_type, pending_customer_name = resumable_member_search_customer_context()
+catalog_match_model = clean_text(st.session_state.pop("_catalog_match_model", ""))
+if catalog_match_model or pending_search_after_login:
+    st.session_state["search_entry_mode"] = _catalog_filters.TEXT_MODE
+if catalog_match_model:
+    st.session_state["search_query_input"] = catalog_match_model
+search_entry_mode = st.radio(
+    "搜索方式", [_catalog_filters.TEXT_MODE, _catalog_filters.FILTER_MODE],
+    key="search_entry_mode", horizontal=True,
+)
+if search_entry_mode == _catalog_filters.FILTER_MODE:
+    with st.container(key="catalog-search-panel"):
+        render_catalog_search_page()
+    st.stop()
 search_brand_mode_key = "search_brand_mode"
 search_selected_brands_key = "search_selected_brands"
 if pending_search_after_login and pending_brand_mode in {SEARCH_BRAND_MODE_AUTO, SEARCH_BRAND_MODE_CUSTOM}:
@@ -51317,7 +51405,8 @@ if pending_search_after_login:
 search_requested = bool(
     search_clicked or
     (restore_search_after_report and query_input.strip()) or
-    pending_search_after_login
+    pending_search_after_login or
+    catalog_match_model
 )
 startup_trace("after_search_form")
 

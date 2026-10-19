@@ -2788,6 +2788,29 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertIn('class="wb-page-heading"', rendered[-1])
                 self.assertIn(f'class="wb-title">{title}</div>', rendered[-1])
 
+    def test_02b_catalog_login_prompt_survives_submit_rerun_and_keeps_handoff_exact(self):
+        app = self.app
+        saved = {key: app[key] for key in ("st", "current_member", "render_member_auth_panel")}
+        state = {"_member_auth_prompt_action":"查看规格筛选结果"}
+        rendered = []
+        try:
+            app["st"] = type("FakeStreamlit", (), {"session_state":state})()
+            app["current_member"] = lambda: None
+            app["render_member_auth_panel"] = lambda action: rendered.append(action)
+            app["render_catalog_member_prompt"]()
+            app["render_catalog_member_prompt"]()
+            self.assertEqual(rendered, ["查看规格筛选结果"] * 2)
+            app["current_member"] = lambda: {"id":123}
+            app["render_catalog_member_prompt"]()
+            self.assertEqual(len(rendered), 2)
+            state["search_query_input"] = "OLD"
+            app["handoff_catalog_model_to_search"](" FRC0402F1001TS ")
+            self.assertEqual(state["_catalog_match_model"], "FRC0402F1001TS")
+            self.assertEqual(state["search_entry_mode"], app["_catalog_filters"].TEXT_MODE)
+            self.assertEqual(state["search_query_input"], "OLD")
+        finally:
+            app.update(saved)
+
     def test_02b_workbench_theme_hot_update_refreshes_runtime_cache(self):
         import ast
         import importlib
