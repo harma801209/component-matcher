@@ -325,7 +325,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-19T09:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-19T10:20:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49617,6 +49617,7 @@ def catalog_filter_data_signature():
     signature = {"version": PUBLIC_CODE_STAMP}
     add_path_signature_fields(signature, "catalog", SEARCH_DB_PATH)
     add_path_signature_fields(signature, "catalog_wal", SEARCH_DB_PATH + "-wal")
+    add_path_signature_fields(signature, "catalog_details", PREPARED_CACHE_PATH)
     return json.dumps(signature, sort_keys=True)
 
 
@@ -49637,9 +49638,20 @@ def cached_catalog_unique(data_signature, component_type):
     if conn is None:
         return False
     try:
+        _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
         return _catalog_filters.has_unique_model_rows(conn, component_type)
     finally:
         conn.close()
+
+
+@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+def cached_catalog_parameters(data_signature, component_type):
+    if component_type in _catalog_filters.SEMICONDUCTORS | _catalog_filters.INDUCTORS and not os.path.isfile(PREPARED_CACHE_PATH):
+        # Public cold startup restores only the lightweight query index. Read
+        # this already-published detail asset lazily, never rebuild the library
+        # or expand the startup/bundle requirements for ordinary text searches.
+        ensure_streamlit_cloud_data_bundle(required_paths=[PREPARED_CACHE_PATH])
+    return _catalog_filters.load_parameter_rows(PREPARED_CACHE_PATH, component_type)
 
 
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
@@ -49649,6 +49661,7 @@ def cached_catalog_snapshot(data_signature, component_type, selected, ranges, ke
     if conn is None:
         raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")
     try:
+        _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
         return _catalog_filters.snapshot(conn, component_type, selected, ranges, keyword, page, page_size, include_rows, verified_unique)
     finally:
         conn.close()

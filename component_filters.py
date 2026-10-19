@@ -8,12 +8,98 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import hashlib
 import math
+import os
+import re
 
 CORE = "components_search_core"
 MISSING = "__catalog_missing__"
 PREFIX = "catalog_filter_"
 TEXT_MODE = "型号／文字搜索"
 FILTER_MODE = "按规格筛选"
+SEMICONDUCTORS = {"MOSFET", "二极管", "TVS二极管", "三极管"}
+INDUCTORS = {"共模电感", "功率电感", "射频电感", "磁珠"}
+DETAIL_COLUMNS = ("品牌", "型号", "_component_type", "封装代码", "极性", "特殊用途", "_volt_num", "耐压（V）", "额定电流", "DCR", "饱和电流", "屏蔽类型", "回路数", "安装方式", "生产状态", "工作温度", "_power")
+
+
+def family_of_kind(kind):
+    if '电阻' in kind:
+        return '电阻'
+    if kind in {'MLCC', '钽电容'} or '电容' in kind:
+        return '电容'
+    if kind in INDUCTORS:
+        return '电感／磁珠'
+    if kind in {'晶振', '振荡器', '实时时钟模块'}:
+        return '晶振／时钟'
+    if kind == 'MOSFET':
+        return 'MOS管'
+    if '二极管' in kind:
+        return '二极管'
+    if kind == '三极管':
+        return '三极管'
+    return '其他'
+
+
+def scalar_current(value):
+    """Only an unambiguous single current; never strip test conditions/ranges."""
+    match = re.fullmatch(r'\s*(\d+(?:\.\d+)?)\s*(A|mA|µA|μA|uA)\s*', str(value or ''))
+    if not match:
+        return None
+    number = float(match[1]) * {'A':1, 'mA':1e-3, 'µA':1e-6, 'μA':1e-6, 'uA':1e-6}[match[2]]
+    return number if math.isfinite(number) else None
+
+
+def load_parameter_rows(path, component_type):
+    """Project only this kind's missing fields from the existing public asset.
+
+    No source rebuild, writes or full-library DataFrame. Costs/auth columns are
+    never read. Unknown kinds stay on the indexed-core fallback.
+    """
+    if component_type not in SEMICONDUCTORS | INDUCTORS or not os.path.isfile(path):
+        return []
+    import pyarrow.parquet as pq
+    with pq.ParquetFile(path) as source:
+        names = set(source.schema_arrow.names)
+    if not {'品牌', '型号', '_component_type'}.issubset(names):
+        return []
+    columns = [c for c in DETAIL_COLUMNS if c in names]
+    table = pq.read_table(path, columns=columns, filters=[('_component_type', '=', component_type)], use_threads=False)
+    rows, seen = [], set()
+    for row in table.to_pylist():
+        identity = (row['品牌'], row['型号'], row['_component_type'])
+        if not row['型号'] or identity in seen:
+            continue
+        # Select one actual record, never manufacture a composite specification.
+        seen.add(identity)
+        row['_current_amps'] = scalar_current(row.get('额定电流'))
+        row['_saturation_amps'] = scalar_current(row.get('饱和电流'))
+        rows.append(row)
+    return rows
+
+
+def install_parameter_rows(conn, component_type, rows):
+    """Connection-local LEFT JOIN: current indexed catalogue is the authority.
+
+    New/deleted models cannot appear from a stale prepared file. Missing detail
+    remains NULL; a newly indexed model is not dropped. TEMP data disappears on
+    close, even when the search database is opened read-only.
+    """
+    if component_type not in SEMICONDUCTORS | INDUCTORS or not rows:
+        return
+    table, _ = available_profile(conn, component_type)
+    base_columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+    allowed = set(DETAIL_COLUMNS) | {'_current_amps', '_saturation_amps'}
+    columns = ['品牌', '型号', '_component_type'] + sorted((set().union(*(r.keys() for r in rows)) & allowed) - {'品牌', '型号', '_component_type'})
+    valid = [r for r in rows if r.get('_component_type') == component_type and r.get('型号')]
+    if not valid:
+        return
+    names = ','.join(f'"{c}"' for c in columns)
+    conn.execute(f'CREATE TEMP TABLE catalog_filter_parameters ({names}, PRIMARY KEY ("品牌","型号","_component_type"))')
+    conn.executemany(f'INSERT OR IGNORE INTO catalog_filter_parameters ({names}) VALUES ({",".join("?" for _ in columns)})', [tuple(r.get(c) for c in columns) for r in valid])
+    # The core contains ~1.7M identities but only a few dozen MOS/transistors.
+    # Materialize this indexed kind once, not a core scan for every facet.
+    conn.execute(f'CREATE TEMP TABLE catalog_filter_base AS SELECT * FROM "{table}" WHERE "_component_type"=?', (component_type,))
+    extra = ''.join(f', d."{c}" AS "{c}"' for c in columns if c not in base_columns)
+    conn.execute(f'CREATE TEMP VIEW catalog_filter_source AS SELECT b.*{extra} FROM catalog_filter_base b LEFT JOIN catalog_filter_parameters d ON b."品牌" IS d."品牌" AND b."型号"=d."型号" AND b."_component_type"=d."_component_type"')
 
 
 @dataclass(frozen=True)
@@ -34,28 +120,42 @@ def profile(component_type):
     package = column("_size", "封装／尺寸代码")
     tolerance = column("_tol", "精度／误差")
     if component_type in {"贴片电阻", "厚膜电阻", "薄膜电阻", "合金电阻", "碳膜电阻", "绕线电阻", "金属氧化膜电阻", "热敏电阻"}:
-        return "components_search_resistor", common + [package, tolerance, column("_power_watt", "额定功率"), column("_res_ohm", "阻值范围", (("Ω", 1), ("kΩ", 1e3), ("MΩ", 1e6)))]
+        fields = common + [package, tolerance, column("_power_watt", "额定功率"), column("_res_ohm", "阻值范围", (("Ω", 1), ("kΩ", 1e3), ("MΩ", 1e6)))]
+        if component_type == '热敏电阻':
+            fields += [column('B值', 'B值'), column('B值条件', 'B值测试条件')]
+        return "components_search_resistor", fields
     if component_type in {"MLCC", "引线型陶瓷电容", "薄膜电容", "铝电解电容", "安规电容", "钽电容"}:
-        return "components_search_capacitor", common + [package, column("_mat", "介质／材质"), tolerance, column("_mount_style", "安装方式"), column("_safety_class", "安规等级"), column("_pf", "容量范围", (("pF", 1), ("nF", 1e3), ("µF", 1e6))), column("_volt_num", "额定耐压范围", (("V", 1),)), column("_body_size", "本体尺寸"), column("_pitch", "脚距"), column("_special_use_norm", "用途／特性")]
+        return "components_search_capacitor", common + [package, column("_mat", "介质／材质"), tolerance, column("_mount_style", "安装方式"), column("_safety_class", "安规等级"), column("_pf", "容量范围", (("pF", 1), ("nF", 1e3), ("µF", 1e6))), column("_volt_num", "额定耐压范围", (("V", 1),)), column("_body_size", "本体尺寸"), column("_pitch", "脚距"), column("_special_use_norm", "用途／特性"), column('_life_hours_num', '寿命范围', (('h',1),)), column('_temp_low', '最低工作温度（℃）'), column('_temp_high', '最高工作温度（℃）')]
+    if component_type in SEMICONDUCTORS:
+        polarity = {'MOSFET':'沟道极性', '三极管':'NPN／PNP', 'TVS二极管':'单向／双向', '二极管':'结构／极性'}[component_type]
+        dynamic = {'MOSFET':'Rds(on)及测试条件', '三极管':'hFE／动态参数', 'TVS二极管':'击穿／钳位参数', '二极管':'Vf／动态参数'}[component_type]
+        return CORE, common + [column('封装代码','封装'), column('极性',polarity), column('特殊用途','类型／用途'), column('_volt_num','库内标注电压范围',(('V',1),)), column('_current_amps','库内额定电流范围',(('A',1),('mA',0.001))), column('额定电流','原始电流标注'), column('DCR',dynamic), column('_power','库内功率标注'), column('安装方式','安装方式'), column('生产状态','生产状态'), column('工作温度','工作温度')]
     if component_type in {"贴片压敏电阻", "引线型压敏电阻", "压敏电阻"}:
         return "components_search_varistor", common + [column("_disc_size", "尺寸"), tolerance, column("_varistor_voltage", "压敏电压"), column("_pitch", "脚距")]
     if component_type in {"共模电感", "功率电感", "射频电感", "磁珠", "晶振", "振荡器", "实时时钟模块"}:
-        fields = common + [package, tolerance]
+        fields = common + [package]
         if component_type in {"晶振", "振荡器", "实时时钟模块"}:
             expr = 'CASE UPPER("_unit_upper") WHEN \'HZ\' THEN "_value_num" WHEN \'KHZ\' THEN "_value_num"*1000 WHEN \'MHZ\' THEN "_value_num"*1000000 WHEN \'GHZ\' THEN "_value_num"*1000000000 END'
             fields += [Field("frequency_hz", "频率范围", expr, (("MHz", 1e6), ("kHz", 1e3), ("Hz", 1))), column("输出类型", "输出类型"), column("电源电压", "供电电压"), column("频差（ppm）", "频差（ppm）")]
         else:
+            fields += [tolerance, column('屏蔽类型','屏蔽类型'), column('回路数','回路数'), column('_current_amps','额定电流范围',(('A',1),('mA',0.001))), column('_saturation_amps','饱和电流范围',(('A',1),('mA',0.001))), column('额定电流','原始额定电流'), column('饱和电流','原始饱和电流'), column('DCR','DCR及测试条件')]
             expr = 'CASE WHEN "_unit_upper" IN (\'NH\',\'nH\') THEN "_value_num"*0.001 WHEN "_unit_upper" IN (\'UH\',\'uH\',\'µH\',\'μH\',\'ΜH\') THEN "_value_num" WHEN "_unit_upper" IN (\'MH\',\'mH\') THEN "_value_num"*1000 END'
             fields += [Field("inductance_uh", "电感量范围", expr, (("µH", 1), ("nH", 0.001), ("mH", 1e3)))]
             if component_type in {"共模电感", "磁珠"}:
                 expr = 'CASE WHEN "_unit_upper" IN (\'Ω\',\'OHM\',\'Ohm\') THEN "_value_num" WHEN "_unit_upper" IN (\'KΩ\',\'KOHM\') THEN "_value_num"*1000 END'
                 fields += [Field("impedance_ohm", "库内主值：阻抗范围", expr, (("Ω", 1), ("kΩ", 1e3)))]
+        if component_type in {'晶振','振荡器','实时时钟模块'}:
+            fields += [column('负载电容（pF）','负载电容（pF）'), column('频率温度特性（ppm）','频率温度特性（ppm）'), column('接口类型','接口类型'), column('使能/待机功能','使能／待机功能'), column('AEC等级','AEC等级')]
         return "components_search_value", fields + [column("系列", "系列"), column("安装方式", "安装方式"), column("工作温度", "工作温度")]
     return CORE, common
 
 
 def available_profile(conn, component_type):
     table, fields = profile(component_type)
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE type='view' AND name='catalog_filter_source'").fetchone():
+        current = conn.execute('SELECT _component_type FROM catalog_filter_parameters LIMIT 1').fetchone()
+        if current and current[0] == component_type:
+            table = 'catalog_filter_source'
     columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
     if not {"品牌", "型号", "_component_type"}.issubset(columns):
         table, fields = CORE, [column("品牌", "品牌")]
@@ -200,8 +300,14 @@ def option_label(field, value):
 
 def reset_filters(state, keep_category=False):
     for key in list(state):
-        if key.startswith(PREFIX) and not (keep_category and key == PREFIX + 'category'):
+        if key.startswith(PREFIX) and not (keep_category and key in {PREFIX+'category', PREFIX+'family'}):
             del state[key]
+
+
+def change_family(state):
+    family = state.get(PREFIX+'family')
+    reset_filters(state)
+    state[PREFIX+'family'] = family
 
 
 def choice_key(field_key, value):
@@ -212,7 +318,9 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match):
     """Streamlit UI; counts are public catalogue metadata, models require login."""
     st.markdown('### 按规格查找库内器件')
     st.caption('每个数量按该品类的“品牌＋型号”去重，不是库存数量；只统计库内条目，不含规则推导的候选型号。')
-    counts = dict(categories)
+    families = list(dict.fromkeys(family_of_kind(k) for k, _ in categories))
+    family = st.selectbox('器件大类', [None]+families, key=PREFIX+'family', format_func=lambda f: '全部器件' if f is None else f, on_change=change_family, args=(st.session_state,))
+    counts = {k:n for k,n in categories if family is None or family_of_kind(k)==family}
     head = st.columns([4, 1])
     with head[0]:
         kind = st.selectbox('器件品类', [None] + list(counts), key=PREFIX+'category', format_func=lambda k: '请选择品类 · 查看全部已收录种类' if k is None else f'{k or "未分类"}（{counts[k]:,}）', on_change=reset_filters, args=(st.session_state, True))
@@ -220,7 +328,7 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match):
         st.button('清空筛选', key=PREFIX+'clear', on_click=reset_filters, args=(st.session_state,), use_container_width=True)
     if kind is None:
         import pandas as pd
-        st.dataframe(pd.DataFrame([{'器件品类':k or '未分类', '库内型号数':n} for k, n in categories]), hide_index=True, use_container_width=True, height=360)
+        st.dataframe(pd.DataFrame([{'器件品类':k or '未分类', '库内型号数':n} for k, n in counts.items()]), hide_index=True, use_container_width=True, height=360)
         st.info('先选择器件品类，再按封装、品牌和电性参数缩小范围。')
         return
 
@@ -252,6 +360,8 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match):
     st.text_input('在筛选结果中查找型号', key=PREFIX+'keyword', max_chars=120, placeholder='可输入型号的一部分（可留空）', on_change=changed)
     active = []
     facets = result['facets']
+    if kind in SEMICONDUCTORS:
+        st.caption('电压、电流按库内标注筛选，不代表相同测试条件或可直接替代；动态参数保留原始测试条件。')
     if len(result['fields']) == 1:
         st.info('此品类的筛选索引目前仅收录品牌和型号。可选择具体型号查看详情；未收录的电性参数不会默认补值。')
     categorical = [f for f in result['fields'] if not f.units and (any(v != MISSING for v, _ in facets.get(f.key, [])) or selected.get(f.key))]

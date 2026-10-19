@@ -1,7 +1,8 @@
 import sqlite3
 import unittest
 from component_filters import (CORE, MISSING, PREFIX, available_profile, category_counts, has_unique_model_rows, choice_key,
-    option_label, parse_range, profile, reset_filters, snapshot, where_clause)
+    option_label, parse_range, profile, reset_filters, snapshot, where_clause, family_of_kind,
+    change_family, scalar_current, load_parameter_rows, install_parameter_rows)
 
 
 class CatalogFilterTests(unittest.TestCase):
@@ -137,6 +138,116 @@ class CatalogFilterTests(unittest.TestCase):
         fast = snapshot(self.conn, 'MLCC', include_rows=True, verified_unique=True)
         self.assertEqual(fast, slow)
 
+    def test_all_existing_kinds_have_specific_parameter_profiles_and_family(self):
+        kinds = ['MLCC','MOSFET','TVS二极管','三极管','二极管','共模电感','功率电感','厚膜电阻','合金电阻','实时时钟模块','射频电感','引线型压敏电阻','引线型陶瓷电容','振荡器','晶振','热敏电阻','碳膜电阻','磁珠','绕线电阻','薄膜电容','薄膜电阻','贴片压敏电阻','贴片电阻','金属氧化膜电阻','铝电解电容']
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                self.assertNotEqual(family_of_kind(kind), '其他')
+                self.assertGreater(len(profile(kind)[1]), 2)
+        self.assertEqual(family_of_kind('新增器件'), '其他')
+        self.assertNotIn('_tol', [f.key for f in profile('晶振')[1]])
+        self.assertIn('频差（ppm）', [f.key for f in profile('晶振')[1]])
+        self.assertIn('B值条件', [f.key for f in profile('热敏电阻')[1]])
+
+    def test_current_units_reject_conditions_ranges_signs_and_mega_ambiguity(self):
+        self.assertEqual(scalar_current('200mA'), 0.2)
+        self.assertEqual(scalar_current('5.7 A'), 5.7)
+        self.assertEqual(scalar_current('3µA'), 3e-6)
+        for value in ('1~3A','5A@25℃','-5A','1MA','nan','',None,'3V'):
+            self.assertIsNone(scalar_current(value))
+
+    def test_semiconductor_details_join_only_existing_models_and_preserve_unknowns(self):
+        self.conn.executemany(f'INSERT INTO {CORE} VALUES (?,?,?)', [('A','Q2','MOSFET'),('A','Q3','MOSFET')])
+        before = list(self.conn.execute(f'SELECT * FROM {CORE}'))
+        rows = [dict(品牌='A',型号='Q1',_component_type='MOSFET',封装代码='SOT-23',极性='N沟道',_volt_num=30,_current_amps=5.7,DCR='26.5mΩ@10V;48mΩ@2.5V'),
+                dict(品牌='A',型号='Q2',_component_type='MOSFET',封装代码='SOT-23',极性='P沟道',_volt_num=30,_current_amps=4),
+                dict(品牌='A',型号='DELETED',_component_type='MOSFET',封装代码='SOT-23',极性='N沟道',_volt_num=30)]
+        install_parameter_rows(self.conn, 'MOSFET', rows)
+        result = snapshot(self.conn,'MOSFET',{'封装代码':['SOT-23'],'极性':['N沟道']},{'_volt_num':(30,30),'_current_amps':(5,None)},include_rows=True)
+        self.assertEqual([r['型号'] for r in result['rows']], ['Q1'])
+        self.assertEqual(result['rows'][0]['DCR'], '26.5mΩ@10V;48mΩ@2.5V')
+        self.assertEqual(snapshot(self.conn,'MOSFET')['total'], 3)
+        self.assertEqual(snapshot(self.conn,'MOSFET',{'封装代码':[MISSING]})['total'], 1)
+        self.assertEqual(snapshot(self.conn,'MOSFET',ranges={'_current_amps':(0,0)})['total'], 0)
+        self.assertEqual(before,list(self.conn.execute(f'SELECT * FROM {CORE}')))
+        self.assertEqual(snapshot(self.conn,'新增器件')['total'],1)
+        self.assertEqual([f.key for f in snapshot(self.conn,'新增器件')['fields']], ['品牌'])
+
+    def test_inductor_current_and_shielding_use_details_without_changing_indexed_value(self):
+        install_parameter_rows(self.conn,'功率电感',[dict(品牌='A',型号='L1',_component_type='功率电感',屏蔽类型='屏蔽',_current_amps=2,_saturation_amps=3,_value_num=999)])
+        result = snapshot(self.conn,'功率电感',{'屏蔽类型':['屏蔽']},{'inductance_uh':(1,1),'_current_amps':(2,2),'_saturation_amps':(3,3)},include_rows=True)
+        self.assertEqual([r['型号'] for r in result['rows']],['L1'])
+        self.assertEqual(result['rows'][0]['inductance_uh'],1)
+
+    def test_projected_parquet_details_are_type_scoped_and_do_not_read_costs(self):
+        import tempfile
+        from pathlib import Path
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'prepared.parquet'
+            pq.write_table(pa.Table.from_pylist([
+                dict(品牌='A',型号='Q1',_component_type='MOSFET',额定电流='200mA',DCR='7Ω@10V',成本=999),
+                dict(品牌='A',型号='Q1',_component_type='MOSFET',额定电流='1A',DCR='WRONG COMPOSITE',成本=123),
+                dict(品牌='B',型号='D1',_component_type='二极管',额定电流='2A',DCR='',成本=456)]),path)
+            rows = load_parameter_rows(path,'MOSFET')
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['_current_amps'],0.2)
+            self.assertEqual(rows[0]['DCR'],'7Ω@10V')
+            self.assertNotIn('成本',rows[0])
+            self.assertEqual(load_parameter_rows(path,'新增器件'),[])
+            self.assertEqual(load_parameter_rows(path/'MISSING','MOSFET'),[])
+
+    def test_family_change_clears_incompatible_parameters_but_keeps_login_and_text(self):
+        state = {PREFIX+'family':'MOS管', PREFIX+'category':'MLCC', PREFIX+'_mat':['X7R'], PREFIX+'picked':('A','C1'), 'search_query_input':'KEEP', '_member_auth_token':'KEEP'}
+        change_family(state)
+        self.assertEqual(state,{PREFIX+'family':'MOS管','search_query_input':'KEEP','_member_auth_token':'KEEP'})
+
+    def test_detail_overlay_works_on_readonly_database_and_never_writes_main(self):
+        import tempfile
+        import hashlib
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'search.sqlite'
+            disk=sqlite3.connect(path)
+            self.conn.commit()
+            self.conn.backup(disk)
+            disk.close()
+            before=hashlib.sha256(path.read_bytes()).hexdigest()
+            readonly=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+            install_parameter_rows(readonly,'MOSFET',[dict(品牌='A',型号='Q1',_component_type='MOSFET',封装代码='SOT-23',极性='N沟道',_current_amps=1)])
+            self.assertEqual(snapshot(readonly,'MOSFET',{'封装代码':['SOT-23']})['total'],1)
+            readonly.close()
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+            reopened=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+            self.assertFalse(reopened.execute("SELECT name FROM sqlite_master WHERE name LIKE 'catalog_filter_%'").fetchall())
+            reopened.close()
+
+    def test_cold_detail_asset_is_lazy_and_extracts_only_existing_prepared_member(self):
+        import ast
+        import os
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        source=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(source.read_text(encoding='utf-8'))
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='cached_catalog_parameters')
+        function.decorator_list=[]
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'prepared.parquet'
+            extracted=[]
+            namespace=dict(os=os,PREPARED_CACHE_PATH=str(target),ensure_streamlit_cloud_data_bundle=lambda **kw: extracted.append(kw['required_paths']),
+                _catalog_filters=SimpleNamespace(SEMICONDUCTORS={'MOSFET'},INDUCTORS={'功率电感'},load_parameter_rows=lambda path,kind: [kind]))
+            exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
+            load=namespace['cached_catalog_parameters']
+            self.assertEqual(load('cold','MLCC'),['MLCC'])
+            self.assertEqual(extracted,[])
+            self.assertEqual(load('cold','MOSFET'),['MOSFET'])
+            self.assertEqual(extracted,[[str(target)]])
+            target.write_bytes(b'fixture')
+            load('warm','MOSFET')
+            self.assertEqual(len(extracted),1)
+
 
 class CatalogFilterUITests(unittest.TestCase):
     SOURCE = '''
@@ -189,3 +300,22 @@ fixture.tearDown()
         self.assertFalse(any(b.label=='查看价格与替代型号' for b in at.button))
         next(b for b in at.button if b.label=='登录查看筛选结果').click().run()
         self.assertTrue(any('LOGIN-REQUIRED' in m.value for m in at.markdown))
+
+    def test_family_selector_exposes_non_capacitors_without_automatic_kind_or_model(self):
+        import platform
+        platform._wmi = None
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_string(self.SOURCE, default_timeout=30).run()
+        at.selectbox(key=PREFIX+'category').select('MLCC').run()
+        at.checkbox(key=choice_key('_mat','X7R')).check().run()
+        at.selectbox(key=PREFIX+'family').select('电阻').run()
+        self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
+        self.assertEqual(at.selectbox(key=PREFIX+'category').options,['请选择品类 · 查看全部已收录种类','厚膜电阻（6）'])
+        at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
+        self.assertFalse(at.exception)
+        self.assertIsNone(at.selectbox(key=PREFIX+'picked').value)
+        at.selectbox(key=PREFIX+'family').select('MOS管').run()
+        at.selectbox(key=PREFIX+'category').select('MOSFET').run()
+        self.assertTrue(any('找到 1 个' in item.value for item in at.markdown))
+        at.button(key=PREFIX+'clear').click().run()
+        self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
