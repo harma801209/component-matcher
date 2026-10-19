@@ -120,8 +120,25 @@ class CatalogFilterTests(unittest.TestCase):
         reset_filters(state, True)
         self.assertEqual(state, {PREFIX+'category':'MLCC', 'search_query_input':'KEEP','_member_auth_token':'KEEP'})
         reset_filters(state)
-        self.assertNotIn(PREFIX+'category', state)
+        self.assertIsNone(state[PREFIX+'category'])
+        self.assertIsNone(state[PREFIX+'family'])
         self.assertEqual(state['search_query_input'], 'KEEP')
+
+    def test_clear_retains_live_selector_bindings_and_explicitly_resets_values(self):
+        class LiveState(dict):
+            def __delitem__(self, key):
+                if key in {PREFIX+'category', PREFIX+'family'}:
+                    raise AssertionError('Deleting a live selector loses its widget binding')
+                super().__delitem__(key)
+        state=LiveState({PREFIX+'family':'电感／磁珠',PREFIX+'category':'共模电感',PREFIX+'page':2})
+        reset_filters(state)
+        self.assertEqual(state,{PREFIX+'family':None,PREFIX+'category':None})
+        state[PREFIX+'family']='电感／磁珠'
+        change_family(state)
+        self.assertEqual(state,{PREFIX+'family':'电感／磁珠',PREFIX+'category':None})
+        state[PREFIX+'category']='功率电感'
+        reset_filters(state,True)
+        self.assertEqual(state,{PREFIX+'family':'电感／磁珠',PREFIX+'category':'功率电感'})
 
     def test_power_and_tolerance_labels_are_readable(self):
         _, fields = profile('厚膜电阻')
@@ -201,7 +218,7 @@ class CatalogFilterTests(unittest.TestCase):
     def test_family_change_clears_incompatible_parameters_but_keeps_login_and_text(self):
         state = {PREFIX+'family':'MOS管', PREFIX+'category':'MLCC', PREFIX+'_mat':['X7R'], PREFIX+'picked':('A','C1'), 'search_query_input':'KEEP', '_member_auth_token':'KEEP'}
         change_family(state)
-        self.assertEqual(state,{PREFIX+'family':'MOS管','search_query_input':'KEEP','_member_auth_token':'KEEP'})
+        self.assertEqual(state,{PREFIX+'family':'MOS管',PREFIX+'category':None,'search_query_input':'KEEP','_member_auth_token':'KEEP'})
 
     def test_detail_overlay_works_on_readonly_database_and_never_writes_main(self):
         import tempfile
@@ -328,3 +345,22 @@ finally:
         self.assertEqual(json.loads(at.json[0].value)['total'],1)
         at.button(key=PREFIX+'clear').click().run()
         self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
+
+    def test_repeated_clear_and_same_family_reselection_keeps_actual_kind(self):
+        import json
+        import platform
+        platform._wmi = None
+        from streamlit.testing.v1 import AppTest
+        source=self.SOURCE.replace('fixture.setUp()', '''fixture.setUp()
+fixture.conn.execute("INSERT INTO components_search_core VALUES ('A','CM1','共模电感')")
+fixture.conn.execute("INSERT INTO components_search_value VALUES ('A','CM1','共模电感','0603','UH',1,'10')")''')
+        at=AppTest.from_string(source,default_timeout=30).run()
+        for kind in ('共模电感','功率电感','共模电感','功率电感'):
+            at.selectbox(key=PREFIX+'family').select('电感／磁珠').run()
+            self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
+            at.selectbox(key=PREFIX+'category').select(kind).run()
+            self.assertFalse(at.exception)
+            self.assertEqual(json.loads(at.json[0].value)['kind'],kind)
+            at.button(key=PREFIX+'clear').click().run()
+            self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
+            self.assertIsNone(at.selectbox(key=PREFIX+'category').value)

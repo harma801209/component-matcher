@@ -308,9 +308,17 @@ def option_label(field, value):
 
 
 def reset_filters(state, keep_category=False):
+    selectors = {PREFIX+'category', PREFIX+'family'}
     for key in list(state):
-        if key.startswith(PREFIX) and not (keep_category and key in {PREFIX+'category', PREFIX+'family'}):
+        if key.startswith(PREFIX) and key not in selectors:
             del state[key]
+    if not keep_category:
+        # Deleting a live selectbox key also removes its widget-id binding.
+        # A later client update can then replay the family callback and erase
+        # the newly chosen kind. Explicit None resets both UI and backend while
+        # retaining the bindings across clear / same-family reselection.
+        for key in selectors:
+            state[key] = None
 
 
 def change_family(state):
