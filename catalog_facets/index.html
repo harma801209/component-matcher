@@ -17,46 +17,20 @@ body{color:#3b474a;font-family:Arial,"Microsoft YaHei",sans-serif}
 
 <style>.pending-hint{font-size:12px;color:#81551d;margin:6px 0 0;line-height:1.5}.pending-hint:empty{display:none}.facet h4{font-size:13px}.option{font-size:12px}.option input{width:22px;height:22px}.count{font-size:11px}.option-search{font-size:12px}.summary,.chip{font-size:12px}.toggle:hover:not(:disabled),.layout-toggle:hover:not(:disabled){background:#17539d;border-color:#17539d;color:#fff}.clear-all:hover:not(:disabled),.group-clear:hover:not(:disabled){background:#48545a;color:#fff;border-color:#48545a}@media(max-width:650px){.facet h4{font-size:12px}.option{font-size:12px}.section-left h3{white-space:nowrap}}@media(max-width:360px){.section-head{gap:10px}.section-left{gap:6px}.section-left h3{font-size:17px}.toggle{min-width:54px;padding:6px 8px}.clear-all{min-width:100px;padding:6px 7px;font-size:10px}}</style>
 <style>
+.section-head{flex-wrap:wrap;gap:12px}.filter-actions{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.filter-actions .layout{align-self:auto}
+@media(max-width:650px){.section-head{align-items:center}.filter-actions{gap:8px;flex:1}.filter-actions .layout>span{display:none}.filter-actions .layout-toggle{min-width:60px;padding:6px 9px}}
 .range-sliders{position:relative;height:19px;margin:0 0 3px}.range-sliders input{position:absolute;width:100%;height:18px;margin:0;left:0;top:0;accent-color:#2164bc;pointer-events:none;background:transparent}.range-sliders input::-webkit-slider-thumb{pointer-events:auto}.range-sliders input::-moz-range-thumb{pointer-events:auto}.range-sliders input:focus-visible{outline:2px solid #2164bc;outline-offset:1px;z-index:2}.numeric .available{min-height:20px;margin-bottom:4px;font-size:10px}.numeric .number-row{margin-bottom:5px}.numeric .number-row input,.numeric .number-row select{height:28px}.numeric-body{padding:7px 10px}.numeric .range-apply{min-height:24px;padding:1px 10px;font-size:11px}
 </style>
 
 <script>
-(()=>{'use strict';let data=null,lastHeight=0,lastWidth=innerWidth,eventId=0,opened=innerWidth>650,toggleTouched=false,layout='scroll',family='',chooserOpen=false,realtime=true,pending=[],sentView=null,typingTimer=null;
+(()=>{'use strict';let data=null,lastHeight=0,lastWidth=innerWidth,eventId=0,opened=innerWidth>650,toggleTouched=false,layout='scroll',chooserOpen=false;
 const root=document.getElementById('root'),searches=new Map(),limits=new Map();
 const send=(type,extra={})=>parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
 const fmt=n=>Number(n).toLocaleString('en-US');
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;}
 function button(text,fn,cls){const b=node('button',text,cls);b.type='button';b.addEventListener('click',fn);return b;}
 function height(){const h=Math.ceil(root.getBoundingClientRect().height)+4;if(h!==lastHeight){lastHeight=h;send('streamlit:setFrameHeight',{height:h});}}
-function emit(action,extra){sentView=data.view;root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event:Date.now()+'-'+(++eventId),action,...extra},dataType:'json'});}
-function applyDraft(){
- pending.forEach(a=>{
-  const g=data.groups.find(g=>g.key===a.field);
-  if(a.action==='choice'&&g){const o=g.options.find(o=>o.value===a.value);if(o)o.checked=a.checked;}
-  if(a.action==='range'&&g){g.low=a.low;g.high=a.high;g.unit=a.unit;}
-  if(a.action==='clear_group'&&g){if(g.units.length){g.low=g.high='';g.unit=g.units[0][0];}else g.options.forEach(o=>o.checked=false);}
-  if(a.action==='keyword'){data.keyword=a.keyword;data.keyword_mode=a.mode;}
- });
- root.querySelectorAll('.facet').forEach(section=>{
-  const g=data.groups.find(g=>g.key===section.dataset.field);if(!g)return;
-  const clear=[...section.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='清除'+g.label);if(clear)clear.disabled=!hasSelection(g);
-  if(!g.units.length){const selected=g.options.filter(o=>o.checked).length;section.querySelectorAll('.option').forEach(label=>{const o=g.options.find(o=>o.value===label.dataset.value),input=label.querySelector('input');if(o&&input){input.checked=o.checked;input.disabled=(!o.count&&!o.checked)||(selected>=100&&!o.checked);}});}
- });
- const hint=root.querySelector('#pending-filter-state');if(hint)hint.textContent=pending.length?'条件尚未应用，请点击“搜索”更新结果。':'';
-}
-function request(action,extra={},force=false){
- if(typingTimer){clearTimeout(typingTimer);typingTimer=null;if(!['keyword','kind','clear_all'].includes(action)){const field=root.querySelector('#model-keyword'),mode=root.querySelector('input[name="keyword-mode"]:checked');if(field)pending=[...pending.filter(a=>a.action!=='keyword'),{action:'keyword',keyword:field.value,mode:mode?.value||data.keyword_mode||'contains'}];}}
- if(action==='kind'||action==='clear_all'){pending=[];emit(action,extra);return;}
- const deferred=['choice','range','clear_group','keyword'].includes(action);
- if(!realtime&&!force&&deferred){
-  const same=a=>a.action===action&&a.field===extra.field&&(action!=='choice'||a.value===extra.value);
-  const kept=action==='clear_group'?pending.filter(a=>a.field!==extra.field):pending.filter(a=>!same(a));
-  if(kept.length>=99){const hint=root.querySelector('#pending-filter-state');if(hint)hint.textContent='请先点击搜索应用现有条件，再继续选择。';render();return;}
-  pending=[...kept,{action,...extra}];applyDraft();if(action==='clear_group')render();return;
- }
- const queued=[...pending.filter(a=>action!=='keyword'||a.action!=='keyword'),{action,...extra}];pending=[];
- if(queued.length>1)emit('batch',{actions:queued});else emit(action,extra);
-}
+function request(action,extra={}){root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event:Date.now()+'-'+(++eventId),action,...extra},dataType:'json'});}
 function labelInput(text,type){const label=node('label');const input=node('input');input.type=type;label.append(input,node('span',text));return {label,input};}
 function hasSelection(g){return g.units.length?Boolean(g.low||g.high):g.options.some(o=>o.checked);}
 function renderChooser(){
@@ -139,7 +113,6 @@ const clear=button('清除',()=>request('clear_group',{field:g.key}),'group-clea
 }
 function render(){
  if(!toggleTouched)opened=innerWidth>650;
- applyDraft();
  const scroll=root.querySelector('.strip')?.scrollLeft||0;
  const positions=new Map([...root.querySelectorAll('.facet')].map(n=>[n.dataset.field,n.querySelector('.options')?.scrollTop||0]));
  const focused=document.activeElement?.getAttribute('aria-label');
@@ -153,34 +126,18 @@ function render(){
  if(!data.kind){root.append(node('p','请选择产品类别，查看对应的规格筛选条件和库内型号。','category-note'));height();return;}
  const head=node('div',undefined,'section-head'),left=node('div',undefined,'section-left');
  const toggle=button(opened?'打开':'关闭',()=>{toggleTouched=true;opened=!opened;body.hidden=!opened;toggle.textContent=opened?'打开':'关闭';toggle.setAttribute('aria-expanded',String(opened));height();},'toggle');
- toggle.setAttribute('aria-label','搜索条件显示状态');toggle.setAttribute('aria-expanded',String(opened));
- left.append(node('h3','搜索条件'),toggle);head.append(left,button('清除所有条件',()=>{searches.clear();limits.clear();request('clear_all');},'clear-all'));root.append(head);
+ toggle.setAttribute('aria-label','筛选条件显示状态');toggle.setAttribute('aria-expanded',String(opened));
+ left.append(node('h3','筛选条件'),toggle);
+ const actions=node('div',undefined,'filter-actions');
+ actions.append(button('清除所有条件',()=>{searches.clear();limits.clear();request('clear_all');},'clear-all'));head.append(left,actions);root.append(head);
  const body=node('div',undefined,'panel-body');body.hidden=!opened;
- const row=node('div',undefined,'search-row'),form=node('form',undefined,'search'),label=node('label','品名');label.htmlFor='model-keyword';
- const input=node('input');input.id='model-keyword';input.setAttribute('aria-label','品名');input.placeholder='请输入型号。';input.maxLength=120;input.value=data.keyword;
- let searchMode=data.keyword_mode||'contains';
- const submit=node('button','搜索','primary');submit.type='submit';form.append(label,input,submit);
- form.addEventListener('submit',e=>{e.preventDefault();request('keyword',{keyword:input.value,mode:searchMode},true);});
- const modes=node('fieldset',undefined,'match-modes');modes.setAttribute('aria-label','品名搜索方式');
- [['contains','部分一致'],['prefix','前方一致'],['exact','完全一致']].forEach(([value,text])=>{
-  const {label,input:radio}=labelInput(text,'radio');radio.name='keyword-mode';radio.value=value;radio.checked=value===searchMode;
-  radio.addEventListener('change',()=>{searchMode=value;request('keyword',{keyword:input.value,mode:searchMode});});modes.append(label);
- });
- const realtimeControl=labelInput('启用实时搜索','checkbox');realtimeControl.input.checked=realtime;
- realtimeControl.input.setAttribute('aria-label','启用实时搜索');
- realtimeControl.input.addEventListener('change',()=>{realtime=realtimeControl.input.checked;if(realtime&&pending.length)request('keyword',{keyword:input.value,mode:searchMode},true);});
- modes.append(realtimeControl.label);
- input.addEventListener('input',event=>{if(typingTimer)clearTimeout(typingTimer);if(event.isComposing)return;if(realtime)typingTimer=setTimeout(()=>request('keyword',{keyword:input.value,mode:searchMode}),500);else request('keyword',{keyword:input.value,mode:searchMode});});
- const searchColumn=node('div',undefined,'search-column'),pendingHint=node('p',pending.length?'条件尚未应用，请点击“搜索”更新结果。':'','pending-hint');
- pendingHint.id='pending-filter-state';pendingHint.setAttribute('role','status');searchColumn.append(form,modes,pendingHint);
  const layoutArea=node('div',undefined,'layout');layoutArea.append(node('span','更改布局'));
  const layoutToggle=button(layout==='wrap'?'并排显示':'滚动',()=>{layout=layout==='wrap'?'scroll':'wrap';strip.classList.toggle('wrap',layout==='wrap');layoutToggle.textContent=layout==='wrap'?'并排显示':'滚动';layoutToggle.setAttribute('aria-pressed',String(layout==='wrap'));height();},'layout-toggle');
  layoutToggle.setAttribute('aria-label','切换筛选布局');layoutToggle.setAttribute('aria-pressed',String(layout==='wrap'));layoutArea.append(layoutToggle);
- row.append(searchColumn,layoutArea);body.append(row);
+ actions.prepend(layoutArea);
  const strip=node('div',undefined,'strip'+(layout==='wrap'?' wrap':''));data.groups.forEach(g=>strip.append(group(g)));body.append(strip);root.append(body);
- const summary=node('div',undefined,'summary');summary.append(node('strong',pending.length?'待应用条件：':'搜索条件：'));let active=0;
+ const summary=node('div',undefined,'summary');summary.append(node('strong','筛选条件：'));let active=0;
  data.groups.filter(hasSelection).forEach(g=>{active++;const text=g.units.length?g.label+' = '+(g.low||'不限')+' ～ '+(g.high||'不限')+' '+g.unit:g.label+' = '+g.options.filter(o=>o.checked).map(o=>o.label).join('、');summary.append(button(text+' · 移除',()=>request('clear_group',{field:g.key}),'chip'));});
- if(data.keyword){active++;summary.append(button('品名'+({contains:'包含',prefix:'开头',exact:'完全一致'}[data.keyword_mode||'contains'])+'：'+data.keyword+' · 移除',()=>request('keyword',{keyword:'',mode:data.keyword_mode||'contains'}),'chip'));}
  if(!active)summary.append(node('span','不限'));
  root.append(summary);strip.scrollLeft=scroll;
  root.querySelectorAll('.facet').forEach(n=>{const list=n.querySelector('.options');if(list)list.scrollTop=positions.get(n.dataset.field)||0;});
@@ -189,9 +146,7 @@ function render(){
 window.addEventListener('message',event=>{
  if(event.source!==parent||event.data?.type!=='streamlit:render')return;
  const value=event.data.args?.payload;if(!value)return;
- if(typingTimer){clearTimeout(typingTimer);typingTimer=null;}
  const changedKind=data?.kind!==value.kind;
- if(data?.view!==value.view||sentView===value.view){pending=[];sentView=null;}
  const next={...value,groups:value.groups.map(g=>({...g,options:g.options?.map(o=>({...o}))}))};
  if(changedKind){chooserOpen=false;searches.clear();limits.clear();}
  data=next;render();

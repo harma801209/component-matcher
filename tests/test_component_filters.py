@@ -385,3 +385,19 @@ fixture.conn.execute("INSERT INTO components_search_value VALUES ('A','CM1','共
         panel=self.action(at,'clear_group',field='_res_ohm')
         self.assertEqual(panel['total'],6)
         self.assertEqual(len(at.json),1)
+
+    def test_specifications_only_clears_removed_inline_keyword_but_keeps_main_search(self):
+        import json
+        at=self.app()
+        self.action(at,'kind',kind='MLCC')
+        at.session_state[PREFIX+'keyword']='NONEXISTENT-OLD-INLINE-NAME'
+        at.session_state[PREFIX+'keyword_mode']='exact'
+        at.session_state['search_query_input']='KEEP-MAIN-TEXT-SEARCH'
+        at.session_state['_member_auth_token']='KEEP-MEMBER'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(json.loads(at.json[0].value)['total'],3)
+        self.assertNotIn(PREFIX+'keyword',at.session_state)
+        self.assertNotIn(PREFIX+'keyword_mode',at.session_state)
+        self.assertEqual(at.session_state['search_query_input'],'KEEP-MAIN-TEXT-SEARCH')
+        self.assertEqual(at.session_state['_member_auth_token'],'KEEP-MEMBER')

@@ -6,6 +6,13 @@ from tests import test_component_filters as fixtures
 
 
 class SpecificationTableTests(unittest.TestCase):
+    def test_result_template_has_compact_rows_without_repeated_model_caption(self):
+        from pathlib import Path
+        template=(Path(__file__).resolve().parents[1]/'catalog_results/index.html').read_text(encoding='utf-8')
+        self.assertNotIn('查看价格与替代型号',template)
+        self.assertIn('#root .scroll td{height:46px;padding:6px 9px}',template)
+        self.assertIn('td.append(button(value,()=>openModel(row)))',template)
+
     def setUp(self):
         self.fixture=fixtures.CatalogFilterTests()
         self.fixture.setUp()

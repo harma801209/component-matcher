@@ -15,6 +15,13 @@ body{color:#333e43;font-family:Arial,"Microsoft YaHei",sans-serif}
 </style>
 
 <style>th,.sort-button,.model-head .sort-button,td,.model button{font-size:13px}.model small{font-size:11px}.strip,.footer{font-size:11px}@media(max-width:650px){th,.sort-button,.model-head .sort-button,td,.model button{font-size:12px}}</style>
+<style>
+#root .scroll th{height:52px;padding:8px 9px;vertical-align:middle}
+#root .scroll td{height:46px;padding:6px 9px}
+#root .scroll .sort-button{min-height:32px}
+#root .scroll .model button{min-height:30px}
+@media(max-width:650px){#root .scroll th{height:48px;padding:7px 8px}#root .scroll td{height:46px;padding:5px 8px}#root .scroll .model button{min-height:34px}}
+</style>
 <script>
 (()=>{'use strict';
 let data=null,visible=new Set(),picked=new Set(),eventNumber=0,lastHeight=0,lastWidth=window.innerWidth;
@@ -44,7 +51,7 @@ const scroll=node('div',undefined,'scroll');scroll.tabIndex=0;scroll.setAttribut
 const cols=data.columns,colgroup=node('colgroup');const cp=node('col');cp.style.width=window.innerWidth<650?'34px':'42px';colgroup.append(cp);cols.forEach(c=>{const co=node('col');co.dataset.column=c.key;co.hidden=!visible.has(c.key);co.style.width=c.key==='型号'?(window.innerWidth<650?'158px':'205px'):c.key==='品牌'?'145px':/条件|动态|用途|温度/.test(c.label)?'175px':'126px';colgroup.append(co);});table.append(colgroup);table.style.minWidth=tableWidth()+'px';
 const thead=node('thead'),hr=node('tr');const selectHead=node('th',undefined,'pick pick-head');selectHead.scope='col';selectHead.append(node('span','对比','sr-only'));hr.append(selectHead);cols.forEach(c=>{const th=node('th',undefined,c.key==='型号'?'model model-head':undefined);th.dataset.column=c.key;th.hidden=!visible.has(c.key);th.scope='col';const sort=button(c.label,()=>request('sort',{column:c.key,desc:data.sort===c.key?!data.desc:false}),'sort-button');sort.title='按'+c.label+'排序（所有筛选结果）';if(data.sort===c.key){th.setAttribute('aria-sort',data.desc?'descending':'ascending');sort.append(node('span',data.desc?'降序':'升序','sort-label'));}th.append(sort);hr.append(th);});thead.append(hr);table.append(thead);
 const body=node('tbody');data.rows.forEach(row=>{const tr=node('tr');if(picked.has(row.id))tr.className='selected';const tdPick=node('td',undefined,'pick');const box=node('input');box.type='checkbox';box.dataset.rowId=row.id;box.checked=picked.has(row.id);box.disabled=picked.size>=4&&!box.checked;box.setAttribute('aria-label','对比 '+row['型号']);box.addEventListener('change',()=>{if(box.checked)picked.add(row.id);else picked.delete(row.id);updateSelection();});tdPick.append(box);tr.append(tdPick);
-cols.forEach(c=>{const td=node('td',undefined,c.key==='型号'?'model':undefined);td.dataset.column=c.key;td.hidden=!visible.has(c.key);const value=row[c.key]||'未提供';if(c.key==='型号'){td.append(button(value,()=>openModel(row)),node('small','查看价格与替代型号'));}else if(value==='未提供'){td.textContent=value;td.className='unknown';}else if(['_size','封装代码','极性','生产状态'].includes(c.key)){td.append(node('span',value,'badge'));}else td.textContent=value;td.title=value;tr.append(td);});body.append(tr);});table.append(body);scroll.append(table);root.append(scroll);
+cols.forEach(c=>{const td=node('td',undefined,c.key==='型号'?'model':undefined);td.dataset.column=c.key;td.hidden=!visible.has(c.key);const value=row[c.key]||'未提供';if(c.key==='型号'){td.append(button(value,()=>openModel(row)));}else if(value==='未提供'){td.textContent=value;td.className='unknown';}else if(['_size','封装代码','极性','生产状态'].includes(c.key)){td.append(node('span',value,'badge'));}else td.textContent=value;td.title=value;tr.append(td);});body.append(tr);});table.append(body);scroll.append(table);root.append(scroll);
 const footer=node('div',undefined,'footer');footer.append(node('span','本页 '+data.rows.length+' 条 · 第 '+count((data.page-1)*data.size+1)+'–'+count(Math.min(data.page*data.size,data.total))+' 条／共 '+count(data.total)+' 条'),node('span','表头可排序 · 型号列固定 · 数量不是库存'));root.append(footer);height();
 }
 window.addEventListener('message',event=>{if(event.source!==window.parent||event.data?.type!=='streamlit:render')return;const next=event.data.args?.payload;if(!next?.view||!Array.isArray(next.rows))return;const changed=data?.view!==next.view,newKind=data?.kind!==next.kind;data=next;if(changed){if(newKind)visible=new Set(data.columns.filter(c=>c.visible).map(c=>c.key));picked.clear();if(dialog.open)dialog.close();}render();});

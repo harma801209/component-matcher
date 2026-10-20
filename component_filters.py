@@ -341,8 +341,12 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match, results_
         kind = None
     selected, ranges, baseline, result = {}, {}, None, None
     invalid_ranges = []
-    keyword = st.session_state.get(PREFIX+'keyword', '')
-    keyword_mode = st.session_state.get(PREFIX+'keyword_mode','contains')
+    # This mode is specifications-only. Do not let the removed inline name
+    # search silently constrain an already-open browser session after upgrade.
+    # The separate main text-search input and account/customer scope are kept.
+    st.session_state.pop(PREFIX+'keyword',None)
+    st.session_state.pop(PREFIX+'keyword_mode',None)
+    keyword, keyword_mode = '', 'contains'
     if kind is not None:
         # Initial entry needs only one scan. Reuse its facets as the full
         # option universe rather than querying the same large kind twice.

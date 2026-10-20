@@ -5,6 +5,14 @@ from tests import test_component_filters as fixtures
 
 
 class CatalogPanelTests(unittest.TestCase):
+    def test_filter_template_has_no_duplicate_name_search_or_manual_search_gate(self):
+        from pathlib import Path
+        template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')
+        for obsolete in ('model-keyword','启用实时搜索','部分一致','前方一致','完全一致','pending-filter-state'):
+            self.assertNotIn(obsolete,template)
+        self.assertIn("left.append(node('h3','筛选条件'),toggle)",template)
+        self.assertIn("request('choice'",template)
+
     def setUp(self):
         self.fixture=fixtures.CatalogFilterTests()
         self.fixture.setUp()
