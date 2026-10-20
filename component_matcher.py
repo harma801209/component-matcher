@@ -329,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T11:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T15:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49642,7 +49642,9 @@ def cached_catalog_unique(data_signature, component_type):
     if conn is None:
         return False
     try:
-        _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
+        # All catalogue overlays are identity-preserving LEFT JOINs. Audit the
+        # indexed kind directly instead of building the same large TEMP copy
+        # once for uniqueness and again for the actual filtered result.
         return _catalog_filters.has_unique_model_rows(conn, component_type)
     finally:
         conn.close()
@@ -49650,7 +49652,7 @@ def cached_catalog_unique(data_signature, component_type):
 
 @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def cached_catalog_parameters(data_signature, component_type):
-    if component_type in _catalog_filters.SEMICONDUCTORS | _catalog_filters.INDUCTORS | {'MLCC'} and not os.path.isfile(PREPARED_CACHE_PATH):
+    if component_type in _catalog_filters.SEMICONDUCTORS | _catalog_filters.INDUCTORS | _catalog_filters.passive_completion.KINDS and not os.path.isfile(PREPARED_CACHE_PATH):
         # Public cold startup restores only the lightweight query index. Read
         # this already-published detail asset lazily, never rebuild the library
         # or expand the startup/bundle requirements for ordinary text searches.
@@ -49658,6 +49660,40 @@ def cached_catalog_parameters(data_signature, component_type):
     if component_type == 'MLCC':
         return _catalog_filters.load_parameter_rows(PREPARED_CACHE_PATH, component_type, model_resolver=resolve_catalog_mlcc_rule)
     return _catalog_filters.load_parameter_rows(PREPARED_CACHE_PATH, component_type)
+
+
+@st.cache_data(ttl=3600, max_entries=3, show_spinner=False)
+def cached_catalog_passive_parameters(data_signature, component_type):
+    return _catalog_filters.passive_completion.load(
+        PREPARED_CACHE_PATH, component_type,
+        model_resolver=resolve_catalog_mlcc_rule if component_type == 'MLCC' else None,
+        index_path=SEARCH_DB_PATH,
+        trusted_power_sources=TRUSTED_RESISTOR_POWER_SOURCES,
+    )
+
+
+def install_catalog_parameters(conn, data_signature, component_type):
+    _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
+    if component_type in _catalog_filters.passive_completion.KINDS:
+        table, _ = _catalog_filters.available_profile(conn, component_type)
+        _catalog_filters.passive_completion.install(conn, component_type, cached_catalog_passive_parameters(data_signature, component_type), table)
+
+
+@st.cache_resource(ttl=3600, max_entries=8, show_spinner="正在准备规格参数，首次打开该品类需要稍候…")
+def cached_catalog_passive_source(data_signature, component_type):
+    # One read-only completed catalogue per revision/kind, shared without any
+    # account state. Avoid rebuilding hundreds of thousands of TEMP rows for
+    # each parameter click. The lock serializes SQLite access across sessions.
+    from pathlib import Path
+    conn = sqlite3.connect(Path(SEARCH_DB_PATH).resolve().as_uri()+'?mode=ro', uri=True,
+                           timeout=10, check_same_thread=False)
+    try:
+        install_jianghai_search_overlay(conn)
+        install_catalog_parameters(conn, data_signature, component_type)
+        return _catalog_filters.passive_completion.SharedSource(conn)
+    except Exception:
+        conn.close()
+        raise
 
 
 def resolve_catalog_mlcc_rule(model, brand):
@@ -49672,12 +49708,21 @@ def resolve_catalog_mlcc_rule(model, brand):
 
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key="", sort_desc=False, keyword_mode="contains"):
+    if component_type in _catalog_filters.passive_completion.KINDS and not os.path.isfile(PREPARED_CACHE_PATH):
+        cached_catalog_parameters(data_signature, component_type)
+        restored_signature = catalog_filter_data_signature()
+        if restored_signature != data_signature:
+            return cached_catalog_snapshot(restored_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, keyword_mode)
     verified_unique = cached_catalog_unique(data_signature, component_type)
+    if component_type in _catalog_filters.passive_completion.KINDS:
+        source = cached_catalog_passive_source(data_signature, component_type)
+        with source.lock:
+            return _catalog_filters.snapshot(source.connection, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=verified_unique, keyword_mode=keyword_mode)
     conn = open_search_db_connection(timeout_sec=10)
     if conn is None:
         raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")
     try:
-        _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
+        install_catalog_parameters(conn, data_signature, component_type)
         return _catalog_filters.snapshot(conn, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=verified_unique, keyword_mode=keyword_mode)
     finally:
         conn.close()

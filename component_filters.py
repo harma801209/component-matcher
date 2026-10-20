@@ -11,6 +11,7 @@ import math
 import os
 import re
 import catalog_mlcc_completion as mlcc_completion
+import catalog_passive_completion as passive_completion
 
 CORE = "components_search_core"
 MISSING = "__catalog_missing__"
@@ -172,32 +173,56 @@ def profile(component_type):
     package = column("_size", "封装／尺寸代码")
     tolerance = column("_tol", "精度／误差")
     if component_type in {"贴片电阻", "厚膜电阻", "薄膜电阻", "合金电阻", "碳膜电阻", "绕线电阻", "金属氧化膜电阻", "热敏电阻"}:
-        fields = common + [package, tolerance, column("_power_watt", "额定功率"), column("_res_ohm", "阻值范围", (("Ω", 1), ("kΩ", 1e3), ("MΩ", 1e6)))]
+        fields = common + [package, tolerance, column("_power_watt", "额定功率"), column("_res_ohm", "阻值范围", (("Ω", 1), ("kΩ", 1e3), ("MΩ", 1e6))), column('_body_size', '本体尺寸')]
         if component_type == '热敏电阻':
             fields += [column('B值', 'B值'), column('B值条件', 'B值测试条件')]
         return "components_search_resistor", fields
     if component_type in {"MLCC", "引线型陶瓷电容", "薄膜电容", "铝电解电容", "安规电容", "钽电容"}:
-        return "components_search_capacitor", common + [package, column("_mat", "介质／材质"), tolerance, column("_mount_style", "安装方式"), column("_safety_class", "安规等级"), column("_pf", "容量范围", (("pF", 1), ("nF", 1e3), ("µF", 1e6))), column("_volt_num", "额定耐压范围", (("V", 1),)), column("_body_size", "本体尺寸"), column("_pitch", "脚距"), column("_special_use_norm", "用途／特性"), column('_life_hours_num', '寿命范围', (('h',1),)), column('_temp_low', '最低工作温度（℃）'), column('_temp_high', '最高工作温度（℃）')]
+        fields = common + [package, tolerance, column("_mount_style", "安装方式"), column("_pf", "容量范围", (("pF", 1), ("nF", 1e3), ("µF", 1e6))), column("_volt_num", "额定耐压范围", (("V", 1),)), column("_body_size", "本体尺寸"), column("_special_use_norm", "用途／特性"), column('_temp_low', '最低工作温度（℃）'), column('_temp_high', '最高工作温度（℃）')]
+        if component_type not in {'铝电解电容', '钽电容'}:
+            fields += [column('_mat', '介质／材质'), column('_safety_class', '安规等级')]
+        if component_type != 'MLCC':
+            fields += [column('_pitch', '脚距')]
+        if component_type == '铝电解电容':
+            fields += [column('_life_hours_num', '寿命范围', (('h',1),))]
+        return 'components_search_capacitor', fields
     if component_type in SEMICONDUCTORS:
         polarity = {'MOSFET':'沟道极性', '三极管':'NPN／PNP', 'TVS二极管':'单向／双向', '二极管':'结构／极性'}[component_type]
         dynamic = {'MOSFET':'Rds(on)及测试条件', '三极管':'hFE／动态参数', 'TVS二极管':'击穿／钳位参数', '二极管':'Vf／动态参数'}[component_type]
         return CORE, common + [column('封装代码','封装'), column('极性',polarity), column('特殊用途','类型／用途'), column('_volt_num','库内标注电压范围',(('V',1),)), column('_current_amps','库内额定电流范围',(('A',1),('mA',0.001))), column('额定电流','原始电流标注'), column('DCR',dynamic), column('_power','库内功率标注'), column('安装方式','安装方式'), column('生产状态','生产状态'), column('工作温度','工作温度')]
     if component_type in {"贴片压敏电阻", "引线型压敏电阻", "压敏电阻"}:
-        return "components_search_varistor", common + [column("_disc_size", "尺寸"), tolerance, column("_varistor_voltage", "压敏电压"), column("_pitch", "脚距")]
+        fields = common + [package if component_type == '贴片压敏电阻' else column('_disc_size', '尺寸'), tolerance, column('_varistor_voltage', '压敏电压'), column('_body_size', '本体尺寸')]
+        if component_type != '贴片压敏电阻':
+            fields += [column('_pitch', '脚距')]
+        return 'components_search_varistor', fields
     if component_type in {"共模电感", "功率电感", "射频电感", "磁珠", "晶振", "振荡器", "实时时钟模块"}:
         fields = common + [package]
         if component_type in {"晶振", "振荡器", "实时时钟模块"}:
             expr = 'CASE UPPER("_unit_upper") WHEN \'HZ\' THEN "_value_num" WHEN \'KHZ\' THEN "_value_num"*1000 WHEN \'MHZ\' THEN "_value_num"*1000000 WHEN \'GHZ\' THEN "_value_num"*1000000000 END'
-            fields += [Field("frequency_hz", "频率范围", expr, (("MHz", 1e6), ("kHz", 1e3), ("Hz", 1))), column("输出类型", "输出类型"), column("电源电压", "供电电压"), column("频差（ppm）", "频差（ppm）")]
+            fields += [Field("frequency_hz", "频率范围", expr, (("MHz", 1e6), ("kHz", 1e3), ("Hz", 1))), column("频差（ppm）", "频差（ppm）")]
+            if component_type == '振荡器':
+                fields += [column('输出类型', '输出类型'), column('电源电压', '供电电压'), column('使能/待机功能', '使能／待机功能')]
+            elif component_type == '实时时钟模块':
+                fields += [column('电源电压', '供电电压'), column('接口类型', '接口类型')]
         else:
-            fields += [tolerance, column('屏蔽类型','屏蔽类型'), column('回路数','回路数'), column('_current_amps','额定电流范围',(('A',1),('mA',0.001))), column('_saturation_amps','饱和电流范围',(('A',1),('mA',0.001))), column('额定电流','原始额定电流'), column('饱和电流','原始饱和电流'), column('DCR','DCR及测试条件')]
+            fields += [tolerance, column('_current_amps','额定电流范围',(('A',1),('mA',0.001))), column('额定电流','原始额定电流'), column('DCR','DCR及测试条件')]
+            if component_type == '功率电感':
+                fields += [column('_saturation_amps','饱和电流范围',(('A',1),('mA',0.001))), column('饱和电流','原始饱和电流')]
+            if component_type in {'功率电感', '射频电感'}:
+                fields += [column('屏蔽类型','屏蔽类型')]
+            if component_type in {'共模电感', '磁珠'}:
+                fields += [column('回路数','回路数'), column('_impedance_text', '阻抗及测试条件')]
             expr = 'CASE WHEN "_unit_upper" IN (\'NH\',\'nH\') THEN "_value_num"*0.001 WHEN "_unit_upper" IN (\'UH\',\'uH\',\'µH\',\'μH\',\'ΜH\') THEN "_value_num" WHEN "_unit_upper" IN (\'MH\',\'mH\') THEN "_value_num"*1000 END'
-            fields += [Field("inductance_uh", "电感量范围", expr, (("µH", 1), ("nH", 0.001), ("mH", 1e3)))]
+            if component_type != '磁珠':
+                fields += [Field("inductance_uh", "电感量范围", expr, (("µH", 1), ("nH", 0.001), ("mH", 1e3)))]
             if component_type in {"共模电感", "磁珠"}:
                 expr = 'CASE WHEN "_unit_upper" IN (\'Ω\',\'OHM\',\'Ohm\') THEN "_value_num" WHEN "_unit_upper" IN (\'KΩ\',\'KOHM\') THEN "_value_num"*1000 END'
                 fields += [Field("impedance_ohm", "库内主值：阻抗范围", expr, (("Ω", 1), ("kΩ", 1e3)))]
         if component_type in {'晶振','振荡器','实时时钟模块'}:
-            fields += [column('负载电容（pF）','负载电容（pF）'), column('频率温度特性（ppm）','频率温度特性（ppm）'), column('接口类型','接口类型'), column('使能/待机功能','使能／待机功能'), column('AEC等级','AEC等级')]
+            fields += [column('频率温度特性（ppm）','频率温度特性（ppm）'), column('AEC等级','AEC等级')]
+            if component_type == '晶振':
+                fields += [column('负载电容（pF）','负载电容（pF）')]
+        fields += [column('_body_size', '本体尺寸')]
         return "components_search_value", fields + [column("系列", "系列"), column("安装方式", "安装方式"), column("工作温度", "工作温度")]
     return CORE, common
 
@@ -210,6 +235,10 @@ def available_profile(conn, component_type):
         current = conn.execute('SELECT _component_type FROM catalog_filter_parameters LIMIT 1').fetchone()
         if current and current[0] == component_type:
             table = 'catalog_filter_source'
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_passive_source'").fetchone():
+        current = conn.execute('SELECT _component_type FROM catalog_passive_source LIMIT 1').fetchone()
+        if current and current[0] == component_type:
+            table = 'catalog_passive_source'
     columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
     if not {"品牌", "型号", "_component_type"}.issubset(columns):
         table, fields = CORE, [column("品牌", "品牌")]
@@ -217,6 +246,9 @@ def available_profile(conn, component_type):
     if not {"品牌", "型号", "_component_type"}.issubset(columns):
         raise ValueError("筛选索引暂不可用，请使用型号搜索。")
     fields = [f for f in fields if f.key in columns or (f.key in {"frequency_hz", "inductance_uh", "impedance_ohm"} and {"_unit_upper", "_value_num"}.issubset(columns))]
+    from dataclasses import replace
+    fallback = {'frequency_hz':'_catalog_frequency_hz', 'inductance_uh':'_catalog_inductance_uh', 'impedance_ohm':'_catalog_impedance_ohm'}
+    fields = [replace(f, expression=f'COALESCE(({f.expression}),"{fallback[f.key]}")') if f.key in fallback and fallback[f.key] in columns else f for f in fields]
     return table, fields
 
 
@@ -404,6 +436,10 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match, results_
     st.session_state.pop(PREFIX+'keyword_mode',None)
     keyword, keyword_mode = '', 'contains'
     if kind is not None:
+        allowed_sort = {'品牌','型号'} | {field.key for field in profile(kind)[1]}
+        if st.session_state.get(PREFIX+'sort') not in allowed_sort:
+            st.session_state.pop(PREFIX+'sort',None)
+            st.session_state.pop(PREFIX+'desc',None)
         # Initial entry needs only one scan. Reuse its facets as the full
         # option universe rather than querying the same large kind twice.
         has_conditions = bool(keyword) or any(st.session_state.get(PREFIX+field.key+suffix)

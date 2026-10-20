@@ -364,7 +364,7 @@ class CatalogFilterTests(unittest.TestCase):
             target=Path(folder)/'prepared.parquet'
             extracted=[]
             namespace=dict(os=os,PREPARED_CACHE_PATH=str(target),ensure_streamlit_cloud_data_bundle=lambda **kw: extracted.append(kw['required_paths']),
-                _catalog_filters=SimpleNamespace(SEMICONDUCTORS={'MOSFET'},INDUCTORS={'功率电感'},load_parameter_rows=lambda path,kind,**kwargs: [kind]),resolve_catalog_mlcc_rule=lambda model,brand:{})
+                _catalog_filters=SimpleNamespace(SEMICONDUCTORS={'MOSFET'},INDUCTORS={'功率电感'},passive_completion=SimpleNamespace(KINDS={'MLCC','厚膜电阻'}),load_parameter_rows=lambda path,kind,**kwargs: [kind]),resolve_catalog_mlcc_rule=lambda model,brand:{})
             exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
             load=namespace['cached_catalog_parameters']
             self.assertEqual(load('cold','MLCC'),['MLCC'])
@@ -392,6 +392,172 @@ class CatalogFilterTests(unittest.TestCase):
             self.assertEqual(resolve('C1','A'),{})
         parsed.clear();parsed.update(品牌='A',_model_rule_authority='rule',器件类型='MLCC',容值误差='0.1PF')
         self.assertEqual(resolve('C1','A')['容值误差'],'0.1PF')
+
+
+class PassiveParameterCompletionTests(unittest.TestCase):
+    def test_explicit_dimensions_pitch_temperature_and_units(self):
+        from catalog_passive_completion import complete
+        record = dict(品牌='TDK',型号='B32529C0104K000',_component_type='薄膜电容',
+                      封装代码='RADIAL/P5.0',容值='0.1',容值单位='uF',安装方式='插件',工作温度='-55°C ~ +105°C')
+        record.update({'尺寸（mm）':'7.3*2.5*6.5mm','脚距（mm）':'5.0','耐压（V）':'63V'})
+        result = complete(record)
+        self.assertEqual(result['_size'],'RADIAL/P5.0')
+        self.assertEqual(result['_body_size'],'7.3*2.5*6.5mm')
+        self.assertEqual(result['_pitch'],'5.0 mm')
+        self.assertEqual(result['_pf'],100000)
+        self.assertEqual((result['_temp_low'],result['_temp_high']),(-55,105))
+        self.assertEqual(result['_volt_num'],63)
+        record.update(_pf=0,_volt_num=16,_size='KNOWN',_temp_low=-40)
+        result = complete(record)
+        self.assertFalse({'_pf','_volt_num','_size','_temp_low'} & result.keys())
+        self.assertNotIn('_safety_class',result)
+
+    def test_conditioned_impedance_is_readable_and_ranges_are_not_fake_scalars(self):
+        from catalog_passive_completion import complete
+        record = dict(品牌='Abracon',型号='ACML-0201-121-T',_component_type='磁珠',阻抗单位='Ω')
+        record['阻抗@100MHz']='120 Ohms @ 100MHz'
+        result=complete(record)
+        self.assertEqual(result['_catalog_impedance_ohm'],120)
+        self.assertEqual(result['_impedance_text'],'120 Ohms @ 100MHz')
+        record['阻抗@100MHz']='60 - 600 Ω'
+        result=complete(record)
+        self.assertNotIn('_catalog_impedance_ohm',result)
+        self.assertEqual(result['_impedance_text'],'60 - 600 Ω @100MHz')
+        record['阻抗@100MHz']='120 Ω @ 1GHz'
+        self.assertNotIn('_catalog_impedance_ohm',complete(record))
+
+    def test_no_temperature_from_model_or_material_and_no_unsafe_numeric_truncation(self):
+        from catalog_passive_completion import complete,temperature,scalar
+        for bad in ('X7R','B32529C0104K000','storage -55~125C','-500~1C','+125C reflow 260C'):
+            self.assertEqual(temperature(bad),(None,None))
+        for bad in ('1-10','10 @ 25C','nan','inf','1e999'):
+            self.assertIsNone(scalar(bad))
+        result=complete(dict(品牌='Unknown',型号='MP825-25.0-1%',_component_type='厚膜电阻',_res_ohm=0))
+        self.assertFalse(result)
+        result=complete(dict(品牌='三星Samsung',型号='CLR1CR25QA1INNG',_component_type='MLCC',_mat='COG'))
+        self.assertNotIn('_tol',result)
+        self.assertNotIn('_temp_low',result)
+
+    def test_profiles_only_request_applicable_parameters(self):
+        keys=lambda kind:{f.key for f in profile(kind)[1]}
+        self.assertNotIn('_pitch',keys('MLCC'))
+        self.assertNotIn('_life_hours_num',keys('MLCC'))
+        self.assertIn('_life_hours_num',keys('铝电解电容'))
+        self.assertNotIn('inductance_uh',keys('磁珠'))
+        self.assertNotIn('_saturation_amps',keys('磁珠'))
+        self.assertIn('_impedance_text',keys('磁珠'))
+        self.assertNotIn('电源电压',keys('晶振'))
+        self.assertNotIn('负载电容（pF）',keys('振荡器'))
+        self.assertIn('负载电容（pF）',keys('晶振'))
+        self.assertIn('接口类型',keys('实时时钟模块'))
+
+    def test_streamed_compressed_overlay_reads_only_specs_and_preserves_indexed_identities(self):
+        import tempfile,gzip,json
+        from pathlib import Path
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from catalog_passive_completion import load,install
+        fixture=CatalogFilterTests();fixture.setUp()
+        conn=fixture.conn
+        try:
+            conn.execute("UPDATE components_search_resistor SET _power_watt=NULL WHERE 型号='R2'")
+            original=list(conn.execute('SELECT * FROM components_search_resistor'))
+            records=[dict(品牌='B',型号='R4',_component_type='厚膜电阻',封装代码='AXIAL',_mount_style='插件',_res_ohm=0,_tol=None,_power_watt=.25,_power_source='size',成本=999),
+                     dict(品牌='B',型号='R4',_component_type='厚膜电阻',封装代码='DIFFERENT',_tol='1',成本=999),
+                     dict(品牌='A',型号='R1',_component_type='厚膜电阻',封装代码='SHOULD-NOT-REPLACE',_res_ohm=999,成本=999),
+                     dict(品牌='A',型号='R2',_component_type='厚膜电阻',_power_watt=.125,_power_source='context'),
+                     dict(品牌='A',型号='NOT-INDEXED',_component_type='厚膜电阻',封装代码='AXIAL',成本=999)]
+            with tempfile.TemporaryDirectory() as folder:
+                path=Path(folder)/'prepared.parquet'
+                pq.write_table(pa.Table.from_pylist(records),path)
+                compressed=load(path,'厚膜电阻')
+                self.assertIsInstance(compressed,bytes)
+                raw=gzip.decompress(compressed).decode('utf-8')
+                self.assertNotIn('成本',raw)
+                install(conn,'厚膜电阻',compressed,'components_search_resistor')
+                result=snapshot(conn,'厚膜电阻',{'_size':['AXIAL']},include_rows=True)
+                self.assertEqual([r['型号'] for r in result['rows']],['R4'])
+                self.assertIsNone(result['rows'][0]['_tol'])
+                self.assertIsNone(result['rows'][0]['_power_watt'])
+                self.assertEqual(snapshot(conn,'厚膜电阻')['total'],6)
+                self.assertEqual(snapshot(conn,'厚膜电阻',keyword='R1',keyword_mode='exact',include_rows=True)['rows'][0]['_res_ohm'],1000)
+                self.assertEqual(snapshot(conn,'厚膜电阻',keyword='R2',keyword_mode='exact',include_rows=True)['rows'][0]['_power_watt'],.125)
+                self.assertEqual(list(conn.execute('SELECT * FROM components_search_resistor')),original)
+                self.assertFalse(conn.execute("SELECT name FROM sqlite_master WHERE name LIKE 'catalog_passive%'").fetchall())
+        finally:
+            fixture.tearDown()
+
+    def test_shared_source_is_readonly_thread_safe_and_has_no_account_context(self):
+        import ast,tempfile
+        from pathlib import Path
+        from concurrent.futures import ThreadPoolExecutor
+        import catalog_passive_completion as completion
+        source=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(source.read_text(encoding='utf-8'))
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='cached_catalog_passive_source')
+        function.decorator_list=[]
+        called=[]
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'public-index.sqlite'
+            with sqlite3.connect(path) as conn:
+                conn.execute('CREATE TABLE catalogue (model TEXT)')
+                conn.execute("INSERT INTO catalogue VALUES ('PUBLIC-ONLY')")
+            conn.close()
+            namespace=dict(sqlite3=sqlite3,SEARCH_DB_PATH=str(path),
+                install_jianghai_search_overlay=lambda conn:called.append('manufacturer'),
+                install_catalog_parameters=lambda *args:called.append('specs'),
+                _catalog_filters=SimpleNamespace(passive_completion=completion))
+            exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
+            resource=namespace['cached_catalog_passive_source']('revision','薄膜电阻')
+            def read():
+                with resource.lock:
+                    return resource.connection.execute('SELECT model FROM catalogue').fetchone()[0]
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                self.assertEqual(list(workers.map(lambda _:read(),range(4))),['PUBLIC-ONLY']*4)
+            with self.assertRaises(sqlite3.OperationalError):
+                resource.connection.execute('DELETE FROM catalogue')
+            self.assertEqual(called,['manufacturer','specs'])
+            self.assertNotIn('session_state',ast.unparse(function))
+            self.assertNotIn('current_member',ast.unparse(function))
+            resource.connection.close()
+
+    def test_inductor_keeps_unrelated_core_fields_and_uses_explicit_value_fallback(self):
+        import gzip,json
+        from catalog_passive_completion import complete,install
+        fixture=CatalogFilterTests();fixture.setUp()
+        try:
+            conn=fixture.conn
+            conn.execute('ALTER TABLE components_search_value ADD COLUMN _volt_num REAL')
+            conn.execute('UPDATE components_search_value SET _volt_num=99')
+            patch=complete(dict(品牌='A',型号='L3',_component_type='功率电感',电感值='5.6',电感单位='uH'))
+            compressed=gzip.compress((json.dumps(['A','L3',patch])+'\n').encode())
+            install(conn,'功率电感',compressed,'components_search_value')
+            rows=snapshot(conn,'功率电感',ranges={'inductance_uh':(5.6,5.6)},include_rows=True)['rows']
+            self.assertEqual([row['型号'] for row in rows],['L3'])
+            self.assertEqual(conn.execute("SELECT _volt_num FROM catalog_passive_source WHERE 型号='L3'").fetchone()[0],99)
+        finally:
+            fixture.tearDown()
+
+    def test_cold_restore_canonicalizes_revision_before_building_shared_catalogue(self):
+        import ast
+        from pathlib import Path
+        from types import SimpleNamespace
+        path=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(path.read_text(encoding='utf-8'))
+        function=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='cached_catalog_snapshot')
+        function.decorator_list=[]
+        called=[]
+        namespace=dict(_catalog_filters=SimpleNamespace(passive_completion=SimpleNamespace(KINDS={'MLCC'})),
+            os=SimpleNamespace(path=SimpleNamespace(isfile=lambda path:False)),PREPARED_CACHE_PATH='public.parquet',
+            cached_catalog_parameters=lambda *args:called.append(('restore',args)),
+            catalog_filter_data_signature=lambda:'restored-revision')
+        exec(compile(ast.Module(body=[function],type_ignores=[]),str(path),'exec'),namespace)
+        snapshot_function=namespace['cached_catalog_snapshot']
+        namespace['cached_catalog_snapshot']=lambda *args:called.append(('canonical',args)) or 'canonical-result'
+        self.assertEqual(snapshot_function('missing-revision','MLCC',{}, {},'',1,20,True),'canonical-result')
+        self.assertEqual(called[0],('restore',('missing-revision','MLCC')))
+        self.assertEqual(called[1][1][0],'restored-revision')
 
 
 class CatalogFilterUITests(unittest.TestCase):
@@ -518,3 +684,16 @@ fixture.conn.execute("INSERT INTO components_search_value VALUES ('A','CM1','共
         self.assertNotIn(PREFIX+'keyword_mode',at.session_state)
         self.assertEqual(at.session_state['search_query_input'],'KEEP-MAIN-TEXT-SEARCH')
         self.assertEqual(at.session_state['_member_auth_token'],'KEEP-MEMBER')
+
+    def test_upgrade_drops_removed_inapplicable_sort_without_losing_account_or_valid_filter(self):
+        at=self.app()
+        self.action(at,'kind',kind='MLCC')
+        at.session_state[PREFIX+'sort']='_pitch'
+        at.session_state[PREFIX+'desc']=True
+        at.session_state[PREFIX+'_mat']=['X7R']
+        at.session_state['_member_auth_token']='KEEP'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertNotIn(PREFIX+'sort',at.session_state)
+        self.assertEqual(at.session_state[PREFIX+'_mat'],['X7R'])
+        self.assertEqual(at.session_state['_member_auth_token'],'KEEP')
