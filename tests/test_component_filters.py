@@ -6,6 +6,85 @@ from component_filters import (CORE, MISSING, PREFIX, available_profile, categor
 
 
 class CatalogFilterTests(unittest.TestCase):
+    def test_mlcc_completion_uses_source_fields_without_overriding_known_values(self):
+        from catalog_mlcc_completion import complete
+        record=dict(品牌='Sunway(信维通信)',型号='MC0100B101K100N2RH',_component_type='MLCC',
+                    封装代码='0100',容值误差='±10%')
+        values=complete(record)
+        self.assertEqual(values['_size'],'01005')
+        self.assertEqual(values['_tol'],'10')
+        self.assertEqual(values['_mount_style'],'贴片')
+        self.assertFalse(values['_mat'])
+        record.update(_size='0402',_mat='X7R',_tol='5',_mount_style='插件')
+        self.assertEqual(complete(record),dict(_size='0402',_mat='X7R',_tol='5',_mount_style='插件'))
+        record['_component_type']='引线型陶瓷电容'
+        self.assertEqual(complete(record)['_mount_style'],'插件')
+
+    def test_mlcc_completion_scopes_codes_and_keeps_unknowns_unknown(self):
+        from catalog_mlcc_completion import complete
+        cctc=dict(品牌='三环CCTC',型号='TCC1206M3L103J501HT',_component_type='MLCC',_size='1206')
+        self.assertEqual(complete(cctc)['_mat'],'M3L')
+        cctc['品牌']='Unverified manufacturer'
+        self.assertFalse(complete(cctc)['_mat'])
+        self.assertFalse(complete(cctc)['_mount_style'])
+        murata=dict(品牌='村田Murata',型号='DE2B3KY681KN3AM02',_component_type='MLCC')
+        self.assertFalse(complete(murata)['_size'])
+        self.assertFalse(complete(murata)['_mount_style'])
+        self.assertFalse(complete(dict(品牌='Other',型号='MC0100B101K100N2RH',_component_type='MLCC',封装代码='0100'))['_size'])
+        smd=dict(品牌='村田Murata',型号='GRM155R71C104KA88D',_component_type='MLCC',_size='0402')
+        values=complete(smd)
+        self.assertEqual(values['_mount_style'],'贴片')
+        self.assertNotIn('生产状态',values)
+        self.assertNotIn('_safety_class',values)
+
+    def test_mlcc_resolver_fills_only_missing_fields_and_preserves_absolute_units(self):
+        from catalog_mlcc_completion import complete
+        record=dict(品牌='国巨YAGEO',型号='CS0402CRNPO9BNR10',_component_type='MLCC',_size='0402',_mat='COG',_pf=0.1)
+        resolver=lambda model,brand: {'尺寸（inch）':'0603','材质（介质）':'X7R','容值误差':'±0.25pF','成本':999}
+        values=complete(record,resolver)
+        self.assertEqual(values['_size'],'0402')
+        self.assertEqual(values['_mat'],'COG')
+        self.assertEqual(values['_tol'],'0.25PF')
+        self.assertNotIn('成本',values)
+        field=next(f for f in profile('MLCC')[1] if f.key=='_tol')
+        self.assertEqual(option_label(field,values['_tol']),'±0.25 pF')
+
+    def test_mlcc_overlay_counts_and_rows_share_filled_values_without_new_models(self):
+        self.conn.execute('UPDATE components_search_capacitor SET _size=NULL,_mat=NULL,_tol=NULL WHERE 型号=?',('C3',))
+        before=list(self.conn.execute('SELECT * FROM components_search_capacitor'))
+        details=[dict(品牌='B',型号='C3',_component_type='MLCC',_size='01005',_mat='M3L',_tol='0.1PF',_mount_style='贴片'),
+                 dict(品牌='B',型号='DELETED',_component_type='MLCC',_size='01005',_mat='X7R'),
+                 dict(品牌='A',型号='C1',_component_type='MLCC',_size='1206',_mat='X5R',_tol='20')]
+        install_parameter_rows(self.conn,'MLCC',details)
+        result=snapshot(self.conn,'MLCC',{'_size':['01005'],'_mat':['M3L'],'_tol':['0.1PF'],'_mount_style':['贴片']},include_rows=True)
+        self.assertEqual(result['total'],1)
+        self.assertEqual(result['rows'][0]['型号'],'C3')
+        self.assertEqual(dict(result['facets']['_size']),{'01005':1})
+        self.assertEqual(snapshot(self.conn,'MLCC')['total'],3)
+        self.assertEqual(snapshot(self.conn,'MLCC',{'_size':['0402']},include_rows=True)['rows'][0]['_mat'],'X7R')
+        self.assertEqual(before,list(self.conn.execute('SELECT * FROM components_search_capacitor')))
+        self.assertEqual(snapshot(self.conn,'厚膜电阻')['total'],6)
+        install_parameter_rows(self.conn,'MLCC',details)  # idempotent in one connection
+
+    def test_mlcc_completion_projects_raw_parquet_and_takes_one_actual_record(self):
+        import tempfile
+        from pathlib import Path
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'prepared.parquet'
+            pq.write_table(pa.Table.from_pylist([
+                dict(品牌='Sunway(信维通信)',型号='MC0100B101K100N2RH',_component_type='MLCC',_size='',_mat='X7R',_tol='',_mount_style='',封装代码='0100',容值误差='±10%',成本=999),
+                dict(品牌='Sunway(信维通信)',型号='MC0100B101K100N2RH',_component_type='MLCC',_size='0402',_mat='X5R',_tol='5',_mount_style='插件',封装代码='0402',容值误差='±5%',成本=1),
+                dict(品牌='A',型号='Q1',_component_type='MOSFET',封装代码='SOT-23')]),path)
+            rows=load_parameter_rows(path,'MLCC')
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['_size'],'01005')
+            self.assertEqual(rows[0]['_mat'],'X7R')
+            self.assertEqual(rows[0]['_tol'],'10')
+            self.assertNotIn('成本',rows[0])
+            self.assertNotIn('封装代码',rows[0])
+
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
         self.conn.executescript('''
@@ -245,6 +324,9 @@ class CatalogFilterTests(unittest.TestCase):
             readonly=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
             install_parameter_rows(readonly,'MOSFET',[dict(品牌='A',型号='Q1',_component_type='MOSFET',封装代码='SOT-23',极性='N沟道',_current_amps=1)])
             self.assertEqual(snapshot(readonly,'MOSFET',{'封装代码':['SOT-23']})['total'],1)
+            install_parameter_rows(readonly,'MLCC',[dict(品牌='B',型号='C3',_component_type='MLCC',_mat='M3L')])
+            self.assertEqual(snapshot(readonly,'MLCC',{'_mat':['M3L']})['total'],1)
+            self.assertEqual(snapshot(readonly,'MLCC')['total'],3)
             readonly.close()
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
             reopened=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
@@ -265,16 +347,34 @@ class CatalogFilterTests(unittest.TestCase):
             target=Path(folder)/'prepared.parquet'
             extracted=[]
             namespace=dict(os=os,PREPARED_CACHE_PATH=str(target),ensure_streamlit_cloud_data_bundle=lambda **kw: extracted.append(kw['required_paths']),
-                _catalog_filters=SimpleNamespace(SEMICONDUCTORS={'MOSFET'},INDUCTORS={'功率电感'},load_parameter_rows=lambda path,kind: [kind]))
+                _catalog_filters=SimpleNamespace(SEMICONDUCTORS={'MOSFET'},INDUCTORS={'功率电感'},load_parameter_rows=lambda path,kind,**kwargs: [kind]),resolve_catalog_mlcc_rule=lambda model,brand:{})
             exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
             load=namespace['cached_catalog_parameters']
             self.assertEqual(load('cold','MLCC'),['MLCC'])
-            self.assertEqual(extracted,[])
-            self.assertEqual(load('cold','MOSFET'),['MOSFET'])
             self.assertEqual(extracted,[[str(target)]])
+            self.assertEqual(load('cold','MOSFET'),['MOSFET'])
+            self.assertEqual(extracted,[[str(target)],[str(target)]])
             target.write_bytes(b'fixture')
             load('warm','MOSFET')
-            self.assertEqual(len(extracted),1)
+            self.assertEqual(len(extracted),2)
+
+    def test_catalogue_brand_decoder_rejects_wrong_brand_type_and_unverified_rules(self):
+        import ast
+        from pathlib import Path
+        source=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(source.read_text(encoding='utf-8'))
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='resolve_catalog_mlcc_rule')
+        parsed={}
+        namespace=dict(parse_model_rule=lambda *args,**kwargs:parsed,
+            brand_matches_loose=lambda a,b: bool(a) and a==b,normalize_component_type=lambda v:v)
+        exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
+        resolve=namespace['resolve_catalog_mlcc_rule']
+        for bad in ({'品牌':'A'},{'品牌':'B','_model_rule_authority':'rule'},
+                    {'品牌':'A','_model_rule_authority':'rule','器件类型':'钽电容'}):
+            parsed.clear();parsed.update(bad)
+            self.assertEqual(resolve('C1','A'),{})
+        parsed.clear();parsed.update(品牌='A',_model_rule_authority='rule',器件类型='MLCC',容值误差='0.1PF')
+        self.assertEqual(resolve('C1','A')['容值误差'],'0.1PF')
 
 
 class CatalogFilterUITests(unittest.TestCase):

@@ -10,6 +10,7 @@ import hashlib
 import math
 import os
 import re
+import catalog_mlcc_completion as mlcc_completion
 
 CORE = "components_search_core"
 MISSING = "__catalog_missing__"
@@ -48,20 +49,20 @@ def scalar_current(value):
     return number if math.isfinite(number) else None
 
 
-def load_parameter_rows(path, component_type):
+def load_parameter_rows(path, component_type, model_resolver=None):
     """Project only this kind's missing fields from the existing public asset.
 
     No source rebuild, writes or full-library DataFrame. Costs/auth columns are
     never read. Unknown kinds stay on the indexed-core fallback.
     """
-    if component_type not in SEMICONDUCTORS | INDUCTORS or not os.path.isfile(path):
+    if component_type not in SEMICONDUCTORS | INDUCTORS | {'MLCC'} or not os.path.isfile(path):
         return []
     import pyarrow.parquet as pq
     with pq.ParquetFile(path) as source:
         names = set(source.schema_arrow.names)
     if not {'品牌', '型号', '_component_type'}.issubset(names):
         return []
-    columns = [c for c in DETAIL_COLUMNS if c in names]
+    columns = [c for c in (mlcc_completion.RAW_COLUMNS if component_type == 'MLCC' else DETAIL_COLUMNS) if c in names]
     table = pq.read_table(path, columns=columns, filters=[('_component_type', '=', component_type)], use_threads=False)
     rows, seen = [], set()
     for row in table.to_pylist():
@@ -70,6 +71,11 @@ def load_parameter_rows(path, component_type):
             continue
         # Select one actual record, never manufacture a composite specification.
         seen.add(identity)
+        if component_type == 'MLCC':
+            completed = mlcc_completion.complete(row, model_resolver)
+            if any(completed[key] and completed[key] != mlcc_completion.text(row.get(key)) for key in completed):
+                rows.append({**dict(zip(('品牌', '型号', '_component_type'), identity)), **completed})
+            continue
         row['_current_amps'] = scalar_current(row.get('额定电流'))
         row['_saturation_amps'] = scalar_current(row.get('饱和电流'))
         rows.append(row)
@@ -83,6 +89,9 @@ def install_parameter_rows(conn, component_type, rows):
     remains NULL; a newly indexed model is not dropped. TEMP data disappears on
     close, even when the search database is opened read-only.
     """
+    if component_type == 'MLCC':
+        install_mlcc_parameters(conn, rows)
+        return
     if component_type not in SEMICONDUCTORS | INDUCTORS or not rows:
         return
     table, _ = available_profile(conn, component_type)
@@ -100,6 +109,39 @@ def install_parameter_rows(conn, component_type, rows):
     conn.execute(f'CREATE TEMP TABLE catalog_filter_base AS SELECT * FROM "{table}" WHERE "_component_type"=?', (component_type,))
     extra = ''.join(f', d."{c}" AS "{c}"' for c in columns if c not in base_columns)
     conn.execute(f'CREATE TEMP VIEW catalog_filter_source AS SELECT b.*{extra} FROM catalog_filter_base b LEFT JOIN catalog_filter_parameters d ON b."品牌" IS d."品牌" AND b."型号"=d."型号" AND b."_component_type"=d."_component_type"')
+
+
+def install_mlcc_parameters(conn, rows):
+    """Complete a connection-local copy; never alter the shipped search store."""
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_mlcc_source'").fetchone():
+        return
+    columns = {r[1] for r in conn.execute('PRAGMA table_info(components_search_capacitor)')}
+    if not {'品牌', '型号', '_component_type'}.issubset(columns):
+        return
+    conn.execute("CREATE TEMP TABLE catalog_mlcc_source AS SELECT * FROM components_search_capacitor WHERE _component_type='MLCC'")
+    for key in mlcc_completion.FIELDS:
+        if key not in columns:
+            conn.execute(f'ALTER TABLE catalog_mlcc_source ADD COLUMN "{key}" TEXT')
+    details = {}
+    for row in rows:
+        if row.get('_component_type') == 'MLCC':
+            details.setdefault((row.get('品牌'), row.get('型号')), row)
+    projection = ','.join('"'+key+'"' for key in ('品牌', '型号', '_component_type', *mlcc_completion.FIELDS))
+    cursor = conn.execute('SELECT rowid,'+projection+' FROM catalog_mlcc_source')
+    updates = []
+    for item in cursor:
+        record = dict(zip(('品牌', '型号', '_component_type', *mlcc_completion.FIELDS), item[1:]))
+        original = {key: mlcc_completion.text(record.get(key)) for key in mlcc_completion.FIELDS}
+        detail = details.get((record['品牌'], record['型号']), {})
+        for key in mlcc_completion.FIELDS:
+            if not original[key] and mlcc_completion.text(detail.get(key)):
+                record[key] = detail[key]
+        values = mlcc_completion.complete(record)
+        if values != original:
+            updates.append(tuple(values[key] or None for key in mlcc_completion.FIELDS)+(item[0],))
+    assignments = ','.join('"'+key+'"=?' for key in mlcc_completion.FIELDS)
+    conn.executemany('UPDATE catalog_mlcc_source SET '+assignments+' WHERE rowid=?', updates)
+    conn.execute('CREATE INDEX catalog_mlcc_identity ON catalog_mlcc_source(品牌,型号)')
 
 
 @dataclass(frozen=True)
@@ -152,6 +194,8 @@ def profile(component_type):
 
 def available_profile(conn, component_type):
     table, fields = profile(component_type)
+    if component_type == 'MLCC' and conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_mlcc_source'").fetchone():
+        table = 'catalog_mlcc_source'
     if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE type='view' AND name='catalog_filter_source'").fetchone():
         current = conn.execute('SELECT _component_type FROM catalog_filter_parameters LIMIT 1').fetchone()
         if current and current[0] == component_type:
@@ -295,6 +339,8 @@ def option_label(field, value):
     if value == MISSING or value is None or value == "":
         return "未提供"
     if field.key == '_tol':
+        if re.fullmatch(r'\d+(?:\.\d+)?PF', str(value).upper()):
+            return '±'+str(value)[:-2]+' pF'
         if str(value).replace('.', '', 1).isdigit():
             numeric = float(value)
             return f'±{value}%' if 0 < numeric <= 100 else '误差标注待核对'

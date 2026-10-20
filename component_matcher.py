@@ -329,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T10:10:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T11:10:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49650,12 +49650,24 @@ def cached_catalog_unique(data_signature, component_type):
 
 @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def cached_catalog_parameters(data_signature, component_type):
-    if component_type in _catalog_filters.SEMICONDUCTORS | _catalog_filters.INDUCTORS and not os.path.isfile(PREPARED_CACHE_PATH):
+    if component_type in _catalog_filters.SEMICONDUCTORS | _catalog_filters.INDUCTORS | {'MLCC'} and not os.path.isfile(PREPARED_CACHE_PATH):
         # Public cold startup restores only the lightweight query index. Read
         # this already-published detail asset lazily, never rebuild the library
         # or expand the startup/bundle requirements for ordinary text searches.
         ensure_streamlit_cloud_data_bundle(required_paths=[PREPARED_CACHE_PATH])
+    if component_type == 'MLCC':
+        return _catalog_filters.load_parameter_rows(PREPARED_CACHE_PATH, component_type, model_resolver=resolve_catalog_mlcc_rule)
     return _catalog_filters.load_parameter_rows(PREPARED_CACHE_PATH, component_type)
+
+
+def resolve_catalog_mlcc_rule(model, brand):
+    """Use established brand rules only for blanks, never cross-brand inference."""
+    parsed = parse_model_rule(model, brand=brand, component_type='MLCC') or {}
+    if not parsed.get('_model_rule_authority') or not brand_matches_loose(parsed.get('品牌', ''), brand):
+        return {}
+    if parsed.get('器件类型') and normalize_component_type(parsed['器件类型']) != 'MLCC':
+        return {}
+    return parsed
 
 
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
