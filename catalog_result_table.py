@@ -81,5 +81,7 @@ def handle_request(state, payload, request, on_match):
 
 def render_table(payload,key):
     import streamlit.components.v1 as components
-    component=components.declare_component('catalog_specification_results',path=str(Path(__file__).with_name('catalog_results')))
+    folder=Path(__file__).with_name('catalog_results')
+    revision=hashlib.sha256((folder/'index.html').read_bytes()).hexdigest()[:12]
+    component=components.declare_component('catalog_specification_results_'+revision,path=str(folder))
     return component(payload=payload,key=key,default=None)

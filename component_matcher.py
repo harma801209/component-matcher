@@ -69,11 +69,13 @@ import importlib as _workbench_importlib
 import precision_theme as _workbench_theme
 import component_filters as _catalog_filters
 import catalog_result_table as _catalog_result_table
+import catalog_filter_panel as _catalog_filter_panel
 # Existing cloud script caches may still use the previous entrypoint loader.
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
 _workbench_importlib.reload(_catalog_filters)
 _workbench_importlib.reload(_catalog_result_table)
+_workbench_importlib.reload(_catalog_filter_panel)
 from precision_theme import CSS as WORKBENCH_CSS, TABLE_CSS as WORKBENCH_TABLE_CSS, render_header as render_workbench_header
 from bom_job_store import (
     create_or_update_job as _create_or_update_bom_job,
@@ -327,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-19T14:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T13:10:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49657,14 +49659,14 @@ def cached_catalog_parameters(data_signature, component_type):
 
 
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
-def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key="", sort_desc=False):
+def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key="", sort_desc=False, keyword_mode="contains"):
     verified_unique = cached_catalog_unique(data_signature, component_type)
     conn = open_search_db_connection(timeout_sec=10)
     if conn is None:
         raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")
     try:
         _catalog_filters.install_parameter_rows(conn, component_type, cached_catalog_parameters(data_signature, component_type))
-        return _catalog_filters.snapshot(conn, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=verified_unique)
+        return _catalog_filters.snapshot(conn, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=verified_unique, keyword_mode=keyword_mode)
     finally:
         conn.close()
 
@@ -49694,7 +49696,7 @@ def render_catalog_search_page():
             categories = cached_catalog_categories(signature)
         _catalog_filters.render(
             st, categories,
-            lambda *args: cached_catalog_snapshot(signature, *args),
+            lambda *args, **kwargs: cached_catalog_snapshot(signature, *args, **kwargs),
             lambda: require_member_login_for_action("查看规格筛选结果"),
             bool(current_member()), lambda model: handoff_catalog_model_to_search(model, defer=True),
         )

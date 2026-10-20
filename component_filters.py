@@ -200,7 +200,7 @@ def parse_range(low, high, multiplier=1):
     return lower, upper
 
 
-def where_clause(fields, component_type, selected, ranges, keyword="", omit=""):
+def where_clause(fields, component_type, selected, ranges, keyword="", omit="", keyword_mode="contains"):
     known = {f.key: f for f in fields}
     if (set(selected) | set(ranges)) - set(known):
         raise ValueError("无效的筛选参数。")
@@ -237,19 +237,21 @@ def where_clause(fields, component_type, selected, ranges, keyword="", omit=""):
                 clauses.append(f'({known[key].expression}) {sign} ?')
                 params.append(float(value))
     keyword = str(keyword or "").strip()
+    if not isinstance(keyword_mode,str) or keyword_mode not in {'contains','prefix','exact'}:
+        raise ValueError("无效的型号搜索方式。")
     if len(keyword) > 120:
         raise ValueError("型号关键词最多 120 个字符。")
     if keyword:
         escaped = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         clauses.append('"型号" LIKE ? ESCAPE \'\\\'')
-        params.append('%' + escaped + '%')
+        params.append(('%' if keyword_mode=='contains' else '') + escaped + ('%' if keyword_mode!='exact' else ''))
     return ' AND '.join(clauses), params
 
 
-def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, sort_key="", sort_desc=False, verified_unique=False):
+def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, sort_key="", sort_desc=False, verified_unique=False, keyword_mode="contains"):
     table, fields = available_profile(conn, component_type)
     selected, ranges = selected or {}, ranges or {}
-    where, params = where_clause(fields, component_type, selected, ranges, keyword)
+    where, params = where_clause(fields, component_type, selected, ranges, keyword, keyword_mode=keyword_mode)
     sortable = {f.key:f.expression for f in fields} | {'型号':'"型号"', '品牌':'"品牌"'}
     if sort_key and sort_key not in sortable:
         raise ValueError('无效的排序字段。')
@@ -266,7 +268,7 @@ def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=
     total = int(conn.execute(f'SELECT {counter} FROM "{table}" WHERE {where}', params).fetchone()[0])
     facets = {}
     for field in fields:
-        own_where, own_params = where_clause(fields, component_type, selected, ranges, keyword, omit=field.key)
+        own_where, own_params = where_clause(fields, component_type, selected, ranges, keyword, omit=field.key, keyword_mode=keyword_mode)
         expr = field.expression if field.units else text_expression(field)
         if field.units:
             facets[field.key] = list(conn.execute(f'SELECT MIN(({expr})), MAX(({expr})) FROM "{table}" WHERE {own_where}', own_params).fetchone())
@@ -331,132 +333,81 @@ def choice_key(field_key, value):
     return PREFIX + 'choice_' + field_key + '_' + hashlib.sha256(str(value).encode('utf-8')).hexdigest()[:20]
 
 
-def render(st, categories, get_snapshot, on_login, is_member, on_match, results_renderer=None):
-    """Streamlit UI; counts are public catalogue metadata, models require login."""
-    st.markdown('### 按规格查找库内器件')
-    st.caption('每个数量按该品类的“品牌＋型号”去重，不是库存数量；只统计库内条目，不含规则推导的候选型号。')
-    families = list(dict.fromkeys(family_of_kind(k) for k, _ in categories))
-    family = st.selectbox('器件大类', [None]+families, key=PREFIX+'family', format_func=lambda f: '全部器件' if f is None else f, on_change=change_family, args=(st.session_state,))
-    counts = {k:n for k,n in categories if family is None or family_of_kind(k)==family}
-    head = st.columns([4, 1])
-    with head[0]:
-        kind = st.selectbox('器件品类', [None] + list(counts), key=PREFIX+'category', format_func=lambda k: '请选择品类 · 查看全部已收录种类' if k is None else f'{k or "未分类"}（{counts[k]:,}）', on_change=reset_filters, args=(st.session_state, True))
-    with head[1]:
-        st.button('清空筛选', key=PREFIX+'clear', on_click=reset_filters, args=(st.session_state,), use_container_width=True)
-    if kind is None:
-        import pandas as pd
-        st.dataframe(pd.DataFrame([{'器件品类':k or '未分类', '库内型号数':n} for k, n in counts.items()]), hide_index=True, use_container_width=True, height=360)
-        st.info('先选择器件品类，再按封装、品牌和电性参数缩小范围。')
-        return
-
-    _, definitions = profile(kind)
-    selected, ranges = {}, {}
-    try:
-        for field in definitions:
+def render(st, categories, get_snapshot, on_login, is_member, on_match, results_renderer=None, panel_renderer=None):
+    """Compact manufacturer-style facets; anonymous responses contain metadata only."""
+    from catalog_filter_panel import build_payload as panel_payload, render_panel, handle_request as panel_action
+    kind = st.session_state.get(PREFIX+'category')
+    if kind not in dict(categories):
+        kind = None
+    selected, ranges, baseline, result = {}, {}, None, None
+    invalid_ranges = []
+    keyword = st.session_state.get(PREFIX+'keyword', '')
+    keyword_mode = st.session_state.get(PREFIX+'keyword_mode','contains')
+    if kind is not None:
+        # Initial entry needs only one scan. Reuse its facets as the full
+        # option universe rather than querying the same large kind twice.
+        has_conditions = bool(keyword) or any(st.session_state.get(PREFIX+field.key+suffix)
+            for field in profile(kind)[1] for suffix in (('_low','_high') if field.units else ('',)))
+        if has_conditions:
+            baseline = get_snapshot(kind, {}, {}, '', 1, 20, False, '', False)
+        else:
+            result = get_snapshot(kind, {}, {}, '', int(st.session_state.get(PREFIX+'page',1)),
+                int(st.session_state.get(PREFIX+'size',20)), bool(is_member), st.session_state.get(PREFIX+'sort',''),
+                bool(st.session_state.get(PREFIX+'desc',False)), keyword_mode=keyword_mode)
+            baseline = result
+        for field in baseline['fields']:
             if field.units:
                 unit = st.session_state.get(PREFIX+field.key+'_unit', field.units[0][0])
-                multiplier = dict(field.units).get(unit, field.units[0][1])
-                bounds = parse_range(st.session_state.get(PREFIX+field.key+'_low', ''), st.session_state.get(PREFIX+field.key+'_high', ''), multiplier)
-                if bounds != (None, None):
+                scale = dict(field.units).get(unit, field.units[0][1])
+                try:
+                    bounds = parse_range(st.session_state.get(PREFIX+field.key+'_low',''), st.session_state.get(PREFIX+field.key+'_high',''), scale)
+                except ValueError as exc:
+                    invalid_ranges.append(field.label+'：'+str(exc))
+                    continue
+                if bounds != (None,None):
                     ranges[field.key] = bounds
             elif st.session_state.get(PREFIX+field.key):
                 selected[field.key] = list(st.session_state[PREFIX+field.key])
-        result = get_snapshot(kind, selected, ranges, st.session_state.get(PREFIX+'keyword', ''), int(st.session_state.get(PREFIX+'page', 1)), int(st.session_state.get(PREFIX+'size', 20)), bool(is_member), st.session_state.get(PREFIX+'sort',''), bool(st.session_state.get(PREFIX+'desc',False)))
-    except ValueError as exc:
-        st.warning(str(exc))
-        # Keep invalid input editable; don't display old results as current.
-        result = get_snapshot(kind, selected, {}, '', 1, 20, False)
-        invalid = True
-    else:
-        invalid = False
-
-    def changed():
-        st.session_state[PREFIX+'page'] = 1
-        st.session_state.pop(PREFIX+'picked', None)
-
-    st.text_input('在筛选结果中查找型号', key=PREFIX+'keyword', max_chars=120, placeholder='可输入型号的一部分（可留空）', on_change=changed)
-    active = []
-    facets = result['facets']
+        if result is None:
+            result = get_snapshot(kind, selected, ranges, keyword, int(st.session_state.get(PREFIX+'page',1)),
+                int(st.session_state.get(PREFIX+'size',20)), bool(is_member), st.session_state.get(PREFIX+'sort',''),
+                bool(st.session_state.get(PREFIX+'desc',False)), keyword_mode=keyword_mode)
+    panel = panel_payload(categories,kind,baseline,result,selected,ranges,keyword,st.session_state)
+    request = (panel_renderer or render_panel)(panel,key=PREFIX+'panel')
+    if panel_action(st.session_state,panel,request):
+        st.rerun()
+    if kind is None:
+        return
+    if invalid_ranges:
+        st.warning('请修正数值范围后查看结果。'+'；'.join(invalid_ranges))
+        return
     if kind in SEMICONDUCTORS:
         st.caption('电压、电流按库内标注筛选，不代表相同测试条件或可直接替代；动态参数保留原始测试条件。')
     if len(result['fields']) == 1:
-        st.info('此品类的筛选索引目前仅收录品牌和型号。可选择具体型号查看详情；未收录的电性参数不会默认补值。')
-    categorical = [f for f in result['fields'] if not f.units and (any(v != MISSING for v, _ in facets.get(f.key, [])) or selected.get(f.key))]
-    def render_choices(group):
-        for offset in range(0, len(group), 3):
-            for box, field in zip(st.columns(3), group[offset:offset+3]):
-                with box:
-                    options = dict(facets.get(field.key, []))
-                    for value in selected.get(field.key, []):
-                        options.setdefault(value, 0)
-                    values = selected.get(field.key, [])
-                    # Keep the expander identity stable while counts change;
-                    # otherwise each tick closes the group during multi-select.
-                    with st.expander(field.label, expanded=False):
-                        st.caption(f'已选 {len(values)} 项' if values else '不限，可多选')
-                        search = st.text_input('查找'+field.label+'选项', key=PREFIX+'option_search_'+field.key, placeholder='输入关键词查找全部选项')
-                        visible = [v for v in options if v in values or not search or search.casefold() in option_label(field,v).casefold()]
-                        if len(visible) > 100:
-                            st.caption(f'共 {len(visible):,} 项，先显示 100 项；输入关键词可查找其余选项。')
-                            visible = list(values) + [v for v in visible if v not in values][:max(0,100-len(values))]
-                        with st.container(height=180):
-                            for value in visible:
-                                widget_key = choice_key(field.key, value)
-                                def toggle(key=field.key, item=value, widget=widget_key):
-                                    current = list(st.session_state.get(PREFIX+key, []))
-                                    if st.session_state.get(widget) and item not in current:
-                                        current.append(item)
-                                    elif not st.session_state.get(widget) and item in current:
-                                        current.remove(item)
-                                    st.session_state[PREFIX+key] = current
-                                    changed()
-                                # A boolean widget serializes only checked state,
-                                # never its changing display label/count.
-                                st.checkbox(f'{option_label(field,value)}（{options[value]:,}）', value=value in values, key=widget_key, on_change=toggle, disabled=value not in values and len(values)>=100)
-                        st.caption('同组可多选；数量受其他参数影响，不受本组已选项限制。')
-                    if values:
-                        active.append(field.label + '：' + '、'.join(option_label(field, v) for v in values))
-    render_choices(categorical[:4])
-    if len(categorical) > 4:
-        with st.expander('更多参数', expanded=any(selected.get(f.key) for f in categorical[4:])):
-            render_choices(categorical[4:])
-    numeric = [f for f in result['fields'] if f.units and (facets.get(f.key, [None])[0] is not None or f.key in ranges)]
-    if numeric:
-        with st.expander('数值范围 · 可只填一端；精确值请把上下限填成相同数值', expanded=bool(ranges) or invalid):
-            for field in numeric:
-                st.markdown(f'**{field.label}**')
-                cols = st.columns([2, 2, 1])
-                cols[0].text_input(field.label+'下限', key=PREFIX+field.key+'_low', placeholder='不限', on_change=changed)
-                cols[1].text_input(field.label+'上限', key=PREFIX+field.key+'_high', placeholder='不限', on_change=changed)
-                cols[2].selectbox(field.label+'单位', [u for u, _ in field.units], key=PREFIX+field.key+'_unit', on_change=changed)
-                minimum, maximum = facets.get(field.key, [None, None])
-                if minimum is not None:
-                    unit = st.session_state.get(PREFIX+field.key+'_unit', field.units[0][0])
-                    scale = dict(field.units)[unit]
-                    st.caption(f'其他条件下已收录范围：{minimum/scale:g} ～ {maximum/scale:g} {unit}')
-                if field.key in ranges:
-                    low = st.session_state.get(PREFIX+field.key+'_low', '') or '不限'
-                    high = st.session_state.get(PREFIX+field.key+'_high', '') or '不限'
-                    unit = st.session_state.get(PREFIX+field.key+'_unit', field.units[0][0])
-                    active.append(f'{field.label}：{low} ～ {high} {unit}')
-    if invalid:
-        st.info('请修正范围后查看结果；当前没有展示旧结果。')
-        return
-    condition = '；'.join(active) if active else '该品类全部库内条目'
+        st.info('此品类目前仅收录品牌和型号；未收录的电性参数不会默认补值。')
+    active = []
+    if keyword:
+        active.append({'contains':'型号包含','prefix':'型号开头','exact':'型号完全一致'}[keyword_mode]+'：'+keyword)
+    for field in result['fields']:
+        if selected.get(field.key):
+            active.append(field.label+'：'+'、'.join(option_label(field,value) for value in selected[field.key]))
+        if field.key in ranges:
+            unit=st.session_state.get(PREFIX+field.key+'_unit',field.units[0][0])
+            low=st.session_state.get(PREFIX+field.key+'_low','') or '不限'
+            high=st.session_state.get(PREFIX+field.key+'_high','') or '不限'
+            active.append(f'{field.label}：{low} ～ {high} {unit}')
+    condition='；'.join(active) if active else '该品类全部库内条目'
     if not is_member:
-        st.caption('已选条件：'+condition)
-        st.markdown(f'#### 找到 {result["total"]:,} 个库内型号')
         st.info('登录会员后可查看具体型号；价格仍按原有账号和客户权限显示。')
-        if st.button('登录查看筛选结果', type='primary'):
+        if st.button('登录查看筛选结果',type='primary'):
             on_login()
         return
     if not result['total']:
-        st.markdown('#### 找到 0 个库内型号')
         st.warning('没有同时满足这些条件的库内型号。可移除部分条件或清空筛选；这不代表厂家不能生产。')
         return
     from catalog_result_table import build_payload, render_table, handle_request
-    payload = build_payload(result, kind, condition, selected, ranges, st.session_state.get(PREFIX+'keyword',''), st.session_state.get(PREFIX+'sort',''), bool(st.session_state.get(PREFIX+'desc',False)))
-    request = (results_renderer or render_table)(payload, key=PREFIX+'result_table')
-    if handle_request(st.session_state, payload, request, on_match):
+    payload=build_payload(result,kind,condition,selected,ranges,keyword,st.session_state.get(PREFIX+'sort',''),bool(st.session_state.get(PREFIX+'desc',False)))
+    request=(results_renderer or render_table)(payload,key=PREFIX+'result_table')
+    if handle_request(st.session_state,payload,request,on_match):
         st.rerun()
-    st.caption('未知参数不按 0 处理；筛选不代表可直接替代或供货承诺。点击型号查看匹配，价格沿用原有账号、客户和成本时间权限。')
+    st.caption('点击型号查看匹配，价格沿用原有账号、客户和成本时间权限。')

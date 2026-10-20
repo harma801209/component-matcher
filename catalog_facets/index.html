@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#fff;color:#27384a;font:14px/1.5 Arial,"Microsoft YaHei",sans-serif}button,input,select{font:inherit;color:inherit}button,select,summary,label{cursor:pointer}button{min-height:36px;padding:6px 14px;border:1px solid #b8c6d6;border-radius:2px;background:#fff}button:hover:not(:disabled){border-color:#2164bc;background:#edf4fd}button:disabled{cursor:default;color:#9aa4af;background:#f5f6f7}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #2164bc;outline-offset:2px}.primary{background:#2164bc;border-color:#2164bc;color:white}.primary:hover:not(:disabled){background:#17539d;color:white}.category-head{display:flex;align-items:center;gap:20px;border-bottom:1px solid #d6dde5;padding:3px 0 18px}.category-head h2{font-size:25px;margin:0;font-weight:600;color:#22384e}.category-head small{color:#6b7b8d;font-size:12px}.chooser{margin-top:14px;border:1px solid #c8d2de;background:#fff;padding:16px}.chooser[hidden]{display:none}.chooser-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.chooser-head h3{margin:0;font-size:17px}.family-tabs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}.family-tabs button{font-size:13px;min-height:34px;padding:5px 12px}.family-tabs button[aria-pressed=true]{background:#2164bc;color:#fff;border-color:#2164bc}.kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:0;border-top:1px solid #dce2e8;border-left:1px solid #dce2e8}.kind{border:0;border-right:1px solid #dce2e8;border-bottom:1px solid #dce2e8;border-radius:0;padding:13px;display:flex;align-items:center;justify-content:space-between;text-align:left;gap:10px;min-height:49px}.kind small{font-size:12px;color:#65788c;white-space:nowrap}.section-head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:22px 0 16px}.section-left{display:flex;align-items:center;gap:12px}.section-head h3{margin:0;font-size:21px;font-weight:600}.toggle{font-size:12px;min-height:32px;background:#2164bc;color:#fff;border-color:#2164bc}.clear-all{background:#526779;color:#fff;border-color:#526779;font-size:13px;min-width:145px}.search-row{display:flex;gap:18px;align-items:center;justify-content:space-between;margin:3px 0 17px}.search{display:flex;align-items:center;gap:10px;flex:1;max-width:720px}.search label{font-weight:600;white-space:nowrap}.search input{min-width:0;flex:1;width:300px;max-width:430px;height:39px;border:1px solid #b9c6d4;padding:7px 10px;border-radius:1px}.search button{min-width:90px;min-height:39px}.layout{display:flex;align-items:center;gap:9px;font-size:12px;white-space:nowrap}.layout select{padding:7px;border:1px solid #bdc8d6;background:#fff;min-height:36px}.help{font-size:12px;color:#738294;margin:0 0 15px}.panel-body[hidden]{display:none}.strip{display:flex;gap:16px;overflow-x:auto;overflow-y:hidden;padding:0 0 12px;scrollbar-color:#8a98a6 #edf0f3;scrollbar-width:auto;align-items:stretch;border-top:1px solid #dce2e8}.strip.wrap{flex-wrap:wrap;overflow:visible}.facet{flex:0 0 198px;min-width:0;padding-top:13px}.facet.numeric{flex-basis:260px}.facet h4{font-size:13px;margin:0 0 7px;font-weight:600;min-height:20px;line-height:1.5;overflow-wrap:anywhere}.facet-box{border:1px solid #d5dde6;height:204px;display:flex;flex-direction:column;background:#fff}.options{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#939da7 #f1f3f6}.option{display:flex;align-items:center;gap:7px;min-height:34px;padding:5px 8px;font-size:12px;line-height:1.4}.option:hover{background:#f4f7fb}.option:has(input:checked){background:#e9f2fc}.option.unavailable{color:#9da6af}.option input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:#2164bc}.option .label{overflow-wrap:anywhere}.count{font-size:11px;padding:0 3px;background:#e5e8eb;color:#65717c;margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}.option-search{margin:6px;width:calc(100% - 12px);min-width:0;height:30px;border:1px solid #c9d2dc;padding:4px 7px;font-size:12px}.group-clear{min-height:28px;padding:2px 6px;border-radius:0;border:0;border-top:1px solid #dce2e8;background:#f0f3f6;color:#47617d;font-size:12px}.group-clear:not(:disabled){background:#566b7e;color:white}.numeric-body{padding:10px;flex:1}.available{font-size:11px;color:#7a8897;line-height:1.5;overflow-wrap:anywhere;min-height:34px;margin:0 0 8px}.number-row{display:flex;gap:5px;align-items:center;margin-bottom:8px}.number-row input{width:0;min-width:0;flex:1;border:1px solid #bcc7d3;padding:5px 7px;height:32px;font-size:12px}.number-row select{max-width:74px;height:32px;border:1px solid #bcc7d3;background:white;font-size:12px;padding:2px}.range-apply{font-size:12px;min-height:28px;padding:2px 10px}.validation{font-size:11px;color:#b32a32;margin:5px 0 0;line-height:1.4}.summary{border-top:1px solid #dce2e8;background:#f4f6f9;margin-top:9px;padding:12px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.summary strong{font-weight:600}.chip{font-size:12px;min-height:28px;padding:3px 8px;background:#fff;max-width:100%;overflow-wrap:anywhere;text-align:left}.summary .total{margin-left:auto;color:#526a83;white-space:nowrap}.summary .total b{font-size:17px;color:#2164bc;margin:0 4px}.notice{margin:10px 0 0;font-size:12px;color:#728193}.busy{opacity:.65;pointer-events:none}.mobile-entry{display:none}.empty{font-size:13px;color:#677b91;padding:12px 0}.mobile-close{display:none}
+@media(max-width:650px){.category-head{gap:10px;flex-wrap:wrap;padding-bottom:12px}.category-head h2{font-size:21px}.category-head button{font-size:12px}.category-head small{width:100%}.chooser{padding:11px}.kinds{grid-template-columns:repeat(2,minmax(0,1fr))}.kind{padding:10px;min-height:52px;font-size:12px;flex-wrap:wrap;gap:2px}.family-tabs{gap:5px}.family-tabs button{min-height:40px;padding:5px 9px}.section-head{padding:15px 0 12px}.section-head h3{font-size:18px}.clear-all{min-width:105px;padding:6px 9px;font-size:12px}.toggle{min-height:36px}.search-row{align-items:stretch;flex-direction:column;gap:10px;margin-bottom:12px}.search{width:100%;gap:6px}.search label{font-size:12px}.search input{width:0}.search button{min-width:58px;padding:6px 10px}.layout{justify-content:flex-end}.strip{gap:12px}.strip.wrap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.strip.wrap .facet{width:auto}.facet{flex-basis:190px}.facet.numeric{flex-basis:245px}.facet h4{font-size:12px}.option{min-height:39px}.facet-box{height:235px}.summary{padding:10px;gap:7px}.summary .total{margin-left:0;width:100%}.help{font-size:11px}.notice{font-size:11px}.strip.wrap .numeric{grid-column:1/-1}.section-left{gap:7px}.chooser-head h3{font-size:15px}}
+</style></head><body><main id="root" aria-label="器件参数筛选工具"></main>
+<style>
+.category-head{padding:0 0 14px;gap:12px;align-items:center;border-bottom:1px solid #dce4ed}.category-head h2{font-size:22px;font-weight:600;letter-spacing:0;line-height:1.4}.category-head small{margin-left:auto;font-size:12px;color:#62758a;white-space:nowrap}.quiet{border:1px solid #cdd8e5;background:#fff;color:#42658b;min-height:30px;font-size:12px;padding:4px 10px}.chooser{margin:0;padding:0;border:0;background:transparent}.chooser-tools{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:13px 0}.chooser-tools input{width:310px;max-width:100%;border:1px solid #ced9e6;border-radius:4px;background:#f8fafc;font-size:12px;min-height:34px;padding:7px 10px}.category-groups{border-top:1px solid #e5ebf2}.category-row{display:grid;grid-template-columns:85px minmax(0,1fr);gap:12px;padding:13px 0;border-bottom:1px solid #e5ebf2;align-items:start}.category-row h3{font-size:13px;font-weight:600;line-height:34px;margin:0;color:#48617e}.category-options{display:flex;gap:7px;flex-wrap:wrap;min-width:0}.category-option{display:inline-flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;padding:5px 10px;border:1px solid #e0e7ef;border-radius:4px;background:#fff;text-align:left;font-size:12px;line-height:1.5}.category-option small{font-size:11px;color:#62758a;white-space:nowrap;font-variant-numeric:tabular-nums}.category-option:hover:not(:disabled){background:#f0f6fe;border-color:#8fb3dc;color:#1e5fa9}.category-option[aria-pressed=true]{border-color:#2164bc;background:#edf5ff;color:#1558a8}.category-note{margin:12px 0 1px;font-size:11px;color:#67788c}
+@media(max-width:650px){.category-head{gap:9px;flex-wrap:nowrap;padding-bottom:12px}.category-head h2{font-size:19px;white-space:nowrap}.category-head small{width:auto;font-size:10px;white-space:normal;text-align:right}.category-head button{font-size:11px;padding:3px 7px}.chooser-tools{padding:12px 0}.chooser-tools input{width:100%;font-size:12px;min-height:38px}.category-row{grid-template-columns:1fr;gap:5px;padding:10px 0}.category-row h3{font-size:12px;line-height:22px}.category-options{gap:6px}.category-option{font-size:12px;min-height:38px;padding:6px 9px;gap:9px}.category-option small{font-size:10px}.category-note{font-size:10px;line-height:1.7}}
+</style>
+
+<style>
+body{color:#3b474a;font-family:Arial,"Microsoft YaHei",sans-serif}
+.breadcrumb{font-size:11px;color:#6d767a;margin:0 0 17px}.category-head{border-bottom:1px solid #aeb4b6;padding:0 0 21px;margin-bottom:0;gap:22px;flex-wrap:wrap;justify-content:flex-start}.category-head h2{font-size:29px;line-height:1.35;font-weight:600;color:#535d60;white-space:normal}.category-change{border:1px solid #2164bc;border-radius:0;color:#2164bc;min-height:42px;padding:9px 23px;font-size:13px}.category-selection{display:flex;align-items:center;gap:15px;padding:18px 0;border-bottom:1px solid #d8dddf}.category-selection[hidden]{display:none}.category-selection label{font-size:13px;font-weight:600;white-space:nowrap}.category-selection select{width:320px;max-width:65%;padding:9px 11px;min-height:40px;border:1px solid #bfc7cb;border-radius:0;background:#fff;font-size:13px}.category-count{font-size:11px;color:#717d83}.category-note{margin:18px 0;font-size:12px;color:#68777f}.section-head{padding:23px 0 21px;gap:20px}.section-left{gap:10px}.section-head h3{font-size:22px;font-weight:600;color:#303a3e}.toggle{border-radius:0;min-height:39px;min-width:75px;font-size:13px;background:#2164bc;color:white;border-color:#2164bc}.clear-all{border-radius:0;min-width:166px;min-height:42px;background:#535e61;border:1px solid #535e61;font-size:12px;font-weight:600}.search-row{align-items:flex-start;gap:25px;margin:0 0 17px}.search-column{flex:1;max-width:750px;min-width:0}.search{max-width:none;gap:9px}.search label{font-size:13px;margin-right:5px}.search input{max-width:none;width:0;height:42px;font-size:13px;border-radius:0;border-color:#d0d5d8}.search button{min-height:42px;min-width:130px;border-radius:0;font-size:13px}.match-modes{margin:8px 0 0 42px;padding:0;border:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}.match-modes label{display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap}.match-modes input{margin:0;width:17px;height:17px;accent-color:#2164bc}.layout{font-size:12px;gap:10px;align-items:center;margin-top:0}.layout-toggle{background:#2164bc;color:#fff;border:1px solid #2164bc;border-radius:0;min-height:41px;min-width:87px;font-size:12px}.strip{border-top:1px solid #dbdfe1;gap:20px;padding-bottom:12px;scrollbar-color:#8d9294 #f0f1f2}.facet{flex-basis:180px;padding-top:14px}.facet.numeric{flex-basis:282px}.facet h4{font-size:12px;font-weight:600;color:#3c4346;margin-bottom:5px}.facet-box{height:182px;border-color:#dce0e2}.option{min-height:29px;padding:4px 7px;font-size:11px;gap:6px}.option input{width:20px;height:20px;border-radius:0}.option:has(input:checked){background:#e7f0f8}.count{font-size:10px;background:#e5e7e8;color:#6d7579;margin-left:0}.group-clear{height:25px;min-height:25px;font-size:12px;border-radius:0}.group-clear:disabled{visibility:hidden;height:0;min-height:0;padding:0;border:0}.group-clear:not(:disabled){background:#626c70;color:#fff}.option-search{height:26px;font-size:11px;margin:4px;width:calc(100% - 8px)}.numeric-body{padding:9px 11px}.available{font-size:10px;min-height:29px;margin-bottom:7px}.number-row input,.number-row select{height:31px;border-radius:0}.summary{margin:8px 0 0;border:0;background:#f5f5f5;padding:15px 12px;font-size:11px;gap:6px}.chip{border:0;background:transparent;font-size:11px;color:#37484f;padding:2px 3px;min-height:24px}.chip:hover:not(:disabled){background:#e8edf1;border-color:transparent}
+@media(max-width:650px){.breadcrumb{margin-bottom:12px}.category-head{gap:12px;padding-bottom:16px}.category-head h2{font-size:24px}.category-change{min-height:36px;padding:6px 13px;font-size:12px}.category-selection{gap:10px;flex-wrap:wrap;padding:14px 0}.category-selection select{width:100%;max-width:100%;flex:1;min-width:180px}.category-count{font-size:10px}.section-head{padding:17px 0}.section-head h3{font-size:19px}.toggle{min-height:36px;min-width:60px;font-size:12px}.clear-all{min-width:112px;min-height:36px;padding:6px 9px;font-size:11px}.search-row{gap:12px;flex-direction:column}.search-column{width:100%}.search button{min-width:68px}.search label{font-size:12px}.match-modes{margin-left:37px;gap:10px}.match-modes label{font-size:11px;min-height:28px}.layout{align-self:flex-end}.layout-toggle{min-height:36px}.facet{flex-basis:174px}.facet.numeric{flex-basis:260px}.facet-box{height:204px}.option{min-height:35px}.strip.wrap .numeric{grid-column:1/-1}.summary{padding:12px 9px}}
+</style>
+
+<style>.pending-hint{font-size:12px;color:#81551d;margin:6px 0 0;line-height:1.5}.pending-hint:empty{display:none}.facet h4{font-size:13px}.option{font-size:12px}.option input{width:22px;height:22px}.count{font-size:11px}.option-search{font-size:12px}.summary,.chip{font-size:12px}.toggle:hover:not(:disabled),.layout-toggle:hover:not(:disabled){background:#17539d;border-color:#17539d;color:#fff}.clear-all:hover:not(:disabled),.group-clear:hover:not(:disabled){background:#48545a;color:#fff;border-color:#48545a}@media(max-width:650px){.facet h4{font-size:12px}.option{font-size:12px}.section-left h3{white-space:nowrap}}@media(max-width:360px){.section-head{gap:10px}.section-left{gap:6px}.section-left h3{font-size:17px}.toggle{min-width:54px;padding:6px 8px}.clear-all{min-width:100px;padding:6px 7px;font-size:10px}}</style>
+<style>
+.range-sliders{position:relative;height:19px;margin:0 0 3px}.range-sliders input{position:absolute;width:100%;height:18px;margin:0;left:0;top:0;accent-color:#2164bc;pointer-events:none;background:transparent}.range-sliders input::-webkit-slider-thumb{pointer-events:auto}.range-sliders input::-moz-range-thumb{pointer-events:auto}.range-sliders input:focus-visible{outline:2px solid #2164bc;outline-offset:1px;z-index:2}.numeric .available{min-height:20px;margin-bottom:4px;font-size:10px}.numeric .number-row{margin-bottom:5px}.numeric .number-row input,.numeric .number-row select{height:28px}.numeric-body{padding:7px 10px}.numeric .range-apply{min-height:24px;padding:1px 10px;font-size:11px}
+</style>
+
+<script>
+(()=>{'use strict';let data=null,lastHeight=0,lastWidth=innerWidth,eventId=0,opened=innerWidth>650,toggleTouched=false,layout='scroll',family='',chooserOpen=false,realtime=true,pending=[],sentView=null,typingTimer=null;
+const root=document.getElementById('root'),searches=new Map(),limits=new Map();
+const send=(type,extra={})=>parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
+const fmt=n=>Number(n).toLocaleString('en-US');
+function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;}
+function button(text,fn,cls){const b=node('button',text,cls);b.type='button';b.addEventListener('click',fn);return b;}
+function height(){const h=Math.ceil(root.getBoundingClientRect().height)+4;if(h!==lastHeight){lastHeight=h;send('streamlit:setFrameHeight',{height:h});}}
+function emit(action,extra){sentView=data.view;root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event:Date.now()+'-'+(++eventId),action,...extra},dataType:'json'});}
+function applyDraft(){
+ pending.forEach(a=>{
+  const g=data.groups.find(g=>g.key===a.field);
+  if(a.action==='choice'&&g){const o=g.options.find(o=>o.value===a.value);if(o)o.checked=a.checked;}
+  if(a.action==='range'&&g){g.low=a.low;g.high=a.high;g.unit=a.unit;}
+  if(a.action==='clear_group'&&g){if(g.units.length){g.low=g.high='';g.unit=g.units[0][0];}else g.options.forEach(o=>o.checked=false);}
+  if(a.action==='keyword'){data.keyword=a.keyword;data.keyword_mode=a.mode;}
+ });
+ root.querySelectorAll('.facet').forEach(section=>{
+  const g=data.groups.find(g=>g.key===section.dataset.field);if(!g)return;
+  const clear=[...section.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='清除'+g.label);if(clear)clear.disabled=!hasSelection(g);
+  if(!g.units.length){const selected=g.options.filter(o=>o.checked).length;section.querySelectorAll('.option').forEach(label=>{const o=g.options.find(o=>o.value===label.dataset.value),input=label.querySelector('input');if(o&&input){input.checked=o.checked;input.disabled=(!o.count&&!o.checked)||(selected>=100&&!o.checked);}});}
+ });
+ const hint=root.querySelector('#pending-filter-state');if(hint)hint.textContent=pending.length?'条件尚未应用，请点击“搜索”更新结果。':'';
+}
+function request(action,extra={},force=false){
+ if(typingTimer){clearTimeout(typingTimer);typingTimer=null;if(!['keyword','kind','clear_all'].includes(action)){const field=root.querySelector('#model-keyword'),mode=root.querySelector('input[name="keyword-mode"]:checked');if(field)pending=[...pending.filter(a=>a.action!=='keyword'),{action:'keyword',keyword:field.value,mode:mode?.value||data.keyword_mode||'contains'}];}}
+ if(action==='kind'||action==='clear_all'){pending=[];emit(action,extra);return;}
+ const deferred=['choice','range','clear_group','keyword'].includes(action);
+ if(!realtime&&!force&&deferred){
+  const same=a=>a.action===action&&a.field===extra.field&&(action!=='choice'||a.value===extra.value);
+  const kept=action==='clear_group'?pending.filter(a=>a.field!==extra.field):pending.filter(a=>!same(a));
+  if(kept.length>=99){const hint=root.querySelector('#pending-filter-state');if(hint)hint.textContent='请先点击搜索应用现有条件，再继续选择。';render();return;}
+  pending=[...kept,{action,...extra}];applyDraft();if(action==='clear_group')render();return;
+ }
+ const queued=[...pending.filter(a=>action!=='keyword'||a.action!=='keyword'),{action,...extra}];pending=[];
+ if(queued.length>1)emit('batch',{actions:queued});else emit(action,extra);
+}
+function labelInput(text,type){const label=node('label');const input=node('input');input.type=type;label.append(input,node('span',text));return {label,input};}
+function hasSelection(g){return g.units.length?Boolean(g.low||g.high):g.options.some(o=>o.checked);}
+function renderChooser(){
+ const area=node('div',undefined,'category-selection');area.hidden=Boolean(data.kind)&&!chooserOpen;
+ const label=node('label','产品类别');label.htmlFor='product-category';
+ const select=node('select');select.id='product-category';select.setAttribute('aria-label','选择产品类别');
+ const none=node('option','请选择器件品类');none.value='';select.append(none);
+ const order=['电容','电阻','电感／磁珠','晶振／时钟','MOS管','二极管','三极管','其他'];
+ order.filter(f=>data.categories.some(c=>c.family===f)).forEach(f=>{
+  const group=node('optgroup');group.label=f;
+  data.categories.filter(c=>c.family===f).forEach(c=>{const option=node('option',(c.kind||'未分类')+'（'+fmt(c.count)+'）');option.value=c.kind;group.append(option);});select.append(group);
+ });
+ select.value=data.kind||'';select.addEventListener('change',()=>{if(select.value&&select.value!==data.kind)request('kind',{kind:select.value});else{chooserOpen=false;area.hidden=Boolean(data.kind);height();}});area.append(label,select);
+ area.append(node('span',data.categories.length+' 个库内品类','category-count'));return area;
+}
+function group(g){
+const section=node('section',undefined,'facet'+(g.units.length?' numeric':''));
+section.dataset.field=g.key;section.append(node('h4',g.label));
+const box=node('div',undefined,'facet-box');
+if(g.units.length){
+ const body=node('div',undefined,'numeric-body'),available=node('p','','available');
+ const exact=node('input');exact.type='text';exact.inputMode='decimal';exact.placeholder='精确值';exact.setAttribute('aria-label',g.label+'精确值');exact.maxLength=60;
+ const low=node('input'),high=node('input');
+ [low,high].forEach(i=>{i.type='text';i.inputMode='decimal';i.maxLength=60;});
+ low.placeholder='下限';high.placeholder='上限';low.setAttribute('aria-label',g.label+'下限');high.setAttribute('aria-label',g.label+'上限');low.value=g.low;high.value=g.high;
+ const unit=node('select');unit.setAttribute('aria-label',g.label+'单位');
+ g.units.forEach(([u])=>{const o=node('option',u);o.value=u;unit.append(o);});unit.value=g.unit;
+ const error=node('p','','validation');error.setAttribute('role','alert');
+ function bounds(){const factor=g.units.find(([u])=>u===unit.value)[1],b=g.bounds?.[0]!=null?g.bounds:g.available;available.textContent='已收录：'+Number((b[0]/factor).toPrecision(8))+' ～ '+Number((b[1]/factor).toPrecision(8))+' '+unit.value;}
+ function apply(){
+  const l=low.value.trim(),h=high.value.trim(),factor=g.units.find(([u])=>u===unit.value)[1];
+  const decimal=/^\+?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+  if([l,h].some(v=>v!==''&&(!decimal.test(v)||!Number.isFinite(Number(v)*factor)||Number(v)<0))){error.textContent='请输入大于或等于 0 的有效数字';return;}
+  if(l!==''&&h!==''&&Number(l)>Number(h)){error.textContent='下限不能大于上限';return;}
+  request('range',{field:g.key,low:l,high:h,unit:unit.value});
+ }
+ unit.addEventListener('change',bounds);
+ exact.addEventListener('input',()=>{low.value=high.value=exact.value;});
+ [exact,low,high].forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter')apply();}));
+ if(g.low!==''&&g.low===g.high)exact.value=g.low;
+ const row=node('div',undefined,'number-row');row.append(exact,unit);
+ const range=node('div',undefined,'number-row');range.append(low,node('span','～'),high);
+ const sliders=node('div',undefined,'range-sliders'),sliderLow=node('input'),sliderHigh=node('input');
+ const availableBounds=g.bounds?.[0]!=null?g.bounds:g.available;
+ [sliderLow,sliderHigh].forEach(s=>{s.type='range';s.min=String(availableBounds[0]);s.max=String(availableBounds[1]);s.step='any';sliders.append(s);});
+ sliderLow.setAttribute('aria-label',g.label+'滑块下限');sliderHigh.setAttribute('aria-label',g.label+'滑块上限');
+ function syncSliders(){const factor=g.units.find(([u])=>u===unit.value)[1];sliderLow.value=low.value!==''&&Number.isFinite(Number(low.value))?String(Number(low.value)*factor):sliderLow.min;sliderHigh.value=high.value!==''&&Number.isFinite(Number(high.value))?String(Number(high.value)*factor):sliderHigh.max;}
+ function slide(changed){const factor=g.units.find(([u])=>u===unit.value)[1];if(Number(sliderLow.value)>Number(sliderHigh.value)){if(changed===sliderLow)sliderLow.value=sliderHigh.value;else sliderHigh.value=sliderLow.value;}low.value=String(Number((Number(sliderLow.value)/factor).toPrecision(12)));high.value=String(Number((Number(sliderHigh.value)/factor).toPrecision(12)));exact.value='';}
+ [sliderLow,sliderHigh].forEach(s=>{s.addEventListener('input',()=>slide(s));s.addEventListener('change',apply);});
+ [low,high,exact].forEach(i=>i.addEventListener('input',syncSliders));unit.addEventListener('change',syncSliders);
+ syncSliders();body.append(sliders,available,row,range,button('应用',apply,'range-apply'),error);bounds();box.append(body);
+}else{
+ const search=node('input',undefined,'option-search');search.type='search';search.placeholder='查找全部选项';search.setAttribute('aria-label','查找'+g.label+'选项');search.value=searches.get(g.key)||'';
+ if(g.options.length>8)box.append(search);
+ const options=node('div',undefined,'options');options.setAttribute('aria-label',g.label+'选项');box.append(options);
+ function populate(){
+  const top=options.scrollTop,q=(searches.get(g.key)||'').toLocaleLowerCase();
+  const matching=g.options.filter(o=>o.checked||o.label.toLocaleLowerCase().includes(q));
+  const checked=g.options.filter(o=>o.checked),limit=limits.get(g.key)||100;
+  const visible=[...checked,...matching.filter(o=>!o.checked).slice(0,Math.max(0,limit-checked.length))];
+  options.replaceChildren();
+  visible.forEach(o=>{
+   const {label,input}=labelInput(o.label,'checkbox');label.className='option'+(!o.count&&!o.checked?' unavailable':'');
+   label.dataset.value=o.value;label.dataset.label=o.label;input.checked=o.checked;
+   input.disabled=(!o.count&&!o.checked)||(checked.length>=100&&!o.checked);input.setAttribute('aria-label',g.label+'：'+o.label);
+   input.addEventListener('change',()=>request('choice',{field:g.key,value:o.value,checked:input.checked}));
+   label.append(node('span',fmt(o.count),'count'));options.append(label);
+  });
+  if(matching.length>visible.length){
+   const more=button('显示更多（'+visible.length+' / '+fmt(matching.length)+'）',()=>{limits.set(g.key,limit+100);populate();},'group-clear');
+   more.style.width='100%';options.append(more);
+  }
+  if(!matching.length)options.append(node('p','没有符合的选项','available'));
+  options.scrollTop=top;
+ }
+ search.addEventListener('input',()=>{searches.set(g.key,search.value);limits.set(g.key,100);populate();});
+ populate();
+}
+const clear=button('清除',()=>request('clear_group',{field:g.key}),'group-clear');clear.setAttribute('aria-label','清除'+g.label);clear.disabled=!hasSelection(g);box.append(clear);section.append(box);return section;
+}
+function render(){
+ if(!toggleTouched)opened=innerWidth>650;
+ applyDraft();
+ const scroll=root.querySelector('.strip')?.scrollLeft||0;
+ const positions=new Map([...root.querySelectorAll('.facet')].map(n=>[n.dataset.field,n.querySelector('.options')?.scrollTop||0]));
+ const focused=document.activeElement?.getAttribute('aria-label');
+ root.replaceChildren();root.classList.remove('busy');root.removeAttribute('aria-busy');
+ const family=data.categories.find(c=>c.kind===data.kind)?.family;
+ root.append(node('nav','器件选型'+(family?' / '+family:'')+(data.kind?' / '+data.kind:''),'breadcrumb'));
+ const header=node('div',undefined,'category-head');
+ header.append(node('h2',data.kind||'器件规格筛选'));
+ if(data.kind)header.append(button('更改产品类别',()=>{chooserOpen=!chooserOpen;root.querySelector('.category-selection').hidden=!chooserOpen;height();},'category-change'));
+ root.append(header,renderChooser());
+ if(!data.kind){root.append(node('p','请选择产品类别，查看对应的规格筛选条件和库内型号。','category-note'));height();return;}
+ const head=node('div',undefined,'section-head'),left=node('div',undefined,'section-left');
+ const toggle=button(opened?'打开':'关闭',()=>{toggleTouched=true;opened=!opened;body.hidden=!opened;toggle.textContent=opened?'打开':'关闭';toggle.setAttribute('aria-expanded',String(opened));height();},'toggle');
+ toggle.setAttribute('aria-label','搜索条件显示状态');toggle.setAttribute('aria-expanded',String(opened));
+ left.append(node('h3','搜索条件'),toggle);head.append(left,button('清除所有条件',()=>{searches.clear();limits.clear();request('clear_all');},'clear-all'));root.append(head);
+ const body=node('div',undefined,'panel-body');body.hidden=!opened;
+ const row=node('div',undefined,'search-row'),form=node('form',undefined,'search'),label=node('label','品名');label.htmlFor='model-keyword';
+ const input=node('input');input.id='model-keyword';input.setAttribute('aria-label','品名');input.placeholder='请输入型号。';input.maxLength=120;input.value=data.keyword;
+ let searchMode=data.keyword_mode||'contains';
+ const submit=node('button','搜索','primary');submit.type='submit';form.append(label,input,submit);
+ form.addEventListener('submit',e=>{e.preventDefault();request('keyword',{keyword:input.value,mode:searchMode},true);});
+ const modes=node('fieldset',undefined,'match-modes');modes.setAttribute('aria-label','品名搜索方式');
+ [['contains','部分一致'],['prefix','前方一致'],['exact','完全一致']].forEach(([value,text])=>{
+  const {label,input:radio}=labelInput(text,'radio');radio.name='keyword-mode';radio.value=value;radio.checked=value===searchMode;
+  radio.addEventListener('change',()=>{searchMode=value;request('keyword',{keyword:input.value,mode:searchMode});});modes.append(label);
+ });
+ const realtimeControl=labelInput('启用实时搜索','checkbox');realtimeControl.input.checked=realtime;
+ realtimeControl.input.setAttribute('aria-label','启用实时搜索');
+ realtimeControl.input.addEventListener('change',()=>{realtime=realtimeControl.input.checked;if(realtime&&pending.length)request('keyword',{keyword:input.value,mode:searchMode},true);});
+ modes.append(realtimeControl.label);
+ input.addEventListener('input',event=>{if(typingTimer)clearTimeout(typingTimer);if(event.isComposing)return;if(realtime)typingTimer=setTimeout(()=>request('keyword',{keyword:input.value,mode:searchMode}),500);else request('keyword',{keyword:input.value,mode:searchMode});});
+ const searchColumn=node('div',undefined,'search-column'),pendingHint=node('p',pending.length?'条件尚未应用，请点击“搜索”更新结果。':'','pending-hint');
+ pendingHint.id='pending-filter-state';pendingHint.setAttribute('role','status');searchColumn.append(form,modes,pendingHint);
+ const layoutArea=node('div',undefined,'layout');layoutArea.append(node('span','更改布局'));
+ const layoutToggle=button(layout==='wrap'?'并排显示':'滚动',()=>{layout=layout==='wrap'?'scroll':'wrap';strip.classList.toggle('wrap',layout==='wrap');layoutToggle.textContent=layout==='wrap'?'并排显示':'滚动';layoutToggle.setAttribute('aria-pressed',String(layout==='wrap'));height();},'layout-toggle');
+ layoutToggle.setAttribute('aria-label','切换筛选布局');layoutToggle.setAttribute('aria-pressed',String(layout==='wrap'));layoutArea.append(layoutToggle);
+ row.append(searchColumn,layoutArea);body.append(row);
+ const strip=node('div',undefined,'strip'+(layout==='wrap'?' wrap':''));data.groups.forEach(g=>strip.append(group(g)));body.append(strip);root.append(body);
+ const summary=node('div',undefined,'summary');summary.append(node('strong',pending.length?'待应用条件：':'搜索条件：'));let active=0;
+ data.groups.filter(hasSelection).forEach(g=>{active++;const text=g.units.length?g.label+' = '+(g.low||'不限')+' ～ '+(g.high||'不限')+' '+g.unit:g.label+' = '+g.options.filter(o=>o.checked).map(o=>o.label).join('、');summary.append(button(text+' · 移除',()=>request('clear_group',{field:g.key}),'chip'));});
+ if(data.keyword){active++;summary.append(button('品名'+({contains:'包含',prefix:'开头',exact:'完全一致'}[data.keyword_mode||'contains'])+'：'+data.keyword+' · 移除',()=>request('keyword',{keyword:'',mode:data.keyword_mode||'contains'}),'chip'));}
+ if(!active)summary.append(node('span','不限'));
+ root.append(summary);strip.scrollLeft=scroll;
+ root.querySelectorAll('.facet').forEach(n=>{const list=n.querySelector('.options');if(list)list.scrollTop=positions.get(n.dataset.field)||0;});
+ if(focused){const target=[...root.querySelectorAll('[aria-label]')].find(n=>n.getAttribute('aria-label')===focused);target?.focus({preventScroll:true});}height();
+}
+window.addEventListener('message',event=>{
+ if(event.source!==parent||event.data?.type!=='streamlit:render')return;
+ const value=event.data.args?.payload;if(!value)return;
+ if(typingTimer){clearTimeout(typingTimer);typingTimer=null;}
+ const changedKind=data?.kind!==value.kind;
+ if(data?.view!==value.view||sentView===value.view){pending=[];sentView=null;}
+ const next={...value,groups:value.groups.map(g=>({...g,options:g.options?.map(o=>({...o}))}))};
+ if(changedKind){chooserOpen=false;searches.clear();limits.clear();}
+ data=next;render();
+});window.addEventListener('resize',()=>{if(innerWidth!==lastWidth){lastWidth=innerWidth;if(data&&!toggleTouched&&opened!==(innerWidth>650)){render();}else height();}});
+ new ResizeObserver(height).observe(root);send('streamlit:componentReady',{apiVersion:1});height();
+})();
+</script></body></html>

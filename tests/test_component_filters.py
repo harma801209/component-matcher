@@ -49,6 +49,17 @@ class CatalogFilterTests(unittest.TestCase):
         self.assertEqual(counts['MOSFET'], 1)
         self.assertEqual(counts['新增器件'], 1)
 
+    def test_manufacturer_keyword_modes_keep_literal_wildcards_and_linked_facets(self):
+        self.assertEqual(snapshot(self.conn,'厚膜电阻',keyword='1')['total'],2)
+        self.assertEqual(snapshot(self.conn,'厚膜电阻',keyword='R1',keyword_mode='prefix')['total'],1)
+        self.assertEqual(snapshot(self.conn,'厚膜电阻',keyword='R',keyword_mode='exact')['total'],0)
+        exact=snapshot(self.conn,'厚膜电阻',keyword='r1',keyword_mode='exact',include_rows=True)
+        self.assertEqual([r['型号'] for r in exact['rows']],['R1'])
+        self.assertEqual(dict(exact['facets']['_size']),{'0402':1})
+        self.assertEqual(snapshot(self.conn,'厚膜电阻',keyword='R_100%',keyword_mode='exact')['total'],1)
+        self.assertEqual(snapshot(self.conn,'厚膜电阻',keyword='R_',keyword_mode='prefix')['total'],1)
+        for mode in ('invalid',{},None):
+            with self.assertRaises(ValueError):snapshot(self.conn,'厚膜电阻',keyword='R',keyword_mode=mode)
     def test_or_within_and_across_facets_and_disjunctive_counts(self):
         result = snapshot(self.conn, '厚膜电阻', {'品牌':['A'], '_size':['0402','0603'], '_tol':['0.1']}, include_rows=True)
         self.assertEqual([r['型号'] for r in result['rows']], ['R2'])
@@ -278,89 +289,99 @@ def match(model):
 def table(payload,key):
     st.json(payload)
     return st.session_state.pop('fixture_action',None)
+def panel(payload,key):
+    st.session_state['fixture_panel']=payload
+    return st.session_state.pop('fixture_panel_action',None)
 try:
-    render(st,category_counts(fixture.conn),lambda *args: snapshot(fixture.conn,*args),lambda: st.write('LOGIN-REQUIRED'),True,match,table)
+    render(st,category_counts(fixture.conn),lambda *args, **kwargs: snapshot(fixture.conn,*args,**kwargs),lambda: st.write('LOGIN-REQUIRED'),True,match,table,panel)
 finally:
     fixture.tearDown()
 '''
 
-    def test_render_state_changes_invalid_range_clear_and_handoff(self):
+    def app(self, anonymous=False, source=None):
         import platform
-        platform._wmi = None
+        platform._wmi=None
         from streamlit.testing.v1 import AppTest
-        at = AppTest.from_string(self.SOURCE, default_timeout=30).run()
+        source=source or self.SOURCE
+        if anonymous:
+            source=source.replace('True,match,table,panel)', 'False,match,table,panel)')
+        return AppTest.from_string(source,default_timeout=30).run()
+
+    def action(self, at, action, **values):
+        payload=at.session_state['fixture_panel']
+        import uuid
+        at.session_state['fixture_panel_action']=dict(view=payload['view'],event=uuid.uuid4().hex,action=action,**values)
+        at.run()
         self.assertFalse(at.exception)
-        at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
-        self.assertFalse(at.exception)
-        at.checkbox(key=choice_key('_size','0402')).check().run()
-        at.text_input(key=PREFIX+'_res_ohm_low').set_value('5.6').run()
-        at.selectbox(key=PREFIX+'_res_ohm_unit').select('kΩ').run()
-        at.text_input(key=PREFIX+'_res_ohm_high').set_value('5.6').run()
-        self.assertFalse(at.exception)
+        return at.session_state['fixture_panel']
+
+    def test_render_range_clear_and_explicit_handoff(self):
         import json
+        at=self.app()
+        self.assertIsNone(at.session_state['fixture_panel']['kind'])
+        self.action(at,'kind',kind='厚膜电阻')
+        self.action(at,'choice',field='_size',value='0402',checked=True)
+        self.action(at,'range',field='_res_ohm',low='5.6',high='5.6',unit='kΩ')
         payload=json.loads(at.json[0].value)
         self.assertEqual(payload['total'],1)
         at.session_state['fixture_action']=dict(action='match',view=payload['view'],event='test-match',id=payload['rows'][0]['id'])
         at.run()
-        self.assertEqual(at.session_state['matched_from_catalog'], 'R3')
-        at.text_input(key=PREFIX+'_res_ohm_high').set_value('1').run()
-        self.assertFalse(at.exception)
-        self.assertTrue(any('下限不能大于上限' in w.value for w in at.warning))
-        self.assertFalse(any('找到 ' in item.value for item in at.markdown))
-        at.button(key=PREFIX+'clear').click().run()
-        self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
-        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['matched_from_catalog'],'R3')
+        before=at.session_state['fixture_panel']['view']
+        self.action(at,'range',field='_res_ohm',low='5.6',high='1',unit='kΩ')
+        self.assertEqual(at.session_state['fixture_panel']['view'],before)
+        self.action(at,'clear_all')
+        self.assertEqual(at.session_state['fixture_panel']['kind'],'厚膜电阻')
+        self.assertEqual(at.session_state['fixture_panel']['total'],6)
 
     def test_category_switch_resets_old_parameters_and_anonymous_rows_are_hidden(self):
-        import platform
-        platform._wmi = None
-        from streamlit.testing.v1 import AppTest
-        at = AppTest.from_string(self.SOURCE.replace('True,match,table)', 'False,match,table)'), default_timeout=30).run()
-        at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
-        at.checkbox(key=choice_key('_size','0402')).check().run()
-        at.selectbox(key=PREFIX+'category').select('MLCC').run()
-        self.assertFalse(at.checkbox(key=choice_key('_size','0402')).value)
-        self.assertFalse(at.exception)
-        self.assertFalse(any(b.label=='查看价格与替代型号' for b in at.button))
+        at=self.app(anonymous=True)
+        self.action(at,'kind',kind='厚膜电阻')
+        self.action(at,'choice',field='_size',value='0402',checked=True)
+        panel=self.action(at,'kind',kind='MLCC')
+        self.assertFalse(any(o['checked'] for g in panel['groups'] if not g['units'] for o in g['options']))
+        self.assertEqual(len(at.json),0)
+        self.assertNotIn('rows',panel)
         next(b for b in at.button if b.label=='登录查看筛选结果').click().run()
         self.assertTrue(any('LOGIN-REQUIRED' in m.value for m in at.markdown))
 
-    def test_family_selector_exposes_non_capacitors_without_automatic_kind_or_model(self):
-        import platform
-        platform._wmi = None
-        from streamlit.testing.v1 import AppTest
-        at = AppTest.from_string(self.SOURCE, default_timeout=30).run()
-        at.selectbox(key=PREFIX+'category').select('MLCC').run()
-        at.checkbox(key=choice_key('_mat','X7R')).check().run()
-        at.selectbox(key=PREFIX+'family').select('电阻').run()
-        self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
-        self.assertEqual(at.selectbox(key=PREFIX+'category').options,['请选择品类 · 查看全部已收录种类','厚膜电阻（6）'])
-        at.selectbox(key=PREFIX+'category').select('厚膜电阻').run()
-        self.assertFalse(at.exception)
-        self.assertEqual(len(at.json),1)
-        self.assertFalse(any(s.key==PREFIX+'picked' for s in at.selectbox))
-        at.selectbox(key=PREFIX+'family').select('MOS管').run()
-        at.selectbox(key=PREFIX+'category').select('MOSFET').run()
+    def test_all_families_remain_available_without_auto_kind_or_model(self):
         import json
+        at=self.app()
+        panel=at.session_state['fixture_panel']
+        self.assertIsNone(panel['kind'])
+        self.assertIn('电阻',{c['family'] for c in panel['categories']})
+        self.assertIn('MOS管',{c['family'] for c in panel['categories']})
+        self.action(at,'kind',kind='MLCC')
+        self.action(at,'choice',field='_mat',value='X7R',checked=True)
+        self.action(at,'kind',kind='MOSFET')
         self.assertEqual(json.loads(at.json[0].value)['total'],1)
-        at.button(key=PREFIX+'clear').click().run()
-        self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
+        self.assertNotIn('matched_from_catalog',at.session_state)
+        self.assertNotIn(PREFIX+'_mat',at.session_state)
 
     def test_repeated_clear_and_same_family_reselection_keeps_actual_kind(self):
         import json
-        import platform
-        platform._wmi = None
-        from streamlit.testing.v1 import AppTest
         source=self.SOURCE.replace('fixture.setUp()', '''fixture.setUp()
 fixture.conn.execute("INSERT INTO components_search_core VALUES ('A','CM1','共模电感')")
 fixture.conn.execute("INSERT INTO components_search_value VALUES ('A','CM1','共模电感','0603','UH',1,'10')")''')
-        at=AppTest.from_string(source,default_timeout=30).run()
+        at=self.app(source=source)
         for kind in ('共模电感','功率电感','共模电感','功率电感'):
-            at.selectbox(key=PREFIX+'family').select('电感／磁珠').run()
-            self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
-            at.selectbox(key=PREFIX+'category').select(kind).run()
-            self.assertFalse(at.exception)
+            self.action(at,'kind',kind=kind)
             self.assertEqual(json.loads(at.json[0].value)['kind'],kind)
-            at.button(key=PREFIX+'clear').click().run()
-            self.assertIsNone(at.selectbox(key=PREFIX+'family').value)
-            self.assertIsNone(at.selectbox(key=PREFIX+'category').value)
+            panel=self.action(at,'clear_all')
+            self.assertEqual(panel['kind'],kind)
+            self.assertFalse(any(o['checked'] for g in panel['groups'] if not g['units'] for o in g['options']))
+
+    def test_old_invalid_numeric_state_remains_editable_and_never_shows_stale_rows(self):
+        at=self.app()
+        self.action(at,'kind',kind='厚膜电阻')
+        at.session_state[PREFIX+'_res_ohm_low']='5.6'
+        at.session_state[PREFIX+'_res_ohm_high']='1'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any('请修正数值范围' in w.value for w in at.warning))
+        self.assertEqual(len(at.json),0)
+        self.assertTrue(at.session_state['fixture_panel']['groups'])
+        panel=self.action(at,'clear_group',field='_res_ohm')
+        self.assertEqual(panel['total'],6)
+        self.assertEqual(len(at.json),1)
