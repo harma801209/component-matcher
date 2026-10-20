@@ -85,6 +85,23 @@ class CatalogFilterTests(unittest.TestCase):
             self.assertNotIn('成本',rows[0])
             self.assertNotIn('封装代码',rows[0])
 
+    def test_inferred_mounting_does_not_expand_cached_prepared_repairs(self):
+        import tempfile
+        from pathlib import Path
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'prepared.parquet'
+            records=[dict(品牌='村田Murata',型号='GRM155R71C104KA'+str(i),_component_type='MLCC',
+                          _size='0402',_mat='X7R',_tol='10',_mount_style='',安装方式='') for i in range(2100)]
+            pq.write_table(pa.Table.from_pylist(records),path)
+            self.assertEqual(load_parameter_rows(path,'MLCC'),[])
+        self.conn.executemany('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?)',
+            [(r['品牌'],r['型号'],'MLCC','0402','X7R',100000,'10',16) for r in records])
+        install_parameter_rows(self.conn,'MLCC',[])
+        result=snapshot(self.conn,'MLCC',{'_mount_style':['贴片']})
+        self.assertEqual(result['total'],2100)
+
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
         self.conn.executescript('''

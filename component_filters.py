@@ -65,7 +65,7 @@ def load_parameter_rows(path, component_type, model_resolver=None):
     columns = [c for c in (mlcc_completion.RAW_COLUMNS if component_type == 'MLCC' else DETAIL_COLUMNS) if c in names]
     table = pq.read_table(path, columns=columns, filters=[('_component_type', '=', component_type)], use_threads=False)
     rows, seen = [], set()
-    for row in table.to_pylist():
+    for row in (row for batch in table.to_batches(max_chunksize=2048) for row in batch.to_pylist()):
         identity = (row['品牌'], row['型号'], row['_component_type'])
         if not row['型号'] or identity in seen:
             continue
@@ -73,7 +73,12 @@ def load_parameter_rows(path, component_type, model_resolver=None):
         seen.add(identity)
         if component_type == 'MLCC':
             completed = mlcc_completion.complete(row, model_resolver)
-            if any(completed[key] and completed[key] != mlcc_completion.text(row.get(key)) for key in completed):
+            # SMD family inference runs directly on the current index below.
+            # Cache only actual source/decoder repairs, not >100k identical
+            # inferred-mount records copied on every Streamlit rerun.
+            repaired = any(completed[key] and completed[key] != mlcc_completion.text(row.get(key)) for key in mlcc_completion.FIELDS[:3])
+            explicit_mount = mlcc_completion.text(row.get('安装方式')) and completed['_mount_style'] != mlcc_completion.text(row.get('_mount_style'))
+            if repaired or explicit_mount:
                 rows.append({**dict(zip(('品牌', '型号', '_component_type'), identity)), **completed})
             continue
         row['_current_amps'] = scalar_current(row.get('额定电流'))
@@ -127,20 +132,25 @@ def install_mlcc_parameters(conn, rows):
         if row.get('_component_type') == 'MLCC':
             details.setdefault((row.get('品牌'), row.get('型号')), row)
     projection = ','.join('"'+key+'"' for key in ('品牌', '型号', '_component_type', *mlcc_completion.FIELDS))
-    cursor = conn.execute('SELECT rowid,'+projection+' FROM catalog_mlcc_source')
-    updates = []
-    for item in cursor:
-        record = dict(zip(('品牌', '型号', '_component_type', *mlcc_completion.FIELDS), item[1:]))
-        original = {key: mlcc_completion.text(record.get(key)) for key in mlcc_completion.FIELDS}
-        detail = details.get((record['品牌'], record['型号']), {})
-        for key in mlcc_completion.FIELDS:
-            if not original[key] and mlcc_completion.text(detail.get(key)):
-                record[key] = detail[key]
-        values = mlcc_completion.complete(record)
-        if values != original:
-            updates.append(tuple(values[key] or None for key in mlcc_completion.FIELDS)+(item[0],))
     assignments = ','.join('"'+key+'"=?' for key in mlcc_completion.FIELDS)
-    conn.executemany('UPDATE catalog_mlcc_source SET '+assignments+' WHERE rowid=?', updates)
+    last = 0
+    while True:
+        batch = conn.execute('SELECT rowid,'+projection+' FROM catalog_mlcc_source WHERE rowid>? ORDER BY rowid LIMIT 2048', (last,)).fetchall()
+        if not batch:
+            break
+        updates = []
+        for item in batch:
+            record = dict(zip(('品牌', '型号', '_component_type', *mlcc_completion.FIELDS), item[1:]))
+            original = {key: mlcc_completion.text(record.get(key)) for key in mlcc_completion.FIELDS}
+            detail = details.get((record['品牌'], record['型号']), {})
+            for key in mlcc_completion.FIELDS:
+                if not original[key] and mlcc_completion.text(detail.get(key)):
+                    record[key] = detail[key]
+            values = mlcc_completion.complete(record)
+            if values != original:
+                updates.append(tuple(values[key] or None for key in mlcc_completion.FIELDS)+(item[0],))
+        conn.executemany('UPDATE catalog_mlcc_source SET '+assignments+' WHERE rowid=?', updates)
+        last = batch[-1][0]
     conn.execute('CREATE INDEX catalog_mlcc_identity ON catalog_mlcc_source(品牌,型号)')
 
 
