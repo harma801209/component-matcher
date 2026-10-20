@@ -152,10 +152,11 @@ class SearchModeSwitchTests(unittest.TestCase):
         self.assertEqual(ast.literal_eval(args['label_visibility']), 'collapsed')
         self.assertEqual(ast.unparse(calls[0].args[1]), '[_catalog_filters.TEXT_MODE, _catalog_filters.FILTER_MODE]')
         for selector in ('label[data-baseweb="radio"]>div:first-child',
-                         'label[data-baseweb="radio"]:has(input:checked)',
-                         'label[data-baseweb="radio"]:has(input:focus-visible)'):
+                         'label[data-testid="stRadioOption"]>div>div:first-child',
+                         'label:has(input[type="radio"]):has(input:checked)',
+                         'label:has(input[type="radio"]):has(input:focus-visible)'):
             self.assertIn('.st-key-search-mode-tabs ' + selector, CSS)
-        self.assertIn('.st-key-search-mode-tabs label[data-baseweb="radio"] {flex:1;min-width:0;', CSS)
+        self.assertIn('.st-key-search-mode-tabs label:has(input[type="radio"]) {flex:1;min-width:0;', CSS)
 
     def test_switch_and_pending_catalogue_handoff_keep_original_state_contract(self):
         from streamlit.testing.v1 import AppTest
