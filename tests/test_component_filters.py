@@ -395,6 +395,59 @@ class CatalogFilterTests(unittest.TestCase):
 
 
 class PassiveParameterCompletionTests(unittest.TestCase):
+    def test_lifecycle_requires_exact_product_table_and_explicit_packaging_identity(self):
+        from manufacturer_lifecycle import samsung_records
+        base='CL10B104KB8NNN'
+        url='https://product.samsungsem.com/cn/mlcc/'+base+'.do'
+        source='<h2 class="subject">'+base+'#</h2><ul class="partlist"><li>'+base+'C</li></ul><table><tr><th>生产状况</th><td>NRND</td></tr></table><div>Mass Production Discontinued</div><h2 class="subject">包装说明</h2>'
+        rows=samsung_records(source,url,base,'2026-10-20T12:00:00+00:00')
+        self.assertEqual({r['model'] for r in rows},{base+'#',base+'C'})
+        self.assertEqual({r['status'] for r in rows},{'NRND（不推荐新设计）'})
+        self.assertEqual(samsung_records(source.replace('生产状况','电压'),url,base,'2026-10-20T12:00:00+00:00'),[])
+        self.assertEqual(samsung_records(source.replace('<td>NRND</td>','<td>EOL</td>'),url,base,'2026-10-20T12:00:00+00:00'),[])
+        self.assertEqual(samsung_records(source.replace(base+'#','OTHER#'),url,base,'2026-10-20T12:00:00+00:00'),[])
+        with self.assertRaises(ValueError):samsung_records(source,url.replace('product.samsungsem.com','example.com'),base,'2026-10-20T12:00:00+00:00')
+
+    def test_verified_lifecycle_overlay_preserves_library_and_never_promotes_legacy_active(self):
+        from unittest.mock import patch
+        import manufacturer_lifecycle as lifecycle
+        conn=sqlite3.connect(':memory:')
+        conn.executescript('CREATE TABLE components_search_core(品牌 TEXT,型号 TEXT,_component_type TEXT,生产状态 TEXT);')
+        conn.executemany('INSERT INTO components_search_core VALUES (?,?,?,?)',[
+            ('三星Samsung','CL1C','MLCC','Active'),('三星Samsung','CL2C','MLCC','Active'),('Other','CL1C','MLCC','Active')])
+        evidence=[dict(manufacturer='samsung',model='CL1C',status='量产',source='https://product.samsungsem.com/cn/mlcc/CL1.do',checked_at='2026-10-20T12:00:00+00:00'),
+                  dict(manufacturer='samsung',model='NOT-IN-LIBRARY',status='已停产',source='https://product.samsungsem.com',checked_at='2026-10-20T12:00:00+00:00')]
+        original=conn.execute('SELECT * FROM components_search_core').fetchall()
+        with patch.object(lifecycle,'records',return_value=evidence):lifecycle.install(conn,CORE,'MLCC')
+        result=snapshot(conn,'MLCC',include_rows=True)
+        self.assertEqual(result['total'],3)
+        by_pair={(r['品牌'],r['型号']):r for r in result['rows']}
+        self.assertEqual(by_pair[('三星Samsung','CL1C')]['生产状态'],'量产')
+        self.assertIsNone(by_pair[('三星Samsung','CL2C')]['生产状态'])
+        self.assertIsNone(by_pair[('Other','CL1C')]['生产状态'])
+        self.assertEqual(by_pair[('三星Samsung','CL1C')]['_lifecycle_checked'],'2026-10-20T12:00:00+00:00')
+        self.assertEqual(snapshot(conn,'MLCC',{'生产状态':['量产']})['total'],1)
+        self.assertEqual(conn.execute('SELECT * FROM components_search_core').fetchall(),original)
+        conn.close()
+
+    def test_fojan_official_dimensions_and_resistance_do_not_guess_other_series_or_power(self):
+        from catalog_passive_completion import complete
+        def specs(model, **extra):
+            return complete(dict(品牌='FOJAN(富捷)',型号=model,_component_type='厚膜电阻',**extra))
+        self.assertEqual(specs('FPS2512F2000TS')['_res_ohm'],200)
+        self.assertEqual(specs('FPS1210J101TS')['_res_ohm'],100)
+        self.assertEqual(specs('FPL2512FR240TS')['_res_ohm'],.24)
+        self.assertEqual(specs('FRC0201F0000TS')['_res_ohm'],0)
+        self.assertEqual(specs('FRC0201F1000TS')['_body_size'],'0.60±0.03 × 0.30±0.03 × 0.23±0.03 mm')
+        self.assertEqual(specs('FPS2512F2000TS')['_body_size'],'6.35±0.10 × 3.10±0.15 × 0.55±0.10 mm')
+        self.assertNotIn('_res_ohm',specs('FPS2512F2000TS',_res_ohm=0))
+        self.assertNotIn('_body_size',specs('FPS2512F2000TS',_body_size='explicit source dimension'))
+        for model in ('FPQ1206F6800TS','FQP1206F6800TS','FPS0201F1000TS','FPS2512F200TS','FPS2512F2000TSX'):
+            self.assertEqual(specs(model),{})
+        self.assertEqual(complete(dict(品牌='Other',型号='FPS2512F2000TS',_component_type='厚膜电阻')), {})
+        self.assertNotIn('_power_watt',specs('FPS2512F2000TS'))
+        self.assertNotIn('生产状态',specs('FPS2512F2000TS'))
+
     def test_explicit_dimensions_pitch_temperature_and_units(self):
         from catalog_passive_completion import complete
         record = dict(品牌='TDK',型号='B32529C0104K000',_component_type='薄膜电容',

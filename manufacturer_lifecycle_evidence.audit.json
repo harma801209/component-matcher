@@ -1,0 +1,367 @@
+{
+  "adapter": "samsung-mlcc-table-v1",
+  "library_models": 7048,
+  "remaining_pages": 5594,
+  "pages": [
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL01Y105MR5NLN.do",
+      "checked_at": "2026-10-20T12:00:18.210121+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNN.do",
+      "checked_at": "2026-10-20T12:00:19.543333+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNW.do",
+      "checked_at": "2026-10-20T12:00:21.461322+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:22.634227+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNW.do",
+      "checked_at": "2026-10-20T12:00:23.918981+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102MQLHNN.do",
+      "checked_at": "2026-10-20T12:00:25.016970+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KA2NNW.do",
+      "checked_at": "2026-10-20T12:00:28.390366+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNN.do",
+      "checked_at": "2026-10-20T12:00:29.391686+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNW.do",
+      "checked_at": "2026-10-20T12:00:30.534810+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:31.535412+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNW.do",
+      "checked_at": "2026-10-20T12:00:33.102666+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103MA2NNN.do",
+      "checked_at": "2026-10-20T12:00:34.103117+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:35.743641+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNW.do",
+      "checked_at": "2026-10-20T12:00:38.594379+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:39.745802+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:00:41.382456+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNW.do",
+      "checked_at": "2026-10-20T12:00:42.382846+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A105MQ2NQN.do",
+      "checked_at": "2026-10-20T12:00:45.275900+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A105MR2NQN.do",
+      "checked_at": "2026-10-20T12:00:46.646624+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A152KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:47.848599+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A153KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:48.849803+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A153KR2NNN.do",
+      "checked_at": "2026-10-20T12:00:50.533599+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KP2NNN.do",
+      "checked_at": "2026-10-20T12:00:53.002690+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:54.360114+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNW.do",
+      "checked_at": "2026-10-20T12:00:55.767398+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A223KQ2NNN.do",
+      "checked_at": "2026-10-20T12:00:57.519506+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2N3N.do",
+      "checked_at": "2026-10-20T12:00:59.449654+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:00.449921+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:01.450218+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A333KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:02.597526+00:00",
+      "verified_models": 0,
+      "outcome": "unconfirmed"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL01Y105MR5NLN.do",
+      "checked_at": "2026-10-20T12:01:35.920575+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:37.000766+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNW.do",
+      "checked_at": "2026-10-20T12:01:38.001279+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:39.001993+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:40.002595+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A102MQLHNN.do",
+      "checked_at": "2026-10-20T12:01:41.003059+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KA2NNW.do",
+      "checked_at": "2026-10-20T12:01:42.054590+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:43.350411+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNW.do",
+      "checked_at": "2026-10-20T12:01:44.493414+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:45.493893+00:00",
+      "verified_models": 3,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:46.757865+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A103MA2NNN.do",
+      "checked_at": "2026-10-20T12:01:47.871890+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:52.298553+00:00",
+      "verified_models": 3,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:53.599363+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "verified_models": 6,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:55.800350+00:00",
+      "verified_models": 4,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNW.do",
+      "checked_at": "2026-10-20T12:01:56.858490+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A105MQ2NQN.do",
+      "checked_at": "2026-10-20T12:01:57.858886+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A105MR2NQN.do",
+      "checked_at": "2026-10-20T12:01:59.331126+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A152KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:01.087232+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A153KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:02.826360+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A153KR2NNN.do",
+      "checked_at": "2026-10-20T12:02:03.826972+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KP2NNN.do",
+      "checked_at": "2026-10-20T12:02:06.988860+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:08.159815+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNW.do",
+      "checked_at": "2026-10-20T12:02:09.211488+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A223KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:10.211760+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2N3N.do",
+      "checked_at": "2026-10-20T12:02:11.212251+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:12.212563+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A224MR2NNN.do",
+      "checked_at": "2026-10-20T12:02:13.213012+00:00",
+      "verified_models": 1,
+      "outcome": "verified"
+    },
+    {
+      "url": "https://product.samsungsem.com/cn/mlcc/CL02A333KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:14.213731+00:00",
+      "verified_models": 2,
+      "outcome": "verified"
+    }
+  ]
+}

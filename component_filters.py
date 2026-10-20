@@ -239,6 +239,11 @@ def available_profile(conn, component_type):
         current = conn.execute('SELECT _component_type FROM catalog_passive_source LIMIT 1').fetchone()
         if current and current[0] == component_type:
             table = 'catalog_passive_source'
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_lifecycle_source'").fetchone():
+        current = conn.execute('SELECT _component_type FROM catalog_lifecycle_source LIMIT 1').fetchone()
+        if current and current[0] == component_type:
+            table = 'catalog_lifecycle_source'
+            fields = [f for f in fields if f.key != '生产状态'] + [column('生产状态','原厂生产状态')]
     columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
     if not {"品牌", "型号", "_component_type"}.issubset(columns):
         table, fields = CORE, [column("品牌", "品牌")]
@@ -366,6 +371,8 @@ def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=
     rows = []
     if include_rows and total:
         projection = ','.join(f'({field.expression}) AS "{field.key}"' for field in fields if field.key != '品牌')
+        if table == 'catalog_lifecycle_source':
+            projection += ',"_lifecycle_source","_lifecycle_checked"'
         if projection:
             projection = ',' + projection
         # One real source record per pair; do not combine conflicting fields
@@ -379,7 +386,7 @@ def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=
 
 def option_label(field, value):
     if value == MISSING or value is None or value == "":
-        return "未提供"
+        return "未核实" if field.key == '生产状态' else "未提供"
     if field.key == '_tol':
         if re.fullmatch(r'\d+(?:\.\d+)?PF', str(value).upper()):
             return '±'+str(value)[:-2]+' pF'

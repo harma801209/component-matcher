@@ -1,0 +1,515 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "manufacturer": "samsung",
+      "model": "CL01Y105MR5NLNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL01Y105MR5NLN.do",
+      "checked_at": "2026-10-20T12:01:35.920575+00:00",
+      "source_sha256": "3a6312e08ee47010752261396041f7dd724202839fdcfaa792d91429b159260e",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL01Y105MR5NLND",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL01Y105MR5NLN.do",
+      "checked_at": "2026-10-20T12:01:35.920575+00:00",
+      "source_sha256": "3a6312e08ee47010752261396041f7dd724202839fdcfaa792d91429b159260e",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KP2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:37.000766+00:00",
+      "source_sha256": "c4d405b096cab7ea5cc9b8dfb0a53dba45747a755e4238f5875e7de65cb50771",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KP2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:37.000766+00:00",
+      "source_sha256": "c4d405b096cab7ea5cc9b8dfb0a53dba45747a755e4238f5875e7de65cb50771",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KP2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KP2NNW.do",
+      "checked_at": "2026-10-20T12:01:38.001279+00:00",
+      "source_sha256": "270be2df110ff5a5b12b5b75488e086ba4bd8015d2395195994fcbbf0052f126",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:39.001993+00:00",
+      "source_sha256": "2d37a354e81df0b97cbe0d5728ef613022bbfba04cf9ceb6a592a747a7614635",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KQ2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:39.001993+00:00",
+      "source_sha256": "2d37a354e81df0b97cbe0d5728ef613022bbfba04cf9ceb6a592a747a7614635",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102KQ2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:40.002595+00:00",
+      "source_sha256": "cf45a283f68754698ba22c8f95af06f9bec2fc4c2090e5e43f42c909b7f74f54",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102MQLHNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102MQLHNN.do",
+      "checked_at": "2026-10-20T12:01:41.003059+00:00",
+      "source_sha256": "247934da596d90dca5d0fa1b79eca4df7b2499428370df974684683fd83811e3",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A102MQLHNNH",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A102MQLHNN.do",
+      "checked_at": "2026-10-20T12:01:41.003059+00:00",
+      "source_sha256": "247934da596d90dca5d0fa1b79eca4df7b2499428370df974684683fd83811e3",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KA2NNWC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KA2NNW.do",
+      "checked_at": "2026-10-20T12:01:42.054590+00:00",
+      "source_sha256": "66af9cedac63ba618820a8dccbd89059740d33c20d69ad49728f5815f7d3deaa",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KP2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:43.350411+00:00",
+      "source_sha256": "c6fa5a71bac816aea6fcb861ac04efaa39190adfc0776b5c38569bec05e87135",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KP2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNN.do",
+      "checked_at": "2026-10-20T12:01:43.350411+00:00",
+      "source_sha256": "c6fa5a71bac816aea6fcb861ac04efaa39190adfc0776b5c38569bec05e87135",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KP2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KP2NNW.do",
+      "checked_at": "2026-10-20T12:01:44.493414+00:00",
+      "source_sha256": "91533d566e87b76cc8cba6d03e3d6931eeb954dee1f969b82967d8892323ef1d",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:45.493893+00:00",
+      "source_sha256": "d36c718d0248ac032b70232ccb2228ff1aca3e18fa814440f60d262229234116",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KQ2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:45.493893+00:00",
+      "source_sha256": "d36c718d0248ac032b70232ccb2228ff1aca3e18fa814440f60d262229234116",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KQ2NNNJ",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:45.493893+00:00",
+      "source_sha256": "d36c718d0248ac032b70232ccb2228ff1aca3e18fa814440f60d262229234116",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103KQ2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:46.757865+00:00",
+      "source_sha256": "5d12ba45809964b7d64b71219d3b24be76e74ce54f53f1c1bd25f1bc7cb7b7c4",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A103MA2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A103MA2NNN.do",
+      "checked_at": "2026-10-20T12:01:47.871890+00:00",
+      "source_sha256": "00a551d684389e3d5948a67435bc0f5d18d2fbf7daa449684eb4a47cf1c3f820",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104KQ2NNN3",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:52.298553+00:00",
+      "source_sha256": "b2f771da97489db8b0b995dd7d39943038ecb9819c38c8e2f6f79e3a20cbb665",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104KQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:52.298553+00:00",
+      "source_sha256": "b2f771da97489db8b0b995dd7d39943038ecb9819c38c8e2f6f79e3a20cbb665",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104KQ2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:52.298553+00:00",
+      "source_sha256": "b2f771da97489db8b0b995dd7d39943038ecb9819c38c8e2f6f79e3a20cbb665",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104KQ2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104KQ2NNW.do",
+      "checked_at": "2026-10-20T12:01:53.599363+00:00",
+      "source_sha256": "82175b1e07b2928202570d815fdc5ee4d60f7c0ce05104a8dff40ce770bea10c",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNN3",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNND",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNNJ",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MQ2NNNL",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MQ2NNN.do",
+      "checked_at": "2026-10-20T12:01:54.637232+00:00",
+      "source_sha256": "7ffe52dc359b8d74983e3a86cdbaf25f326d73191db30a000f0ae3edaa1a3584",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MR2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:55.800350+00:00",
+      "source_sha256": "f75a93fa1f501d9892588c0bb9d07139eee0e38804b4449d1513aaab7c9cf59f",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MR2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:55.800350+00:00",
+      "source_sha256": "f75a93fa1f501d9892588c0bb9d07139eee0e38804b4449d1513aaab7c9cf59f",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MR2NNNJ",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:55.800350+00:00",
+      "source_sha256": "f75a93fa1f501d9892588c0bb9d07139eee0e38804b4449d1513aaab7c9cf59f",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MR2NNNL",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNN.do",
+      "checked_at": "2026-10-20T12:01:55.800350+00:00",
+      "source_sha256": "f75a93fa1f501d9892588c0bb9d07139eee0e38804b4449d1513aaab7c9cf59f",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A104MR2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A104MR2NNW.do",
+      "checked_at": "2026-10-20T12:01:56.858490+00:00",
+      "source_sha256": "eeab94d532e9a88e11826b7ab28e97f15840a1ef478a7059e7741257ea65d434",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A105MQ2NQNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A105MQ2NQN.do",
+      "checked_at": "2026-10-20T12:01:57.858886+00:00",
+      "source_sha256": "7bfeff04968bbebc81d0fe1e694fcc12efa422f97fe3f11a78c5baf3a613e596",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A105MR2NQNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A105MR2NQN.do",
+      "checked_at": "2026-10-20T12:01:59.331126+00:00",
+      "source_sha256": "17e330f36f059fa8cca41946afbfa3071ba0ce8f76c5852756bfd3ec497be320",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A152KQ2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A152KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:01.087232+00:00",
+      "source_sha256": "0711aff5e00c9f5b4f33d8f3229243f910c19edcdcab6cfc213001abd48c62b8",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A153KQ2NNNC",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A153KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:02.826360+00:00",
+      "source_sha256": "8518c29e7896484d8df32ee1a0ff5409d69b5e2c4831a23fe6a74b07378116f2",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A153KQ2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A153KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:02.826360+00:00",
+      "source_sha256": "8518c29e7896484d8df32ee1a0ff5409d69b5e2c4831a23fe6a74b07378116f2",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A153KR2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A153KR2NNN.do",
+      "checked_at": "2026-10-20T12:02:03.826972+00:00",
+      "source_sha256": "af12cb7eebc23add506aeeb98601bb2d2e590907b32c459ef789f946d574056f",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A222KP2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A222KP2NNN.do",
+      "checked_at": "2026-10-20T12:02:06.988860+00:00",
+      "source_sha256": "1e273cdcf2c228193002c1eb7dcc1acc4bd38224b2d201c8e4f83291f2fac0d6",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A222KQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:08.159815+00:00",
+      "source_sha256": "31322e482ac24909811a0fc7ef6fe319814ae82c995e1d9465b0efe775be5a34",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A222KQ2NNNE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:08.159815+00:00",
+      "source_sha256": "31322e482ac24909811a0fc7ef6fe319814ae82c995e1d9465b0efe775be5a34",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A222KQ2NNWE",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A222KQ2NNW.do",
+      "checked_at": "2026-10-20T12:02:09.211488+00:00",
+      "source_sha256": "7d73f30771b441ff8673053e05598d496cc52cbbdf4611b5106af7513a118be5",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A223KQ2NNNC",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A223KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:10.211760+00:00",
+      "source_sha256": "15c86971e738d5817663f3dcc94279c587cf34453750cfeb48cb3e813b5f8c4c",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A223KQ2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A223KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:10.211760+00:00",
+      "source_sha256": "15c86971e738d5817663f3dcc94279c587cf34453750cfeb48cb3e813b5f8c4c",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A224MQ2N3NC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2N3N.do",
+      "checked_at": "2026-10-20T12:02:11.212251+00:00",
+      "source_sha256": "96797bc54e82cb0a7c3336297d3c4bdeaebe3d189249d2fd2a0c33cd5a38a757",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A224MQ2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A224MQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:12.212563+00:00",
+      "source_sha256": "8dad44c96820db116b2f316edac934f0a970d9f720ab3cc8c9d4fcfc13bec43c",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A224MR2NNNC",
+      "status": "量产",
+      "raw_status": "Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A224MR2NNN.do",
+      "checked_at": "2026-10-20T12:02:13.213012+00:00",
+      "source_sha256": "d4f6edfdf9ae2fd54be2640b3a94cc204b45fde9dc73bebab7cbdf978d32eb16",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A333KQ2NNNC",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A333KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:14.213731+00:00",
+      "source_sha256": "5e5c5cdafd01d949cf90f4c27a9b2cee189e7e3149dd10d5233dfdbda7375c4a",
+      "parser": "samsung-mlcc-table-v1"
+    },
+    {
+      "manufacturer": "samsung",
+      "model": "CL02A333KQ2NNNE",
+      "status": "量产前",
+      "raw_status": "Pre Mass Production",
+      "source": "https://product.samsungsem.com/cn/mlcc/CL02A333KQ2NNN.do",
+      "checked_at": "2026-10-20T12:02:14.213731+00:00",
+      "source_sha256": "5e5c5cdafd01d949cf90f4c27a9b2cee189e7e3149dd10d5233dfdbda7375c4a",
+      "parser": "samsung-mlcc-table-v1"
+    }
+  ]
+}

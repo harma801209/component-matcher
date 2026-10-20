@@ -25,6 +25,9 @@ def build_payload(result, kind, condition, selected, ranges, keyword, sort_key='
     for source in result['rows']:
         row = {'型号':source['型号'], '品牌':source.get('品牌') or '未提供'}
         row['id'] = hashlib.sha256(json.dumps([source.get('品牌'),source['型号']],ensure_ascii=False).encode()).hexdigest()[:24]
+        if source.get('_lifecycle_source'):
+            row['_lifecycle_source'] = source['_lifecycle_source']
+            row['_lifecycle_checked'] = source.get('_lifecycle_checked','')
         for field in result['fields']:
             if field.key=='品牌':continue
             value=source.get(field.key)

@@ -2717,6 +2717,39 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(saved)
 
+    def test_cost_date_entry_is_iso_and_does_not_reinterpret_month_as_day(self):
+        import ast
+        import contextlib
+        from pathlib import Path
+        from datetime import date, datetime, timezone
+        import re
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'component_matcher.py').read_text(encoding='utf-8'))
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'render_admin_cost_time_selector')
+        class FakeSt:
+            def __init__(self, value):
+                self.value, self.session_state, self.warnings = value, {}, []
+            def selectbox(self, *args, **kwargs): return '指定日期时间'
+            def columns(self, count): return [contextlib.nullcontext() for _ in range(count)]
+            def text_input(self, label, **kwargs):
+                return self.value if label.startswith('成本日期') else '23:59:59'
+            def warning(self, value): self.warnings.append(value)
+            def caption(self, *args): pass
+        for entered, expected in [('2026-10-01','2026-10-01 23:59:59'), ('2026-11-01','2026-11-01 23:59:59'),
+                                  ('2024-02-29','2024-02-29 23:59:59'), ('2026-02-29',''), ('2026-13-01',''), ('10/01/2026','')]:
+            fake = FakeSt(entered)
+            env = dict(st=fake, date=date, datetime=datetime, APP_TIMEZONE=timezone.utc, re=re,
+                       member_cost_access_level=lambda member: member.get('role'),
+                       clear_customer_dependent_session_state=lambda: None,
+                       normalize_cost_as_of=lambda moment: moment.strftime('%Y-%m-%d %H:%M:%S'))
+            exec(compile(ast.Module(body=[node], type_ignores=[]), 'cost-date-test', 'exec'), env)
+            self.assertEqual(env[node.name]({'id':7, 'role':'admin'}), bool(expected))
+            self.assertEqual(fake.session_state['_admin_query_cost_time']['as_of'], expected)
+            self.assertEqual(bool(fake.warnings), not bool(expected))
+            fake.session_state.clear()
+            self.assertTrue(env[node.name]({'id':8, 'role':'member'}))
+            self.assertFalse(fake.session_state)
+        self.assertNotIn('st.date_input', ast.unparse(node))
+
     def test_02b_workbench_header_login_member_link_and_trial_badge(self):
         from precision_theme import render_header, CSS, TABLE_CSS
         rendered = []

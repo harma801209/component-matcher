@@ -35,3 +35,20 @@ Unverified/unsupported codes remain missing until primary-source confirmation.
 Prepared MLCC reads are projected to identity and these four parameter families;
 prices, customer data and authentication columns are never loaded. Retrieval is
 lazy when the specification catalogue is used, not ordinary-search startup.
+
+## FOJAN verified follow-up — 2026-10-20
+
+FRC/FPS/FPL dimensions are taken from the **L × W × H** table on page 3,
+including each axis tolerance, scoped to the exact series and size. Resistance
+is decoded only where the page 2 order-code table is unambiguous. Existing
+nonempty data/zero values are retained. No lifecycle state or power is inferred.
+
+- FRC, FJ-JS-3001-V2.0/2025.09.24: [official PDF](http://www.fojan.cn/Private/Files/20260117/6390425653118283306794915.pdf)
+- FPS, FJ-JS-3001-V2.0/2025.01.01: [official PDF](http://www.fojan.cn/Private/Files/20260104/6390313964867467102454149.pdf)
+- FPL, FJ-JS-3001-V1.0/2025.01.01: [official PDF](http://www.fojan.cn/Private/Files/20260326/6391013095361233781944979.pdf)
+
+The official server's HTTPS certificate failed hostname validation during this
+audit; documents were retrieved through the public HTTP product-page links.
+Do not disable certificate verification or send any credentials to this host.
+`FPQ1206F6800TS` remains unverified: the similarly named **FQP** series is not
+evidence for **FPQ**. Its size-derived power must not be promoted to rated power.

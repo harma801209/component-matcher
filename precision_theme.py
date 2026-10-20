@@ -144,6 +144,20 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 @media(max-width:1100px) {:root {--wb-header-height:50.4px;}.wb-sidebar {width:140px;}.wb-nav a {padding:14px 9px;font-size:14px;gap:8px;}.block-container,[data-testid="stMainBlockContainer"] {width:calc(100% - 140px)!important;margin-left:140px!important;padding:1rem 1.25rem!important;}.wb-header {margin:-2rem -1.25rem 18px;padding:1px 16px;gap:12px;}.wb-brand {font-size:18px;padding-left:12px;}.wb-logo {width:105px;}}
 @media(max-width:760px) {.wb-sidebar {position:static;width:auto;padding:0;background:#193253;border-radius:7px;margin:0 0 14px;}.wb-nav {flex-direction:row;flex-wrap:wrap;gap:0;}.wb-nav a {flex:1 1 45%;padding:10px 10px;font-size:13px;gap:8px;border-left:0;border-bottom:3px solid transparent;}.wb-nav a:hover,.wb-nav a:focus-visible {border-bottom-color:#75a9ff;}.block-container,[data-testid="stMainBlockContainer"] {width:100%!important;margin-left:0!important;padding:.8rem!important;}.wb-header {height:auto;min-height:64px;margin:0 0 16px;padding:8px 10px;gap:8px;flex-wrap:wrap;border:1px solid #d9e3ef;border-radius:8px;}.wb-brand {font-size:17px;padding-left:10px;}.wb-logo {width:95px;height:40px;}.wb-badge {font-size:12px;padding:5px 10px;}.wb-user {font-size:13px;}.wb-title {font-size:23px;}.wb-subtitle {font-size:14px;}.st-key-workbench-search-panel {padding:14px 12px;}}
 @media(max-width:760px) {.wb-logout {margin-top:0;min-height:44px;padding:10px 13px;justify-content:flex-end;}}
+@media(max-width:760px) {
+ .wb-header {display:grid;grid-template-columns:68px minmax(0,1fr) auto;column-gap:9px;row-gap:4px;flex-wrap:nowrap;padding:10px;}
+ .wb-logo {width:68px;height:40px;}
+ .wb-brand {min-width:0;white-space:normal;font-size:15px;line-height:1.45;padding-left:9px;text-wrap:balance;}
+ .wb-account {margin-left:0;min-width:0;max-width:84px;}
+ .wb-login-button {min-height:44px;box-sizing:border-box;padding:5px 8px;gap:4px;background:#f2f6ff;color:#1555e8!important;border-color:#d4e1f7;font-size:13px;}
+ .wb-login-button:hover {background:#e8efff;border-color:#a9c4f5;}
+ .wb-login-button .wb-nav-icon {width:18px;height:18px;}
+ .wb-login-full {display:none;}
+ .wb-user-link {max-width:84px;min-height:44px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;display:block!important;line-height:30px;padding:6px 9px;}
+ .wb-header>.wb-badge {grid-column:2;grid-row:2;justify-self:start;}
+ .wb-header>.wb-account {grid-column:3;grid-row:1;}
+}
+@media(min-width:761px) {.wb-login-short {display:none;}}
 </style>
 """
 
@@ -176,7 +190,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
         account = f'<a class="wb-user wb-user-link" href="{html.escape(member_href, quote=True)}" target="_self" title="查看会员资料">{user}</a>'
     else:
         href = html.escape(login_href or member_href, quote=True)
-        account = f'<a class="wb-login-button" href="{href}" target="_self" role="button" aria-label="会员登录">{navigation_icon("person")}会员登录</a>'
+        account = f'<a class="wb-login-button" href="{href}" target="_self" role="button" aria-label="会员登录">{navigation_icon("person")}<span class="wb-login-full">会员登录</span><span class="wb-login-short" aria-hidden="true">登录</span></a>'
     titles = {
         "search": ("元器件搜索", "输入型号或文字规格，也可按库内品类与参数筛选。价格与替代匹配仍按原有规则和权限处理。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),

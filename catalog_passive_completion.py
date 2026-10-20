@@ -26,6 +26,59 @@ RAW_COLUMNS = ('品牌', '型号', '_component_type', *FIELDS, '封装代码', '
                '脚距（mm）', '安装方式', '工作温度', '容值', '容值单位', '耐压（V）',
                '电感值', '电感单位', '电感误差', '共模阻抗', '阻抗单位', '阻抗@100MHz', '输出频率', '频率', '频率单位')
 
+# FOJAN FRC/FPS/FPL official PDFs, dimensions p.3 and order codes p.2.
+# See docs/catalog_parameter_completion.md for exact URLs/revisions. These are
+# series-scoped physical dimensions, NOT generic size-to-power assumptions.
+FOJAN_DIMENSIONS = {
+    '01005':'0.40±0.02 × 0.20±0.02 × 0.13±0.03 mm',
+    '0201':'0.60±0.03 × 0.30±0.03 × 0.23±0.03 mm',
+    '0402':'1.00±0.05 × 0.50±0.05 × 0.35±0.05 mm',
+    '0603':'1.60±0.10 × 0.80±0.10 × 0.45±0.10 mm',
+    '0805':'2.00±0.10 × 1.25±0.10 × 0.50±0.10 mm',
+    '1206':'3.10±0.10 × 1.60±0.10 × 0.55±0.10 mm',
+    '1210':'3.10±0.10 × 2.50±0.15 × 0.55±0.10 mm',
+    '1218':'3.10±0.10 × 4.60±0.10 × 0.55±0.10 mm',
+    '1812':'4.50±0.20 × 3.10±0.20 × 0.55±0.10 mm',
+    '2010':'5.00±0.10 × 2.50±0.15 × 0.55±0.10 mm',
+    '2512':'6.35±0.10 × 3.10±0.15 × 0.55±0.10 mm',
+}
+
+
+def fojan_explicit_specs(row):
+    brand = text(row.get('品牌')).upper().replace(' ', '')
+    if not ('FOJAN' in brand or '富捷' in brand) or row.get('_component_type') not in {'贴片电阻','厚膜电阻'}:
+        return {}
+    match = re.fullmatch(r'(FRC|FPS|FPL)(01005|\d{4})([ABCDFJKMP])([0-9R]{3,4})([TQRB])([SCA])',
+                         text(row.get('型号')).upper().replace(' ', ''))
+    if not match:
+        return {}
+    series, size, tolerance, code, _, _ = match.groups()
+    sizes = set(FOJAN_DIMENSIONS)
+    if series == 'FPS': sizes -= {'01005','0201','0402'}
+    if series == 'FPL': sizes -= {'01005','0201'}
+    if size not in sizes or (text(row.get('_size')) and text(row['_size']) != size):
+        return {}
+    if series == 'FPL':
+        if tolerance not in 'FJ' or not re.fullmatch(r'R\d{2}' if size == '0603' else r'R\d{3}',code): return {}
+    elif tolerance not in ('ABCDFJ' if series == 'FRC' else 'FJ') or len(code) != (3 if tolerance == 'J' else 4):
+        return {}
+    patch = {'_body_size': FOJAN_DIMENSIONS[size]}
+    # Unknown/ambiguous encoding is left blank. In particular do not treat FPQ
+    # as FQP, use EIA-96 without its table, or infer a power from the package.
+    resistance = None
+    if series == 'FPL':
+        digits = 3 if size == '0603' else 4
+        if len(code) == digits and re.fullmatch(r'R\d+',code): resistance = float('0.'+code[1:])
+    elif (series == 'FRC' and tolerance in 'ABCDF') or (series == 'FPS' and tolerance == 'F'):
+        if len(code) == 4:
+            if code.isdigit() and int(code[-1]) <= 6: resistance = int(code[:-1]) * 10**int(code[-1])
+            elif re.fullmatch(r'\d*R\d+',code): resistance = float(code.replace('R','.'))
+    elif tolerance == 'J' and len(code) == 3:
+        if code.isdigit() and int(code[-1]) <= 6: resistance = int(code[:-1]) * 10**int(code[-1])
+        elif re.fullmatch(r'\d*R\d+',code): resistance = float(code.replace('R','.'))
+    if resistance is not None: patch['_res_ohm'] = resistance
+    return patch
+
 
 def fields_for_kind(kind):
     fields = {'_size', '_body_size', '_mount_style', '_tol'}
@@ -99,6 +152,8 @@ def complete(row, model_resolver=None):
     if kind != 'MLCC':
         put('_size', text(row.get('尺寸（inch）')) or text(row.get('封装代码')))
     put('_body_size', physical_size(row.get('尺寸（mm）')))
+    for key, value in fojan_explicit_specs(row).items():
+        put(key, value)
     pitch = text(row.get('脚距（mm）'))
     match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*(?:mm)?', pitch, re.I)
     if match:

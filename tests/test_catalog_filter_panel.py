@@ -10,8 +10,21 @@ class CatalogPanelTests(unittest.TestCase):
         template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')
         for obsolete in ('model-keyword','启用实时搜索','部分一致','前方一致','完全一致','pending-filter-state'):
             self.assertNotIn(obsolete,template)
-        self.assertIn("left.append(node('h3','筛选条件'),toggle)",template)
+        self.assertIn("conditions.append(node('strong','筛选条件：'))",template)
         self.assertIn("request('choice'",template)
+
+    def test_condition_summary_owns_clear_action_without_collapsible_or_layout_controls(self):
+        from pathlib import Path
+        template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')
+        script=template.split('<script>',1)[1]
+        for obsolete in ('toggleTouched','opened','layoutToggle','筛选条件显示状态','切换筛选布局','更改布局'):
+            self.assertNotIn(obsolete,script)
+        self.assertEqual(script.count("button('清除所有条件'"),1)
+        self.assertIn("summary.append(conditions,button('清除所有条件'",script)
+        self.assertIn("conditions.append(button(text+' · 移除'",script)
+        self.assertIn("const strip=node('div',undefined,'strip')",script)
+        self.assertIn('.summary-conditions{display:flex;',template)
+        self.assertIn('.summary .clear-all{flex:0 0 auto;',template)
 
     def setUp(self):
         self.fixture=fixtures.CatalogFilterTests()

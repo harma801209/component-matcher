@@ -38,7 +38,7 @@ from jianghai_parameters import (
 )
 from copy import copy, deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from cost_price_history import (
     normalize_as_of as normalize_cost_as_of,
     ensure_manual_history as ensure_cost_manual_history,
@@ -329,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T16:44:36+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T20:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -7401,17 +7401,26 @@ def render_admin_cost_time_selector(member):
     if mode == "指定日期时间":
         date_col, time_col = st.columns(2)
         with date_col:
-            day = st.date_input("成本日期", value=datetime.now(APP_TIMEZONE).date(), key=prefix + "_date")
+            # Native segmented date editors can reorder month/day by browser
+            # locale and move focus on reruns. Use one explicit ISO field.
+            previous_day = st.session_state.get(prefix + "_date")
+            initial_day = previous_day if isinstance(previous_day, date) else datetime.now(APP_TIMEZONE).date()
+            day_text = st.text_input("成本日期（年-月-日）", value=initial_day.isoformat(),
+                                     max_chars=10, key=prefix + "_date_iso",
+                                     help="按 YYYY-MM-DD 输入，例如 2026-10-01；月份与日期不会自动互换。")
         with time_col:
             clock = st.text_input("截至时刻（北京时间）", value="23:59:59", max_chars=8,
                                  key=prefix + "_clock", help="24小时制 HH:MM:SS。默认包含当天全部更新。")
         try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day_text.strip()):
+                raise ValueError()
+            day = datetime.strptime(day_text.strip(), "%Y-%m-%d").date()
             if not re.fullmatch(r"\d{2}:\d{2}:\d{2}", clock.strip()):
                 raise ValueError()
             cutoff = normalize_cost_as_of(datetime.combine(day, datetime.strptime(clock.strip(), "%H:%M:%S").time()))
         except (ValueError, TypeError):
             ready = False
-            st.warning("请填写有效日期及时间，例如 16:30:00。")
+            st.warning("请填写有效日期及时间，例如 2026-10-01、16:30:00。")
     context = {"member_id": member_id, "as_of": cutoff, "ready": ready}
     if st.session_state.get("_admin_query_cost_time") != context:
         clear_customer_dependent_session_state()
@@ -49677,6 +49686,9 @@ def install_catalog_parameters(conn, data_signature, component_type):
     if component_type in _catalog_filters.passive_completion.KINDS:
         table, _ = _catalog_filters.available_profile(conn, component_type)
         _catalog_filters.passive_completion.install(conn, component_type, cached_catalog_passive_parameters(data_signature, component_type), table)
+    from manufacturer_lifecycle import install as install_official_lifecycle
+    table, _ = _catalog_filters.available_profile(conn, component_type)
+    install_official_lifecycle(conn, table, component_type)
 
 
 @st.cache_resource(ttl=3600, max_entries=8, show_spinner="正在准备规格参数，首次打开该品类需要稍候…")
