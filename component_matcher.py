@@ -329,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T15:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T16:19:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -51403,10 +51403,15 @@ if catalog_match_model or pending_search_after_login:
     st.session_state["search_entry_mode"] = _catalog_filters.TEXT_MODE
 if catalog_match_model:
     st.session_state["search_query_input"] = catalog_match_model
-search_entry_mode = st.radio(
-    "搜索方式", [_catalog_filters.TEXT_MODE, _catalog_filters.FILTER_MODE],
-    key="search_entry_mode", horizontal=True,
-)
+with st.container(key="search-mode-tabs"):
+    # Keep the draft across hidden-widget cleanup when changing search modes.
+    if "search_query_input" in st.session_state:
+        st.session_state["search_query_input"] = st.session_state["search_query_input"]
+    search_entry_mode = st.radio(
+        "搜索方式", [_catalog_filters.TEXT_MODE, _catalog_filters.FILTER_MODE],
+        key="search_entry_mode", horizontal=True, label_visibility="collapsed",
+        format_func=lambda mode: "型号搜索" if mode == _catalog_filters.TEXT_MODE else "规格筛选",
+    )
 if search_entry_mode == _catalog_filters.FILTER_MODE:
     with st.container(key="catalog-search-panel"):
         render_catalog_search_page()

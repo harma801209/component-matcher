@@ -66,6 +66,16 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-title {font-size:25px;font-weight:750;color:#172b4d;margin:0 0 6px;}
 .wb-subtitle {color:#4d6384;font-size:14px;line-height:1.55;margin:0 0 14px;}
 .wb-test-note {font-size:13px;color:#4d6384;margin:0 0 18px;}
+/* Mode navigation keeps native radio semantics and keyboard controls. */
+.st-key-search-mode-tabs [role="radiogroup"] {display:flex;flex-direction:row;flex-wrap:nowrap;gap:4px;width:max-content;max-width:100%;border-bottom:1px solid #cbd8e8;padding:0;margin:0;}
+.st-key-search-mode-tabs label[data-baseweb="radio"] {display:flex;align-items:center;justify-content:center;min-width:132px;min-height:44px;box-sizing:border-box;margin:0!important;padding:9px 20px 8px!important;border-bottom:3px solid transparent;border-radius:7px 7px 0 0;cursor:pointer;color:#4d6384;background:transparent;}
+.st-key-search-mode-tabs label[data-baseweb="radio"]>div:first-child {display:none;}
+.st-key-search-mode-tabs label[data-baseweb="radio"] [data-testid="stMarkdownContainer"] {color:inherit!important;}
+.st-key-search-mode-tabs label[data-baseweb="radio"] [data-testid="stMarkdownContainer"] p {font-size:15px!important;font-weight:600;line-height:1.5;white-space:nowrap;}
+.st-key-search-mode-tabs label[data-baseweb="radio"]:hover {background:#edf3fd;color:#1555e8;}
+.st-key-search-mode-tabs label[data-baseweb="radio"]:has(input:checked) {background:#e8efff;color:#1555e8;border-bottom-color:#1555e8;}
+.st-key-search-mode-tabs label[data-baseweb="radio"]:has(input:focus-visible) {outline:3px solid #1555e8;outline-offset:2px;}
+@media(max-width:760px) {.st-key-search-mode-tabs [role="radiogroup"] {width:100%;}.st-key-search-mode-tabs label[data-baseweb="radio"] {flex:1;min-width:0;padding:9px 12px 8px!important;}}
 .st-key-workbench-search-panel {background:#fff;border:1px solid #d9e3ef;border-radius:10px;padding:18px 20px;margin-bottom:16px;}
 .st-key-catalog-search-panel {background:#fff;border:1px solid #d9e3ef;border-radius:10px;padding:18px 20px;margin-bottom:16px;}
 .st-key-catalog-search-panel [data-testid="stMultiSelect"] {min-width:0;}

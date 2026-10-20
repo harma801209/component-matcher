@@ -123,6 +123,85 @@ class CatalogPanelTests(unittest.TestCase):
         self.assertFalse(self.send(panel,'batch',actions=actions*101))
 
 
+class SearchModeSwitchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import ast
+        from pathlib import Path
+        tree = ast.parse((Path(__file__).resolve().parents[1]/'component_matcher.py').read_text(encoding='utf-8'))
+        cls.mode = next(node for node in tree.body if isinstance(node, ast.With) and any(
+            isinstance(item.context_expr, ast.Call) and any(
+                keyword.arg == 'key' and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value == 'search-mode-tabs'
+                for keyword in item.context_expr.keywords) for item in node.items))
+        start = next(i for i, node in enumerate(tree.body) if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == 'catalog_match_model'
+                             for target in node.targets))
+        cls.entry_source = '\n'.join(ast.unparse(node) for node in tree.body[start:tree.body.index(cls.mode)+1])
+        cls.handoff_source = ast.unparse(next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                                             and node.name == 'handoff_catalog_model_to_search'))
+
+    def test_mode_navigation_is_scoped_native_and_retains_internal_values(self):
+        import ast
+        from precision_theme import CSS
+        calls = [node for node in ast.walk(self.mode) if isinstance(node, ast.Call)
+                 and ast.unparse(node.func) == 'st.radio']
+        self.assertEqual(len(calls), 1)
+        args = {keyword.arg: keyword.value for keyword in calls[0].keywords}
+        self.assertEqual(ast.literal_eval(args['key']), 'search_entry_mode')
+        self.assertEqual(ast.literal_eval(args['label_visibility']), 'collapsed')
+        self.assertEqual(ast.unparse(calls[0].args[1]), '[_catalog_filters.TEXT_MODE, _catalog_filters.FILTER_MODE]')
+        for selector in ('label[data-baseweb="radio"]>div:first-child',
+                         'label[data-baseweb="radio"]:has(input:checked)',
+                         'label[data-baseweb="radio"]:has(input:focus-visible)'):
+            self.assertIn('.st-key-search-mode-tabs ' + selector, CSS)
+        self.assertIn('.st-key-search-mode-tabs label[data-baseweb="radio"] {flex:1;min-width:0;', CSS)
+
+    def test_switch_and_pending_catalogue_handoff_keep_original_state_contract(self):
+        from streamlit.testing.v1 import AppTest
+        source = '''
+import streamlit as st
+import component_filters as _catalog_filters
+clean_text = lambda value: str(value or '').strip()
+pending_search_after_login = ''
+'''
+        source += self.handoff_source + '\n' + self.entry_source
+        source += '''
+if search_entry_mode == _catalog_filters.FILTER_MODE:
+    if st.button('查看型号匹配'):
+        handoff_catalog_model_to_search(' AO3400A ', defer=True)
+        st.rerun()
+    st.stop()
+kwargs = dict(label='请输入料号，可多行输入', key='search_query_input')
+if 'search_query_input' not in st.session_state:
+    kwargs['value'] = st.session_state.get('_last_search_query_input', '')
+st.text_area(**kwargs)
+'''
+        at = AppTest.from_string(source, default_timeout=30)
+        at.session_state['_last_search_query_input'] = 'FRC0402J102 TS'
+        at.session_state['_member_auth_token'] = 'KEEP'
+        at.session_state['cost_date'] = 'KEEP'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.radio[0].options, ['型号搜索', '规格筛选'])
+        self.assertEqual(at.radio[0].value, '型号／文字搜索')
+        at.text_area[0].set_value('DRAFT\n0402 1kΩ').run()
+        at.radio[0].set_value('按规格筛选').run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.radio[0].value, '按规格筛选')
+        self.assertEqual(len(at.text_area), 0)
+        at.radio[0].set_value('型号／文字搜索').run()
+        self.assertEqual(at.text_area[0].value, 'DRAFT\n0402 1kΩ')
+        self.assertEqual(at.session_state['_last_search_query_input'], 'FRC0402J102 TS')
+        at.radio[0].set_value('按规格筛选').run()
+        at.button[0].click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.radio[0].value, '型号／文字搜索')
+        self.assertEqual(at.text_area[0].value, 'AO3400A')
+        self.assertEqual(at.session_state['_member_auth_token'], 'KEEP')
+        self.assertEqual(at.session_state['cost_date'], 'KEEP')
+
+
 class SearchFormLayoutTests(unittest.TestCase):
     @staticmethod
     def panel():
