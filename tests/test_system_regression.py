@@ -2750,6 +2750,31 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertFalse(fake.session_state)
         self.assertNotIn('st.date_input', ast.unparse(node))
 
+    def test_catalogue_hot_update_refreshes_leaf_helpers_before_parent_without_auth_reload(self):
+        import ast
+        from pathlib import Path
+        from types import SimpleNamespace
+        tree=ast.parse((Path(__file__).resolve().parents[1]/'component_matcher.py').read_text(encoding='utf-8'))
+        nodes=[n for n in tree.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call)
+               and ast.unparse(n.value.func)=='_workbench_importlib.reload']
+        leaf=SimpleNamespace(name='passive',version='old')
+        mlcc=SimpleNamespace(name='mlcc',version='old')
+        parent=SimpleNamespace(name='filters',passive_completion=leaf,mlcc_completion=mlcc)
+        calls=[]
+        def reload(module):
+            if module is parent:
+                self.assertEqual(leaf.version,'new')
+                self.assertEqual(mlcc.version,'new')
+            module.version='new';calls.append(module.name)
+            return module
+        namespace=dict(_workbench_importlib=SimpleNamespace(reload=reload),_catalog_filters=parent,
+                       _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=SimpleNamespace(name='lifecycle'),
+                       _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'))
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'actual-catalogue-reloads','exec'),namespace)
+        self.assertLess(calls.index('passive'),calls.index('filters'))
+        self.assertIn('lifecycle',calls)
+        self.assertNotIn('member_auth_runtime',calls)
+
     def test_02b_workbench_header_login_member_link_and_trial_badge(self):
         from precision_theme import render_header, CSS, TABLE_CSS
         rendered = []

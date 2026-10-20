@@ -70,9 +70,15 @@ import precision_theme as _workbench_theme
 import component_filters as _catalog_filters
 import catalog_result_table as _catalog_result_table
 import catalog_filter_panel as _catalog_filter_panel
+import manufacturer_lifecycle as _catalog_lifecycle
 # Existing cloud script caches may still use the previous entrypoint loader.
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
+# Reload leaf helpers before their importer: reloading only component_filters
+# retains the old imported completion module during Cloud hot updates.
+_workbench_importlib.reload(_catalog_filters.mlcc_completion)
+_workbench_importlib.reload(_catalog_filters.passive_completion)
+_workbench_importlib.reload(_catalog_lifecycle)
 _workbench_importlib.reload(_catalog_filters)
 _workbench_importlib.reload(_catalog_result_table)
 _workbench_importlib.reload(_catalog_filter_panel)
@@ -329,7 +335,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T20:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T20:26:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
