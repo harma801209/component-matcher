@@ -73,6 +73,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .st-key-catalog-search-panel [data-testid="stTextInput"] [data-baseweb="input"]:focus-within {border-color:#1555e8!important;}
 @media(max-width:760px) {.st-key-catalog-search-panel {padding:14px 12px;}.st-key-catalog-search-panel [data-testid="stHorizontalBlock"] {flex-direction:column;gap:8px;}.st-key-catalog-search-panel [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}}
 .st-key-workbench-search-panel [data-testid="stButton"] button[kind="primary"] {min-height:42px!important;width:150px!important;}
+@media(max-width:760px) {.st-key-workbench-search-panel [data-testid="stHorizontalBlock"] {flex-direction:column;gap:16px;}.st-key-workbench-search-panel [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}}
 .main-title,.result-title,.section-title {color:#172b4d!important;font-weight:700!important;}
 .sub-title,.sub-title-2 {color:#4d6384!important;}
 [data-testid="stMarkdownContainer"] p,[data-testid="stWidgetLabel"] p {color:inherit;font-size:14px;line-height:1.55;}

@@ -123,5 +123,74 @@ class CatalogPanelTests(unittest.TestCase):
         self.assertFalse(self.send(panel,'batch',actions=actions*101))
 
 
+class SearchFormLayoutTests(unittest.TestCase):
+    @staticmethod
+    def panel():
+        import ast
+        from pathlib import Path
+        tree = ast.parse((Path(__file__).resolve().parents[1]/'component_matcher.py').read_text(encoding='utf-8'))
+        return next(node for node in tree.body if isinstance(node, ast.With) and any(
+            isinstance(item.context_expr, ast.Call) and any(
+                keyword.arg == 'key' and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value == 'workbench-search-panel'
+                for keyword in item.context_expr.keywords) for item in node.items))
+
+    def test_text_input_and_submit_live_inside_brand_column(self):
+        import ast
+        panel = self.panel()
+        columns = [node for node in panel.body if isinstance(node, ast.With)]
+        self.assertEqual([ast.unparse(node.items[0].context_expr) for node in columns],
+                         ['customer_column', 'brand_column'])
+        brand = columns[1]
+        calls = [node for node in ast.walk(brand) if isinstance(node, ast.Call)]
+        self.assertEqual(sum(ast.unparse(node.func) == 'st.text_area' for node in calls), 1)
+        self.assertEqual(sum(ast.unparse(node.func) == 'st.button' for node in calls), 1)
+        from precision_theme import CSS
+        self.assertIn('.st-key-workbench-search-panel [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}', CSS)
+
+    def test_moved_form_preserves_input_and_brand_customer_guards(self):
+        import ast
+        from streamlit.testing.v1 import AppTest
+        source = '''
+import streamlit as st
+SEARCH_BRAND_MODE_AUTO = '自动匹配其他品牌'
+SEARCH_BRAND_MODE_CUSTOM = '指定品牌'
+SEARCH_BRAND_MAX_SELECTIONS = 5
+search_brand_mode_key = 'search_brand_mode'
+search_selected_brands_key = 'search_selected_brands'
+pending_customer_type = pending_customer_name = ''
+clean_text = lambda value: str(value or '').strip()
+bom_export_brand_options = lambda: ['Brand A', 'Brand B']
+st.session_state.setdefault(search_brand_mode_key, SEARCH_BRAND_MODE_AUTO)
+def render_sales_cost_customer_selector(**kwargs):
+    return '', '', st.session_state.get('fixture_ready', True)
+'''
+        source += ast.unparse(self.panel())
+        source += "\nif search_clicked: st.success(query_input)\n"
+        at = AppTest.from_string(source)
+        at.session_state['_last_search_query_input'] = 'FRC0402J102 TS'
+        at.session_state['_member_auth_token'] = 'KEEP'
+        at.session_state['cost_date'] = 'KEEP'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.text_area[0].value, 'FRC0402J102 TS')
+        self.assertFalse(at.button[0].disabled)
+        at.text_area[0].set_value('FRC0603J221 TS\n0402 1kΩ').run()
+        at.session_state['search_brand_mode'] = '指定品牌'
+        at.run()
+        self.assertTrue(at.button[0].disabled)
+        self.assertEqual(at.text_area[0].value, 'FRC0603J221 TS\n0402 1kΩ')
+        at.multiselect[0].select('Brand A').run()
+        self.assertFalse(at.button[0].disabled)
+        at.button[0].click().run()
+        self.assertEqual(at.success[0].value, 'FRC0603J221 TS\n0402 1kΩ')
+        at.session_state['fixture_ready'] = False
+        at.run()
+        self.assertTrue(at.button[0].disabled)
+        self.assertEqual(at.session_state['_member_auth_token'], 'KEEP')
+        self.assertEqual(at.session_state['cost_date'], 'KEEP')
+        self.assertFalse(at.exception)
+
+
 if __name__=='__main__':
     unittest.main()

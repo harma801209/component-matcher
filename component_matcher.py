@@ -329,7 +329,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T11:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-20T11:45:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -51410,25 +51410,25 @@ with st.container(key="workbench-search-panel"):
                 max_selections=SEARCH_BRAND_MAX_SELECTIONS,
                 placeholder="选择 1-5 个品牌",
             )
-    with st.container():
-        search_text_area_kwargs = {
-            "label": "请输入料号，可多行输入",
-            "placeholder": "例如 FRC0603J221 TS\n0603 220Ω ±5% 1/10W 75V",
-            "key": "search_query_input",
-            "height": 112,
-        }
-        if "search_query_input" not in st.session_state:
-            search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
-        query_input = st.text_area(**search_text_area_kwargs)
-    with st.container():
-        search_clicked = st.button(
-            "开始匹配",
-            type="primary",
-            disabled=(
-                not search_customer_ready
-                or (search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands)
-            ),
-        )
+        with st.container():
+            search_text_area_kwargs = {
+                "label": "请输入料号，可多行输入",
+                "placeholder": "例如 FRC0603J221 TS\n0603 220Ω ±5% 1/10W 75V",
+                "key": "search_query_input",
+                "height": 112,
+            }
+            if "search_query_input" not in st.session_state:
+                search_text_area_kwargs["value"] = clean_text(st.session_state.get("_last_search_query_input", ""))
+            query_input = st.text_area(**search_text_area_kwargs)
+        with st.container():
+            search_clicked = st.button(
+                "开始匹配",
+                type="primary",
+                disabled=(
+                    not search_customer_ready
+                    or (search_brand_mode == SEARCH_BRAND_MODE_CUSTOM and not selected_search_brands)
+                ),
+            )
 restore_search_after_report = bool(st.session_state.pop("_restore_search_after_no_match_report", False))
 if restore_search_after_report and not query_input.strip():
     query_input = clean_text(st.session_state.get("_last_search_query_input", ""))
