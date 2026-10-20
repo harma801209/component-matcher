@@ -13,6 +13,15 @@ class SpecificationTableTests(unittest.TestCase):
         self.assertIn('#root .scroll td{height:46px;padding:6px 9px}',template)
         self.assertIn('td.append(button(value,()=>openModel(row)))',template)
 
+    def test_footer_has_counts_without_unrequested_help_or_price_permission_caption(self):
+        from pathlib import Path
+        root=Path(__file__).resolve().parents[1]
+        template=(root/'catalog_results/index.html').read_text(encoding='utf-8')
+        self.assertNotIn('表头可排序 · 型号列固定 · 数量不是库存',template)
+        self.assertIn("'本页 '+data.rows.length+' 条",template)
+        renderer=(root/'component_filters.py').read_text(encoding='utf-8')
+        self.assertNotIn('点击型号查看匹配，价格沿用原有账号、客户和成本时间权限。',renderer)
+
     def setUp(self):
         self.fixture=fixtures.CatalogFilterTests()
         self.fixture.setUp()

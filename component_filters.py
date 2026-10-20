@@ -414,4 +414,3 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match, results_
     request=(results_renderer or render_table)(payload,key=PREFIX+'result_table')
     if handle_request(st.session_state,payload,request,on_match):
         st.rerun()
-    st.caption('点击型号查看匹配，价格沿用原有账号、客户和成本时间权限。')
