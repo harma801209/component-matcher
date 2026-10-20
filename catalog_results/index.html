@@ -20,11 +20,13 @@ body{color:#333e43;font-family:Arial,"Microsoft YaHei",sans-serif}
 #root .scroll td{height:46px;padding:6px 9px}
 #root .scroll .sort-button{min-height:32px}
 #root .scroll .model button{min-height:30px}
+#root .scroll .model{width:auto}
+#root .scroll table{min-width:0}
 @media(max-width:650px){#root .scroll th{height:48px;padding:7px 8px}#root .scroll td{height:46px;padding:5px 8px}#root .scroll .model button{min-height:34px}}
 </style>
 <script>
 (()=>{'use strict';
-let data=null,visible=new Set(),picked=new Set(),eventNumber=0,lastHeight=0,lastWidth=window.innerWidth;
+let data=null,visible=new Set(),picked=new Set(),widths=new Map(),eventNumber=0,lastHeight=0,lastWidth=window.innerWidth;
 const root=document.getElementById('root'),dialog=document.getElementById('comparison');
 const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
 function height(){const h=Math.min(1100,Math.ceil(root.getBoundingClientRect().height)+3);if(h!==lastHeight){lastHeight=h;send('streamlit:setFrameHeight',{height:h});}}
@@ -33,14 +35,25 @@ function button(text,fn,cls){const b=node('button',text,cls);b.type='button';b.a
 function request(action,extra){root.classList.add('busy');send('streamlit:setComponentValue',{value:{action,view:data.view,event:Date.now()+'-'+(++eventNumber),...extra},dataType:'json'});}
 const count=n=>Number(n).toLocaleString('en-US');
 function shown(){return data.columns.filter(c=>visible.has(c.key));}
-function tableWidth(){return (window.innerWidth<650?34:42)+shown().reduce((n,c)=>n+(c.key==='型号'?(window.innerWidth<650?158:205):c.key==='品牌'?145:/条件|动态|用途|温度/.test(c.label)?175:126),0);}
-function updateColumns(){root.querySelectorAll('[data-column]').forEach(n=>{n.hidden=!visible.has(n.dataset.column);});root.querySelector('.scroll table').style.minWidth=tableWidth()+'px';height();}
+function measureColumns(){
+ const mobile=window.innerWidth<650,size=mobile?12:13,family=getComputedStyle(document.body).fontFamily,ctx=document.createElement('canvas').getContext('2d');
+ const measure=(value,weight)=>{const lines=String(value??'未提供').split(/\r?\n/);if(ctx)ctx.font=weight+' '+size+'px '+family;return Math.max(0,...lines.map(line=>ctx?ctx.measureText(line).width:Array.from(line).reduce((n,ch)=>n+(ch.charCodeAt(0)>255?size:size*.6),0)));};
+ widths=new Map(data.columns.map(c=>{
+  const cap=c.key==='型号'?(mobile?188:300):c.key==='品牌'?(mobile?140:190):(mobile?190:260);
+  const minimum=c.key==='型号'?96:54,badge=['_size','封装代码','极性','生产状态'].includes(c.key)?14:0;
+  const content=Math.max(0,...data.rows.map(row=>measure(row[c.key]||'未提供',c.key==='型号'?500:400)))+badge;
+  return [c.key,Math.ceil(Math.min(cap,Math.max(minimum,measure(c.label,600)+22,content+22)))];
+ }));
+}
+function tableWidth(){return (window.innerWidth<650?34:42)+shown().reduce((n,c)=>n+widths.get(c.key),0);}
+function fitTable(){const total=tableWidth(),scroll=root.querySelector('.scroll'),table=scroll.querySelector('table');table.style.width=total+'px';table.style.minWidth=total+'px';scroll.style.width=(total+2)+'px';}
+function updateColumns(){root.querySelectorAll('[data-column]').forEach(n=>{n.hidden=!visible.has(n.dataset.column);});fitTable();height();}
 function updateSelection(){root.querySelectorAll('tbody .pick input').forEach(n=>{n.checked=picked.has(n.dataset.rowId);n.disabled=picked.size>=4&&!n.checked;n.closest('tr').classList.toggle('selected',n.checked);});const b=root.querySelector('.compare-trigger');b.textContent='对比已选（'+picked.size+'/4）';b.disabled=picked.size<2;}
 function openModel(row){request('match',{id:row.id});}
 function csv(){const cols=shown();const esc=x=>{let s=String(x??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};const lines=[cols.map(c=>esc(c.label)).join(','),...data.rows.map(r=>cols.map(c=>esc(r[c.key])).join(','))];const url=URL.createObjectURL(new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=node('a');a.href=url;a.download='器件筛选_'+data.kind+'_第'+data.page+'页.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function compare(){const rows=data.rows.filter(r=>picked.has(r.id));const t=node('table',undefined,'compare-table');const head=node('tr');head.append(node('th','参数'));rows.forEach(r=>head.append(node('th',r['型号'])));const thead=node('thead');thead.append(head);t.append(thead);const body=node('tbody');data.columns.filter(c=>c.key!=='型号').forEach(c=>{const tr=node('tr');tr.append(node('th',c.label));rows.forEach(r=>{const td=node('td',r[c.key]||'未提供');if(!r[c.key]||r[c.key]==='未提供')td.className='unknown';tr.append(td);});body.append(tr);});t.append(body);document.getElementById('comparison-content').replaceChildren(t);dialog.showModal();}
 function render(){
-root.classList.remove('busy');root.replaceChildren();
+root.classList.remove('busy');root.replaceChildren();measureColumns();
 const conditions=node('div',undefined,'conditions');conditions.append(node('strong','已选条件：'),document.createTextNode(data.condition));root.append(conditions);
 const toolbar=node('div',undefined,'toolbar'),heading=node('div',undefined,'heading');heading.append(node('h2','检索结果'));const amount=node('div',undefined,'count');amount.append(document.createTextNode('找到 '),node('b',count(data.total)),document.createTextNode(' 个库内型号'));heading.append(amount);toolbar.append(heading);
 const tools=node('div',undefined,'tools'),columns=node('details',undefined,'columns');columns.append(node('summary','显示列'));const menu=node('div',undefined,'column-menu');data.columns.forEach(c=>{const label=node('label'),input=node('input');input.type='checkbox';input.checked=visible.has(c.key);input.disabled=['型号','品牌'].includes(c.key);input.setAttribute('aria-label','显示列 '+c.label);input.addEventListener('change',()=>{if(input.checked)visible.add(c.key);else visible.delete(c.key);updateColumns();});label.append(input,document.createTextNode(c.label));menu.append(label);});columns.append(menu);columns.addEventListener('toggle',height);toolbar.insertBefore(columns,heading);
@@ -48,10 +61,10 @@ const compareButton=button('对比已选（'+picked.size+'/4）',compare,'compar
 const strip=node('div',undefined,'strip');strip.append(node('span','勾选本页 2–4 个型号对比；点击型号可查看匹配。'));
 const pager=node('div',undefined,'page-controls');const size=node('select');size.setAttribute('aria-label','每页型号数');[20,50,100].forEach(n=>{const op=node('option',n+' 条／页');op.value=n;op.selected=n===data.size;size.append(op);});size.addEventListener('change',()=>request('size',{size:Number(size.value)}));pager.append(size,node('span',data.page+' / '+data.pages+' 页'));const prev=button('上一页',()=>request('page',{page:data.page-1})),next=button('下一页',()=>request('page',{page:data.page+1}));prev.disabled=data.page===1;next.disabled=data.page===data.pages;pager.append(prev,next);toolbar.insertBefore(pager,tools);root.append(strip);
 const scroll=node('div',undefined,'scroll');scroll.tabIndex=0;scroll.setAttribute('aria-label','规格表，可横向滚动');const table=node('table');table.setAttribute('aria-label',data.kind+' 产品规格表');
-const cols=data.columns,colgroup=node('colgroup');const cp=node('col');cp.style.width=window.innerWidth<650?'34px':'42px';colgroup.append(cp);cols.forEach(c=>{const co=node('col');co.dataset.column=c.key;co.hidden=!visible.has(c.key);co.style.width=c.key==='型号'?(window.innerWidth<650?'158px':'205px'):c.key==='品牌'?'145px':/条件|动态|用途|温度/.test(c.label)?'175px':'126px';colgroup.append(co);});table.append(colgroup);table.style.minWidth=tableWidth()+'px';
+const cols=data.columns,colgroup=node('colgroup');const cp=node('col');cp.style.width=window.innerWidth<650?'34px':'42px';colgroup.append(cp);cols.forEach(c=>{const co=node('col');co.dataset.column=c.key;co.hidden=!visible.has(c.key);co.style.width=widths.get(c.key)+'px';colgroup.append(co);});table.append(colgroup);
 const thead=node('thead'),hr=node('tr');const selectHead=node('th',undefined,'pick pick-head');selectHead.scope='col';selectHead.append(node('span','对比','sr-only'));hr.append(selectHead);cols.forEach(c=>{const th=node('th',undefined,c.key==='型号'?'model model-head':undefined);th.dataset.column=c.key;th.hidden=!visible.has(c.key);th.scope='col';const sort=button(c.label,()=>request('sort',{column:c.key,desc:data.sort===c.key?!data.desc:false}),'sort-button');sort.title='按'+c.label+'排序（所有筛选结果）';if(data.sort===c.key){th.setAttribute('aria-sort',data.desc?'descending':'ascending');sort.append(node('span',data.desc?'降序':'升序','sort-label'));}th.append(sort);hr.append(th);});thead.append(hr);table.append(thead);
 const body=node('tbody');data.rows.forEach(row=>{const tr=node('tr');if(picked.has(row.id))tr.className='selected';const tdPick=node('td',undefined,'pick');const box=node('input');box.type='checkbox';box.dataset.rowId=row.id;box.checked=picked.has(row.id);box.disabled=picked.size>=4&&!box.checked;box.setAttribute('aria-label','对比 '+row['型号']);box.addEventListener('change',()=>{if(box.checked)picked.add(row.id);else picked.delete(row.id);updateSelection();});tdPick.append(box);tr.append(tdPick);
-cols.forEach(c=>{const td=node('td',undefined,c.key==='型号'?'model':undefined);td.dataset.column=c.key;td.hidden=!visible.has(c.key);const value=row[c.key]||'未提供';if(c.key==='型号'){td.append(button(value,()=>openModel(row)));}else if(value==='未提供'){td.textContent=value;td.className='unknown';}else if(['_size','封装代码','极性','生产状态'].includes(c.key)){td.append(node('span',value,'badge'));}else td.textContent=value;td.title=value;tr.append(td);});body.append(tr);});table.append(body);scroll.append(table);root.append(scroll);
+cols.forEach(c=>{const td=node('td',undefined,c.key==='型号'?'model':undefined);td.dataset.column=c.key;td.hidden=!visible.has(c.key);const value=row[c.key]||'未提供';if(c.key==='型号'){td.append(button(value,()=>openModel(row)));}else if(value==='未提供'){td.textContent=value;td.className='unknown';}else if(['_size','封装代码','极性','生产状态'].includes(c.key)){td.append(node('span',value,'badge'));}else td.textContent=value;td.title=value;tr.append(td);});body.append(tr);});table.append(body);scroll.append(table);root.append(scroll);fitTable();
 const footer=node('div',undefined,'footer');footer.append(node('span','本页 '+data.rows.length+' 条 · 第 '+count((data.page-1)*data.size+1)+'–'+count(Math.min(data.page*data.size,data.total))+' 条／共 '+count(data.total)+' 条'));root.append(footer);height();
 }
 window.addEventListener('message',event=>{if(event.source!==window.parent||event.data?.type!=='streamlit:render')return;const next=event.data.args?.payload;if(!next?.view||!Array.isArray(next.rows))return;const changed=data?.view!==next.view,newKind=data?.kind!==next.kind;data=next;if(changed){if(newKind)visible=new Set(data.columns.filter(c=>c.visible).map(c=>c.key));picked.clear();if(dialog.open)dialog.close();}render();});

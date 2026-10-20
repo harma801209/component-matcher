@@ -6,6 +6,16 @@ from tests import test_component_filters as fixtures
 
 
 class SpecificationTableTests(unittest.TestCase):
+    def test_column_widths_measure_page_content_instead_of_fixed_column_buckets(self):
+        from pathlib import Path
+        template=(Path(__file__).resolve().parents[1]/'catalog_results/index.html').read_text(encoding='utf-8')
+        self.assertIn('function measureColumns()',template)
+        self.assertIn('ctx.measureText(line).width',template)
+        self.assertIn("co.style.width=widths.get(c.key)+'px'",template)
+        self.assertIn('root.replaceChildren();measureColumns()',template)
+        self.assertNotIn("c.key==='品牌'?145",template)
+        self.assertIn('fitTable();height()',template)
+
     def test_result_template_has_compact_rows_without_repeated_model_caption(self):
         from pathlib import Path
         template=(Path(__file__).resolve().parents[1]/'catalog_results/index.html').read_text(encoding='utf-8')
