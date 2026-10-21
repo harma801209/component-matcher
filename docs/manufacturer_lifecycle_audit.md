@@ -158,3 +158,22 @@ Panasonic helper; the mock now checks helper-before-parent ordering as well.
 It was not skipped, and a separate regression covers an actually cached old
 parent module lacking the new helper attribute. Formal acceptance follows
 publication and is not implied by this gate alone.
+
+## Standalone lifecycle facet repair — 2026-10-21
+
+Formal acceptance caught a real rendering defect: selecting NRND without brand
+left all 564,114 thick-film rows visible, although the condition chip was set.
+The fast-path condition detector and sort allowlist used only the base profile;
+lifecycle is installed later by `available_profile`. Brand + status happened to
+work because brand disabled that fast path, masking the issue in earlier checks.
+
+The lifecycle field now participates in both decisions. No query semantics,
+other filters, prices or permissions change. An actual Streamlit regression
+reproduces 6 rows instead of 1 before the fix, then tests status-only NRND,
+mass-production and unconfirmed selection, state sorting and clearing all.
+This repair must pass its own complete safety gate before roll-forward release.
+
+The final gate passes 376 tests in 415.420 seconds, with isolated stores and
+unchanged protected-runtime fingerprints. Formal re-verification is required
+after publishing this roll-forward, including a status-only NRND filter and
+state-column sort, not just brand + status.

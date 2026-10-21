@@ -846,6 +846,27 @@ class PassiveParameterCompletionTests(unittest.TestCase):
 
 
 class CatalogFilterUITests(unittest.TestCase):
+    def test_lifecycle_only_filter_and_sort_use_runtime_metadata_field(self):
+        import json
+        source=self.SOURCE.replace('fixture.setUp()', '''fixture.setUp()
+fixture.conn.execute("CREATE TEMP VIEW catalog_lifecycle_source AS SELECT r.*,CASE WHEN 型号='R1' THEN 'NRND（不推荐新设计）' WHEN 型号='R2' THEN '量产' ELSE NULL END AS 生产状态 FROM components_search_resistor r")''')
+        at=self.app(source=source)
+        self.action(at,'kind',kind='厚膜电阻')
+        self.assertEqual(json.loads(at.json[0].value)['total'],6)
+        for choice,expected,models in [('NRND（不推荐新设计）',1,['R1']),('量产',1,['R2']),(MISSING,4,None)]:
+            panel=self.action(at,'choice',field='生产状态',value=choice,checked=True)
+            result=json.loads(at.json[0].value)
+            self.assertEqual(result['total'],expected)
+            self.assertEqual(panel['total'],expected)
+            if models:self.assertEqual([row['型号'] for row in result['rows']],models)
+            at.session_state['fixture_action']=dict(action='sort',view=result['view'],event='state-sort-'+choice,column='生产状态',desc=False)
+            at.run()
+            self.assertFalse(at.exception)
+            self.assertEqual(at.session_state[PREFIX+'sort'],'生产状态')
+            self.assertEqual(json.loads(at.json[0].value)['total'],expected)
+            self.action(at,'clear_all')
+            self.assertEqual(json.loads(at.json[0].value)['total'],6)
+
     SOURCE = '''
 import streamlit as st
 from component_filters import render, snapshot, category_counts

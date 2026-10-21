@@ -443,14 +443,17 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match, results_
     st.session_state.pop(PREFIX+'keyword_mode',None)
     keyword, keyword_mode = '', 'contains'
     if kind is not None:
-        allowed_sort = {'品牌','型号'} | {field.key for field in profile(kind)[1]}
+        # Lifecycle is added by available_profile after the base profile. It
+        # must still disable the unfiltered fast path and allow valid sorting.
+        interactive_fields = [*profile(kind)[1], column('生产状态','原厂生产状态')]
+        allowed_sort = {'品牌','型号'} | {field.key for field in interactive_fields}
         if st.session_state.get(PREFIX+'sort') not in allowed_sort:
             st.session_state.pop(PREFIX+'sort',None)
             st.session_state.pop(PREFIX+'desc',None)
         # Initial entry needs only one scan. Reuse its facets as the full
         # option universe rather than querying the same large kind twice.
         has_conditions = bool(keyword) or any(st.session_state.get(PREFIX+field.key+suffix)
-            for field in profile(kind)[1] for suffix in (('_low','_high') if field.units else ('',)))
+            for field in interactive_fields for suffix in (('_low','_high') if field.units else ('',)))
         if has_conditions:
             baseline = get_snapshot(kind, {}, {}, '', 1, 20, False, '', False)
         else:
