@@ -375,6 +375,44 @@ class CatalogFilterTests(unittest.TestCase):
             load('warm','MOSFET')
             self.assertEqual(len(extracted),2)
 
+    def test_direct_filter_cold_entry_prepares_only_query_index_before_opening(self):
+        import ast,os,tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        source=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(source.read_text(encoding='utf-8'))
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='cached_catalog_categories')
+        function.decorator_list=[]
+        with tempfile.TemporaryDirectory() as folder:
+            index=Path(folder)/'query.sqlite'
+            called=[]
+            connection=SimpleNamespace(close=lambda:called.append('close'))
+            def restore(**kwargs):
+                called.append(('restore',kwargs['required_paths']))
+                index.write_bytes(b'isolated public index fixture')
+                return True
+            def opened(**kwargs):
+                called.append('open')
+                return connection if index.is_file() else None
+            def counts(conn):
+                self.assertIs(conn,connection)
+                called.append('counts')
+                return [('MLCC',3)]
+            namespace=dict(os=os,SEARCH_DB_PATH=str(index),ensure_streamlit_cloud_data_bundle=restore,
+                           open_search_db_connection=opened,_catalog_filters=SimpleNamespace(category_counts=counts))
+            exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
+            self.assertEqual(namespace['cached_catalog_categories']('cold'),[('MLCC',3)])
+            self.assertEqual(called,[('restore',[str(index)]),'open','counts','close'])
+            called.clear()
+            self.assertEqual(namespace['cached_catalog_categories']('warm'),[('MLCC',3)])
+            self.assertEqual(called,['open','counts','close'])
+            index.unlink()
+            called.clear()
+            namespace['ensure_streamlit_cloud_data_bundle']=lambda **kwargs:called.append(('unavailable',kwargs['required_paths'])) or False
+            with self.assertRaisesRegex(ValueError,'筛选索引暂不可用'):namespace['cached_catalog_categories']('unavailable')
+            self.assertEqual(called,[('unavailable',[str(index)]),'open'])
+            self.assertFalse(index.exists())
+
     def test_catalogue_brand_decoder_rejects_wrong_brand_type_and_unverified_rules(self):
         import ast
         from pathlib import Path

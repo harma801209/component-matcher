@@ -335,7 +335,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-20T23:02:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-21T00:01:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49642,6 +49642,11 @@ def catalog_filter_data_signature():
 
 @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def cached_catalog_categories(data_signature):
+    if not os.path.isfile(SEARCH_DB_PATH):
+        # A fresh public worker may be opened directly in filter mode, before
+        # ordinary search has prepared its index. Restore only that published
+        # query asset; never rebuild the library or restore member/cost stores.
+        ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     conn = open_search_db_connection(timeout_sec=10)
     if conn is None:
         raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")

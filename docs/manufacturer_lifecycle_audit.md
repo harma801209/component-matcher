@@ -97,3 +97,22 @@ docs/manufacturer_lifecycle_coverage.json`, update both release stamps, pass the
 safety gate and verify the formal page. Exact public sources:
 [chip resistors](https://product.samsungsem.com/cn/cr/basic-search.do),
 [power inductors](https://product.samsungsem.com/cn/pi/basic-search.do).
+
+## Cold filter entry repair — 2026-10-21
+
+Formal verification exposed a pre-existing cold-entry gap: category browsing
+opened the search index without first preparing it. On a fresh public worker,
+ordinary text search prepared the published query asset, but opening filters
+first showed the generic unavailable warning. Running an ordinary search then
+opening filters reproduced the distinction without any runtime-store changes.
+
+The categories loader now prepares only `SEARCH_DB_PATH` when missing, through
+the existing scoped public-bundle restoration routine, before opening it. It
+does not rebuild the component library, fetch the full prepared asset, restore
+member/cost stores, or need a preceding user search. Isolated cold/warm/failed-
+restoration tests verify call order, path scope, connection closing and failure
+without creating an empty SQLite file. The source index itself remains unchanged.
+
+The exact-source release gate passes 370 tests (499.729 seconds), using isolated
+test stores with unchanged protected-runtime fingerprints. Formal browser
+acceptance follows publication; that gate alone is not a claim of UI acceptance.
