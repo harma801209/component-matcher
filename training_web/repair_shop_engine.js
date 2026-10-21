@@ -4,6 +4,7 @@
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
  const clone=x=>JSON.parse(JSON.stringify(x)),int=(x,max=10000000)=>Number.isSafeInteger(x)&&x>=0&&x<=max;
  const KEY='fruition.repair-shop.v1';
+ const productName=name=>name==='USB阅读台灯'?'USB小夜灯':name;
  function offer(seed){
   if(!int(seed,4294967295))throw new RangeError('Invalid job seed');
   const x=(Math.imul(seed,1664525)+1013904223)>>>0,product=D.products[x%D.products.length],fault=product.faults[Math.floor(x/D.products.length)%product.faults.length];
@@ -104,12 +105,12 @@
     a.tested=true;ok=true;message='功能测试、供电检查及负载复测全部通过：'+job.product.behavior;
    }else if(event.type==='deliver'){
     if(!a.tested||!a.installed)return fail('先完成维修并通过功能与负载复测。');
-    const points=Math.max(35,100-a.mistakes*8-(a.hinted?10:0));
+    const points=Math.max(35,100-a.mistakes*8);
     s.coins+=job.fee;s.points+=points;s.completed+=1;a.delivered=true;a.power=false;
     s.history.unshift({id:job.id,product:job.product.name,component:job.fault.component,points,fee:job.fee});s.history=s.history.slice(0,30);
     ok=true;message='交付成功！+'+job.fee+' 金币 · +'+points+' 学习积分。';
    }else if(event.type==='hint'){
-    a.hinted=true;ok=true;message='诊断提示：先确认供电有没有到达负载，再用断电隔离检测区分开路、参数超差或短路。电源正常却运行异常时，观察波形；必要时对照手册检查ESR、驱动或时钟。提示使本单学习积分减少10。';
+    a.hinted=true;ok=true;message='师傅提示已展开，不扣积分。先看排查思路，需要时再展开本单的详细定位与维修讲解。';
    }else return fail('无效操作。');
    if(record&&a.events.length<300)a.events.push(clone(event));
   }
@@ -122,7 +123,7 @@
   if(!raw||raw.version!==1||!int(raw.coins)||!int(raw.points)||!int(raw.completed,100000)||!int(raw.revision)||!Array.isArray(raw.owned))return base;
   base.coins=raw.coins;base.points=raw.points;base.completed=raw.completed;base.revision=raw.revision;
   base.owned=D.rewards.filter(r=>raw.owned.includes(r.id)).map(r=>r.id);base.theme=base.owned.includes('mint')?'mint':'sand';
-  if(Array.isArray(raw.history))base.history=raw.history.slice(0,30).filter(h=>h&&typeof h.id==='string'&&h.id.length<24&&D.products.some(p=>p.name===h.product)&&int(h.points,100)&&int(h.fee,200)&&typeof h.component==='string'&&h.component.length<4).map(h=>({id:h.id,product:h.product,component:h.component,points:h.points,fee:h.fee}));
+  if(Array.isArray(raw.history))base.history=raw.history.slice(0,30).filter(h=>h&&typeof h.id==='string'&&h.id.length<24&&D.products.some(p=>p.name===productName(h.product))&&int(h.points,100)&&int(h.fee,200)&&typeof h.component==='string'&&h.component.length<4).map(h=>({id:h.id,product:productName(h.product),component:h.component,points:h.points,fee:h.fee}));
   const a=raw.active;
   if(a&&int(a.seed,4294967295)&&Array.isArray(a.events)&&a.events.length<=300){
    // Rebuild progress from permitted actions rather than trusting completion flags.

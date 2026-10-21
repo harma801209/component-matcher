@@ -33,6 +33,7 @@ for(let seed=1;seed<400;seed++){
  a(!act(copy,'accept',{seed}).ok);a.equal(act(copy,'accept',{seed}).state.completed,1);
 }
 a.equal(seen.size,18);a.equal(D.products.length,6);
+const lamp=D.products.find(p=>p.id==='lamp');a.equal(lamp.parts.find(p=>p.id==='D1').name,'红光LED');a.equal(lamp.normal[2],2);
 ''')
 
     def test_cannot_skip_diagnosis_safety_or_verification(self):
@@ -64,6 +65,7 @@ for(let seed=0;seed<80;seed++){const j=E.offer(seed);let s=act(E.create(),'accep
 let s=act(E.create(),'accept',{seed:15}).state;s.active.tested=true;s.active.diagnosed=true;s.active.installed='part-0';s.active.delivered=true;const restored=E.restore(s);a(!restored.active.diagnosed);a(!restored.active.installed);a(!restored.active.delivered);a.equal(restored.coins,150);
 for(const bad of [null,[],{},NaN,{version:1,coins:-1,points:0,completed:0,revision:0,owned:[]}])a.deepEqual(E.restore(bad),E.create());
 const {s:valid}=solve(31);const copy=E.restore(JSON.parse(JSON.stringify(valid)));a(copy.active.tested);a.equal(copy.coins,valid.coins);a.equal(copy.active.measurements.length,valid.active.measurements.length);a(!act(copy,'install',{stockId:copy.active.installed}).ok);
+const legacy={...E.create(),history:[{id:'R-OLD',product:'USB阅读台灯',component:'R1',points:100,fee:95}]};a.equal(E.restore(legacy).history[0].product,'USB小夜灯');
 const malicious=JSON.parse('{"__proto__":{"polluted":true},"version":1,"coins":150,"points":0,"completed":0,"revision":0,"owned":["__proto__"],"active":{"seed":1,"events":[{"type":"redeem","id":"mint"}]}}');a(!E.restore(malicious).active);a.equal({}.polluted,undefined);
 ''')
 

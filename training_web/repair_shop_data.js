@@ -10,7 +10,7 @@
  const D=(id,name='肖特基二极管',extra={})=>part(id,name,'diode',1,'SOD-123',{voltage:30,pin:'A/K按图',polar:true,price:20,...extra});
  function fault(component,reason,symptom,bad,volts,wave,why){return {component,reason,symptom,bad,volts,wave,why};}
  const products=[
-  {id:'lamp',name:'USB阅读台灯',customer:'林同学',story:'每天晚自习都靠它，想在今晚之前修好。',tag:'光与电流',voltage:5,flow:'5V → F1 → R1 → D1 → GND',behavior:'灯光稳定亮起，无明显闪烁。',parts:[F(),R('R1',220),D('D1','白光LED',{value:1,voltage:5,pkg:'直插 Φ5',pin:'长脚A / 短脚K',led:true,price:16})],normal:[5,5,2.0],faults:[
+  {id:'lamp',name:'USB小夜灯',customer:'林同学',story:'它平时放在床头，不想因为一个小故障就换掉。',tag:'光与电流',voltage:5,flow:'5V → F1 → R1 → D1 → GND',behavior:'灯光稳定亮起，无明显闪烁。',parts:[F(),R('R1',220),D('D1','红光LED',{value:1,voltage:5,pkg:'直插 Φ5',pin:'长脚A / 短脚K',led:true,price:16})],normal:[5,5,2.0],faults:[
    fault('R1','open','插上电源后完全不亮。','OL · 超出量程',[5,5,0],'输出为0，无工作电流。','F1之后仍有5V，但电阻隔离检测为OL，说明供电没有在保险丝处中断；R1开路使LED支路无法形成回路。'),
    fault('R1','drift','能亮，但亮度明显低于以前。','2.20 kΩ',[5,5,2.0],'约1.36mA；正常约13.6mA。','本例LED压降约2V。R1从220Ω变成2.2kΩ，支路电流由(5−2)/220≈13.6mA降到约1.36mA，不能靠加大电源电压补救。'),
    fault('D1','open','开关打开了，灯还是不亮。','正向 OL / 反向 OL',[5,5,5],'电流为0；LED两端约5V。','供电与限流电阻都正常，LED节点却上升到5V；断电隔离后二极管档双向OL，支持LED开路，而不是阻值过大。')
@@ -47,7 +47,7 @@
   case 'ceramic':return `${p.value} µF · ${p.voltage} V · X7R · ±${p.tolerance}% · ${p.pkg}`;
   case 'fuse':return `${p.value} A · ${p.voltage} V · ${p.curve} · ${p.pkg}`;
   case 'mos':return `N沟道 · ${p.voltage} V · RDS(on)在${p.drive}V下保证 · ${p.pkg} · ${p.pin}`;
-  case 'diode':return `${p.led?'白光LED':'肖特基 / 1 A / 30 V'} · ${p.pkg} · ${p.pin}`;
+  case 'diode':return `${p.led?'红光LED':'肖特基 / 1 A / 30 V'} · ${p.pkg} · ${p.pin}`;
   case 'ldo':return `${p.value} V输出 · ≥${p.current} A · ${p.pkg} · ${p.pin} · 指定稳定性兼容`;
   case 'inductor':return `${p.value} µH · Irms≥${p.current} A · Isat≥${p.isat} A · DCR≤${p.dcr} Ω · ${p.pkg}`;
   case 'crystal':return `${p.value/1000} kHz · CL ${p.cl} pF · ESR≤${p.esr/1000} kΩ · ${p.pkg}`;

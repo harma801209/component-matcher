@@ -43,6 +43,8 @@ with sync_playwright() as p:
 
         page.goto(URL, wait_until='domcontentloaded', timeout=120000)
         frame = find_frame()
+        assert frame.evaluate("RepairShopData.products.find(p=>p.id==='lamp').parts.find(p=>p.id==='D1').name") == '红光LED'
+        report['teaching_led']='红光LED / 2V scenario'
         activate(frame.get_by_role('button', name='电子维修店', exact=True))
         shop = frame.locator('#repair-shop')
         assert shop.is_visible()
