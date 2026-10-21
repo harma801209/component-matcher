@@ -58,6 +58,7 @@ with sync_playwright() as p:
         assert frame.locator('#repair-diagnosis').input_value() == ''
         assert not frame.evaluate('RepairShop.snapshot().active.power')
         activate(shop.get_by_role('button', name=culprit+' '+next(part['name'] for part in job['product']['parts'] if part['id']==culprit), exact=True))
+        assert frame.locator('#repair-diagnosis').input_value() == '', 'Probe choice must not answer the diagnosis'
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         assert '电压测量需要' in frame.locator('#repair-status').inner_text()
         activate(shop.get_by_role('button', name='开启模拟电源', exact=True))
@@ -68,6 +69,8 @@ with sync_playwright() as p:
         activate(shop.get_by_role('button', name='隔离元件检测', exact=True))
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         assert job['fault']['bad'] in frame.locator('#repair-meter').inner_text()
+        assert frame.locator('#repair-diagnosis').input_value() == ''
+        frame.locator('#repair-diagnosis').select_option(culprit)
         frame.locator('#repair-reason').select_option(job['fault']['reason'])
         activate(shop.get_by_role('button', name='提交诊断', exact=True))
         assert frame.evaluate('RepairShop.snapshot().active.diagnosed')
@@ -92,6 +95,8 @@ with sync_playwright() as p:
         assert '先通电' in frame.locator('#repair-status').inner_text()
         activate(shop.get_by_role('button', name='开启模拟电源', exact=True))
         activate(shop.get_by_role('button', name='运行功能与负载测试', exact=True))
+        assert frame.locator('#repair-verification .rs-verification-row').count() == 5
+        assert '维修前后对照' in frame.locator('#repair-verification').inner_text()
         activate(shop.get_by_role('button', name='交付并领取报酬', exact=True))
         done = frame.evaluate('RepairShop.snapshot()')
         assert done['completed'] == 1 and done['points'] == 100 and done['active']['delivered']

@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopCoach!=='undefined'"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopEvidence!=='undefined'"):
                             return f
                     except Exception:
                         pass
@@ -47,6 +47,14 @@ with sync_playwright() as p:
             widths=frame.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
             assert widths['scroll']<=widths['client']+1,widths
 
+        def capture(panel,name):
+            if args.public:
+                frame.wait_for_function('!window.frameElement || parseFloat(window.frameElement.style.height)>=document.querySelector("#training-app").getBoundingClientRect().height',timeout=15000)
+                panel.scroll_into_view_if_needed()
+                page.screenshot(path=str(OUT/(tag+name)))
+            else:
+                panel.screenshot(path=str(OUT/(tag+name)))
+
         page.goto(url,wait_until='domcontentloaded',timeout=120000)
         frame=frame_now()
         activate(frame.get_by_role('button',name='电子维修店',exact=True))
@@ -55,6 +63,8 @@ with sync_playwright() as p:
         assert frame.locator('#repair-coach').is_visible()
         assert frame.locator('#repair-diagnosis').input_value()==''
         assert frame.locator('#repair-reason').input_value()==''
+        assert frame.locator('.rs-probe-picker [data-evidence="unknown"]').count()==3
+        assert frame.locator('#repair-verification').count()==0
         before=snapshot()
         activate(frame.get_by_role('button',name='师傅提示',exact=True))
         hint=frame.locator('#repair-case-hints')
@@ -69,8 +79,8 @@ with sync_playwright() as p:
         assert hint.locator('.rs-hint-detail article').count()==4
         page.set_viewport_size({'width':393,'height':960})
         contains_page()
-        frame.locator('#repair-coach').screenshot(path=str(OUT/(tag+'-phone-instruction.png')))
-        hint.screenshot(path=str(OUT/(tag+'-phone-hints.png')))
+        capture(frame.locator('#repair-coach'),'-phone-instruction.png')
+        capture(hint.get_by_role('heading',name='师傅提示 · 当前工单的维修思路'),'-phone-hints.png')
         before_return=snapshot()
         activate(hint.get_by_role('button',name='回到维修操作',exact=True))
         assert snapshot()==before_return,'Returning from hints must not execute a repair'
@@ -80,6 +90,9 @@ with sync_playwright() as p:
         traversed=[]
         resumed=False
         checked_stock=False
+        chose_diagnosis=False
+        evidence_seen=False
+        comparison_seen=False
         for number in range(80):
             guide=frame.locator('#repair-coach')
             step=guide.get_attribute('data-step')
@@ -89,6 +102,18 @@ with sync_playwright() as p:
             assert guide.locator('h3').inner_text()
             if step=='complete':
                 break
+            if not chose_diagnosis:
+                assert frame.locator('#repair-diagnosis').input_value()==''
+            if step=='deliver':
+                report=frame.locator('#repair-verification')
+                assert report.locator('.rs-verification-row').count()==5
+                assert '验收时实测' in report.inner_text()
+                assert frame.locator('.rs-probe-picker [data-evidence="repaired"]').count()==1
+                page.set_viewport_size({'width':393,'height':960})
+                contains_page()
+                capture(report,'-phone-comparison.png')
+                page.set_viewport_size({'width':1440,'height':1080})
+                comparison_seen=True
             if step.startswith('diagnosis-') and not resumed:
                 saved=snapshot()
                 page.reload(wait_until='domcontentloaded',timeout=120000)
@@ -97,6 +122,7 @@ with sync_playwright() as p:
                 assert snapshot()['active']['seed']==saved['active']['seed']
                 assert snapshot()['coins']==saved['coins']
                 resumed=True
+                chose_diagnosis=False
                 continue
             state_before=snapshot()
             activate(guide.get_by_role('button',name='带我找到这一步',exact=True))
@@ -110,6 +136,7 @@ with sync_playwright() as p:
                 if step=='diagnosis-id':
                     code=re.search(r'选择 ([A-Z]\d)',instruction).group(1)
                     label=next(label for label in options if label.startswith(code+' '))
+                    chose_diagnosis=True
                 elif step=='diagnosis-reason':
                     label=next(label for label in options if '“'+label+'”' in instruction)
                 else:
@@ -124,6 +151,10 @@ with sync_playwright() as p:
                 activate(frame.get_by_role('button',name=re.compile('^原规格备件')))
             else:
                 activate(frame.locator('[data-repair-focus="'+target+'"]'))
+                if target=='measure':
+                    assert frame.locator('#repair-meter-feedback').is_visible()
+                    assert frame.locator('.rs-notebook [data-reading-phase="before"]').count()>0
+                    evidence_seen=True
             contains_page()
             if number==8:
                 frame.locator('#repair-coach-mini').screenshot(path=str(OUT/(tag+'-phone-tools-guide.png')))
@@ -134,9 +165,10 @@ with sync_playwright() as p:
         assert done['completed']==1 and done['points']==100,done
         assert done['active']['delivered']
         assert resumed and checked_stock
+        assert evidence_seen and comparison_seen
         frame.locator('#repair-coach').screenshot(path=str(OUT/(tag+'-complete.png')))
         assert not errors,errors
-        report={'status':'passed','public':args.public,'followed_visible_prompts':traversed,'free_hints':True,'resume':True,'no_auto_actions':True,'wrong_stock_explained':True,'phone_containment':True,'points':done['points'],'errors':errors}
+        report={'status':'passed','public':args.public,'followed_visible_prompts':traversed,'free_hints':True,'resume':True,'no_auto_actions':True,'manual_diagnosis':True,'evidence_feedback':evidence_seen,'before_after_report':comparison_seen,'wrong_stock_explained':True,'phone_containment':True,'points':done['points'],'errors':errors}
         (OUT/(tag+'-report.json')).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         print(json.dumps(report,ensure_ascii=False),flush=True)
     finally:
