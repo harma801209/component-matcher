@@ -337,7 +337,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-21T10:40:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-21T14:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -38943,28 +38943,43 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
         requested_tokens.add("高阻值")
     trigger_tokens = requested_tokens - {"无卤", "无铅"}
     tolerance = clean_tol_for_match(spec.get("容值误差", ""))
+    size = clean_size(spec.get("尺寸（inch）", ""))
+    resistance_ohm = spec.get("_resistance_ohm", None)
+    power = format_power_display(spec.get("_power", ""))
     # Precision is already explicit in a sub-1% tolerance. Do not require the
     # user to repeat it as a "高精度" keyword or alter their original spec.
     implicit_precision = False
+    implicit_high_power = False
     if not trigger_tokens:
         try:
             implicit_precision = 0.0 < float(tolerance) < 1.0
         except (TypeError, ValueError):
             pass
-    if not trigger_tokens and not implicit_precision:
+        requested_watts = parse_power_to_watts(power)
+        normal_watts = parse_power_to_watts(RESISTOR_POWER_BY_SIZE.get(size, ""))
+        # An explicit rating above ordinary FRC already asks for high power.
+        # Do not require a redundant keyword, or silently lower that rating.
+        implicit_high_power = (
+            requested_watts is not None and normal_watts is not None
+            and math.isfinite(requested_watts) and math.isfinite(normal_watts)
+            and requested_watts > normal_watts + 1e-12
+        )
+    if not trigger_tokens and not implicit_precision and not implicit_high_power:
         return pd.DataFrame()
-    size = clean_size(spec.get("尺寸（inch）", ""))
-    resistance_ohm = spec.get("_resistance_ohm", None)
-    power = format_power_display(spec.get("_power", ""))
     if size == "" or tolerance == "" or resistance_ohm is None:
         return pd.DataFrame()
 
+    inferred_series = set()
+    if implicit_precision:
+        inferred_series.update({"FRH", "FRT", "FTH"})
+    if implicit_high_power:
+        # General-purpose high/ultra-power profiles only. Automotive,
+        # anti-surge and low-TCR variants still require those requests.
+        inferred_series.update({"FRP", "FCP"})
     rows = []
     for series, profile in FOJAN_SPECIAL_RESISTOR_CATALOG.items():
-        if implicit_precision:
-            # Only existing general-purpose precision profiles are inferred;
-            # automotive/anti-sulfur and other special families stay opt-in.
-            if series not in {"FRH", "FRT", "FTH"}:
+        if inferred_series:
+            if series not in inferred_series:
                 continue
             if component_type != "贴片电阻" and profile.get("component_type") != component_type:
                 continue

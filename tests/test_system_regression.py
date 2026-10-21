@@ -3817,6 +3817,68 @@ class SystemRegressionTests(unittest.TestCase):
                     self.assertEqual(app["parse_power_to_watts"](row["功率"]), 1 / 16)
                     self.assertAlmostEqual(float(row["_resistance_ohm"]), spec["_resistance_ohm"])
 
+    def test_03_explicit_power_alone_adds_general_fojan_high_power_profiles(self):
+        app = self.app
+        cases = (
+            ("1.2Ω ±1% 500mW,1206", "FRP1206F1R20TS", "FRP", 1.2, .5),
+            ("1206_1.2R_0.5W_1%", "FRP1206F1R20TS", "FRP", 1.2, .5),
+            ("0805 10kΩ 1% 250mW", "FRP0805F1002TS", "FRP", 10000, .25),
+            ("1206 10kΩ 1% 750mW", "FCP1206F1002TS", "FCP", 10000, .75),
+        )
+        for query, expected, series, ohm, watts in cases:
+            with self.subTest(query=query):
+                spec = app["parse_resistor_spec_query"](query)
+                original = dict(spec)
+                generated = app["build_fojan_special_resistor_candidates_from_spec"](spec)
+                self.assertEqual(set(generated["型号"]), {expected})
+                self.assertEqual(set(generated["系列"]), {series})
+                self.assertEqual(spec, original)
+                self.assertNotIn("高功率", str(spec.get("特殊用途", "")))
+                resolved = app["resolve_search_query_dataframe_and_spec"](query)
+                matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+                own = matched[matched["型号"].map(app["clean_model"]).eq(expected)]
+                self.assertFalse(own.empty)
+                self.assertNotIn("FRC1206F1R20TS", set(matched["型号"]))
+                for _, row in own.iterrows():
+                    self.assertEqual(row["推荐等级"], "完全匹配")
+                    self.assertAlmostEqual(float(row["_resistance_ohm"]), ohm)
+                    self.assertEqual(app["clean_tol_for_match"](row["容值误差"]), "1")
+                    self.assertEqual(app["parse_power_to_watts"](row["功率"]), watts)
+
+    def test_03_implicit_high_power_preserves_scope_and_official_limits(self):
+        app = self.app
+        query = "1.2Ω ±1% 500mW,1206"
+        for brand, expected in (("FOJAN(富捷)", True), ("国巨YAGEO", False)):
+            resolved = app["resolve_search_query_dataframe_and_spec"](
+                query, brand_mode=app["SEARCH_BRAND_MODE_CUSTOM"], selected_brands=[brand])
+            matched = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+            models = set(matched["型号"]) if not matched.empty else set()
+            self.assertEqual("FRP1206F1R20TS" in models, expected)
+        for text in ("1206 1.2R 1% 600mW", "1206 0.12R 1% 500mW",
+                     "1206 100GΩ 1% 500mW", "1206 1.2R 0.2% 500mW",
+                     "1206 1.2R 1% 250mW", "1206 1.2R 1%"):
+            with self.subTest(query=text):
+                self.assertTrue(app["build_fojan_special_resistor_candidates_from_spec"](
+                    app["parse_resistor_spec_query"](text)).empty)
+        spec = app["parse_resistor_spec_query"](query)
+        spec["器件类型"] = "薄膜电阻"
+        self.assertTrue(app["build_fojan_special_resistor_candidates_from_spec"](spec).empty)
+        text = query + " 抗硫化"
+        spec = app["merge_query_text_hints_into_spec"](app["parse_resistor_spec_query"](text), text)
+        generated = app["build_fojan_special_resistor_candidates_from_spec"](spec)
+        self.assertNotIn("FRP1206F1R20TS", set(generated["型号"]))
+        self.assertTrue(all("抗硫化" in value for value in generated["特殊用途"]))
+
+    def test_03_implicit_high_power_is_used_by_bom_matching(self):
+        app = self.app
+        result = app["build_bom_upload_result_row"](
+            pd.DataFrame(), 0, {"型号": "", "规格": "1.2Ω ±1% 500mW,1206", "品名": "贴片电阻"},
+            {"model": "型号", "spec": "规格", "name": "品名", "quantity": None},
+            export_settings={"mode": "指定品牌", "brands": ["FOJAN(富捷)"]},
+        )
+        self.assertEqual(result.get("自有品牌"), "FOJAN(富捷)")
+        self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FRP1206F1R20TS")
+
     def test_03_implicit_precision_keeps_brand_and_resistor_subtype_constraints(self):
         app = self.app
         for component_type, expected_series in (("厚膜电阻", {"FRH"}), ("薄膜电阻", {"FRT", "FTH"})):
