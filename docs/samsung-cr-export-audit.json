@@ -1,0 +1,328 @@
+{
+  "requests": [
+    {
+      "file": "samsung-official-cr-RC0402.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC0402"
+      },
+      "checked_at": "2026-10-20T13:22:11.166280+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "5104b4c465542e8ffad114808c9e13aab17b1a77a40e005cdda7f63622b00457",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 830
+    },
+    {
+      "file": "samsung-official-cr-RC0603.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC0603"
+      },
+      "checked_at": "2026-10-20T13:22:14.555684+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "035f20de6ed3c6ce1980e3ed0149206fa8536441d915c7ef47e8e39964db78be",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC1005.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC1005"
+      },
+      "checked_at": "2026-10-20T13:22:17.667556+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "ce5c23d408d0de04410f07c6efb60bae152ecc6f90ed1bbcfe5ad43004e56136",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC1608.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC1608"
+      },
+      "checked_at": "2026-10-20T13:22:20.782198+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "ea851238a1e22cc0d7e54a3caca1a657ead4ea0c07a8524b2385357f98398962",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC2012.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC2012"
+      },
+      "checked_at": "2026-10-20T13:22:23.903981+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "f2449bf88fa180a014b8b1581cef4078be074180d4aeebd5ade9c53ad681bef6",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC3216.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC3216"
+      },
+      "checked_at": "2026-10-20T13:22:27.560541+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "cd92cf386fb0ddd18503d49363d389932870cf8233693df6eb02ce4d676d0411",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC3225.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC3225"
+      },
+      "checked_at": "2026-10-20T13:22:30.457716+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "e71a0ff8f821e485362bd8977401df2af5032879dfbe9923e37ce9a239116ffc",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RC6432.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RC6432"
+      },
+      "checked_at": "2026-10-20T13:22:33.802088+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "0e82451d537a20bdc4398d57bb507af0e286f9ef428e8d867c9a08bb7880d7c0",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RCS060.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RCS060"
+      },
+      "checked_at": "2026-10-20T13:22:37.972359+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "12c242d9c0bce0d52dc17fe75ee9258927f5fa120caa00740ca7b090f401a731",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RCS100.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RCS100"
+      },
+      "checked_at": "2026-10-20T13:22:40.901052+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "9948504d31d3e1f3a5594be045af2211ad7ded2792fb41da4d7a62e73851bde2",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RCS160.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RCS160"
+      },
+      "checked_at": "2026-10-20T13:22:46.039115+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "c5aa85a9660c41f76b328f442e90979689a77ddaf15af61715df9f906c224eed",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RCS201.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RCS201"
+      },
+      "checked_at": "2026-10-20T13:22:52.372004+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "7b9240fd6f1469e224ae65caf0b07b6c6aba11ba8eb7ee5b4b271b20b2b6b6f9",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 1768
+    },
+    {
+      "file": "samsung-official-cr-RJ1220.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RJ1220"
+      },
+      "checked_at": "2026-10-20T13:22:54.700581+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "9fca4361695abc53b1c6dceb09e90145392f0f3cae0051bf8275fd5eb99bb928",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 52
+    },
+    {
+      "file": "samsung-official-cr-RJ1632.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RJ1632"
+      },
+      "checked_at": "2026-10-20T13:22:56.602333+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "cd8f5431136e78fcb6cfb0227aca033abeb04745d39c35600a8755d1ecab7dd6",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 52
+    },
+    {
+      "file": "samsung-official-cr-RT1005.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RT1005"
+      },
+      "checked_at": "2026-10-20T13:23:00.530003+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "bd75ac1495f9ca627ab2e8ba8fc24260a7399aafccc922d2bd6b317f229c4c49",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 774
+    },
+    {
+      "file": "samsung-official-cr-RU1005.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RU1005"
+      },
+      "checked_at": "2026-10-20T13:23:02.656409+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "8f62dd51367a5b387ddf763e96c7b3f823a811546751bbc20c0edbab768f75c5",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 42
+    },
+    {
+      "file": "samsung-official-cr-RU1608.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RU1608"
+      },
+      "checked_at": "2026-10-20T13:23:04.574306+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "4afa6d5ac1ed9c7dd2218b1c6b7f9e1de9107ba76996d53be09f0b7a5b2e7688",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 56
+    },
+    {
+      "file": "samsung-official-cr-RU2012.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RU2012"
+      },
+      "checked_at": "2026-10-20T13:23:07.317423+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "8163d723661b8f795965eed7823ebf082159eeeae9885a4ba30ac4753737f77f",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 56
+    },
+    {
+      "file": "samsung-official-cr-RU3216.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RU3216"
+      },
+      "checked_at": "2026-10-20T13:23:09.054188+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "8984fa9945aa5eb25254ba6893f33884e9c090e2218580c6e59b7cc220f65cc6",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 56
+    },
+    {
+      "file": "samsung-official-cr-RUK160.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUK160"
+      },
+      "checked_at": "2026-10-20T13:23:11.329113+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "09858cfa25a7ae3ed0e4ec3fd674531797b146a04090ca320b5b7a8e01a50355",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 40
+    },
+    {
+      "file": "samsung-official-cr-RUK201.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUK201"
+      },
+      "checked_at": "2026-10-20T13:23:13.434404+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "9e942fd13dc8ee03fb3268786c3ddb194e4693b3b9e6365ea0b26bec7bad8181",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 26
+    },
+    {
+      "file": "samsung-official-cr-RUK321.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUK321"
+      },
+      "checked_at": "2026-10-20T13:23:15.377179+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "914053f79d70c25c9503f953f23a48c3283d81cb42a4639d4c6d9df0bad990fb",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 26
+    },
+    {
+      "file": "samsung-official-cr-RUT100.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUT100"
+      },
+      "checked_at": "2026-10-20T13:23:17.797624+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "bf522b314345d527f67692424554e449180490c1c9d88e6eb98d7b52a21f8d14",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 228
+    },
+    {
+      "file": "samsung-official-cr-RUT160.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUT160"
+      },
+      "checked_at": "2026-10-20T13:23:21.152788+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "276ae0f1449c5151a0ddf4c1c70ea557d9764adbe371f5841608a53325aec0dc",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 228
+    },
+    {
+      "file": "samsung-official-cr-RUT201.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUT201"
+      },
+      "checked_at": "2026-10-20T13:23:23.138449+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "bb2050b579347a94b031ab84f165428bb127bd30077206ec35aaeefa6a889823",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 228
+    },
+    {
+      "file": "samsung-official-cr-RUT321.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUT321"
+      },
+      "checked_at": "2026-10-20T13:23:25.202407+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "f99bdf472df9abe1702943e3974db6bfa30df5cfc815ed4cf745130ee3f11fbd",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 228
+    },
+    {
+      "file": "samsung-official-cr-RUW321.json",
+      "url": "https://product.samsungsem.com/cr/bSearch.do",
+      "request": {
+        "partNumber": "RUW321"
+      },
+      "checked_at": "2026-10-20T13:23:27.090581+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "dfca92fdf803d0253bdd308d48b07bba1be1afa13c08d432828b24c00826cbce",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 0
+    }
+  ]
+}

@@ -1,0 +1,2430 @@
+{
+  "checked_at": "2026-10-20T15:00:52.937561+00:00",
+  "identity": "distinct raw brand label + existing model; alias labels not silently merged",
+  "library_models": 1748627,
+  "raw_brand_labels": 345,
+  "verified_models": 9473,
+  "brands": [
+    {
+      "brand": "威世Vishay",
+      "library_models": 464711,
+      "verified_models": 0,
+      "pending_models": 464711,
+      "statuses": {}
+    },
+    {
+      "brand": "KOA",
+      "library_models": 257740,
+      "verified_models": 0,
+      "pending_models": 257740,
+      "statuses": {}
+    },
+    {
+      "brand": "国巨YAGEO",
+      "library_models": 186250,
+      "verified_models": 0,
+      "pending_models": 186250,
+      "statuses": {}
+    },
+    {
+      "brand": "PSA(信昌电陶)",
+      "library_models": 179748,
+      "verified_models": 0,
+      "pending_models": 179748,
+      "statuses": {}
+    },
+    {
+      "brand": "Stackpole",
+      "library_models": 92327,
+      "verified_models": 0,
+      "pending_models": 92327,
+      "statuses": {}
+    },
+    {
+      "brand": "Panasonic",
+      "library_models": 71251,
+      "verified_models": 0,
+      "pending_models": 71251,
+      "statuses": {}
+    },
+    {
+      "brand": "村田Murata",
+      "library_models": 65244,
+      "verified_models": 0,
+      "pending_models": 65244,
+      "statuses": {}
+    },
+    {
+      "brand": "TE Connectivity(泰科电子)",
+      "library_models": 40218,
+      "verified_models": 0,
+      "pending_models": 40218,
+      "statuses": {}
+    },
+    {
+      "brand": "厚声UNI-ROYAL",
+      "library_models": 25666,
+      "verified_models": 0,
+      "pending_models": 25666,
+      "statuses": {}
+    },
+    {
+      "brand": "进工业Susumu",
+      "library_models": 23331,
+      "verified_models": 0,
+      "pending_models": 23331,
+      "statuses": {}
+    },
+    {
+      "brand": "Sunway(信维通信)",
+      "library_models": 20883,
+      "verified_models": 0,
+      "pending_models": 20883,
+      "statuses": {}
+    },
+    {
+      "brand": "华新科Walsin",
+      "library_models": 19099,
+      "verified_models": 0,
+      "pending_models": 19099,
+      "statuses": {}
+    },
+    {
+      "brand": "KAMAYA(釜屋電機)",
+      "library_models": 18251,
+      "verified_models": 0,
+      "pending_models": 18251,
+      "statuses": {}
+    },
+    {
+      "brand": "Abracon",
+      "library_models": 15309,
+      "verified_models": 0,
+      "pending_models": 15309,
+      "statuses": {}
+    },
+    {
+      "brand": "三星Samsung",
+      "library_models": 15207,
+      "verified_models": 9472,
+      "pending_models": 5735,
+      "statuses": {
+        "量产": 9337,
+        "量产前": 135
+      }
+    },
+    {
+      "brand": "太诱Taiyo",
+      "library_models": 13153,
+      "verified_models": 0,
+      "pending_models": 13153,
+      "statuses": {}
+    },
+    {
+      "brand": "东电化TDK",
+      "library_models": 10340,
+      "verified_models": 0,
+      "pending_models": 10340,
+      "statuses": {}
+    },
+    {
+      "brand": "ROHM",
+      "library_models": 10207,
+      "verified_models": 0,
+      "pending_models": 10207,
+      "statuses": {}
+    },
+    {
+      "brand": "JOYIN(久尹)",
+      "library_models": 10096,
+      "verified_models": 0,
+      "pending_models": 10096,
+      "statuses": {}
+    },
+    {
+      "brand": "Meritek",
+      "library_models": 9470,
+      "verified_models": 0,
+      "pending_models": 9470,
+      "statuses": {}
+    },
+    {
+      "brand": "京瓷Kyocera",
+      "library_models": 8687,
+      "verified_models": 0,
+      "pending_models": 8687,
+      "statuses": {}
+    },
+    {
+      "brand": "Ohmite",
+      "library_models": 8417,
+      "verified_models": 0,
+      "pending_models": 8417,
+      "statuses": {}
+    },
+    {
+      "brand": "太阳诱电Taiyo Yuden",
+      "library_models": 7992,
+      "verified_models": 0,
+      "pending_models": 7992,
+      "statuses": {}
+    },
+    {
+      "brand": "风华Fenghua",
+      "library_models": 7371,
+      "verified_models": 0,
+      "pending_models": 7371,
+      "statuses": {}
+    },
+    {
+      "brand": "爱普生Epson",
+      "library_models": 7052,
+      "verified_models": 0,
+      "pending_models": 7052,
+      "statuses": {}
+    },
+    {
+      "brand": "FOJAN(富捷)",
+      "library_models": 6400,
+      "verified_models": 0,
+      "pending_models": 6400,
+      "statuses": {}
+    },
+    {
+      "brand": "日本贵弥功Chemi-Con",
+      "library_models": 6362,
+      "verified_models": 0,
+      "pending_models": 6362,
+      "statuses": {}
+    },
+    {
+      "brand": "旺诠RALEC",
+      "library_models": 6208,
+      "verified_models": 0,
+      "pending_models": 6208,
+      "statuses": {}
+    },
+    {
+      "brand": "Bourns",
+      "library_models": 6193,
+      "verified_models": 0,
+      "pending_models": 6193,
+      "statuses": {}
+    },
+    {
+      "brand": "VO(翔胜)",
+      "library_models": 5756,
+      "verified_models": 0,
+      "pending_models": 5756,
+      "statuses": {}
+    },
+    {
+      "brand": "光颉Viking",
+      "library_models": 5500,
+      "verified_models": 0,
+      "pending_models": 5500,
+      "statuses": {}
+    },
+    {
+      "brand": "Littelfuse",
+      "library_models": 5315,
+      "verified_models": 0,
+      "pending_models": 5315,
+      "statuses": {}
+    },
+    {
+      "brand": "EVER OHMS(天二科技)",
+      "library_models": 5212,
+      "verified_models": 0,
+      "pending_models": 5212,
+      "statuses": {}
+    },
+    {
+      "brand": "CAL-CHIP",
+      "library_models": 5007,
+      "verified_models": 0,
+      "pending_models": 5007,
+      "statuses": {}
+    },
+    {
+      "brand": "胜美达SUMIDA",
+      "library_models": 4890,
+      "verified_models": 0,
+      "pending_models": 4890,
+      "statuses": {}
+    },
+    {
+      "brand": "尼吉康Nichicon",
+      "library_models": 4675,
+      "verified_models": 0,
+      "pending_models": 4675,
+      "statuses": {}
+    },
+    {
+      "brand": "江海Jianghai",
+      "library_models": 4662,
+      "verified_models": 0,
+      "pending_models": 4662,
+      "statuses": {}
+    },
+    {
+      "brand": "NDK",
+      "library_models": 4104,
+      "verified_models": 0,
+      "pending_models": 4104,
+      "statuses": {}
+    },
+    {
+      "brand": "LIZ(丽智电子)",
+      "library_models": 3770,
+      "verified_models": 0,
+      "pending_models": 3770,
+      "statuses": {}
+    },
+    {
+      "brand": "RCD Components, Inc.",
+      "library_models": 3716,
+      "verified_models": 0,
+      "pending_models": 3716,
+      "statuses": {}
+    },
+    {
+      "brand": "RESI(开步睿思)",
+      "library_models": 3350,
+      "verified_models": 0,
+      "pending_models": 3350,
+      "statuses": {}
+    },
+    {
+      "brand": "大毅科技",
+      "library_models": 2870,
+      "verified_models": 0,
+      "pending_models": 2870,
+      "statuses": {}
+    },
+    {
+      "brand": "Venkel",
+      "library_models": 2535,
+      "verified_models": 0,
+      "pending_models": 2535,
+      "statuses": {}
+    },
+    {
+      "brand": "Rubycon",
+      "library_models": 2527,
+      "verified_models": 0,
+      "pending_models": 2527,
+      "statuses": {}
+    },
+    {
+      "brand": "TXC",
+      "library_models": 2420,
+      "verified_models": 0,
+      "pending_models": 2420,
+      "statuses": {}
+    },
+    {
+      "brand": "芯声微HRE",
+      "library_models": 2368,
+      "verified_models": 0,
+      "pending_models": 2368,
+      "statuses": {}
+    },
+    {
+      "brand": "Ymin",
+      "library_models": 2222,
+      "verified_models": 0,
+      "pending_models": 2222,
+      "statuses": {}
+    },
+    {
+      "brand": "三环CCTC",
+      "library_models": 2222,
+      "verified_models": 0,
+      "pending_models": 2222,
+      "statuses": {}
+    },
+    {
+      "brand": "Tyohm(幸亚电阻)",
+      "library_models": 2167,
+      "verified_models": 0,
+      "pending_models": 2167,
+      "statuses": {}
+    },
+    {
+      "brand": "松下Panasonic",
+      "library_models": 2154,
+      "verified_models": 0,
+      "pending_models": 2154,
+      "statuses": {}
+    },
+    {
+      "brand": "Riedon",
+      "library_models": 1968,
+      "verified_models": 0,
+      "pending_models": 1968,
+      "statuses": {}
+    },
+    {
+      "brand": "AISHI",
+      "library_models": 1833,
+      "verified_models": 0,
+      "pending_models": 1833,
+      "statuses": {}
+    },
+    {
+      "brand": "NTE Electronics",
+      "library_models": 1828,
+      "verified_models": 0,
+      "pending_models": 1828,
+      "statuses": {}
+    },
+    {
+      "brand": "HCI",
+      "library_models": 1710,
+      "verified_models": 0,
+      "pending_models": 1710,
+      "statuses": {}
+    },
+    {
+      "brand": "Lelon",
+      "library_models": 1590,
+      "verified_models": 0,
+      "pending_models": 1590,
+      "statuses": {}
+    },
+    {
+      "brand": "YXC Crystal Oscillators",
+      "library_models": 1497,
+      "verified_models": 0,
+      "pending_models": 1497,
+      "statuses": {}
+    },
+    {
+      "brand": "信昌PDC",
+      "library_models": 1492,
+      "verified_models": 0,
+      "pending_models": 1492,
+      "statuses": {}
+    },
+    {
+      "brand": "KNSCHA",
+      "library_models": 1441,
+      "verified_models": 0,
+      "pending_models": 1441,
+      "statuses": {}
+    },
+    {
+      "brand": "昶龙科技",
+      "library_models": 1338,
+      "verified_models": 0,
+      "pending_models": 1338,
+      "statuses": {}
+    },
+    {
+      "brand": "SCTF",
+      "library_models": 1304,
+      "verified_models": 0,
+      "pending_models": 1304,
+      "statuses": {}
+    },
+    {
+      "brand": "晶瓷Kyocera AVX",
+      "library_models": 1229,
+      "verified_models": 0,
+      "pending_models": 1229,
+      "statuses": {}
+    },
+    {
+      "brand": "国巨Yageo",
+      "library_models": 1020,
+      "verified_models": 0,
+      "pending_models": 1020,
+      "statuses": {}
+    },
+    {
+      "brand": "SiTime",
+      "library_models": 936,
+      "verified_models": 0,
+      "pending_models": 936,
+      "statuses": {}
+    },
+    {
+      "brand": "ECS",
+      "library_models": 858,
+      "verified_models": 0,
+      "pending_models": 858,
+      "statuses": {}
+    },
+    {
+      "brand": "CCO(千志电子)",
+      "library_models": 833,
+      "verified_models": 0,
+      "pending_models": 833,
+      "statuses": {}
+    },
+    {
+      "brand": "Yunxing",
+      "library_models": 826,
+      "verified_models": 0,
+      "pending_models": 826,
+      "statuses": {}
+    },
+    {
+      "brand": "太阳诱电Taiyo",
+      "library_models": 797,
+      "verified_models": 0,
+      "pending_models": 797,
+      "statuses": {}
+    },
+    {
+      "brand": "SAMYOUNG",
+      "library_models": 791,
+      "verified_models": 0,
+      "pending_models": 791,
+      "statuses": {}
+    },
+    {
+      "brand": "TKD泰晶",
+      "library_models": 772,
+      "verified_models": 0,
+      "pending_models": 772,
+      "statuses": {}
+    },
+    {
+      "brand": "JYJE",
+      "library_models": 767,
+      "verified_models": 0,
+      "pending_models": 767,
+      "statuses": {}
+    },
+    {
+      "brand": "Man Yue Tech",
+      "library_models": 765,
+      "verified_models": 0,
+      "pending_models": 765,
+      "statuses": {}
+    },
+    {
+      "brand": "KYX",
+      "library_models": 715,
+      "verified_models": 0,
+      "pending_models": 715,
+      "statuses": {}
+    },
+    {
+      "brand": "Honor Elec",
+      "library_models": 681,
+      "verified_models": 0,
+      "pending_models": 681,
+      "statuses": {}
+    },
+    {
+      "brand": "JGHC",
+      "library_models": 675,
+      "verified_models": 0,
+      "pending_models": 675,
+      "statuses": {}
+    },
+    {
+      "brand": "Wurth Elektronik",
+      "library_models": 656,
+      "verified_models": 0,
+      "pending_models": 656,
+      "statuses": {}
+    },
+    {
+      "brand": "SJK",
+      "library_models": 650,
+      "verified_models": 0,
+      "pending_models": 650,
+      "statuses": {}
+    },
+    {
+      "brand": "Milliohm(毫欧)",
+      "library_models": 631,
+      "verified_models": 0,
+      "pending_models": 631,
+      "statuses": {}
+    },
+    {
+      "brand": "ChuangHui",
+      "library_models": 614,
+      "verified_models": 0,
+      "pending_models": 614,
+      "statuses": {}
+    },
+    {
+      "brand": "Sunlord(顺络)",
+      "library_models": 595,
+      "verified_models": 0,
+      "pending_models": 595,
+      "statuses": {}
+    },
+    {
+      "brand": "Brightking(君耀电子)",
+      "library_models": 570,
+      "verified_models": 0,
+      "pending_models": 570,
+      "statuses": {}
+    },
+    {
+      "brand": "JIERR",
+      "library_models": 570,
+      "verified_models": 0,
+      "pending_models": 570,
+      "statuses": {}
+    },
+    {
+      "brand": "KEMET",
+      "library_models": 567,
+      "verified_models": 0,
+      "pending_models": 567,
+      "statuses": {}
+    },
+    {
+      "brand": "TAITIEN Elec",
+      "library_models": 558,
+      "verified_models": 0,
+      "pending_models": 558,
+      "statuses": {}
+    },
+    {
+      "brand": "CTS(西迪斯)",
+      "library_models": 557,
+      "verified_models": 0,
+      "pending_models": 557,
+      "statuses": {}
+    },
+    {
+      "brand": "STE(松田)",
+      "library_models": 546,
+      "verified_models": 0,
+      "pending_models": 546,
+      "statuses": {}
+    },
+    {
+      "brand": "Fox",
+      "library_models": 544,
+      "verified_models": 0,
+      "pending_models": 544,
+      "statuses": {}
+    },
+    {
+      "brand": "FOLLON",
+      "library_models": 533,
+      "verified_models": 0,
+      "pending_models": 533,
+      "statuses": {}
+    },
+    {
+      "brand": "华星机电",
+      "library_models": 531,
+      "verified_models": 0,
+      "pending_models": 531,
+      "statuses": {}
+    },
+    {
+      "brand": "Xicon",
+      "library_models": 527,
+      "verified_models": 0,
+      "pending_models": 527,
+      "statuses": {}
+    },
+    {
+      "brand": "Laird(莱尔德)",
+      "library_models": 520,
+      "verified_models": 0,
+      "pending_models": 520,
+      "statuses": {}
+    },
+    {
+      "brand": "ROQANG",
+      "library_models": 520,
+      "verified_models": 0,
+      "pending_models": 520,
+      "statuses": {}
+    },
+    {
+      "brand": "Yajingxin",
+      "library_models": 518,
+      "verified_models": 0,
+      "pending_models": 518,
+      "statuses": {}
+    },
+    {
+      "brand": "Chengx",
+      "library_models": 510,
+      "verified_models": 0,
+      "pending_models": 510,
+      "statuses": {}
+    },
+    {
+      "brand": "Thunder Component(帝谷)",
+      "library_models": 482,
+      "verified_models": 0,
+      "pending_models": 482,
+      "statuses": {}
+    },
+    {
+      "brand": "SOSET",
+      "library_models": 478,
+      "verified_models": 0,
+      "pending_models": 478,
+      "statuses": {}
+    },
+    {
+      "brand": "CapXon",
+      "library_models": 464,
+      "verified_models": 0,
+      "pending_models": 464,
+      "statuses": {}
+    },
+    {
+      "brand": "AKER",
+      "library_models": 456,
+      "verified_models": 0,
+      "pending_models": 456,
+      "statuses": {}
+    },
+    {
+      "brand": "huawei group",
+      "library_models": 432,
+      "verified_models": 0,
+      "pending_models": 432,
+      "statuses": {}
+    },
+    {
+      "brand": "Kyocera AVX",
+      "library_models": 418,
+      "verified_models": 0,
+      "pending_models": 418,
+      "statuses": {}
+    },
+    {
+      "brand": "LIMING",
+      "library_models": 375,
+      "verified_models": 0,
+      "pending_models": 375,
+      "statuses": {}
+    },
+    {
+      "brand": "KDS大真空",
+      "library_models": 371,
+      "verified_models": 0,
+      "pending_models": 371,
+      "statuses": {}
+    },
+    {
+      "brand": "BERYL Electronic Tech",
+      "library_models": 370,
+      "verified_models": 0,
+      "pending_models": 370,
+      "statuses": {}
+    },
+    {
+      "brand": "huaxindianzi",
+      "library_models": 362,
+      "verified_models": 0,
+      "pending_models": 362,
+      "statuses": {}
+    },
+    {
+      "brand": "乾坤Cyntec",
+      "library_models": 342,
+      "verified_models": 0,
+      "pending_models": 342,
+      "statuses": {}
+    },
+    {
+      "brand": "TROQ",
+      "library_models": 341,
+      "verified_models": 0,
+      "pending_models": 341,
+      "statuses": {}
+    },
+    {
+      "brand": "Caddock",
+      "library_models": 339,
+      "verified_models": 0,
+      "pending_models": 339,
+      "statuses": {}
+    },
+    {
+      "brand": "VISHAY",
+      "library_models": 329,
+      "verified_models": 0,
+      "pending_models": 329,
+      "statuses": {}
+    },
+    {
+      "brand": "YL惠伦",
+      "library_models": 327,
+      "verified_models": 0,
+      "pending_models": 327,
+      "statuses": {}
+    },
+    {
+      "brand": "双羽",
+      "library_models": 325,
+      "verified_models": 0,
+      "pending_models": 325,
+      "statuses": {}
+    },
+    {
+      "brand": "JLYE",
+      "library_models": 324,
+      "verified_models": 0,
+      "pending_models": 324,
+      "statuses": {}
+    },
+    {
+      "brand": "ACMECON",
+      "library_models": 320,
+      "verified_models": 0,
+      "pending_models": 320,
+      "statuses": {}
+    },
+    {
+      "brand": "Huiyuan crystal",
+      "library_models": 320,
+      "verified_models": 0,
+      "pending_models": 320,
+      "statuses": {}
+    },
+    {
+      "brand": "HD",
+      "library_models": 297,
+      "verified_models": 0,
+      "pending_models": 297,
+      "statuses": {}
+    },
+    {
+      "brand": "HRK",
+      "library_models": 293,
+      "verified_models": 0,
+      "pending_models": 293,
+      "statuses": {}
+    },
+    {
+      "brand": "TKS(兴勤)",
+      "library_models": 284,
+      "verified_models": 0,
+      "pending_models": 284,
+      "statuses": {}
+    },
+    {
+      "brand": "Econd",
+      "library_models": 276,
+      "verified_models": 0,
+      "pending_models": 276,
+      "statuses": {}
+    },
+    {
+      "brand": "EATON(伊顿)",
+      "library_models": 249,
+      "verified_models": 0,
+      "pending_models": 249,
+      "statuses": {}
+    },
+    {
+      "brand": "ChengTao",
+      "library_models": 248,
+      "verified_models": 0,
+      "pending_models": 248,
+      "statuses": {}
+    },
+    {
+      "brand": "TOGNJING",
+      "library_models": 246,
+      "verified_models": 0,
+      "pending_models": 246,
+      "statuses": {}
+    },
+    {
+      "brand": "鸿星HOSONIC",
+      "library_models": 243,
+      "verified_models": 0,
+      "pending_models": 243,
+      "statuses": {}
+    },
+    {
+      "brand": "Coilcraft",
+      "library_models": 239,
+      "verified_models": 0,
+      "pending_models": 239,
+      "statuses": {}
+    },
+    {
+      "brand": "微容VIIYONG",
+      "library_models": 239,
+      "verified_models": 0,
+      "pending_models": 239,
+      "statuses": {}
+    },
+    {
+      "brand": "Lucki",
+      "library_models": 236,
+      "verified_models": 0,
+      "pending_models": 236,
+      "statuses": {}
+    },
+    {
+      "brand": "SHM(南方宏明)",
+      "library_models": 236,
+      "verified_models": 0,
+      "pending_models": 236,
+      "statuses": {}
+    },
+    {
+      "brand": "JARSON",
+      "library_models": 233,
+      "verified_models": 0,
+      "pending_models": 233,
+      "statuses": {}
+    },
+    {
+      "brand": "Ecliptek",
+      "library_models": 229,
+      "verified_models": 0,
+      "pending_models": 229,
+      "statuses": {}
+    },
+    {
+      "brand": "富捷FOJAN",
+      "library_models": 229,
+      "verified_models": 0,
+      "pending_models": 229,
+      "statuses": {}
+    },
+    {
+      "brand": "Taiyo Yuden",
+      "library_models": 226,
+      "verified_models": 0,
+      "pending_models": 226,
+      "statuses": {}
+    },
+    {
+      "brand": "Panasonic(松下)",
+      "library_models": 207,
+      "verified_models": 0,
+      "pending_models": 207,
+      "statuses": {}
+    },
+    {
+      "brand": "达方DARFON",
+      "library_models": 207,
+      "verified_models": 0,
+      "pending_models": 207,
+      "statuses": {}
+    },
+    {
+      "brand": "Guangdong TOPAZ Elec Tech",
+      "library_models": 204,
+      "verified_models": 0,
+      "pending_models": 204,
+      "statuses": {}
+    },
+    {
+      "brand": "Dersonic(德尔创)",
+      "library_models": 195,
+      "verified_models": 0,
+      "pending_models": 195,
+      "statuses": {}
+    },
+    {
+      "brand": "Bourns(伯恩斯)",
+      "library_models": 192,
+      "verified_models": 0,
+      "pending_models": 192,
+      "statuses": {}
+    },
+    {
+      "brand": "JSCJ",
+      "library_models": 189,
+      "verified_models": 0,
+      "pending_models": 189,
+      "statuses": {}
+    },
+    {
+      "brand": "CHANGXING ELECTRONICS",
+      "library_models": 181,
+      "verified_models": 0,
+      "pending_models": 181,
+      "statuses": {}
+    },
+    {
+      "brand": "ST(Semtech)",
+      "library_models": 181,
+      "verified_models": 0,
+      "pending_models": 181,
+      "statuses": {}
+    },
+    {
+      "brand": "KEMET(基美)",
+      "library_models": 180,
+      "verified_models": 0,
+      "pending_models": 180,
+      "statuses": {}
+    },
+    {
+      "brand": "RUILON(瑞隆源)",
+      "library_models": 180,
+      "verified_models": 0,
+      "pending_models": 180,
+      "statuses": {}
+    },
+    {
+      "brand": "JWT",
+      "library_models": 178,
+      "verified_models": 0,
+      "pending_models": 178,
+      "statuses": {}
+    },
+    {
+      "brand": "SANYEAR(叁叶源)",
+      "library_models": 169,
+      "verified_models": 0,
+      "pending_models": 169,
+      "statuses": {}
+    },
+    {
+      "brand": "Chilisin",
+      "library_models": 167,
+      "verified_models": 0,
+      "pending_models": 167,
+      "statuses": {}
+    },
+    {
+      "brand": "三和SAMWHA",
+      "library_models": 154,
+      "verified_models": 0,
+      "pending_models": 154,
+      "statuses": {}
+    },
+    {
+      "brand": "Su'scon",
+      "library_models": 153,
+      "verified_models": 0,
+      "pending_models": 153,
+      "statuses": {}
+    },
+    {
+      "brand": "Liown(里阳半导体)",
+      "library_models": 149,
+      "verified_models": 0,
+      "pending_models": 149,
+      "statuses": {}
+    },
+    {
+      "brand": "SAMWHA",
+      "library_models": 149,
+      "verified_models": 0,
+      "pending_models": 149,
+      "statuses": {}
+    },
+    {
+      "brand": "MICROCHIP",
+      "library_models": 148,
+      "verified_models": 0,
+      "pending_models": 148,
+      "statuses": {}
+    },
+    {
+      "brand": "Firstohm(第一电阻)",
+      "library_models": 145,
+      "verified_models": 0,
+      "pending_models": 145,
+      "statuses": {}
+    },
+    {
+      "brand": "DIODES",
+      "library_models": 144,
+      "verified_models": 0,
+      "pending_models": 144,
+      "statuses": {}
+    },
+    {
+      "brand": "ABRACON",
+      "library_models": 141,
+      "verified_models": 0,
+      "pending_models": 141,
+      "statuses": {}
+    },
+    {
+      "brand": "Vishay(威世)",
+      "library_models": 141,
+      "verified_models": 0,
+      "pending_models": 141,
+      "statuses": {}
+    },
+    {
+      "brand": "时恒",
+      "library_models": 138,
+      "verified_models": 0,
+      "pending_models": 138,
+      "statuses": {}
+    },
+    {
+      "brand": "VDR(嵩隆)",
+      "library_models": 136,
+      "verified_models": 0,
+      "pending_models": 136,
+      "statuses": {}
+    },
+    {
+      "brand": "TI(德州仪器)",
+      "library_models": 130,
+      "verified_models": 0,
+      "pending_models": 130,
+      "statuses": {}
+    },
+    {
+      "brand": "Wurth(伍尔特)",
+      "library_models": 127,
+      "verified_models": 0,
+      "pending_models": 127,
+      "statuses": {}
+    },
+    {
+      "brand": "yezhan(业展)",
+      "library_models": 127,
+      "verified_models": 0,
+      "pending_models": 127,
+      "statuses": {}
+    },
+    {
+      "brand": "RENESAS",
+      "library_models": 125,
+      "verified_models": 0,
+      "pending_models": 125,
+      "statuses": {}
+    },
+    {
+      "brand": "TT Electronics",
+      "library_models": 123,
+      "verified_models": 0,
+      "pending_models": 123,
+      "statuses": {}
+    },
+    {
+      "brand": "XTALTQ",
+      "library_models": 122,
+      "verified_models": 0,
+      "pending_models": 122,
+      "statuses": {}
+    },
+    {
+      "brand": "WEC",
+      "library_models": 120,
+      "verified_models": 0,
+      "pending_models": 120,
+      "statuses": {}
+    },
+    {
+      "brand": "SUNCON",
+      "library_models": 119,
+      "verified_models": 0,
+      "pending_models": 119,
+      "statuses": {}
+    },
+    {
+      "brand": "Anhui LinkeyCon Electronic Technology Co.,Ltd",
+      "library_models": 118,
+      "verified_models": 0,
+      "pending_models": 118,
+      "statuses": {}
+    },
+    {
+      "brand": "KFSON",
+      "library_models": 114,
+      "verified_models": 0,
+      "pending_models": 114,
+      "statuses": {}
+    },
+    {
+      "brand": "NEL",
+      "library_models": 111,
+      "verified_models": 0,
+      "pending_models": 111,
+      "statuses": {}
+    },
+    {
+      "brand": "ILSI",
+      "library_models": 108,
+      "verified_models": 0,
+      "pending_models": 108,
+      "statuses": {}
+    },
+    {
+      "brand": "TST",
+      "library_models": 103,
+      "verified_models": 0,
+      "pending_models": 103,
+      "statuses": {}
+    },
+    {
+      "brand": "COV(德欣)",
+      "library_models": 99,
+      "verified_models": 0,
+      "pending_models": 99,
+      "statuses": {}
+    },
+    {
+      "brand": "HEL(鸿志)",
+      "library_models": 99,
+      "verified_models": 0,
+      "pending_models": 99,
+      "statuses": {}
+    },
+    {
+      "brand": "ECEC(ZheJiang E ast Crystal Elec)",
+      "library_models": 97,
+      "verified_models": 0,
+      "pending_models": 97,
+      "statuses": {}
+    },
+    {
+      "brand": "ADI(亚德诺)",
+      "library_models": 96,
+      "verified_models": 0,
+      "pending_models": 96,
+      "statuses": {}
+    },
+    {
+      "brand": "HYNCDZ",
+      "library_models": 92,
+      "verified_models": 0,
+      "pending_models": 92,
+      "statuses": {}
+    },
+    {
+      "brand": "MDH",
+      "library_models": 81,
+      "verified_models": 0,
+      "pending_models": 81,
+      "statuses": {}
+    },
+    {
+      "brand": "CTS",
+      "library_models": 78,
+      "verified_models": 0,
+      "pending_models": 78,
+      "statuses": {}
+    },
+    {
+      "brand": "Vishay",
+      "library_models": 78,
+      "verified_models": 0,
+      "pending_models": 78,
+      "statuses": {}
+    },
+    {
+      "brand": "DMBJ",
+      "library_models": 76,
+      "verified_models": 0,
+      "pending_models": 76,
+      "statuses": {}
+    },
+    {
+      "brand": "SURGING(绍鑫)",
+      "library_models": 75,
+      "verified_models": 0,
+      "pending_models": 75,
+      "statuses": {}
+    },
+    {
+      "brand": "TDK",
+      "library_models": 73,
+      "verified_models": 0,
+      "pending_models": 73,
+      "statuses": {}
+    },
+    {
+      "brand": "FTR(乔光电子)",
+      "library_models": 70,
+      "verified_models": 0,
+      "pending_models": 70,
+      "statuses": {}
+    },
+    {
+      "brand": "JK-ET(健坤)",
+      "library_models": 67,
+      "verified_models": 0,
+      "pending_models": 67,
+      "statuses": {}
+    },
+    {
+      "brand": "Slkor",
+      "library_models": 62,
+      "verified_models": 0,
+      "pending_models": 62,
+      "statuses": {}
+    },
+    {
+      "brand": "SOCAY(硕凯)",
+      "library_models": 60,
+      "verified_models": 0,
+      "pending_models": 60,
+      "statuses": {}
+    },
+    {
+      "brand": "kayocota(嘉莹兴)",
+      "library_models": 55,
+      "verified_models": 0,
+      "pending_models": 55,
+      "statuses": {}
+    },
+    {
+      "brand": "Hongda(泓达)",
+      "library_models": 54,
+      "verified_models": 0,
+      "pending_models": 54,
+      "statuses": {}
+    },
+    {
+      "brand": "KNSCHA(科尼盛)",
+      "library_models": 54,
+      "verified_models": 0,
+      "pending_models": 54,
+      "statuses": {}
+    },
+    {
+      "brand": "Vitrohm",
+      "library_models": 53,
+      "verified_models": 0,
+      "pending_models": 53,
+      "statuses": {}
+    },
+    {
+      "brand": "TWBOR",
+      "library_models": 52,
+      "verified_models": 0,
+      "pending_models": 52,
+      "statuses": {}
+    },
+    {
+      "brand": "WMEC(万明)",
+      "library_models": 52,
+      "verified_models": 0,
+      "pending_models": 52,
+      "statuses": {}
+    },
+    {
+      "brand": "QAMcn(恭成科技)",
+      "library_models": 49,
+      "verified_models": 0,
+      "pending_models": 49,
+      "statuses": {}
+    },
+    {
+      "brand": "SEMBO(深波)",
+      "library_models": 49,
+      "verified_models": 0,
+      "pending_models": 49,
+      "statuses": {}
+    },
+    {
+      "brand": "CITIZEN",
+      "library_models": 47,
+      "verified_models": 0,
+      "pending_models": 47,
+      "statuses": {}
+    },
+    {
+      "brand": "NIC Components",
+      "library_models": 47,
+      "verified_models": 0,
+      "pending_models": 47,
+      "statuses": {}
+    },
+    {
+      "brand": "MMD",
+      "library_models": 45,
+      "verified_models": 0,
+      "pending_models": 45,
+      "statuses": {}
+    },
+    {
+      "brand": "VT(Vertical Technology)",
+      "library_models": 45,
+      "verified_models": 0,
+      "pending_models": 45,
+      "statuses": {}
+    },
+    {
+      "brand": "SUP(美隆)",
+      "library_models": 44,
+      "verified_models": 0,
+      "pending_models": 44,
+      "statuses": {}
+    },
+    {
+      "brand": "prosemi(普罗森美)",
+      "library_models": 39,
+      "verified_models": 0,
+      "pending_models": 39,
+      "statuses": {}
+    },
+    {
+      "brand": "Micro Crystal",
+      "library_models": 34,
+      "verified_models": 0,
+      "pending_models": 34,
+      "statuses": {}
+    },
+    {
+      "brand": "KUU",
+      "library_models": 31,
+      "verified_models": 0,
+      "pending_models": 31,
+      "statuses": {}
+    },
+    {
+      "brand": "onsemi",
+      "library_models": 29,
+      "verified_models": 0,
+      "pending_models": 29,
+      "statuses": {}
+    },
+    {
+      "brand": "CNR(舜全)",
+      "library_models": 25,
+      "verified_models": 0,
+      "pending_models": 25,
+      "statuses": {}
+    },
+    {
+      "brand": "DELTA(台达)",
+      "library_models": 25,
+      "verified_models": 0,
+      "pending_models": 25,
+      "statuses": {}
+    },
+    {
+      "brand": "Seiko",
+      "library_models": 25,
+      "verified_models": 0,
+      "pending_models": 25,
+      "statuses": {}
+    },
+    {
+      "brand": "YL(Failong Crystal)",
+      "library_models": 25,
+      "verified_models": 0,
+      "pending_models": 25,
+      "statuses": {}
+    },
+    {
+      "brand": "JU YONG CHANG(聚永昶)",
+      "library_models": 24,
+      "verified_models": 0,
+      "pending_models": 24,
+      "statuses": {}
+    },
+    {
+      "brand": "未知",
+      "library_models": 24,
+      "verified_models": 0,
+      "pending_models": 24,
+      "statuses": {}
+    },
+    {
+      "brand": "ALPSALPINE(阿尔卑斯阿尔派)",
+      "library_models": 23,
+      "verified_models": 0,
+      "pending_models": 23,
+      "statuses": {}
+    },
+    {
+      "brand": "HDK(北陆电气)",
+      "library_models": 23,
+      "verified_models": 0,
+      "pending_models": 23,
+      "statuses": {}
+    },
+    {
+      "brand": "Dersonic",
+      "library_models": 21,
+      "verified_models": 0,
+      "pending_models": 21,
+      "statuses": {}
+    },
+    {
+      "brand": "Isabellenhuette(伊萨普兰)",
+      "library_models": 20,
+      "verified_models": 0,
+      "pending_models": 20,
+      "statuses": {}
+    },
+    {
+      "brand": "MICROCHIP(美国微芯)",
+      "library_models": 20,
+      "verified_models": 0,
+      "pending_models": 20,
+      "statuses": {}
+    },
+    {
+      "brand": "NSK",
+      "library_models": 20,
+      "verified_models": 0,
+      "pending_models": 20,
+      "statuses": {}
+    },
+    {
+      "brand": "ChipNobo(无边界)",
+      "library_models": 18,
+      "verified_models": 0,
+      "pending_models": 18,
+      "statuses": {}
+    },
+    {
+      "brand": "TI",
+      "library_models": 18,
+      "verified_models": 0,
+      "pending_models": 18,
+      "statuses": {}
+    },
+    {
+      "brand": "NDF(达孚)",
+      "library_models": 17,
+      "verified_models": 0,
+      "pending_models": 17,
+      "statuses": {}
+    },
+    {
+      "brand": "cjiang(长江微电)",
+      "library_models": 16,
+      "verified_models": 0,
+      "pending_models": 16,
+      "statuses": {}
+    },
+    {
+      "brand": "APAQ",
+      "library_models": 15,
+      "verified_models": 0,
+      "pending_models": 15,
+      "statuses": {}
+    },
+    {
+      "brand": "LUTE(陆特)",
+      "library_models": 15,
+      "verified_models": 0,
+      "pending_models": 15,
+      "statuses": {}
+    },
+    {
+      "brand": "XC(新成）",
+      "library_models": 15,
+      "verified_models": 0,
+      "pending_models": 15,
+      "statuses": {}
+    },
+    {
+      "brand": "Diodes Incorporated",
+      "library_models": 14,
+      "verified_models": 0,
+      "pending_models": 14,
+      "statuses": {}
+    },
+    {
+      "brand": "FOSAN",
+      "library_models": 14,
+      "verified_models": 0,
+      "pending_models": 14,
+      "statuses": {}
+    },
+    {
+      "brand": "SP(三宝)",
+      "library_models": 13,
+      "verified_models": 0,
+      "pending_models": 13,
+      "statuses": {}
+    },
+    {
+      "brand": "JUXING(钜兴)",
+      "library_models": 12,
+      "verified_models": 0,
+      "pending_models": 12,
+      "statuses": {}
+    },
+    {
+      "brand": "TubeDepot",
+      "library_models": 12,
+      "verified_models": 0,
+      "pending_models": 12,
+      "statuses": {}
+    },
+    {
+      "brand": "Vishay Micro-Measurements(威势应变片)",
+      "library_models": 12,
+      "verified_models": 0,
+      "pending_models": 12,
+      "statuses": {}
+    },
+    {
+      "brand": "施耐德",
+      "library_models": 12,
+      "verified_models": 0,
+      "pending_models": 12,
+      "statuses": {}
+    },
+    {
+      "brand": "ADI(亚德诺)/MAXIM(美信)",
+      "library_models": 11,
+      "verified_models": 0,
+      "pending_models": 11,
+      "statuses": {}
+    },
+    {
+      "brand": "DGCX(成希)",
+      "library_models": 11,
+      "verified_models": 0,
+      "pending_models": 11,
+      "statuses": {}
+    },
+    {
+      "brand": "Longkingdom(龙建达)",
+      "library_models": 11,
+      "verified_models": 0,
+      "pending_models": 11,
+      "statuses": {}
+    },
+    {
+      "brand": "TTM Technologies, Inc.",
+      "library_models": 11,
+      "verified_models": 0,
+      "pending_models": 11,
+      "statuses": {}
+    },
+    {
+      "brand": "Legendsemi(领慧立芯)",
+      "library_models": 10,
+      "verified_models": 0,
+      "pending_models": 10,
+      "statuses": {}
+    },
+    {
+      "brand": "Nexperia",
+      "library_models": 10,
+      "verified_models": 0,
+      "pending_models": 10,
+      "statuses": {}
+    },
+    {
+      "brand": "SFI(立昌)",
+      "library_models": 10,
+      "verified_models": 0,
+      "pending_models": 10,
+      "statuses": {}
+    },
+    {
+      "brand": "BHFUSE(佰宏)",
+      "library_models": 9,
+      "verified_models": 0,
+      "pending_models": 9,
+      "statuses": {}
+    },
+    {
+      "brand": "Lumimax Optoelectronic",
+      "library_models": 9,
+      "verified_models": 0,
+      "pending_models": 9,
+      "statuses": {}
+    },
+    {
+      "brand": "Visaton",
+      "library_models": 9,
+      "verified_models": 0,
+      "pending_models": 9,
+      "statuses": {}
+    },
+    {
+      "brand": "ISND(华信安)",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "JKSEMI(金开盛)",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "MACOM",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "SILICON LABS",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "xinyijing",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "晶导微电子",
+      "library_models": 8,
+      "verified_models": 0,
+      "pending_models": 8,
+      "statuses": {}
+    },
+    {
+      "brand": "SEMIWARE(赛米微尔)",
+      "library_models": 7,
+      "verified_models": 0,
+      "pending_models": 7,
+      "statuses": {}
+    },
+    {
+      "brand": "SKYWORKS",
+      "library_models": 7,
+      "verified_models": 0,
+      "pending_models": 7,
+      "statuses": {}
+    },
+    {
+      "brand": "WALTER(华德)",
+      "library_models": 7,
+      "verified_models": 0,
+      "pending_models": 7,
+      "statuses": {}
+    },
+    {
+      "brand": "WEILIN(伟林-中昊)",
+      "library_models": 7,
+      "verified_models": 0,
+      "pending_models": 7,
+      "statuses": {}
+    },
+    {
+      "brand": "YFT(宇飞特)",
+      "library_models": 7,
+      "verified_models": 0,
+      "pending_models": 7,
+      "statuses": {}
+    },
+    {
+      "brand": "Analog",
+      "library_models": 6,
+      "verified_models": 0,
+      "pending_models": 6,
+      "statuses": {}
+    },
+    {
+      "brand": "Crystek Corporation",
+      "library_models": 6,
+      "verified_models": 0,
+      "pending_models": 6,
+      "statuses": {}
+    },
+    {
+      "brand": "LAIFU(来福)",
+      "library_models": 6,
+      "verified_models": 0,
+      "pending_models": 6,
+      "statuses": {}
+    },
+    {
+      "brand": "LJ(朗捷)",
+      "library_models": 6,
+      "verified_models": 0,
+      "pending_models": 6,
+      "statuses": {}
+    },
+    {
+      "brand": "ALLEGRO(美国埃戈罗)",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "AMOTECH(阿莫泰克)",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "Amphenol",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "Connor Winfield",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "Infineon",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "Jingqin(精勤)",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "NCC(日本贵弥功)",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "SET(赛尔特)",
+      "library_models": 5,
+      "verified_models": 0,
+      "pending_models": 5,
+      "statuses": {}
+    },
+    {
+      "brand": "DOWO(东沃)",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "MAXIM",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "MERCURY Electronic",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "RLT(瑞率特)",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "Raltron",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "STMicroelectronics",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "exsense(爱晟)",
+      "library_models": 4,
+      "verified_models": 0,
+      "pending_models": 4,
+      "statuses": {}
+    },
+    {
+      "brand": "AEL",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "Digital Six Labs",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "Intel/Altera",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "LGE",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "PTTC(聚鼎)",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "RESI(开步睿思）",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "SANTE(惠州三特)",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "Seeed(矽递科技)",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "Toshiba",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "YXC扬兴",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "ZLG(致远电子)",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "onsemi(安森美)",
+      "library_models": 3,
+      "verified_models": 0,
+      "pending_models": 3,
+      "statuses": {}
+    },
+    {
+      "brand": "AEM",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "AOSMD",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "ATI(恒光)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Adafruit",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Celduc",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Epcos",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Honeywell(霍尼韦尔)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "IQD",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "JDTfuse(集电通)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Kyocera",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "LCSC",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Laird",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "MetalLions(美铼)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Murata",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Phoenix Contact(菲尼克斯)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Red Lion Controls(美国红狮)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Samsung",
+      "library_models": 2,
+      "verified_models": 1,
+      "pending_models": 1,
+      "statuses": {
+        "量产": 1
+      }
+    },
+    {
+      "brand": "SparkFun Electronics",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "VICOR",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "Walsin",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "ametherm",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "semitec(石冢)",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "宇阳EYANG",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "顺络Sunlord",
+      "library_models": 2,
+      "verified_models": 0,
+      "pending_models": 2,
+      "statuses": {}
+    },
+    {
+      "brand": "AD Semiconductor",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Aishi",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "BAIJIA(百佳)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Banner",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "CDE",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Cantherm",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "DIODES(美台)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "FH(风华高科)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "GXCAS(中科银河芯)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Galco Industrial Electronics",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "HAIGU(广州海谷)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "HKR(香港电阻)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "HUITUO(惠拓）",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "High Diode",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Infineon(英飞凌)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Interquip",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Isabellenhuette",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "JCHL(晶创和立)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "JEC(智旭)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Jauch Quartz",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Joyin",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "KAMCAP",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "KDS",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "LATTICE(莱迪思)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "MCC",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Mitsubishi Group(三菱)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Multicomp",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "NCT(利昇达)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "NEWOPTO(鑫永诚光电)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "NOVOSENSE(纳芯微)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Nichicon",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "PULSE",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Pletronics Inc",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Pulse Electronics（国巨集团）",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "RALEC",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Rectron",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Rohm",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "SGMICRO",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Samwha",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Sunlord",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "TECH PUBLIC(台舟)",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "UniOhm",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "WIMA",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "Wurth",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "micron",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    },
+    {
+      "brand": "基美Kemet",
+      "library_models": 1,
+      "verified_models": 0,
+      "pending_models": 1,
+      "statuses": {}
+    }
+  ],
+  "pending_models": 1739154
+}

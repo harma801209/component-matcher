@@ -395,6 +395,124 @@ class CatalogFilterTests(unittest.TestCase):
 
 
 class PassiveParameterCompletionTests(unittest.TestCase):
+    def test_official_export_import_rejects_changed_or_mismatched_receipts(self):
+        import hashlib,json,tempfile
+        from pathlib import Path
+        from tools.import_samsung_catalogue_evidence import verified_export
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'samsung-official-cr-RC0402.json'
+            path.write_bytes(b'{"searchListJson":[]}')
+            entry=dict(url='https://product.samsungsem.com/cr/bSearch.do',request={'partNumber':'RC0402'},checked_at='2026-10-20T12:00:00+00:00',source_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(verified_export(path,{path.name:entry},'cr',{'partNumber':'RC0402'})[1],entry['checked_at'])
+            with self.assertRaises(ValueError):verified_export(path,{},'cr',{'partNumber':'RC0402'})
+            with self.assertRaises(ValueError):verified_export(path,{path.name:entry},'cr',{'partNumber':'RC0603'})
+            path.write_bytes(b'{"searchListJson":[{}]}')
+            with self.assertRaises(ValueError):verified_export(path,{path.name:entry},'cr',{'partNumber':'RC0402'})
+
+    def test_versioned_lifecycle_artifact_contains_only_valid_reviewed_records(self):
+        import json
+        import manufacturer_lifecycle as lifecycle
+        raw=json.loads(lifecycle.EVIDENCE.read_text(encoding='utf-8'))['records']
+        self.assertEqual(len(lifecycle.records()),len(raw))
+        self.assertEqual(len({(r['manufacturer'],r['model']) for r in raw}),len(raw))
+        self.assertTrue(all(r['raw_status'] in lifecycle.STATUSES for r in raw))
+
+    def test_unreviewed_brand_never_promotes_legacy_active_even_without_evidence(self):
+        from unittest.mock import patch
+        import manufacturer_lifecycle as lifecycle
+        for evidence in ([],[dict(manufacturer='samsung',model='CL1C',status='量产',source='https://product.samsungsem.com/cn/mlcc/CL1.do',checked_at='2026-10-20T12:00:00+00:00')]):
+            conn=sqlite3.connect(':memory:')
+            conn.executescript("CREATE TABLE components_search_core(品牌 TEXT,型号 TEXT,_component_type TEXT,生产状态 TEXT);INSERT INTO components_search_core VALUES ('Unreviewed','XTAL1','晶振','Active');")
+            with patch.object(lifecycle,'records',return_value=evidence):table=lifecycle.install(conn,CORE,'晶振')
+            self.assertEqual(conn.execute('SELECT 型号,生产状态 FROM "'+table+'"').fetchall(),[('XTAL1',None)])
+            self.assertEqual(conn.execute('SELECT 生产状态 FROM components_search_core').fetchall(),[('Active',)])
+            self.assertEqual(snapshot(conn,'晶振')['total'],1)
+            conn.close()
+
+    def test_official_collector_keeps_tls_defaults_and_rejects_redirect_or_oversize(self):
+        from tools.collect_manufacturer_lifecycle import read_product
+        from urllib.error import HTTPError
+        class Response:
+            def __init__(self,status,chunks):self.status_code=status;self.chunks=chunks
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def iter_content(self,chunk_size):return iter(self.chunks)
+        class Session:
+            def __init__(self,response):self.response=response
+            def get(self,url,**kwargs):self.arguments=kwargs;return self.response
+        session=Session(Response(200,[b'<h2>',b'product</h2>']))
+        self.assertEqual(read_product(session,'https://product.samsungsem.com/cn/mlcc/CL1.do','Audit/1.0'),b'<h2>product</h2>')
+        self.assertFalse(session.arguments['allow_redirects'])
+        self.assertNotIn('verify',session.arguments)
+        with self.assertRaises(HTTPError) as raised:read_product(Session(Response(302,[])),'https://product.samsungsem.com/a','Audit/1.0')
+        raised.exception.close()
+        with self.assertRaises(ValueError):read_product(Session(Response(200,[b'x'*2_000_001])),'https://product.samsungsem.com/a','Audit/1.0')
+
+    def test_exact_samsung_catalogue_resistor_parameters_not_family_or_defaults(self):
+        import json
+        from manufacturer_lifecycle import samsung_catalogue_records
+        product=dict(partNumber='RC0402F100CS',status='NRND',rValue='10Ω',ratedPower='0.031 W (1/32 W)',sizeCode='01005/0402',tolerance='±1.0%',ratedVdc=0)
+        source=json.dumps({'searchListJson':[product]})
+        rows=samsung_catalogue_records(source,'cr',{'partNumber':'RC0402'},'2026-10-20T12:00:00+00:00')
+        self.assertEqual([r['model'] for r in rows],['RC0402F100CS'])
+        self.assertEqual(rows[0]['status'],'NRND（不推荐新设计）')
+        self.assertEqual(rows[0]['parameters'],dict(_res_ohm=10,_power_watt=1/32,_size='01005',_tol='1'))
+        self.assertNotIn('_volt_num',rows[0]['parameters'])
+        with self.assertRaises(ValueError):samsung_catalogue_records(source,'cr',{'partNumber':'RC0603'},rows[0]['checked_at'])
+        with self.assertRaises(ValueError):samsung_catalogue_records(source,'mlcc',{'partNumber':'CL10'},rows[0]['checked_at'])
+        self.assertEqual(samsung_catalogue_records(source.replace('NRND','Active'),'cr',{'partNumber':'RC0402'},rows[0]['checked_at']),[])
+        product.update(rValue='0Ω',ratedPower='derived from 01005',tolerance='0.05ohm Max')
+        zero=samsung_catalogue_records(json.dumps({'searchListJson':[product]}),'cr',{'partNumber':'RC0402'},rows[0]['checked_at'])[0]
+        self.assertEqual(zero['parameters']['_res_ohm'],0)
+        self.assertNotIn('_tol',zero['parameters'])
+        self.assertNotIn('_power_watt',zero['parameters'])
+
+    def test_catalogue_evidence_validation_and_blank_only_same_source_filters(self):
+        import json,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        import manufacturer_lifecycle as lifecycle
+        data={'searchListJson':[dict(partNumber='RC0402F100CS',status='Mass Production',rValue='10Ω',ratedPower='0.031 W (1/32 W)',sizeCode='01005/0402',tolerance='±1%')]}
+        evidence=lifecycle.samsung_catalogue_records(json.dumps(data),'cr',{'partNumber':'RC0402'},'2026-10-20T12:00:00+00:00')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'evidence.json'
+            path.write_text(json.dumps({'records':evidence}),encoding='utf-8')
+            self.assertEqual(len(lifecycle._read(str(path),1)),1)
+            bad=dict(evidence[0],source='https://product.samsungsem.com.attacker.test/cn/cr/basic-search.do')
+            bad2=dict(evidence[0],parameters={'_power_watt':True})
+            bad3=dict(evidence[0],request={'partNumber':'RC0603'})
+            path.write_text(json.dumps({'records':[bad,bad2,bad3]}),encoding='utf-8')
+            self.assertEqual(lifecycle._read(str(path),2),())
+        conn=sqlite3.connect(':memory:')
+        conn.executescript('CREATE TABLE components_search_core(品牌 TEXT,型号 TEXT,_component_type TEXT,_res_ohm REAL,_power_watt REAL,_size TEXT,_tol TEXT);')
+        conn.executemany('INSERT INTO components_search_core VALUES (?,?,?,?,?,?,?)',[
+            ('三星Samsung','RC0402F100CS','厚膜电阻',None,None,'',''),
+            ('Samsung','RC0402F100CS','厚膜电阻',0,2,'known','5'),
+            ('Other','RC0402F100CS','厚膜电阻',None,None,None,None)])
+        original=conn.execute('SELECT * FROM components_search_core').fetchall()
+        with patch.object(lifecycle,'records',return_value=evidence):lifecycle.install(conn,CORE,'厚膜电阻')
+        columns=[r[1] for r in conn.execute('PRAGMA table_info(catalog_lifecycle_source)')]
+        values={r[0]:dict(zip(columns,r)) for r in conn.execute('SELECT * FROM catalog_lifecycle_source')}
+        self.assertEqual(values['三星Samsung']['_power_watt'],1/32)
+        self.assertEqual(values['Samsung']['_power_watt'],2)
+        self.assertEqual(values['Samsung']['_res_ohm'],0)
+        self.assertEqual(values['Samsung']['_size'],'known')
+        self.assertIsNone(values['Other']['生产状态'])
+        self.assertEqual(snapshot(conn,'厚膜电阻',{'生产状态':['量产']})['total'],2)
+        self.assertEqual(snapshot(conn,'厚膜电阻',ranges={'_res_ohm':(10,10)})['total'],1)
+        self.assertEqual(conn.execute('SELECT * FROM components_search_core').fetchall(),original)
+        conn.close()
+
+    def test_power_inductor_catalogue_hash_is_not_arbitrary_packaging(self):
+        import json
+        from manufacturer_lifecycle import samsung_catalogue_records
+        source=json.dumps({'searchListJson':[dict(partNumber='CIGT1412R6TMR33MB',status='Mass Production',inductance=.33,lSize='1.40±0.20mm',wSize='1.20±0.20mm',tSizeMax='0.65mm',tolerance='±20%',sizeCode='0605/1412',itempMax=3.4,isatMax=5)]})
+        rows=samsung_catalogue_records(source,'pi',{'status':['Mass Production']},'2026-10-20T12:00:00+00:00')
+        self.assertEqual([r['model'] for r in rows],['CIGT1412R6TMR33MB#'])
+        self.assertEqual(rows[0]['parameters'],{'_catalog_inductance_uh':.33,'_body_size':'1.40±0.20 × 1.20±0.20 × 0.65 max mm','_size':'0605','_tol':'20'})
+        self.assertNotIn('_current_amps',rows[0]['parameters'])
+        self.assertNotIn('_saturation_amps',rows[0]['parameters'])
+
     def test_lifecycle_requires_exact_product_table_and_explicit_packaging_identity(self):
         from manufacturer_lifecycle import samsung_records
         base='CL10B104KB8NNN'

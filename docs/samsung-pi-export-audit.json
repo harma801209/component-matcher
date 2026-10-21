@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "file": "samsung-official-pi-catalogue.json",
+      "url": "https://product.samsungsem.com/pi/bSearch.do",
+      "request": {
+        "status": [
+          "Mass Production"
+        ]
+      },
+      "checked_at": "2026-10-20T13:20:08.786013+00:00",
+      "outcome": "verified-export",
+      "source_sha256": "81cdbf20d8424e6bb5220a87c46f02ea0ba2e61e9cdf58eeff717e0f2a3feaf9",
+      "receipt_origin": "preserved response-file completion time from initial collection",
+      "official_products": 213
+    }
+  ]
+}

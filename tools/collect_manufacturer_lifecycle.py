@@ -4,6 +4,7 @@ No guessed status, no credentials, no anti-bot bypass. Other brands require
 their own validated exact-model adapters; they remain pending, not 'active'.
 """
 import argparse
+import io
 import json
 import math
 import sqlite3
@@ -17,6 +18,18 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from manufacturer_lifecycle import samsung_records,manufacturer
+
+
+def read_product(session,url,agent):
+    """Reuse a normal verified HTTPS connection; redirects remain forbidden."""
+    with session.get(url,headers={'User-Agent':agent},timeout=20,allow_redirects=False,stream=True) as response:
+        if response.status_code!=200:
+            raise HTTPError(url,response.status_code,'Official product request failed',None,io.BytesIO())
+        source=bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            source.extend(chunk)
+            if len(source)>2_000_000:raise ValueError('Unexpected document size')
+        return bytes(source)
 
 def main():
     parser=argparse.ArgumentParser()
@@ -47,16 +60,16 @@ def main():
     delay=max(args.delay,robots.crawl_delay(agent) or 0)
     rate=robots.request_rate(agent)
     if rate and rate.requests: delay=max(delay,rate.seconds/rate.requests)
-    for base in bases[:args.limit]:
+    import requests
+    session=requests.Session()
+    for position,base in enumerate(bases[:args.limit],start=1):
         url='https://product.samsungsem.com/cn/mlcc/'+base+'.do'
         if not robots.can_fetch(agent,url): raise RuntimeError('Official robots policy does not allow this path')
         started=time.monotonic()
         checked=datetime.now(timezone.utc).isoformat()
+        stop=False
         try:
-            with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':agent}),timeout=20) as response:
-                if response.url!=url: raise ValueError('Unexpected product redirect')
-                source=response.read(2_000_001)
-                if len(source)>2_000_000: raise ValueError('Unexpected document size')
+            source=read_product(session,url,agent)
             rows=samsung_records(source.decode('utf-8'),url,base,checked)
             library={m for _,m in models}
             rows=[r for r in rows if r['model'] in library]
@@ -64,11 +77,17 @@ def main():
             results.append({'url':url,'checked_at':checked,'verified_models':len(rows),'outcome':'verified' if rows else 'unconfirmed'})
         except Exception as error:
             results.append({'url':url,'checked_at':checked,'verified_models':0,'outcome':'error','error':type(error).__name__})
+            if isinstance(error,HTTPError):
+                results[-1]['http_status']=error.code
+                stop=error.code in {401,403,429}
+                error.close()
         existing.update(records=sorted(verified.values(),key=lambda r:(r['manufacturer'],r['model'])))
         args.output.write_text(json.dumps(existing,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-        audit_path.write_text(json.dumps({'adapter':'samsung-mlcc-table-v1','library_models':len(models),'remaining_pages':max(0,len(bases)-min(args.limit,len(bases))),'pages':results},ensure_ascii=False,indent=2),encoding='utf-8')
+        audit_path.write_text(json.dumps({'adapter':'samsung-mlcc-table-v1','library_models':len(models),'remaining_pages':len(bases)-position,'pages':results},ensure_ascii=False,indent=2),encoding='utf-8')
         print(base,results[-1]['outcome'],results[-1]['verified_models'],flush=True)
+        if stop:break
         time.sleep(max(0,delay-(time.monotonic()-started)))
-    print('Verified exact library models:',len(verified),'of Samsung MLCC models:',len(models))
+    session.close()
+    print('Verified exact Samsung MLCC library models:',sum(r.get('parser')=='samsung-mlcc-table-v1' for r in verified.values()),'of',len(models),'All stored identities:',len(verified))
 
 if __name__=='__main__':main()
