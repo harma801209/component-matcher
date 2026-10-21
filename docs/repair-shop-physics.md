@@ -153,15 +153,17 @@ All six workbenches use the existing offline Three.js runtime with real WebGL
 meshes: a drilled/extruded PCB, seated enlarged packages, metal terminals, radial
 electrolytic cans, a through-hole domed LED, a five-pin LDO, fuse and crystal can.
 No network/CDN, generated image or video is needed. The geometry is a teaching
-location illustration and does not claim OEM package CAD, actual scale or PCB
-electrical routing. The explicit equivalent network remains the circuit contract.
+teaching layout and does not claim OEM package CAD or actual scale. Copper now
+follows the explicit equivalent network described in the routing section below.
 
-PCB raycast picks only select a test target. They cannot choose a diagnosis, perform
+Component/test-point raycast picks only select a test target; copper picks inspect
+an entire named network. They cannot choose a diagnosis, perform
 a measurement, buy parts or change coins. The accessible target buttons remain.
 Drag/touch rotates, wheel/pinch and +/- zoom, arrows orbit, 0 or the reset button
 restores the view. Camera/renderer persist across normal measurements and tool
-changes; accepting a new order disposes the old GPU resources. Texture completion
-redraws explicitly (including the initial green fallback). Idle scenes have no
+changes; accepting a new order disposes the old GPU resources. The green substrate
+and actual routed copper render synchronously, without a borrowed PCB texture.
+Idle scenes have no
 animation loop; part transfers and a powered, assembled fan request frames only
 while moving, respect reduced motion, and stop when hidden/disposed.
 Missing WebGL falls back to the labeled location diagram only after extraction;
@@ -199,6 +201,43 @@ Old already-paid orders cannot receive duplicate rewards.
 The mechanical tests and native Chrome checks cover ordering/safety, partial
 save/reload, desktop/phone layout, all six closed/opened products, and the complete
 visible-controls repair-to-reassembly-to-reward loop.
+
+## Routed teaching PCB inspection
+
+The six explicit contact graphs in repair_shop_board.js now drive both copper
+and pads. Main package contacts match the same enlarged package maps used by the
+renderer (including SOT-23 G/S/D, LED/diode A/K and capacitor polarity). The custom
+LDO is expressly the teaching A pin definition: 1 IN, 2 GND, 3 EN, 4 NC, 5 OUT.
+EN is tied to VIN; NC is not routed. This is not a universal SOT-23-5 pinout.
+
+Fixed boxes labeled ideal/equivalent/test load show the rest of the declared
+network: PMDC load and gate fixture, speaker Rs/feedback/Vref/amplifier, clock
+load/high-impedance reset, sensor standard load/pull-up, and router RLC source/
+load. They are model blocks, not secretly added replacement parts. Clock crystal
+branches remain explicitly gray/unmodeled; no new crystal-fault acceptance is
+implied. Source impedances are explicitly labeled equivalent, not OEM resistors.
+
+A deterministic two-layer grid router reserves all pads/NC contacts and mounting
+holes, keeps different nets apart and connects layers only with plated vias.
+The scene renders visible top copper, bottom copper and (in inspection mode)
+dashed blue bottom-layer projection above the substrate. A projection crossing is
+not a junction; only a via joins layers. Geometry is enlarged/ideal, without trace
+resistance/parasitics, manufacturing units, DRC or fabrication claims.
+
+Board extraction defaults to close inspection while the whole-desk view remains
+available. Top view, component transparency and clickable network highlights let
+players follow routes. Three named test points per product select the exact
+existing measurement ports, not arbitrary component leads. In particular speaker
+TP1 measures the RC rail after Rs, and clock TP1 measures buffered VCC rather than
+a crystal terminal. Network inspection never records a measurement, answers the
+diagnosis, spends coins or changes saved repair state.
+
+Independent tests assert all six intended connection groups, exact package-pad
+coordinates, absence of overlapping different-net pads, legal grid steps and
+vias, every-pad copper reachability and a routed-edge flood-fill per net.
+Native Chrome checks actual copper and all three test-point raycasts on each
+product, GND/highlight membership, projection toggle, top view, phone bounds,
+unchanged state, full repair/save/assembly/reward and original lessons.
 
 ## Primary principle references
 

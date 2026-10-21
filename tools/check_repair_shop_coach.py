@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMechanics!=='undefined'"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined'"):
                             return f
                     except Exception:
                         pass

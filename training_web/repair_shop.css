@@ -137,6 +137,16 @@
 #repair-shop .rs-3d-board{width:100%;min-width:0;background:radial-gradient(ellipse at center,#f7f7ec,#e1e7d9);border-radius:10px;overflow:hidden}
 #repair-shop canvas.rs-board-canvas{display:block;width:100%;height:365px;aspect-ratio:auto;touch-action:none;cursor:grab;outline-offset:-4px}
 #repair-shop canvas.rs-board-canvas:active{cursor:grabbing}
+#repair-shop .rs-workspace canvas.rs-board-canvas{height:500px}
+#repair-shop .rs-network-panel{padding:15px;margin:12px 0;border:1px solid #b4cbbb;border-radius:8px;background:#edf4ec}
+#repair-shop .rs-network-panel p{font-size:12px;line-height:1.8;margin:7px 0}
+#repair-shop .rs-network-panel small{display:block;font-size:12px;line-height:1.8;color:#4d6758;margin-top:8px}
+#repair-shop .rs-network-list,#repair-shop .rs-testpoint-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#repair-shop .rs-network-list button,#repair-shop .rs-testpoint-list button{font-size:12px;padding:7px 10px;min-height:40px;text-align:left;overflow-wrap:anywhere}
+#repair-shop .rs-network-list button[aria-pressed=true],#repair-shop .rs-3d-controls button[aria-pressed=true]{background:#245f50;color:#fff5ce;border-color:#245f50}
+#repair-shop .rs-net-members{padding:10px;background:#fff4ce;border-left:3px solid #d79b39;overflow-wrap:anywhere}
+@media(min-width:1101px){#repair-shop .rs-workspace{grid-template-columns:minmax(0,1fr) 320px}#repair-shop .rs-ticket{grid-column:1/-1;display:flex;gap:16px;align-items:center;padding:10px 16px}#repair-shop .rs-ticket .rs-product-art{width:50px;height:45px;margin:0}#repair-shop .rs-ticket>.rs-eyebrow,#repair-shop .rs-ticket>p{display:none}#repair-shop .rs-ticket blockquote{flex:1;border:0;margin:0;padding:0}#repair-shop .rs-ticket h3,#repair-shop .rs-ticket .rs-fee{white-space:nowrap;font-size:14px}#repair-shop .rs-ticket button{margin:0}}
+@media(max-width:760px){#repair-shop .rs-workspace canvas.rs-board-canvas{height:400px}}
 #repair-shop .rs-3d-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#e8eddf;border-top:1px solid #d4ddcc;color:#526957;font-size:12px}
 #repair-shop .rs-3d-controls button{min-height:38px;padding:6px 12px;white-space:nowrap;font-size:12px}
 #repair-shop .rs-mechanical-workspace{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(260px,1fr);gap:20px;padding:24px;min-width:0}

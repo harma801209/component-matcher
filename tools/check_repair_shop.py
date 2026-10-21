@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMechanics!=='undefined'"):
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined'"):
                             return frame
                     except Exception:
                         pass
@@ -91,6 +91,7 @@ with sync_playwright() as p:
         job = frame.evaluate('RepairShopEngine.offer(RepairShop.snapshot().active.seed)')
         culprit = job['fault']['component']
         assert frame.locator('#repair-diagnosis').count()==0
+        assert frame.evaluate('RepairShop.sceneSnapshot().renderer')=='WebGL',frame.evaluate('RepairShop.sceneSnapshot()')
         assert not frame.evaluate('RepairShop.sceneSnapshot().assembly.boardVisible')
         mechanical_steps(True)
         assert frame.locator('#repair-reason').input_value() == ''
@@ -208,6 +209,31 @@ with sync_playwright() as p:
                     assert frame.evaluate('RepairShop.sceneSnapshot().selected')==part_id
                     assert frame.locator('#repair-diagnosis').input_value()==''
                     assert frame.evaluate('RepairShop.snapshot()')==original,'3D picking must not measure, answer or spend'
+                assert scene['copper']['version']==1 and scene['copper']['segments']>4
+                assert scene['copper']['projectionVisible']
+                activate(frame.locator('[data-repair-focus="net-GND"]'))
+                assert frame.evaluate('RepairShop.sceneSnapshot().copper.highlighted')==['GND']
+                assert 'J_PWR.GND' in frame.locator('.rs-net-members').inner_text()
+                assert frame.evaluate('RepairShop.snapshot()')==original
+                samples=frame.evaluate('RepairShop.sceneSnapshot().netProjections')
+                assert samples,(product_id,'Need at least one unobscured actual trace pick')
+                net=next(iter(samples))
+                canvas.scroll_into_view_if_needed()
+                canvas.click(position=samples[net])
+                assert frame.evaluate('RepairShop.sceneSnapshot().copper.highlighted')==[net],(product_id,net)
+                for port_id,position in frame.evaluate('RepairShop.sceneSnapshot().portProjections').items():
+                    canvas.click(position=position)
+                    expected=frame.evaluate('(p)=>RepairShopBoard.get(RepairShop.sceneSnapshot().product).ports.find(x=>x.id===p).part',port_id)
+                    assert frame.evaluate('RepairShop.sceneSnapshot().selected')==expected,(product_id,port_id)
+                    assert frame.locator('#repair-diagnosis').input_value()==''
+                activate(frame.locator('[data-repair-focus="board-inspection"]'))
+                assert not frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible')
+                activate(frame.locator('[data-repair-focus="board-inspection"]'))
+                activate(frame.locator('[data-repair-focus="net-all"]'))
+                activate(frame.locator('[data-repair-focus="board-top"]'))
+                assert frame.evaluate('RepairShop.sceneSnapshot().elevation')>1.5
+                assert frame.evaluate('RepairShop.snapshot()')==original,'Tracing cannot measure, choose diagnosis, spend or alter saved repair'
+                frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('copper-'+product_id+'-top.png')))
                 canvas.focus()
                 yaw=frame.evaluate('RepairShop.sceneSnapshot().yaw')
                 canvas.press('ArrowRight')
@@ -223,16 +249,21 @@ with sync_playwright() as p:
                 assert model.locator('.rs-circuit-netlist').is_visible()
                 model.screenshot(path=str(OUT / ('model-'+product_id+'.png')))
                 page.set_viewport_size({'width':393,'height':960})
+                activate(frame.locator('[data-repair-focus="board-top"]'))
+                bounds=frame.evaluate('({width:document.querySelector(".rs-board-canvas").clientWidth,height:document.querySelector(".rs-board-canvas").clientHeight,ports:RepairShop.sceneSnapshot().portProjections})')
+                assert all(0<q['x']<bounds['width'] and 0<q['y']<bounds['height'] for q in bounds['ports'].values()),(product_id,bounds)
                 sizes=frame.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
                 assert sizes['scroll']<=sizes['client']+1,(product_id,sizes)
                 if product_id in ['speaker','router']:
                     model.screenshot(path=str(OUT / ('model-phone-'+product_id+'.png')))
+                    frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('copper-phone-'+product_id+'.png')))
                 page.set_viewport_size({'width':1440,'height':1080})
             report['six_diagrams']='checked'
             report['finished_and_retained_parts']='all six closed products hide PCB; four screws, cover, brace and board remain on desk after disassembly'
             report['mechanical_raycast']='screwdriver, all four screws, cover, brace and J1 operated with actual 3D picks'
             report['six_physical_models']='v2 visible, netlist/limits and phone containment checked'
             report['six_webgl_boards']='real meshes, raycast selection, camera rotation/zoom/reset; no game-state mutation'
+            report['copper_networks']='six explicit graphs; actual copper trace and all three testpoint picks, GND/network highlights, bottom projection toggle, top inspection and phone fit; no game-state mutation'
         assert not errors, errors
         report.update(status='passed',rewards=True,mobile_fit=True,original_lessons=True,errors=errors)
         print(json.dumps(report, ensure_ascii=False), flush=True)
