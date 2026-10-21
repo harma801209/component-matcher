@@ -116,3 +116,45 @@ without creating an empty SQLite file. The source index itself remains unchanged
 The exact-source release gate passes 370 tests (499.729 seconds), using isolated
 test stores with unchanged protected-runtime fingerprints. Formal browser
 acceptance follows publication; that gate alone is not a claim of UI acceptance.
+
+## Exact package correction and second OEM — 2026-10-21
+
+The verified total is now **9,501 existing brand/model identities**, with
+**1,739,126 pending**. The additional 28 are Panasonic exact product pages whose
+heading and own part-number status badge both explicitly say `NRFND`. Canonical
+URL, exact official model, original library model (including its optional ERJ
+hyphen), response hash and timezone-aware check time are retained. No Active
+state is inferred from page presence. Two 404 responses remain unconfirmed,
+not discontinued. The general linked replacement notice is not model proof.
+
+The adapter currently supports only this explicitly observed Panasonic NRFND
+badge. Broader Panasonic/all-brand coverage is unfinished. Example primary
+page: [ERJ12NF1000U](https://industrial.panasonic.com/ww/products/pt/general-purpose-chip-resistors/models/ERJ12NF1000U).
+Use `tools/collect_panasonic_lifecycle.py --folder <private-public-evidence-dir>
+--output manufacturer_lifecycle_evidence.json --limit 30`; optional repeated
+`--prefix` flags scope collection. `--import-only` rechecks saved response
+hashes and exact page/model binding without network requests. Official robots,
+TLS, serial rate/size limits and 401/403/429 stops are retained. Only existing
+library identities are imported; no ordering codes are generated.
+
+Formal QA also exposed a genuine legacy package error: `RC1005J000CS` was
+indexed as inch `01005`, while the exact Samsung CR response gives
+`0402/1005` (inch/metric). Across all verified Samsung resistor identities,
+**4,742 nonempty legacy packages conflict with the explicit OEM inch value**.
+Only those verified exact CR packages now prefer the OEM value in the TEMP
+catalogue projection. Other brands, other parameters, stored source data and
+ordinary matching inputs are unchanged; resistance zero is preserved. This is
+a deliberate narrow exception to the earlier blank-only policy, not a new
+model-prefix/size-to-power inference. `RC1005J000CS` and `RCS1005J000CS` now both
+appear under `0402`, with zero ohms and the previously repaired `1/16 W`.
+
+UI expected counts must keep raw brand labels separate: thick-film verified
+`三星Samsung` = 8,063 and the separate `Samsung` label = 1, totaling 8,064.
+
+Release validation: the exact-source 375-test safety gate passes (510.155
+seconds), with isolated stores and unchanged protected-runtime fingerprints.
+An earlier run correctly failed because its old reload mock omitted the new
+Panasonic helper; the mock now checks helper-before-parent ordering as well.
+It was not skipped, and a separate regression covers an actually cached old
+parent module lacking the new helper attribute. Formal acceptance follows
+publication and is not implied by this gate alone.

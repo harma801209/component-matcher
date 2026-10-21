@@ -453,7 +453,83 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         raw=json.loads(lifecycle.EVIDENCE.read_text(encoding='utf-8'))['records']
         self.assertEqual(len(lifecycle.records()),len(raw))
         self.assertEqual(len({(r['manufacturer'],r['model']) for r in raw}),len(raw))
-        self.assertTrue(all(r['raw_status'] in lifecycle.STATUSES for r in raw))
+        self.assertTrue(all(r['raw_status'] in lifecycle.STATUSES if r['manufacturer']=='samsung' else lifecycle.panasonic_lifecycle.valid_record(r) for r in raw))
+
+    def test_panasonic_exact_product_badge_not_generic_notice_or_page_presence(self):
+        import panasonic_lifecycle as p
+        model='ERJ-12NF1000U';official='ERJ12NF1000U';url=p.ORIGIN+p.PATH+official
+        source=f'<link rel="canonical" href="{url}"><h1>{official} (NRFND) : General Purpose Chip Resistors</h1><h3 data-drupal-selector="edit-product-number"><div>Parts no</div><div>{official}<span data-drupal-selector="edit-status">NRFND</span></div></h3>'
+        record=p.product_record(source,url,model,'2026-10-21T01:00:00+00:00')
+        self.assertEqual(record['status'],'NRND（不推荐新设计）')
+        self.assertEqual(record['model'],model)
+        self.assertEqual(record['official_model'],official)
+        self.assertTrue(p.valid_record(record))
+        for changed in (source.replace('(NRFND)',''),source.replace('data-drupal-selector="edit-status"','class="generic-badge"'),source.replace(official+'<span',official+'WRONG<span'),source.replace('NRFND','Active'),source+'<h1>Other</h1>'):
+            self.assertIsNone(p.product_record(changed,url,model,record['checked_at']))
+        for bad_url in (url+'?x=1',url.replace('panasonic.com','panasonic.com.attacker.test'),url+'/cad'):
+            with self.assertRaises(ValueError):p.product_record(source,bad_url,model,record['checked_at'])
+        with self.assertRaises(ValueError):p.official_model('ERJ--12NF1000U')
+        with self.assertRaises(ValueError):p.product_record(source,url,model,'2026-10-21T01:00:00')
+
+    def test_new_oem_helper_hot_update_handles_cached_parent_without_helper_attribute(self):
+        import ast,sys
+        from pathlib import Path
+        from types import ModuleType,SimpleNamespace
+        from unittest.mock import patch
+        source=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(source.read_text(encoding='utf-8'))
+        modules={'manufacturer_lifecycle':ModuleType('manufacturer_lifecycle'),'panasonic_lifecycle':ModuleType('panasonic_lifecycle')}
+        aliases={'_catalog_lifecycle','_catalog_panasonic_lifecycle'}
+        selected=[]
+        for node in tree.body:
+            if isinstance(node,ast.Import) and any(a.name in modules for a in node.names):selected.append(node)
+            elif (isinstance(node,ast.Expr) and isinstance(node.value,ast.Call)
+                  and isinstance(node.value.func,ast.Attribute) and node.value.func.attr=='reload'
+                  and len(node.value.args)==1 and isinstance(node.value.args[0],ast.Name)
+                  and node.value.args[0].id in aliases):selected.append(node)
+        reloaded=[]
+        namespace={'_workbench_importlib':SimpleNamespace(reload=lambda module:reloaded.append(module.__name__))}
+        with patch.dict(sys.modules,modules):exec(compile(ast.Module(body=selected,type_ignores=[]),str(source),'exec'),namespace)
+        self.assertEqual(reloaded,['panasonic_lifecycle','manufacturer_lifecycle'])
+
+    def test_panasonic_receipt_import_checks_hash_scope_and_existing_identity(self):
+        import hashlib,json,tempfile
+        from pathlib import Path
+        from tools.collect_panasonic_lifecycle import import_receipts
+        import panasonic_lifecycle as p
+        model='ERJ-12NF1000U';official=p.official_model(model);url=p.ORIGIN+p.PATH+official
+        source=f'<link rel="canonical" href="{url}"><h1>{official} (NRFND) : Resistor</h1><h3 data-drupal-selector="edit-product-number">Parts no {official} <span data-drupal-selector="edit-status">NRFND</span></h3>'
+        receipt=dict(model=model,official_model=official,url=url,http_status=200,file=official+'.html',checked_at='2026-10-21T01:00:00+00:00',source_sha256=hashlib.sha256(source.encode()).hexdigest())
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder);(path/receipt['file']).write_text(source,encoding='utf-8')
+            records=import_receipts(path,[receipt],{model})
+            self.assertEqual(len(records),1)
+            self.assertEqual(import_receipts(path,[receipt],set()),[])
+            self.assertEqual(import_receipts(path,[dict(receipt,http_status=404)],{model}),[])
+            with self.assertRaises(ValueError):import_receipts(path,[dict(receipt,file='../outside.html')],{model})
+            with self.assertRaises(ValueError):import_receipts(path,[dict(receipt,source_sha256='0'*64)],{model})
+            import manufacturer_lifecycle as lifecycle
+            bad=[dict(records[0],official_model='ERJ12NF1001U'),dict(records[0],parameters={'_size':'1812'}),dict(records[0],source=url+'?x=1')]
+            evidence_path=path/'evidence.json';evidence_path.write_text(json.dumps({'records':records+bad}),encoding='utf-8')
+            self.assertEqual(lifecycle._read(str(evidence_path),1),tuple(records))
+
+    def test_verified_samsung_cr_inch_package_repairs_legacy_metric_conflict_only(self):
+        import json
+        from unittest.mock import patch
+        import manufacturer_lifecycle as lifecycle
+        record=lifecycle.samsung_catalogue_records(json.dumps({'searchListJson':[dict(partNumber='RC1005J000CS',status='Mass Production',rValue='0Ω',ratedPower='0.063 W (1/16 W)',sizeCode='0402/1005',tolerance='0.05ohm Max')]}),'cr',{'partNumber':'RC1005'},'2026-10-21T01:00:00+00:00')[0]
+        conn=sqlite3.connect(':memory:')
+        conn.executescript('CREATE TABLE components_search_resistor(品牌 TEXT,型号 TEXT,_component_type TEXT,_size TEXT,_res_ohm REAL,_tol TEXT,_power_watt REAL);')
+        conn.executemany('INSERT INTO components_search_resistor VALUES (?,?,?,?,?,?,?)',[
+            ('三星Samsung','RC1005J000CS','厚膜电阻','01005',0,'existing',2),
+            ('Other','RC1005J000CS','厚膜电阻','01005',0,'existing',2)])
+        before=conn.execute('SELECT * FROM components_search_resistor').fetchall()
+        with patch.object(lifecycle,'records',return_value=[record]):lifecycle.install(conn,'components_search_resistor','厚膜电阻')
+        self.assertEqual(conn.execute('SELECT 品牌,_size,_res_ohm,_tol,_power_watt FROM catalog_lifecycle_source ORDER BY 品牌').fetchall(),[
+            ('Other','01005',0,'existing',2),('三星Samsung','0402',0,'existing',2)])
+        self.assertEqual(snapshot(conn,'厚膜电阻',{'_size':['0402']})['total'],1)
+        self.assertEqual(conn.execute('SELECT * FROM components_search_resistor').fetchall(),before)
+        conn.close()
 
     def test_unreviewed_brand_never_promotes_legacy_active_even_without_evidence(self):
         from unittest.mock import patch
@@ -534,7 +610,7 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         self.assertEqual(values['三星Samsung']['_power_watt'],1/32)
         self.assertEqual(values['Samsung']['_power_watt'],2)
         self.assertEqual(values['Samsung']['_res_ohm'],0)
-        self.assertEqual(values['Samsung']['_size'],'known')
+        self.assertEqual(values['Samsung']['_size'],'01005')
         self.assertIsNone(values['Other']['生产状态'])
         self.assertEqual(snapshot(conn,'厚膜电阻',{'生产状态':['量产']})['total'],2)
         self.assertEqual(snapshot(conn,'厚膜电阻',ranges={'_res_ohm':(10,10)})['total'],1)

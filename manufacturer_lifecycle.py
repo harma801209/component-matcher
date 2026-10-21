@@ -14,6 +14,7 @@ from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
+import panasonic_lifecycle
 
 EVIDENCE = Path(__file__).with_name('manufacturer_lifecycle_evidence.json')
 SAMSUNG_HOST = 'product.samsungsem.com'
@@ -87,7 +88,9 @@ def samsung_catalogue_records(source, category, request, checked_at):
 
 def manufacturer(brand):
     value = str(brand or '').strip().upper()
-    return 'samsung' if value in {'三星SAMSUNG','SAMSUNG','SAMSUNG ELECTRO-MECHANICS','三星电机'} else value
+    if value in {'三星SAMSUNG','SAMSUNG','SAMSUNG ELECTRO-MECHANICS','三星电机'}: return 'samsung'
+    if value in {'PANASONIC','PANASONIC(松下)','松下PANASONIC'}: return 'panasonic'
+    return value
 
 
 class SamsungPage(HTMLParser):
@@ -144,6 +147,11 @@ def _read(path, modified):
     raw = json.loads(Path(path).read_text(encoding='utf-8'))
     result = {}
     for record in raw.get('records',[]):
+        if record.get('manufacturer') == 'panasonic':
+            if panasonic_lifecycle.valid_record(record):
+                key=('panasonic',record['model'])
+                if key not in result or result[key]['checked_at'] < record['checked_at']: result[key]=record
+            continue
         if record.get('manufacturer') != 'samsung' or record.get('status') != STATUSES.get(record.get('raw_status')): continue
         url = urlsplit(record.get('source',''))
         model = record.get('model','')
@@ -186,12 +194,19 @@ def install(conn, table, kind):
     # on the existing source side of the LEFT JOIN.
     brands = [b for b, in conn.execute(f'SELECT DISTINCT 品牌 FROM "{table}" WHERE _component_type=?',(kind,))]
     specifications = RESISTOR_SPECS if kind in {'贴片电阻','厚膜电阻','薄膜电阻','合金电阻'} else INDUCTOR_SPECS if kind=='功率电感' else ()
-    known = [(b,r['model'],r['status'],r['source'],r['checked_at'],*(r.get('parameters',{}).get(k) for k in specifications)) for b in brands for r in evidence if manufacturer(b)==r['manufacturer']]
+    # Samsung's exact CR response explicitly distinguishes inch/metric sizeCode.
+    # Legacy prefix decoding mixed those two systems for thousands of models.
+    # Prefer this verified package only; all other specs remain blank-only.
+    def package_authority(record):
+        return int(record.get('manufacturer')=='samsung' and record.get('parser')==CATALOGUE_PARSER
+                   and record.get('source')=='https://'+SAMSUNG_HOST+'/cn/cr/basic-search.do'
+                   and bool(re.fullmatch(r'\d{4,6}',str(record.get('parameters',{}).get('_size','')))))
+    known = [(b,r['model'],r['status'],r['source'],r['checked_at'],package_authority(r),*(r.get('parameters',{}).get(k) for k in specifications)) for b in brands for r in evidence if manufacturer(b)==r['manufacturer']]
     # Even a wholly unaudited brand/kind must not display legacy default
     # 'Active' as though an official exact-model check had taken place.
     declarations = ''.join(',"'+k+'" '+SPEC_FIELDS[k] for k in specifications)
-    conn.execute('CREATE TEMP TABLE catalog_lifecycle_evidence (品牌 TEXT,型号 TEXT,生产状态 TEXT,_lifecycle_source TEXT,_lifecycle_checked TEXT'+declarations+',PRIMARY KEY(品牌,型号))')
-    conn.executemany('INSERT OR IGNORE INTO catalog_lifecycle_evidence VALUES ('+','.join('?' for _ in range(5+len(specifications)))+')',known)
+    conn.execute('CREATE TEMP TABLE catalog_lifecycle_evidence (品牌 TEXT,型号 TEXT,生产状态 TEXT,_lifecycle_source TEXT,_lifecycle_checked TEXT,_package_authoritative INTEGER'+declarations+',PRIMARY KEY(品牌,型号))')
+    conn.executemany('INSERT OR IGNORE INTO catalog_lifecycle_evidence VALUES ('+','.join('?' for _ in range(6+len(specifications)))+')',known)
     columns = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
     expressions = []
     for column in dict.fromkeys([*columns,*specifications]):
@@ -199,6 +214,7 @@ def install(conn, table, kind):
         original = 'b."'+column+'"' if column in columns else 'NULL'
         if column in specifications:
             original = 'CASE WHEN '+original+' IS NULL OR UPPER(TRIM(CAST('+original+' AS TEXT))) IN (\'\',\'-\',\'--\',\'/\',\'N/A\',\'NA\',\'NULL\',\'NONE\',\'NAN\') THEN e."'+column+'" ELSE '+original+' END'
+            if column=='_size': original='CASE WHEN e._package_authoritative=1 THEN e."_size" ELSE '+original+' END'
         expressions.append(original+' AS "'+column+'"')
     projection = ','.join(expressions)
     conn.execute('CREATE TEMP VIEW catalog_lifecycle_source AS SELECT '+projection+',e.生产状态,e._lifecycle_source,e._lifecycle_checked FROM "'+table+'" b LEFT JOIN catalog_lifecycle_evidence e ON b.品牌 IS e.品牌 AND b.型号=e.型号 WHERE b._component_type='+"'"+kind.replace("'","''")+"'")

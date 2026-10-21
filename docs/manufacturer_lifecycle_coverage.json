@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-10-20T15:00:52.937561+00:00",
+  "checked_at": "2026-10-21T01:23:59.591784+00:00",
   "identity": "distinct raw brand label + existing model; alias labels not silently merged",
   "library_models": 1748627,
   "raw_brand_labels": 345,
-  "verified_models": 9473,
+  "verified_models": 9501,
   "brands": [
     {
       "brand": "威世Vishay",
@@ -43,9 +43,11 @@
     {
       "brand": "Panasonic",
       "library_models": 71251,
-      "verified_models": 0,
-      "pending_models": 71251,
-      "statuses": {}
+      "verified_models": 28,
+      "pending_models": 71223,
+      "statuses": {
+        "NRND（不推荐新设计）": 28
+      }
     },
     {
       "brand": "村田Murata",
@@ -2426,5 +2428,5 @@
       "statuses": {}
     }
   ],
-  "pending_models": 1739154
+  "pending_models": 1739126
 }

@@ -6,6 +6,16 @@ from tests import test_component_filters as fixtures
 
 
 class SpecificationTableTests(unittest.TestCase):
+    def test_lifecycle_links_allow_only_reviewed_oem_paths(self):
+        import re
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[1]/'catalog_results/index.html').read_text(encoding='utf-8')
+        pattern=source.split("c.key==='生产状态'&&/",1)[1].split("/.test(row._lifecycle_source",1)[0].replace(r'\/', '/')
+        allowed=['https://product.samsungsem.com/cn/cr/basic-search.do','https://product.samsungsem.com/cn/mlcc/CL10B104KB8NNN.do','https://industrial.panasonic.com/ww/products/pt/general-purpose-chip-resistors/models/ERJ12NF1000U']
+        for url in allowed:self.assertTrue(re.fullmatch(pattern,url))
+        for url in (allowed[2]+'?x=1',allowed[2].replace('panasonic.com','panasonic.com.attacker.test'),'javascript:alert(1)','https://industrial.panasonic.com/other'):
+            self.assertFalse(re.fullmatch(pattern,url))
+
     def test_column_widths_measure_page_content_instead_of_fixed_column_buckets(self):
         from pathlib import Path
         template=(Path(__file__).resolve().parents[1]/'catalog_results/index.html').read_text(encoding='utf-8')
