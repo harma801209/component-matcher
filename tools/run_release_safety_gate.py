@@ -143,6 +143,7 @@ def main() -> int:
                 "tests.test_repair_shop_evidence",
                 "tests.test_repair_shop_physics",
                 "tests.test_repair_shop_scene",
+                "tests.test_repair_shop_mechanics",
                 "tests.test_jianghai_parameters",
                 "tests.test_member_auth_bridge",
             ],

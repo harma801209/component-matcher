@@ -14,10 +14,13 @@ class RepairShopTests(unittest.TestCase):
         if not Path(node).exists():
             self.skipTest('Node is unavailable')
         prefix = r'''
-const a=require('node:assert/strict'),E=require(process.argv[1]+'/repair_shop_engine.js'),D=require(process.argv[1]+'/repair_shop_data.js');
+const a=require('node:assert/strict'),E=require(process.argv[1]+'/repair_shop_engine.js'),D=require(process.argv[1]+'/repair_shop_data.js'),Mechanics=require(process.argv[1]+'/repair_shop_mechanics.js');
 const act=(s,type,extra={})=>E.apply(s,{type,...extra});
-const evidence=(s,j)=>{s=act(s,'power').state;s=act(s,'measure',{id:j.fault.component,mode:'scope'}).state;s=act(s,'power').state;s=act(s,'discharge').state;return act(s,'measure',{id:j.fault.component,mode:'component'}).state;};
-const solve=(seed)=>{let s=act(E.create(),'accept',{seed}).state,j=E.offer(seed);s=evidence(s,j);let r=act(s,'diagnose',{id:j.fault.component,reason:j.fault.reason});a(r.ok);s=r.state;const p=j.product.parts.find(p=>p.id===j.fault.component),c=j.candidates.find(c=>!E.compatible(p,c));r=act(s,'install',{stockId:c.stockId,orientation:'correct'});a(r.ok);s=r.state;s=act(s,'power').state;r=act(s,'test');a(r.ok);return {s:r.state,j,c};};
+const open=s=>{if(Mechanics.onTable(s.active.mechanics))return s;if(s.active.power)s=act(s,'power').state;s=act(s,'discharge').state;for(let k=0;k<12&&!Mechanics.onTable(s.active.mechanics);k++){const n=Mechanics.next(s.active.mechanics,s.active.tested),r=act(s,'mechanical',{op:n.op,id:n.id,tool:'phillips'});a(r.ok,r.message);s=r.state;}return s;};
+const close=s=>{if(s.active.power)s=act(s,'power').state;s=act(s,'discharge').state;for(let k=0;k<12&&!Mechanics.assembled(s.active.mechanics);k++){const n=Mechanics.next(s.active.mechanics,s.active.tested),r=act(s,'mechanical',{op:n.op,id:n.id,tool:'phillips'});a(r.ok,r.message);s=r.state;}s=act(s,'power').state;const r=act(s,'testAssembly');a(r.ok,r.message);return r.state;};
+const atBoardTest=s=>{const copy=JSON.parse(JSON.stringify(s)),end=copy.active.events.findIndex(e=>e.type==='test');a(end>=0);copy.active.events=copy.active.events.slice(0,end+1);return E.restore(copy);};
+const evidence=(s,j)=>{s=open(s);if(!s.active.power)s=act(s,'power').state;s=act(s,'measure',{id:j.fault.component,mode:'scope'}).state;s=act(s,'power').state;s=act(s,'discharge').state;return act(s,'measure',{id:j.fault.component,mode:'component'}).state;};
+const solve=(seed)=>{let s=act(E.create(),'accept',{seed}).state,j=E.offer(seed);s=evidence(s,j);let r=act(s,'diagnose',{id:j.fault.component,reason:j.fault.reason});a(r.ok);s=r.state;const p=j.product.parts.find(p=>p.id===j.fault.component),c=j.candidates.find(c=>!E.compatible(p,c));r=act(s,'install',{stockId:c.stockId,orientation:'correct'});a(r.ok);s=r.state;s=act(s,'power').state;r=act(s,'test');a(r.ok);return {s:close(r.state),j,c};};
 '''
         result = subprocess.run([node, '-e', prefix + body, str(WEB_ROOT)], capture_output=True, text=True, encoding='utf-8')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -57,7 +60,7 @@ for(let seed=1;seed<80;seed++){if(!E.offer(seed).fault.enabled)continue;const j=
 
     def test_fault_and_healthy_readings_are_distinct_and_repaired_readings_restore(self):
         self.run_node(r'''
-for(let seed=0;seed<80;seed++){if(!E.offer(seed).fault.enabled)continue;const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'discharge').state;for(const p of j.product.parts){const r=E.measurement(s.active,'component',p.id);a.equal(r.proof,p.id===j.fault.component);if(r.proof)a.notEqual(r.value,r.normal);else a.equal(r.value,r.normal);}const fixed=solve(seed).s;for(const p of j.product.parts){const r=E.measurement(fixed.active,'voltage',p.id);a.equal(r.value,r.normal);}a.equal(E.measurement(fixed.active,'scope',j.fault.component).value,j.product.behavior);}
+for(let seed=0;seed<80;seed++){if(!E.offer(seed).fault.enabled)continue;const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=open(s);for(const p of j.product.parts){const r=E.measurement(s.active,'component',p.id);a.equal(r.proof,p.id===j.fault.component);if(r.proof)a.notEqual(r.value,r.normal);else a.equal(r.value,r.normal);}const fixed=atBoardTest(solve(seed).s);for(const p of j.product.parts){const r=E.measurement(fixed.active,'voltage',p.id);a.equal(r.value,r.normal);}a.equal(E.measurement(fixed.active,'scope',j.fault.component).value,j.product.behavior);}
 ''')
 
     def test_save_replays_actions_and_ignores_forged_completion_flags(self):

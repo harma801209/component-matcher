@@ -8,16 +8,16 @@
   const T=root.TrainingThree,P=root.TrainingGamePackages;if(!T||!P)throw new Error('3D runtime unavailable');
   const renderer=new T.WebGLRenderer({canvas,alpha:true,antialias:true});renderer.setPixelRatio(Math.min(root.devicePixelRatio||1,2));renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
-  const scene=new T.Scene(),world=new T.Group(),camera=new T.PerspectiveCamera(38,1,.1,70);scene.add(world);
+  const scene=new T.Scene(),world=new T.Group(),pcb=new T.Group(),camera=new T.PerspectiveCamera(38,1,.1,90);scene.add(world);world.add(pcb);
   scene.add(new T.HemisphereLight(0xfff8e8,0x658477,2.5));const sun=new T.DirectionalLight(0xffffff,3);sun.position.set(-3,8,5);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-6;sun.shadow.camera.right=6;sun.shadow.camera.top=5;sun.shadow.camera.bottom=-5;sun.shadow.normalBias=.025;scene.add(sun);
-  let disposed=false,lost=false,yaw=cameraState?.yaw??-.28,elevation=cameraState?.elevation??.92,zoom=cameraState?.zoom??1,selected=null,frames=0,dragged=false,travel=0,gesture=null;
+  let disposed=false,lost=false,yaw=cameraState?.yaw??-.28,elevation=cameraState?.elevation??.92,zoom=cameraState?.zoom??1,selected=null,frames=0,dragged=false,travel=0,gesture=null,frame=0,last=0,focus='desk',lastTable=false;
   const nodes={},textures=[],materials=new Set(),geometries=new Set(),pointers=new Map(),positions=layouts[product.id];
   const material=(color,extra={})=>{const m=new T.MeshStandardMaterial({color,roughness:.45,metalness:.12,...extra});materials.add(m);return m;};
-  function mesh(g,m,p,group=world){geometries.add(g);materials.add(m);const n=new T.Mesh(g,m);n.position.set(...p);n.castShadow=true;n.receiveShadow=true;group.add(n);return n;}
-  const box=(p,size,color,group=world)=>mesh(new T.BoxGeometry(...size),material(color),p,group);
+  function mesh(g,m,p,group=pcb){geometries.add(g);materials.add(m);const n=new T.Mesh(g,m);n.position.set(...p);n.castShadow=true;n.receiveShadow=true;group.add(n);return n;}
+  const box=(p,size,color,group=pcb)=>mesh(new T.BoxGeometry(...size),material(color),p,group);
   const vec=p=>new T.Vector3(...p);
-  function rod(a,b,r,color,group=world){const d=vec(b).sub(vec(a)),n=mesh(new T.CylinderGeometry(r,r,d.length(),12),material(color,{metalness:.5,roughness:.3}),vec(a).add(vec(b)).multiplyScalar(.5).toArray(),group);n.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return n;}
-  function print(text,p,w=1.2,h=.25,group=world,color='#f4f5d6'){
+  function rod(a,b,r,color,group=pcb){const d=vec(b).sub(vec(a)),n=mesh(new T.CylinderGeometry(r,r,d.length(),12),material(color,{metalness:.5,roughness:.3}),vec(a).add(vec(b)).multiplyScalar(.5).toArray(),group);n.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return n;}
+  function print(text,p,w=1.2,h=.25,group=pcb,color='#f4f5d6'){
    const c=document.createElement('canvas');c.width=512;c.height=128;const ctx=c.getContext('2d');ctx.font='bold 76px Segoe UI, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.fillText(text,256,64,495);
    const map=new T.CanvasTexture(c);map.colorSpace=T.SRGBColorSpace;textures.push(map);const m=new T.MeshBasicMaterial({map,transparent:true,depthWrite:false,side:T.DoubleSide});const n=mesh(new T.PlaneGeometry(w,h),m,p,group);n.rotation.x=-Math.PI/2;n.castShadow=false;n.receiveShadow=false;return n;
   }
@@ -28,7 +28,7 @@
   const shape=new T.Shape();shape.moveTo(-4,-2.5);shape.lineTo(4,-2.5);shape.lineTo(4,2.5);shape.lineTo(-4,2.5);shape.lineTo(-4,-2.5);
   for(const [x,z] of [[-3.65,-2.15],[3.65,-2.15],[-3.65,2.15],[3.65,2.15]]){const hole=new T.Path();hole.absarc(x,z,.13,0,Math.PI*2,true);shape.holes.push(hole);const ring=mesh(new T.TorusGeometry(.18,.045,10,24),material(0xd5bd72,{metalness:.6}),[x,.015,-z]);ring.rotation.x=-Math.PI/2;}
   const board=mesh(new T.ExtrudeGeometry(shape,{depth:.12,bevelEnabled:false}),material(0xffffff,{map:pcbMap,roughness:.72,metalness:.02}),[0,-.12,0]);board.rotation.x=-Math.PI/2;
-  const ground=mesh(new T.PlaneGeometry(25,25),new T.ShadowMaterial({opacity:.16}),[0,-.35,0]);ground.rotation.x=-Math.PI/2;ground.castShadow=false;
+  const ground=mesh(new T.PlaneGeometry(25,25),new T.ShadowMaterial({opacity:.16}),[0,-.349,0],world);ground.rotation.x=-Math.PI/2;ground.castShadow=false;
   print('FRUITION · REPAIR LAB',[0,.025,-2.14],3.5,.24);print(product.name+' · 位置示意',[0,.025,2.12],3.5,.22);
   // Peripheral connectors are visual only, not undeclared electrical branches.
   box([-3.85,.15,.1],[.45,.3,.95],0xb4bfc1);box([-4.08,.15,.1],[.02,.14,.58],0x26363a);
@@ -50,7 +50,7 @@
    }
   }
   product.parts.forEach((part,i)=>{
-   const [x,z]=positions[i],group=new T.Group();group.position.set(x,.04,z);world.add(group);nodes[part.id]={group,center:[x,.55,z]};
+   const [x,z]=positions[i],group=new T.Group();group.position.set(x,.04,z);pcb.add(group);nodes[part.id]={group,center:[x,.55,z]};
    const packageId={resistor:'res-thick',capacitor:'cap-aluminum',ceramic:'cap-mlcc',mos:'mos-n',inductor:'ind-molded'}[part.type];
    if(packageId){const data=P.build(packageId,{marking:part.type==='resistor'?(part.value===220?'221':part.value===4700?'472':'103'):undefined});
     for(const q of data.items){let n;if(q.type==='box'){n=box(q.p,q.size,q.c,group);if(q.rotation)n.rotation.set(...q.rotation);}else if(q.type==='rod')n=rod(q.a,q.b,q.r,q.c,group);else n=print(q.text,q.p,q.w,q.h,group,q.c);if(n&&q.rotation)n.rotation.set(...q.rotation);}
@@ -60,12 +60,14 @@
    print(part.id,[x,.03,z+1.03],.6,.29);print(part.pkg,[x,.03,z+1.36],1.4,.18);
    const ring=mesh(new T.TorusGeometry(.86,.025,8,48),new T.MeshBasicMaterial({color:0xe6bd61}),[x,.07,z]);ring.rotation.x=-Math.PI/2;ring.visible=false;nodes[part.id].ring=ring;
   });
-  function draw(){if(disposed||lost)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;camera.aspect=r.width/r.height;camera.updateProjectionMatrix();const distance=11.2*Math.max(1,1.25/camera.aspect)*zoom;camera.position.set(Math.sin(yaw)*Math.cos(elevation)*distance,Math.sin(elevation)*distance,Math.cos(yaw)*Math.cos(elevation)*distance);camera.lookAt(0,.2,0);renderer.render(scene,camera);canvas.dataset.frames=String(++frames);canvas.dataset.renderer='WebGL';canvas.dataset.yaw=String(yaw);canvas.dataset.zoom=String(zoom);}
+  const enclosure=root.RepairShopEnclosure.create(T,world,pcb,product,{mesh,box,rod,print,material});
+  function draw(dt=0){if(disposed||lost)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;enclosure.advance(dt);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();const target=focus==='board'?enclosure.boardCenter():new T.Vector3(0,.9,-.7),distance=(focus==='board'?7.8:20)*Math.max(1,1.25/camera.aspect)*zoom;camera.position.set(target.x+Math.sin(yaw)*Math.cos(elevation)*distance,target.y+Math.sin(elevation)*distance,target.z+Math.cos(yaw)*Math.cos(elevation)*distance);camera.lookAt(target);renderer.render(scene,camera);canvas.dataset.frames=String(++frames);canvas.dataset.renderer='WebGL';canvas.dataset.yaw=String(yaw);canvas.dataset.zoom=String(zoom);if(enclosure.needsFrame()&&!frame)frame=requestAnimationFrame(animate);}
+  function animate(now){frame=0;if(disposed||document.hidden||!canvas.getBoundingClientRect().width){last=0;return;}const dt=last?Math.min(.05,(now-last)/1000):.016;last=now;draw(dt);if(!enclosure.needsFrame())last=0;}
   function resize(){const r=canvas.getBoundingClientRect();if(disposed||!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);draw();}
-  function update(id,state){selected=id;for(const [key,n] of Object.entries(nodes))n.ring.visible=key===id;const lens=Object.values(nodes).find(n=>n.lens)?.lens;if(lens)lens.emissiveIntensity=state.power?Math.min(1.8,Math.max(0,state.current||0)*85):0;draw();}
-  const reset=()=>{yaw=-.28;elevation=.92;zoom=1;draw();};
+  function update(id,state){selected=id;for(const [key,n] of Object.entries(nodes))n.ring.visible=key===id;enclosure.update(state.mechanics,state);const table=root.RepairShopMechanics.onTable(state.mechanics);if(table!==lastTable)focus='desk';lastTable=table;const lens=Object.values(nodes).find(n=>n.lens)?.lens;if(lens)lens.emissiveIntensity=state.power?Math.min(1.8,Math.max(0,state.current||0)*85):0;draw();}
+  const reset=()=>{yaw=-.28;elevation=.92;zoom=1;focus='desk';draw();};
   const ray=new T.Raycaster();
-  function pick(x,y){const r=canvas.getBoundingClientRect();ray.setFromCamera(new T.Vector2((x-r.left)/r.width*2-1,-(y-r.top)/r.height*2+1),camera);const hit=ray.intersectObjects(world.children,true).find(h=>h.object.userData.pick);if(hit)onPick(hit.object.userData.pick);}
+  function pick(x,y){const r=canvas.getBoundingClientRect();ray.setFromCamera(new T.Vector2((x-r.left)/r.width*2-1,-(y-r.top)/r.height*2+1),camera);const visible=n=>{while(n){if(!n.visible)return false;n=n.parent;}return true;};const hit=ray.intersectObjects(world.children,true).find(h=>h.object.userData.pick&&visible(h.object));if(hit)onPick(hit.object.userData.pick.startsWith('@')?hit.object.userData.pick:enclosure.snapshot().boardOnTable?hit.object.userData.pick:'@board');}
   const down=e=>{canvas.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pointers.size===1){dragged=false;travel=0;}else dragged=true;gesture=null;};
   const move=e=>{const prior=pointers.get(e.pointerId);if(!prior)return;const dx=e.clientX-prior.x,dy=e.clientY-prior.y;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pointers.size===2){const a=[...pointers.values()],d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);if(gesture&&d>1)zoom=Math.max(.68,Math.min(1.8,zoom*gesture/d));gesture=d;dragged=true;}else{travel+=Math.hypot(dx,dy);if(travel>5)dragged=true;yaw+=dx*.007;elevation=Math.max(.28,Math.min(1.4,elevation+dy*.005));}draw();};
   const up=e=>{if(pointers.has(e.pointerId)&&!dragged&&pointers.size===1)pick(e.clientX,e.clientY);pointers.delete(e.pointerId);gesture=null;};
@@ -75,8 +77,8 @@
   const lostContext=e=>{e.preventDefault();lost=true;canvas.dataset.contextLost='true';},restored=()=>{lost=false;canvas.dataset.contextLost='false';draw();};
   for(const [type,fn] of [['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',cancel],['keydown',key],['webglcontextlost',lostContext],['webglcontextrestored',restored]])canvas.addEventListener(type,fn);
   canvas.addEventListener('wheel',wheel,{passive:false});const observer=new ResizeObserver(resize);observer.observe(canvas);
-  function snapshot(){const r=canvas.getBoundingClientRect();return {renderer:'WebGL',frames,disposed,lost,yaw,elevation,zoom,selected,product:product.id,meshCount:geometries.size,projections:Object.fromEntries(Object.entries(nodes).map(([id,n])=>{const v=vec(n.center).project(camera);return [id,{x:(v.x+1)/2*r.width,y:(1-v.y)/2*r.height}];}))};}
-  return {update,resize,reset,snapshot,dispose:()=>{if(disposed)return;disposed=true;image.onload=null;observer.disconnect();for(const [type,fn] of [['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',cancel],['keydown',key],['webglcontextlost',lostContext],['webglcontextrestored',restored],['wheel',wheel]])canvas.removeEventListener(type,fn);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());renderer.dispose();renderer.forceContextLoss();}};
+  function snapshot(){const r=canvas.getBoundingClientRect();return {renderer:'WebGL',frames,disposed,lost,yaw,elevation,zoom,focus,selected,product:product.id,meshCount:geometries.size,assembly:enclosure.snapshot(),mechanicalProjections:enclosure.projections(camera,r.width,r.height),projections:Object.fromEntries(Object.entries(nodes).map(([id,n])=>{const v=pcb.localToWorld(vec(n.center)).project(camera);return [id,{x:(v.x+1)/2*r.width,y:(1-v.y)/2*r.height}];}))};}
+  return {update,resize,reset,focusBoard:()=>{focus='board';zoom=1;draw();},snapshot,dispose:()=>{if(disposed)return;disposed=true;cancelAnimationFrame(frame);image.onload=null;observer.disconnect();for(const [type,fn] of [['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',cancel],['keydown',key],['webglcontextlost',lostContext],['webglcontextrestored',restored],['wheel',wheel]])canvas.removeEventListener(type,fn);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());renderer.dispose();renderer.forceContextLoss();}};
  }
  const api=Object.freeze({create,layout:id=>layouts[id].map(p=>[...p])});if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RepairShopScene=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

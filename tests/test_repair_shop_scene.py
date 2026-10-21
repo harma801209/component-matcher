@@ -17,7 +17,7 @@ points[0][0]=1000;a.notEqual(S.layout(p.id)[0][0],1000);}
         scene=(WEB_ROOT/'repair_shop_scene.js').read_text(encoding='utf-8')
         for text in ['new T.WebGLRenderer','new T.ExtrudeGeometry','new T.Raycaster','pointerdown','wheel','keydown','webglcontextlost','observer.disconnect()','renderer.dispose()','renderer.forceContextLoss()']:
             self.assertIn(text,scene)
-        for forbidden in ['RepairShopEngine','localStorage','fetch(','.fault','requestAnimationFrame(','.apply(']:
+        for forbidden in ['RepairShopEngine','localStorage','fetch(','.fault','.apply(']:
             self.assertNotIn(forbidden,scene)
         page=build_training_html()
         self.assertLess(page.index('root.RepairShopScene=api'),page.index('window.RepairShop=Object.freeze'))

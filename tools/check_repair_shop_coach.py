@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMechanics!=='undefined'"):
                             return f
                     except Exception:
                         pass
@@ -61,9 +61,10 @@ with sync_playwright() as p:
         activate(frame.get_by_role('button',name='新手教学 · 一步步带着做',exact=True))
         activate(frame.get_by_role('button',name='接下这单',exact=False).first)
         assert frame.locator('#repair-coach').is_visible()
-        assert frame.locator('#repair-diagnosis').input_value()==''
-        assert frame.locator('#repair-reason').input_value()==''
-        assert frame.locator('.rs-probe-picker [data-evidence="unknown"]').count()==3
+        assert not frame.locator('#repair-diagnosis').count() or frame.locator('#repair-diagnosis').input_value()==''
+        assert not frame.locator('#repair-reason').count() or frame.locator('#repair-reason').input_value()==''
+        assert frame.locator('.rs-probe-picker').count()==0
+        assert not snapshot()['active']['mechanics']['board']
         assert frame.locator('#repair-verification').count()==0
         before=snapshot()
         activate(frame.get_by_role('button',name='师傅提示',exact=True))
@@ -103,12 +104,13 @@ with sync_playwright() as p:
             if step=='complete':
                 break
             if not chose_diagnosis:
-                assert frame.locator('#repair-diagnosis').input_value()==''
+                assert not frame.locator('#repair-diagnosis').count() or frame.locator('#repair-diagnosis').input_value()==''
             if step=='deliver':
                 report=frame.locator('#repair-verification')
                 assert report.locator('.rs-verification-row').count()==5
                 assert '验收计算值' in report.inner_text()
-                assert frame.locator('.rs-probe-picker [data-evidence="repaired"]').count()==1
+                assert snapshot()['active']['finalTested']
+                assert frame.evaluate('RepairShopMechanics.assembled(RepairShop.snapshot().active.mechanics)')
                 page.set_viewport_size({'width':393,'height':960})
                 contains_page()
                 capture(report,'-phone-comparison.png')

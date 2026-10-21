@@ -3,6 +3,7 @@
  'use strict';
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
  const P=typeof module!=='undefined'&&module.exports?require('./repair_shop_physics.js'):root.RepairShopPhysics;
+ const M=typeof module!=='undefined'&&module.exports?require('./repair_shop_mechanics.js'):root.RepairShopMechanics;
  const clone=x=>JSON.parse(JSON.stringify(x)),int=(x,max=10000000)=>Number.isSafeInteger(x)&&x>=0&&x<=max;
  const KEY='fruition.repair-shop.v1';
  const productName=name=>name==='USB阅读台灯'?'USB小夜灯':name;
@@ -12,7 +13,7 @@
   return {seed,id:'R-'+seed.toString(36).toUpperCase(),product,fault,fee:95+(x%4)*15,candidates:D.candidates(product.parts.find(p=>p.id===fault.component),seed)};
  }
  function create(){return {version:1,coins:150,points:0,completed:0,owned:[],theme:'sand',active:null,history:[],revision:0};}
- function active(seed){return {seed,power:false,discharged:false,measurements:[],diagnosed:false,installed:null,tested:false,delivered:false,mistakes:0,hinted:false,events:[]};}
+ function active(seed,entry='closed'){return {seed,power:false,discharged:false,mechanics:M.create(entry),finalTested:false,measurements:[],diagnosed:false,installed:null,tested:false,delivered:false,mistakes:0,hinted:false,events:[]};}
  function compatible(required,candidate){
   if(!candidate||required.type!==candidate.type||required.pkg!==candidate.pkg)return '器件类别、封装或焊盘不兼容。';
   const p=required,c=candidate;
@@ -33,6 +34,7 @@
  function measurement(a,mode,id){
   const job=offer(a.seed),p=job.product.parts.find(p=>p.id===id),index=job.product.parts.indexOf(p),candidate=a.installed?job.candidates.find(c=>c.stockId===a.installed):null;
   if(!p)return {error:'先在电路板上选择要测量的器件。'};
+  if(!M.onTable(a.mechanics))return {error:'先完成拆螺丝、取下外壳与支架、断开连接线，并把电路板放到检修垫，不能隔着外壳检测。'};
   if(!job.fault.enabled)return {error:'这张旧工单的晶体动态模型暂未开放，请撤销换单；未交付备件会退款，旧成绩保留。'};
   const result=P.solve(job.product,job.fault,candidate);
   if(mode==='voltage'){
@@ -60,7 +62,7 @@
    if(!int(event.seed,4294967295))return fail('无效工单。');
    if(!offer(event.seed).fault.enabled)return fail('晶振停振关已暂停，等待完整振荡器模型验证后再开放。');
    if(a?.seed===event.seed||s.history.some(h=>h.id===offer(event.seed).id))return fail('这张工单已交付，不能重复领取报酬。');
-   s.active=active(event.seed);ok=true;message='工单已接收。先看客人的描述与维修手册，再开始测量。';
+   s.active=active(event.seed);ok=true;message='工单已接收。先看成品与客人描述，断电放电后拆螺丝、取壳并取出电路板，再开始检测。';
   }else if(event.type==='redeem'){
    const r=D.rewards.find(r=>r.id===event.id);if(!r)return fail('没有这个奖励。');
    if(s.owned.includes(r.id))return fail('这个奖励已经兑换，不会重复扣款。');
@@ -76,7 +78,11 @@
    if(record&&a.events.length>=300)return fail('本工单记录已满。请撤销工单后重新接单，已购备件会返还。');
    const job=offer(a.seed),required=job.product.parts.find(p=>p.id===job.fault.component);
    if(!job.fault.enabled)return fail('旧晶振工单暂停：请撤销换单，未交付备件退回；已获得成绩保留。');
-   if(event.type==='power'){
+   if(event.type==='mechanical'){
+    if(a.power||!a.discharged)return fail('拆装前必须关闭电源、确认无电并放电。');
+    const r=M.apply(a.mechanics,event,a.tested);if(r.error)return fail(r.error);a.mechanics=r.state;a.finalTested=false;ok=true;message=r.message;
+   }else if(event.type==='power'){
+    if(!a.power&&!M.closed(a.mechanics)&&!M.onTable(a.mechanics))return fail('结构正在拆装，不能通电。取出的电路板可在检修垫上接限流测试电源。');
     a.power=!a.power;a.discharged=false;ok=true;message=a.power?'模拟限流电源已开启，可测电压、观察测试波形。':'已断电；做元件检测或更换前还需放电。';
    }else if(event.type==='discharge'){
     if(a.power)return fail('先关闭模拟电源，再放电。');
@@ -94,6 +100,7 @@
     if(event.id!==job.fault.component||event.reason!==job.fault.reason){a.mistakes=Math.min(a.mistakes+1,20);message='诊断与证据还对不上。比较隔离实测值、正常参考和失效类型，再判断。';}
     else{a.diagnosed=true;ok=true;message='诊断已确认。现在按维修手册选择兼容备件，断电放电后才能更换。';}
    }else if(event.type==='install'){
+    if(!M.onTable(a.mechanics))return fail('先把电路板取到检修垫上，再更换器件。');
     if(!a.diagnosed)return fail('先用测量证据确认诊断，不能盲目换件。');
     if(a.installed)return fail('备件已装好，不会重复采购。');
     if(a.power||!a.discharged)return fail('更换前必须关闭电源并放电。');
@@ -104,14 +111,21 @@
     else if(s.coins<candidate.price)return fail('金币不足，不能采购。');
     else{s.coins-=candidate.price;a.installed=candidate.stockId;a.tested=false;ok=true;message='已采购并更换 '+required.id+'，扣除 '+candidate.price+' 金币。现在通电进行功能与负载复测。';}
    }else if(event.type==='test'){
+    if(!M.onTable(a.mechanics))return fail('板级测试需要电路板位于检修垫上。');
     if(!a.installed)return fail('尚未完成维修，不能通过验收。');
     if(!a.power)return fail('先通电，再进行功能和负载测试。');
-    if(a.tested)return fail('测试已经通过，请交付工单。');
+    if(a.tested)return fail('板级测试已经通过，请断电放电后重新装配，再做成品复测。');
     const candidate=job.candidates.find(c=>c.stockId===a.installed),result=P.verify(job.product,job.fault,candidate);
     if(!result.pass)return fail('验收未通过：'+result.checks.filter(c=>!c.pass).map(c=>c.label+'，计算为'+c.actual).join('；'));
     a.tested=true;ok=true;message='本关已建模项目验收通过（不包含未建模功能）：'+result.summary;
+   }else if(event.type==='testAssembly'){
+    if(!a.tested||!a.installed||!M.assembled(a.mechanics))return fail('先通过板级验收，再接回连接线、装回支架和外壳，并装齐全部螺丝。');
+    if(!a.power)return fail('先通电，再复测装配后的成品。');
+    const result=P.verify(job.product,job.fault,job.candidates.find(c=>c.stockId===a.installed));if(!result.pass)return fail('装配后的已建模电路项目未通过，不能交付。');
+    a.finalTested=true;ok=true;message='接线与装配步骤完整，本关已建模电路复测通过。未建模功能仍不视为已验证。';
    }else if(event.type==='deliver'){
     if(!a.tested||!a.installed)return fail('先完成维修并通过功能与负载复测。');
+    if(!a.finalTested||!M.assembled(a.mechanics))return fail('还没有完成重新装配和成品复测，暂不能交付。');
     const points=Math.max(35,100-a.mistakes*8);
     s.coins+=job.fee;s.points+=points;s.completed+=1;a.delivered=true;a.power=false;
     s.history.unshift({id:job.id,product:job.product.name,component:job.fault.component,points,fee:job.fee});s.history=s.history.slice(0,30);
@@ -143,8 +157,9 @@
     return base;
    }
    // Rebuild progress from permitted actions rather than trusting completion flags.
-   const replay=create();replay.coins=100000;replay.active=active(a.seed);let rebuilt=replay;
-   for(const event of a.events){if(!['power','discharge','measure','diagnose','install','test','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
+   const legacy=!a.mechanics||a.mechanics.entry==='legacy-open',replay=create();replay.coins=100000;replay.active=active(a.seed,legacy?'legacy-open':'closed');let rebuilt=replay;
+   for(const event of a.events){if(!['power','discharge','measure','diagnose','install','test','testAssembly','mechanical','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
+   if(legacy&&base.history.some(h=>h.id===offer(a.seed).id)){rebuilt.active.delivered=true;rebuilt.active.legacyCompleted=true;rebuilt.active.power=false;}
    base.active=rebuilt.active;
   }
   return base;

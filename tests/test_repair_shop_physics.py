@@ -84,7 +84,7 @@ a(good.pass);a(!bad.pass);a(!P.solve(p,p.faults[0]).pass);a(good.metrics.ripple<
     def test_floating_inputs_are_null_not_fabricated_low_levels(self):
         self.node(r'''
 for(const id of ['clock','sensor']){const p=D.products.find(p=>p.id===id),f=p.faults.find(f=>f.component==='R1'),z=P.solve(p,f);a.equal(z.metrics[id==='clock'?'reset':'bus'],null);a(z.volts.includes(null));a(!z.pass);a(P.voltage(null).includes('浮空'));
-const seed=Array.from({length:200},(_,i)=>i).find(i=>{const j=E.offer(i);return j.product.id===id&&j.fault===f;});let s=act(E.create(),'accept',{seed}).state;s=act(s,'power').state;
+const seed=Array.from({length:200},(_,i)=>i).find(i=>{const j=E.offer(i);return j.product.id===id&&j.fault===f;});let s=act(E.create(),'accept',{seed}).state;s=open(s);s=act(s,'power').state;
 const r=E.measurement(s.active,'voltage','R1');a(r.value.includes('浮空'));a(!r.proof);}
 ''')
 
@@ -112,7 +112,7 @@ const sensor=D.products.find(p=>p.id==='sensor'),f=sensor.faults[1],cap=sensor.p
 // must independently reject the test and never permit delivery or a report.
 const physicsPath=require.resolve(process.argv[1]+'/repair_shop_physics.js'),enginePath=require.resolve(process.argv[1]+'/repair_shop_engine.js');
 const saved=require.cache[physicsPath].exports;require.cache[physicsPath].exports={...saved,verify:()=>({pass:false,checks:[{pass:false,label:'测试负载不合格',actual:'超限'}]})};delete require.cache[enginePath];const failing=require(enginePath);
-const pending=JSON.parse(JSON.stringify(s));pending.active.tested=false;const result=failing.apply(pending,{type:'test'});a(!result.ok);a(!result.state.active.tested);a(!failing.apply(result.state,{type:'deliver'}).ok);a.equal(V.report(j,result.state.active),null);
+const pending=atBoardTest(s);pending.active.tested=false;const result=failing.apply(pending,{type:'test'});a(!result.ok);a(!result.state.active.tested);a(!failing.apply(result.state,{type:'deliver'}).ok);a.equal(V.report(j,result.state.active),null);
 ''')
 
     def test_paused_crystal_jobs_excluded_and_old_progress_refunded_once(self):

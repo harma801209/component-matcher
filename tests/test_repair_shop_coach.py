@@ -16,7 +16,10 @@ const seen=new Set();for(let seed=1;seed<400;seed++){if(!E.offer(seed).fault.ena
  let s=act(E.create(),'accept',{seed}).state,c={selected:null,mode:'voltage',diagnosis:'',reason:'',stock:'',orientation:''},count=0;
  while(!s.active.delivered&&count++<80){
   const before=JSON.stringify(s),beforeC=JSON.stringify(c),g=C.step(j,s.active,c);a.equal(JSON.stringify(s),before);a.equal(JSON.stringify(c),beforeC);a(g.title&&g.body&&g.target&&g.group);
-  if(g.id.startsWith('target-')){c.selected=g.id.slice(7);c.diagnosis=c.selected;}
+  if(g.id==='mechanic-tool')c.tool='phillips';
+  else if(g.id.startsWith('mechanical-')){const n=Mechanics.next(s.active.mechanics,s.active.tested),r=act(s,'mechanical',{op:n.op,id:n.id,tool:c.tool});a(r.ok,r.message);s=r.state;}
+  else if(g.id==='assembly-test'){const r=act(s,'testAssembly');a(r.ok,r.message);s=r.state;}
+  else if(g.id.startsWith('target-')){c.selected=g.id.slice(7);c.diagnosis=c.selected;}
   else if(['power-on','power-off'].includes(g.id))s=act(s,'power').state;
   else if(g.id==='voltage-mode')c.mode='voltage';else if(g.id==='scope-mode')c.mode='scope';else if(g.id==='component-mode')c.mode='component';
   else if(['voltage-read','scope-read','component-read'].includes(g.id)){const r=act(s,'measure',{id:c.selected,mode:c.mode});a(r.ok,r.message);s=r.state;}
@@ -41,7 +44,7 @@ a.equal(seen.size,17);
 const seed=32,j=E.offer(seed);let s=evidence(act(E.create(),'accept',{seed}).state,j);s=E.restore(JSON.parse(JSON.stringify(s)));
 const g=C.step(j,s.active,{selected:null,mode:'voltage',diagnosis:'',reason:''});a.equal(g.id,'diagnosis-id');a(g.body.includes(j.fault.bad));
 s=act(s,'power').state;a.equal(C.step(j,s.active,{}).id,'power-off');
-const fresh=act(E.create(),'accept',{seed}).state;a(C.step(j,fresh.active,{}).id.startsWith('target-'));a(!fresh.active.diagnosed);a.equal(fresh.active.measurements.length,0);
+const fresh=act(E.create(),'accept',{seed}).state;a.equal(C.step(j,fresh.active,{}).id,'discharge');a(!fresh.active.diagnosed);a.equal(fresh.active.measurements.length,0);
 ''')
 
     def test_each_case_has_suspects_reason_measurement_and_repair_explanations(self):

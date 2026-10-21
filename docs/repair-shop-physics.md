@@ -156,15 +156,49 @@ No network/CDN, generated image or video is needed. The geometry is a teaching
 location illustration and does not claim OEM package CAD, actual scale or PCB
 electrical routing. The explicit equivalent network remains the circuit contract.
 
-Raycast picks only select a test target. They cannot choose a diagnosis, perform
+PCB raycast picks only select a test target. They cannot choose a diagnosis, perform
 a measurement, buy parts or change coins. The accessible target buttons remain.
 Drag/touch rotates, wheel/pinch and +/- zoom, arrows orbit, 0 or the reset button
 restores the view. Camera/renderer persist across normal measurements and tool
 changes; accepting a new order disposes the old GPU resources. Texture completion
-redraws explicitly (including the initial green fallback), and idle scenes have
-no animation loop. Missing WebGL falls back to the labeled location diagram.
+redraws explicitly (including the initial green fallback). Idle scenes have no
+animation loop; part transfers and a powered, assembled fan request frames only
+while moving, respect reduced motion, and stop when hidden/disposed.
+Missing WebGL falls back to the labeled location diagram only after extraction;
+before then it shows a finished-product illustration, not an x-ray PCB.
 Native Chrome checks require actual WebGL, all three raycast picks on all six
 boards, keyboard orbit/zoom/reset, unchanged game state and phone containment.
+
+## Finished products and retained desk parts
+
+New orders begin with an assembled generic lamp, fan, speaker, clock, sensor or
+router. The authored low-voltage enclosure has four top-cover Phillips screws,
+an unwired removable cover, a clip-in board brace and a keyed J1 cable. It is a
+fictional teaching construction, not a claim about a particular OEM product.
+Fixed lamp heads, motors, displays, speaker units and antennas remain on the base.
+
+The replayable mechanical state requires power off and simulated discharge.
+Each screw must be removed with the selected screwdriver before the cover can
+lift; the brace is removed, J1 disconnected, and only then the board can move to
+the mat. Screws remain in a tray; cover, brace, base and board remain meshes on
+the same desk, with visible transfer animations and an accessible inventory.
+Electrical probes, component installation and board acceptance require the
+board on the mat. The bench uses the explicitly declared equivalent fixture
+and load, not an imaginary functional connection to a disconnected product.
+
+After board acceptance, power must again be off/discharged. The board is returned,
+J1 reconnected, brace/cover replaced and all four screws tightened individually.
+A powered assembled test recomputes the same declared electrical acceptance;
+it does not certify unmodeled firmware, mechanical durability or OEM compliance.
+Delivery and rewards remain blocked until this test passes.
+
+Old in-progress saves without mechanical events migrate to the former open-board
+stage without clearing purchases, coins, points or evidence. Replay reconstructs
+mechanical progress from valid actions rather than trusting raw visibility flags.
+Old already-paid orders cannot receive duplicate rewards.
+The mechanical tests and native Chrome checks cover ordering/safety, partial
+save/reload, desktop/phone layout, all six closed/opened products, and the complete
+visible-controls repair-to-reassembly-to-reward loop.
 
 ## Primary principle references
 

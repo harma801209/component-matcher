@@ -2,6 +2,7 @@
 (function(root){
  'use strict';
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
+ const M=typeof module!=='undefined'&&module.exports?require('./repair_shop_mechanics.js'):root.RepairShopMechanics;
  const plans={
   lamp:{order:['F1','R1','D1'],where:'F1供电路径、R1限流电阻、D1发光二极管。',why:'完全不亮可能是回路某处开路；变暗则要比较供电、电流和R1阻值。不能只凭“灯不亮”就认定LED坏了。'},
   fan:{order:['F1','Q1','D1'],where:'F1保险丝、Q1电机开关、D1续流保护支路。',why:'电机不转，既可能没有供电，也可能开关没有导通；若电源进入限流，还要怀疑短路。要同时看供电和控制条件。'},
@@ -29,7 +30,15 @@
   const choose=(id,why)=>s('target-'+id,'选择 '+id+' · '+part(id).name,why+' 点板下方的“'+id+' · '+part(id).name+'”。只选中，不会自动测量。','target-'+id,'选择测量目标');
   const power=on=>s(on?'power-on':'power-off',on?'开启模拟电源':'先关闭模拟电源',on?'电压和运行波形要在模拟电源开启后观察。点击“开启模拟电源”。':'接下来检测或更换元件，必须先关闭电源。不要带电测阻值、容量或拆换器件。','power',on?'通电观察':'断电检测');
   if(a.delivered)return s('complete','这单已经修好了','回看“诊断复盘”，再接下一位客人。新产品也沿用“供电 → 运行线索 → 断电隔离 → 换件 → 测试”的顺序。','next-customer','复盘与迁移');
-  if(a.tested)return s('deliver','把修好的产品交给客人','本关已建模的供电与负载项目通过；未建模功能不代表已验证。点击“交付并领取报酬”，本单只结算一次。','deliver','交付结算');
+  if(a.finalTested)return s('deliver','把装好的产品交给客人','连接线、支架、外壳和螺丝已经复位，成品已建模项目复测通过，点击交付；未建模功能不代表已验证。','deliver','交付结算');
+  const mechanical=M.next(a.mechanics,a.tested);
+  if(mechanical.op!=='service'){
+   if(mechanical.op==='final'){if(!a.power)return power(true);return s('assembly-test','运行成品复测','装回后还需复测，点击“运行成品复测”。只覆盖本关声明的电路条件。','assembly-test','成品复测');}
+   if(a.power)return power(false);
+   if(!a.discharged)return s('discharge','先确认断电并放电','拆外壳、拔连接器、取板或装回之前，必须断开电源并确认无电。点击“断电后放电”。','discharge','安全拆装');
+   if(['unscrew','tighten'].includes(mechanical.op)&&c.tool!=='phillips')return s('mechanic-tool','拿起十字螺丝刀','先拿起桌面的十字螺丝刀，再逐颗处理螺丝。也可以点击右侧工具按钮。','mechanic-tool','选择拆装工具');
+   return s('mechanical-'+mechanical.op,mechanical.title,mechanical.body,'mechanic-'+(mechanical.id||mechanical.op),'拆装与归位');
+  }
   if(a.installed){if(!a.power)return power(true);return s('test','运行功能与负载测试','装好不代表修好。点击测试，核对：'+job.product.behavior,'test','维修后验证');}
   if(a.diagnosed){
    const required=part(job.fault.component);

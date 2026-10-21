@@ -139,5 +139,13 @@
 #repair-shop canvas.rs-board-canvas:active{cursor:grabbing}
 #repair-shop .rs-3d-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#e8eddf;border-top:1px solid #d4ddcc;color:#526957;font-size:12px}
 #repair-shop .rs-3d-controls button{min-height:38px;padding:6px 12px;white-space:nowrap;font-size:12px}
+#repair-shop .rs-mechanical-workspace{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(260px,1fr);gap:20px;padding:24px;min-width:0}
+#repair-shop .rs-mechanical-workspace .rs-board-canvas{height:470px}
+#repair-shop .rs-mechanical-workspace .rs-tools>button{margin:5px 4px 5px 0}
+#repair-shop .rs-desk-inventory{margin-top:15px;padding:15px;background:#eff3e9;border:1px solid #c9d7c6;border-radius:8px;font-size:13px}
+#repair-shop .rs-desk-inventory>strong{display:block;margin-bottom:8px}
+#repair-shop .rs-desk-inventory>div{display:flex;justify-content:space-between;gap:14px;padding:5px 0;color:#496252}
+#repair-shop .rs-screw-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+@media(max-width:860px){#repair-shop .rs-mechanical-workspace{grid-template-columns:1fr;padding:16px}#repair-shop .rs-mechanical-workspace .rs-board-canvas{height:370px}#repair-shop .rs-3d-controls{flex-wrap:wrap}}
 @media(max-width:600px){#repair-shop canvas.rs-board-canvas{height:310px}#repair-shop .rs-3d-controls{font-size:11px;padding:8px}#repair-shop .rs-3d-controls span{max-width:65%}}
 @media(max-width:600px){#repair-shop .rs-model-panel{padding:12px}#repair-shop .rs-model-panel .rs-circuit-netlist{font-size:11px}}

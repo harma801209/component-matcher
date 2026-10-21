@@ -22,7 +22,7 @@ for(let seed=0;seed<90;seed++){if(!E.offer(seed).fault.enabled)continue;
     def test_voltage_and_visual_clues_never_prove_component_failure(self):
         self.node(r'''
 for(let seed=0;seed<70;seed++){if(!E.offer(seed).fault.enabled)continue;
- const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'power').state;
+ const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=open(s);s=act(s,'power').state;
  for(const p of j.product.parts){s=act(s,'measure',{id:p.id,mode:'voltage'}).state;const r=s.active.measurements.at(-1),f=V.describe(r);a(!f.proof);a(['reference','clue'].includes(f.tone));a(!['abnormal','repaired'].includes(V.part(j,s.active,p.id).tone));}
  s=act(s,'measure',{id:j.fault.component,mode:'visual'}).state;a.equal(V.describe(s.active.measurements.at(-1)).tone,'neutral');
  a(!V.checklist(s.active,j.fault.component)[1].done);
@@ -32,7 +32,7 @@ for(let seed=0;seed<70;seed++){if(!E.offer(seed).fault.enabled)continue;
     def test_isolated_evidence_marks_only_measured_parts_and_survives_restore(self):
         self.node(r'''
 for(let seed=1;seed<90;seed++){if(!E.offer(seed).fault.enabled)continue;
- const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'discharge').state;
+ const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=open(s);
  const healthy=j.product.parts.find(p=>p.id!==j.fault.component&&p.type!=='crystal');s=act(s,'measure',{id:healthy.id,mode:'component'}).state;
  a.equal(V.part(j,s.active,healthy.id).tone,'reference');a.equal(V.part(j,s.active,j.fault.component).tone,'unknown');
  s=act(s,'measure',{id:j.fault.component,mode:'component'}).state;a.equal(V.part(j,s.active,j.fault.component).tone,'abnormal');
@@ -61,7 +61,7 @@ a.equal(seen.size,17);
     def test_real_before_and_manual_after_records_remain_distinct(self):
         self.node(r'''
 const seed=17,j=E.offer(seed),p=j.product.parts[0];let s=act(E.create(),'accept',{seed}).state;
-s=act(s,'power').state;s=act(s,'measure',{id:p.id,mode:'voltage'}).state;const before=s.active.measurements[0].value;
+s=open(s);s=act(s,'power').state;s=act(s,'measure',{id:p.id,mode:'voltage'}).state;const before=s.active.measurements[0].value;
 s=act(s,'power').state;s=evidence(s,j);s=act(s,'diagnose',{id:j.fault.component,reason:j.fault.reason}).state;
 const req=j.product.parts.find(p=>p.id===j.fault.component),c=j.candidates.find(c=>!E.compatible(req,c));s=act(s,'install',{stockId:c.stockId,orientation:'correct'}).state;
 s=act(s,'power').state;s=act(s,'measure',{id:p.id,mode:'voltage'}).state;s=act(s,'test').state;

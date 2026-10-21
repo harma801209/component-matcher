@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2"):
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMechanics!=='undefined'"):
                             return frame
                     except Exception:
                         pass
@@ -40,6 +40,42 @@ with sync_playwright() as p:
         def activate(locator):
             locator.focus()
             locator.press('Enter')
+
+        def mechanical_steps(opening, picking=False):
+            # Exercise visible controls, never inject a completed repair.
+            def state():
+                return frame.evaluate('RepairShop.snapshot().active')
+            if state()['power']:
+                activate(frame.locator('[data-repair-focus="power"]'))
+            activate(frame.locator('[data-repair-focus="discharge"]'))
+            if picking:
+                canvas=frame.locator('.rs-board-canvas')
+                canvas.scroll_into_view_if_needed()
+                canvas.click(position=frame.evaluate('RepairShop.sceneSnapshot().mechanicalProjections["@driver"]'))
+            else:
+                activate(frame.locator('[data-repair-focus="mechanic-tool"]'))
+            for _ in range(12):
+                done=frame.evaluate('RepairShopMechanics.'+('onTable' if opening else 'assembled')+'(RepairShop.snapshot().active.mechanics)')
+                if done:
+                    break
+                step=frame.evaluate('RepairShopMechanics.next(RepairShop.snapshot().active.mechanics,RepairShop.snapshot().active.tested)')
+                target='mechanic-'+(step.get('id') or step['op'])
+                if picking and step['op'] in ['unscrew','cover-out','brace-out','unplug']:
+                    frame.wait_for_function('!RepairShop.sceneSnapshot().assembly.moving')
+                    key='@screw:'+step['id'] if step['op']=='unscrew' else {'cover-out':'@cover','brace-out':'@brace','unplug':'@connector'}[step['op']]
+                    prior=state()['mechanics']
+                    canvas.scroll_into_view_if_needed()
+                    canvas.click(position=frame.evaluate('key=>RepairShop.sceneSnapshot().mechanicalProjections[key]',key))
+                    assert state()['mechanics']!=prior,(step,'Raycast must operate the visible part')
+                else:
+                    activate(frame.locator('[data-repair-focus="'+target+'"]'))
+            else:
+                raise AssertionError('Mechanical flow did not finish')
+            frame.wait_for_function('RepairShop.sceneSnapshot() && !RepairShop.sceneSnapshot().assembly.moving')
+            if not opening:
+                activate(frame.locator('[data-repair-focus="power"]'))
+                activate(frame.locator('[data-repair-focus="assembly-test"]'))
+                assert state()['finalTested']
 
         page.goto(URL, wait_until='domcontentloaded', timeout=120000)
         frame = find_frame()
@@ -54,6 +90,9 @@ with sync_playwright() as p:
         activate(shop.get_by_role('button', name='接下这单').first)
         job = frame.evaluate('RepairShopEngine.offer(RepairShop.snapshot().active.seed)')
         culprit = job['fault']['component']
+        assert frame.locator('#repair-diagnosis').count()==0
+        assert not frame.evaluate('RepairShop.sceneSnapshot().assembly.boardVisible')
+        mechanical_steps(True)
         assert frame.locator('#repair-reason').input_value() == ''
         assert frame.locator('#repair-diagnosis').input_value() == ''
         assert not frame.evaluate('RepairShop.snapshot().active.power')
@@ -97,10 +136,12 @@ with sync_playwright() as p:
         activate(shop.get_by_role('button', name='运行功能与负载测试', exact=True))
         assert frame.locator('#repair-verification .rs-verification-row').count() == 5
         assert '维修前后对照' in frame.locator('#repair-verification').inner_text()
+        assert not frame.evaluate('RepairShop.snapshot().active.finalTested')
+        mechanical_steps(False)
         activate(shop.get_by_role('button', name='交付并领取报酬', exact=True))
         done = frame.evaluate('RepairShop.snapshot()')
         assert done['completed'] == 1 and done['points'] == 100 and done['active']['delivered']
-        assert job['fault']['symptom'] in shop.locator('.rs-ticket').inner_text()
+        assert job['fault']['symptom'] in shop.locator('.rs-settlement').inner_text()
         assert shop.locator('.rs-settlement').is_visible()
         report['case'] = {'product':job['product']['name'],'fault':culprit,'loop':'passed','resume':'passed'}
         activate(shop.get_by_role('button', name='奖励小铺', exact=True))
@@ -142,6 +183,16 @@ with sync_playwright() as p:
                 frame.evaluate('''id=>{let seed=1;while(RepairShopEngine.offer(seed).product.id!==id||!RepairShopEngine.offer(seed).fault.enabled)seed++;const s=RepairShopEngine.apply(RepairShopEngine.create(),{type:'accept',seed}).state;localStorage.setItem(RepairShopEngine.KEY,JSON.stringify(s));}''', product_id)
                 page.reload(wait_until='domcontentloaded', timeout=120000)
                 frame=find_frame()
+                frame.wait_for_function('RepairShop.sceneSnapshot() && RepairShop.sceneSnapshot().renderer==="WebGL"')
+                assert not frame.evaluate('RepairShop.sceneSnapshot().assembly.boardVisible')
+                frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('finished-'+product_id+'.png')))
+                mechanical_steps(True, picking=product_id=='lamp')
+                assembly=frame.evaluate('RepairShop.sceneSnapshot().assembly')
+                assert assembly['removedOnDesk']=={'cover':True,'brace':True,'board':True,'screws':4},assembly
+                assert '零件盘' in frame.locator('#repair-desk-parts').inner_text()
+                activate(frame.locator('[data-repair-focus="board-reset"]'))
+                frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('disassembled-'+product_id+'.png')))
+                activate(frame.locator('[data-repair-focus="board-focus"]'))
                 frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('diagram-'+product_id+'.png')))
                 assert frame.locator('.rs-probe-picker button').count()==3
                 canvas=frame.locator('.rs-board-canvas')
@@ -178,6 +229,8 @@ with sync_playwright() as p:
                     model.screenshot(path=str(OUT / ('model-phone-'+product_id+'.png')))
                 page.set_viewport_size({'width':1440,'height':1080})
             report['six_diagrams']='checked'
+            report['finished_and_retained_parts']='all six closed products hide PCB; four screws, cover, brace and board remain on desk after disassembly'
+            report['mechanical_raycast']='screwdriver, all four screws, cover, brace and J1 operated with actual 3D picks'
             report['six_physical_models']='v2 visible, netlist/limits and phone containment checked'
             report['six_webgl_boards']='real meshes, raycast selection, camera rotation/zoom/reset; no game-state mutation'
         assert not errors, errors
