@@ -76,6 +76,16 @@ for(const product of D.products){const plan=B.get(product.id);
 }
 ''')
 
+    def test_transparent_inspection_is_off_until_explicitly_clicked(self):
+        import re
+        from product_training import WEB_ROOT
+        ui=(WEB_ROOT/'repair_shop_ui.js').read_text(encoding='utf-8')
+        self.assertTrue(re.search(r"let mechanicalTool='',[^;]*inspection=false",ui),'Initial inspection must be explicitly off')
+        reset=ui.split('function clearChoices(){',1)[1].split('\n',1)[0]
+        self.assertIn('inspection=false',reset)
+        self.assertNotIn('inspection=true',ui)
+        self.assertIn('inspection=!inspection',ui)
+
 
 if __name__=='__main__':
     unittest.main()

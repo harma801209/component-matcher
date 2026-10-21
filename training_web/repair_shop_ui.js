@@ -30,7 +30,7 @@
  const entry=el('section',undefined,'repair-entry');entry.append(art('lamp','repair-entry-art'));const entryCopy=el('div');entryCopy.append(el('strong','开一家自己的电子维修店'),el('p','接待客人、测量找故障、选件维修，让学到的器件知识真正派上用场。'));entry.append(entryCopy,button('开门营业 →',()=>view(true)));lessons.prepend(entry);
  let state=E.create(),lastSaved=null,storageOK=true,store,selected=null,mode='voltage',diagnosis='',reason='',stock='',orientation='',meter=null,notice='',screen='work',confirmAbandon=false,seeds=[],memoryRevision=0,coachEnabled=true,hintsOpen=false,detailOpen=false;
  const COACH_KEY='fruition.repair-shop.coach.v1';
- const M=window.RepairShopMechanics,B=window.RepairShopBoard;let mechanicalTool='',inspection=true,selectedNet='';
+ const M=window.RepairShopMechanics,B=window.RepairShopBoard;let mechanicalTool='',inspection=false,selectedNet='';
  function pickMechanical(id){if(id==='@driver'){mechanicalTool='phillips';render();return;}const n=M.next(state.active.mechanics,state.active.tested);if(id.startsWith('@screw:')){if(['unscrew','tighten'].includes(n.op))dispatch({type:'mechanical',op:n.op,id:id.slice(7),tool:mechanicalTool});else{notice='这颗螺丝已妥善收好。先完成：'+n.title+'。';render();}return;}const kind={'@cover':'cover','@brace':'brace','@connector':'plug','@board':'board'}[id];if(kind&&n.op.includes(kind))dispatch({type:'mechanical',op:n.op,tool:mechanicalTool});else{notice='先完成：'+n.title+'。';render();}}
  let boardView=null,boardElement=null,boardKey='',boardFallback=false,boardError='';
  function disposeBoard(){boardView?.dispose();boardView=null;boardElement=null;boardKey='';}
@@ -41,7 +41,7 @@
  hintsOpen=Boolean(state.active?.hinted);
  freshSeeds();
  function save(){try{const raw=JSON.stringify(state);store.setItem(E.KEY,raw);lastSaved=raw;storageOK=true;}catch(_){storageOK=false;}}
- function clearChoices(){selected=null;diagnosis='';reason='';stock='';orientation='';meter=null;confirmAbandon=false;hintsOpen=false;detailOpen=false;mechanicalTool='';selectedNet='';inspection=true;}
+ function clearChoices(){selected=null;diagnosis='';reason='';stock='';orientation='';meter=null;confirmAbandon=false;hintsOpen=false;detailOpen=false;mechanicalTool='';selectedNet='';inspection=false;}
  function teaching(value){coachEnabled=value;try{store.setItem(COACH_KEY,value?'on':'off');}catch(_){}render();}
  function dispatch(event){
   try{const latest=store.getItem(E.KEY);if(latest!==lastSaved){read();clearChoices();notice='另一窗口更新了维修存档，已载入最新进度。请重新确认本次操作。';render();return;}}catch(_){storageOK=false;}
@@ -113,10 +113,10 @@
   if(boardKey!==job.id){disposeBoard();boardKey=job.id;boardFallback=false;
    const host=el('div',undefined,'rs-3d-board'),canvas=el('canvas');canvas.className='rs-board rs-board-canvas';canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label','3D成品与电路板：拖动旋转、缩放，或俯视查线。铜箔检修显示引脚、走线、过孔与测试点，也可用下方按钮选择网络和测量目标。');host.append(canvas);
    try{boardView=window.RepairShopScene.create(canvas,job.product,id=>{if(id.startsWith('@')){pickMechanical(id);return;}if(id.startsWith('net:')){selectedNet=id.slice(4);selected=null;meter=null;render();return;}selectedNet='';selected=id;meter=null;render();boardElement.querySelector('canvas')?.focus({preventScroll:true});});
-    const tools=el('div',undefined,'rs-3d-controls');tools.append(el('span','3D维修桌 · 拖动旋转 / 双指缩放'),button('全桌视角',()=>boardView?.reset(),'','board-reset'),button('聚焦电路板',()=>boardView?.focusBoard(),'','board-focus'),button('俯视查线',()=>boardView?.topView(),'','board-top'),button('铜箔检修',()=>{inspection=!inspection;render();},'','board-inspection'));host.append(tools);boardElement=host;
+    const tools=el('div',undefined,'rs-3d-controls');tools.append(el('span','3D维修桌 · 拖动旋转 / 双指缩放'),button('全桌视角',()=>boardView?.reset(),'','board-reset'),button('聚焦电路板',()=>boardView?.focusBoard(),'','board-focus'),button('俯视查线',()=>boardView?.topView(),'','board-top'),button('铜箔检修（透视）',()=>{inspection=!inspection;render();},'','board-inspection'));host.append(tools);boardElement=host;
    }catch(error){boardError=String(error?.message||error);disposeBoard();boardKey=job.id;boardFallback=true;boardElement=boardFlat(job);}
   }
-  if(boardView){const candidate=state.active.installed?job.candidates.find(c=>c.stockId===state.active.installed):null,result=P.solve(job.product,job.fault,candidate);boardView.update(selected,{mechanics:state.active.mechanics,inspection,net:selectedNet,power:state.active.power,current:result.metrics.current,rpm:result.metrics.rpm});const toggle=boardElement.querySelector('[data-repair-focus="board-inspection"]');toggle?.setAttribute('aria-pressed',String(inspection));for(const key of ['board-focus','board-top','board-inspection']){const control=boardElement.querySelector('[data-repair-focus="'+key+'"]');if(control)control.disabled=!M.onTable(state.active.mechanics);}}
+  if(boardView){const candidate=state.active.installed?job.candidates.find(c=>c.stockId===state.active.installed):null,result=P.solve(job.product,job.fault,candidate);boardView.update(selected,{mechanics:state.active.mechanics,inspection,net:selectedNet,power:state.active.power,current:result.metrics.current,rpm:result.metrics.rpm});const toggle=boardElement.querySelector('[data-repair-focus="board-inspection"]');if(toggle){toggle.setAttribute('aria-pressed',String(inspection));toggle.textContent=inspection?'关闭透视':'铜箔检修（透视）';toggle.title=inspection?'关闭透视，恢复元器件的正常外观':'手动开启透视，查看器件下方走线';}for(const key of ['board-focus','board-top','board-inspection']){const control=boardElement.querySelector('[data-repair-focus="'+key+'"]');if(control)control.disabled=!M.onTable(state.active.mechanics);}}
   if(boardFallback)boardElement=M.onTable(state.active.mechanics)?boardFlat(job):art(job.product.id);
   return boardElement;
  }

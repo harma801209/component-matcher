@@ -25,7 +25,7 @@
     if(plan.routes.some(path=>path.net!==r.net&&path.cells.some(c=>{const p=B.world(c);return Math.hypot(q[0]-p[0],q[1]-p[1])<.16;})))continue;
     samples[r.net]=q;break;
   }}
-  return {update,snapshot:()=>({version:B.VERSION,nets:plan.nets.length,pads:Object.keys(plan.pins).length,segments,vias:plan.vias.length,projectionVisible:overlay.visible,highlighted:[...highlighted],samples})};
+  return {update,snapshot:()=>({version:B.VERSION,nets:plan.nets.length,pads:Object.keys(plan.pins).length,segments,vias:plan.vias.length,projectionVisible:overlay.visible,auxOpacityMin:Math.min(...auxMaterials.map(m=>m.opacity)),highlighted:[...highlighted],samples})};
  }
  root.RepairShopCopper=Object.freeze({create});
 })(typeof globalThis!=='undefined'?globalThis:this);

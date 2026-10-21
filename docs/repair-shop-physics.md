@@ -224,9 +224,15 @@ dashed blue bottom-layer projection above the substrate. A projection crossing i
 not a junction; only a via joins layers. Geometry is enlarged/ideal, without trace
 resistance/parasitics, manufacturing units, DRC or fabrication claims.
 
-Board extraction defaults to close inspection while the whole-desk view remains
+Board extraction defaults to a close, solid component view with transparency off.
+The whole-desk view remains
 available. Top view, component transparency and clickable network highlights let
-players follow routes. Three named test points per product select the exact
+players follow routes.
+Transparency and the dashed bottom-layer overlay require an explicit press of
+the inspection button; pressing it again restores original component materials.
+Reloading/resuming and accepting/switching orders start solid, without changing
+saved electrical evidence, purchases, coins or points.
+Three named test points per product select the exact
 existing measurement ports, not arbitrary component leads. In particular speaker
 TP1 measures the RC rail after Rs, and clock TP1 measures buffered VCC rather than
 a crystal terminal. Network inspection never records a measurement, answers the

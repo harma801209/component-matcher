@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined'"):
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined' && RepairShopScene.VIEW_VERSION===2"):
                             return frame
                     except Exception:
                         pass
@@ -116,6 +116,11 @@ with sync_playwright() as p:
         assert frame.evaluate('RepairShop.snapshot().active.diagnosed')
         page.screenshot(path=str(OUT / ('public-workbench.png' if args.public else 'local-workbench.png')), full_page=True)
         before = frame.evaluate('RepairShop.snapshot()')
+        assert not frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible')
+        assert frame.evaluate('RepairShop.sceneSnapshot().componentOpacityMin')>=.8
+        activate(frame.locator('[data-repair-focus="board-inspection"]'))
+        assert frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible')
+        assert frame.evaluate('RepairShop.snapshot()')==before
         page.reload(wait_until='domcontentloaded', timeout=120000)
         frame = find_frame()
         # A resumed unfinished job opens directly, without revealing/preselecting a part.
@@ -124,6 +129,8 @@ with sync_playwright() as p:
         after = frame.evaluate('RepairShop.snapshot()')
         assert after['active']['diagnosed'] and after['active']['seed'] == before['active']['seed']
         assert after['coins'] == before['coins']
+        assert not frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible'),'Reload restores the solid view, not prior transparency'
+        assert frame.evaluate('RepairShop.sceneSnapshot().componentOpacityMin')>=.8
         assert not shop.locator('.rs-stock [aria-pressed=true]').count()
         stock_id = frame.evaluate('''() => {const j=RepairShopEngine.offer(RepairShop.snapshot().active.seed),p=j.product.parts.find(p=>p.id===j.fault.component);return j.candidates.find(c=>!RepairShopEngine.compatible(p,c)).stockId;}''')
         activate(shop.locator('[data-repair-focus="'+stock_id+'"]'))
@@ -210,7 +217,18 @@ with sync_playwright() as p:
                     assert frame.locator('#repair-diagnosis').input_value()==''
                     assert frame.evaluate('RepairShop.snapshot()')==original,'3D picking must not measure, answer or spend'
                 assert scene['copper']['version']==1 and scene['copper']['segments']>4
-                assert scene['copper']['projectionVisible']
+                assert not scene['copper']['projectionVisible']
+                assert scene['componentOpacityMin']>=.8
+                assert scene['copper']['auxOpacityMin']==1
+                assert frame.locator('[data-repair-focus="board-inspection"]').get_attribute('aria-pressed')=='false'
+                activate(frame.locator('[data-repair-focus="net-GND"]'))
+                assert not frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible'),'Network selection must not turn transparency on'
+                activate(frame.locator('[data-repair-focus="net-all"]'))
+                frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('opaque-default-'+product_id+'.png')))
+                activate(frame.locator('[data-repair-focus="board-inspection"]'))
+                assert frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible')
+                assert frame.evaluate('RepairShop.sceneSnapshot().componentOpacityMin')==.24
+                assert frame.evaluate('RepairShop.sceneSnapshot().copper.auxOpacityMin')==.28
                 activate(frame.locator('[data-repair-focus="net-GND"]'))
                 assert frame.evaluate('RepairShop.sceneSnapshot().copper.highlighted')==['GND']
                 assert 'J_PWR.GND' in frame.locator('.rs-net-members').inner_text()
@@ -228,6 +246,8 @@ with sync_playwright() as p:
                     assert frame.locator('#repair-diagnosis').input_value()==''
                 activate(frame.locator('[data-repair-focus="board-inspection"]'))
                 assert not frame.evaluate('RepairShop.sceneSnapshot().copper.projectionVisible')
+                assert frame.evaluate('RepairShop.sceneSnapshot().componentOpacityMin')>=.8
+                assert frame.evaluate('RepairShop.sceneSnapshot().copper.auxOpacityMin')==1
                 activate(frame.locator('[data-repair-focus="board-inspection"]'))
                 activate(frame.locator('[data-repair-focus="net-all"]'))
                 activate(frame.locator('[data-repair-focus="board-top"]'))
@@ -264,6 +284,7 @@ with sync_playwright() as p:
             report['six_physical_models']='v2 visible, netlist/limits and phone containment checked'
             report['six_webgl_boards']='real meshes, raycast selection, camera rotation/zoom/reset; no game-state mutation'
             report['copper_networks']='six explicit graphs; actual copper trace and all three testpoint picks, GND/network highlights, bottom projection toggle, top inspection and phone fit; no game-state mutation'
+            report['inspection_default']='six products and resumed repair default solid; explicit click enables transparency; click again restores it; network selection does not auto-enable it'
         assert not errors, errors
         report.update(status='passed',rewards=True,mobile_fit=True,original_lessons=True,errors=errors)
         print(json.dumps(report, ensure_ascii=False), flush=True)
