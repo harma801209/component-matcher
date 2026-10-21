@@ -11,7 +11,7 @@ class RepairShopEvidenceTests(unittest.TestCase):
 
     def test_unmeasured_parts_do_not_reveal_faults(self):
         self.node(r'''
-for(let seed=0;seed<90;seed++){
+for(let seed=0;seed<90;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed),s=act(E.create(),'accept',{seed}).state,before=JSON.stringify(s);
  for(const p of j.product.parts){const status=V.part(j,s.active,p.id);a.equal(status.tone,'unknown');a.equal(status.label,'尚未检测');}
  a.equal(V.report(j,s.active),null);a.equal(JSON.stringify(s),before);
@@ -21,7 +21,7 @@ for(let seed=0;seed<90;seed++){
 
     def test_voltage_and_visual_clues_never_prove_component_failure(self):
         self.node(r'''
-for(let seed=0;seed<70;seed++){
+for(let seed=0;seed<70;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'power').state;
  for(const p of j.product.parts){s=act(s,'measure',{id:p.id,mode:'voltage'}).state;const r=s.active.measurements.at(-1),f=V.describe(r);a(!f.proof);a(['reference','clue'].includes(f.tone));a(!['abnormal','repaired'].includes(V.part(j,s.active,p.id).tone));}
  s=act(s,'measure',{id:j.fault.component,mode:'visual'}).state;a.equal(V.describe(s.active.measurements.at(-1)).tone,'neutral');
@@ -31,9 +31,9 @@ for(let seed=0;seed<70;seed++){
 
     def test_isolated_evidence_marks_only_measured_parts_and_survives_restore(self):
         self.node(r'''
-for(let seed=1;seed<90;seed++){
+for(let seed=1;seed<90;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'discharge').state;
- const healthy=j.product.parts.find(p=>p.id!==j.fault.component);s=act(s,'measure',{id:healthy.id,mode:'component'}).state;
+ const healthy=j.product.parts.find(p=>p.id!==j.fault.component&&p.type!=='crystal');s=act(s,'measure',{id:healthy.id,mode:'component'}).state;
  a.equal(V.part(j,s.active,healthy.id).tone,'reference');a.equal(V.part(j,s.active,j.fault.component).tone,'unknown');
  s=act(s,'measure',{id:j.fault.component,mode:'component'}).state;a.equal(V.part(j,s.active,j.fault.component).tone,'abnormal');
  const copy=E.restore(JSON.parse(JSON.stringify(s)));a.deepEqual(V.part(j,copy.active,j.fault.component),V.part(j,s.active,j.fault.component));
@@ -43,7 +43,7 @@ for(let seed=1;seed<90;seed++){
 
     def test_report_requires_repair_and_test_and_does_not_fabricate_prior_measurements(self):
         self.node(r'''
-const seen=new Set();for(let seed=1;seed<400;seed++){
+const seen=new Set();for(let seed=1;seed<400;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed),key=j.product.id+':'+j.fault.component+':'+j.fault.reason;if(seen.has(key))continue;seen.add(key);
  const solved=solve(seed),s=solved.s,before=JSON.stringify(s),report=V.report(j,s.active);
  a(report);a.equal(report.rows.length,5);a(report.rows.every(r=>r.pass));a.equal(report.cost,solved.c.price);a.equal(report.net,j.fee-solved.c.price);
@@ -55,7 +55,7 @@ const seen=new Set();for(let seed=1;seed<400;seed++){
  const copy=E.restore(JSON.parse(JSON.stringify(s)));a.deepEqual(V.report(j,copy.active),report);
  const paid=act(s,'deliver').state;a.deepEqual(V.report(j,paid.active),report);a.equal(paid.coins,150-solved.c.price+j.fee);
 }
-a.equal(seen.size,18);
+a.equal(seen.size,17);
 ''')
 
     def test_real_before_and_manual_after_records_remain_distinct(self):
@@ -78,7 +78,7 @@ a(s.active.measurements.some(m=>m.key==='voltage:'+p.id+':false'));a(s.active.me
         ui = (WEB_ROOT / 'repair_shop_ui.js').read_text(encoding='utf-8')
         self.assertNotIn('diagnosis=part.id', ui)
         self.assertNotIn('diagnosis=p.id', ui)
-        for text in ('维修前后对照', '尚未检测', '验收时实测', '未记录', '测量目标不等于故障答案'):
+        for text in ('维修前后对照', '尚未检测', '验收计算值', '未记录', '测量目标不等于故障答案'):
             self.assertIn(text, page)
 
 

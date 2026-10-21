@@ -9,9 +9,9 @@ class RepairShopCoachTests(unittest.TestCase):
     def node(self, body):
         return repair_tests.RepairShopTests().run_node("const C=require(process.argv[1]+'/repair_shop_coach.js');\n" + body)
 
-    def test_guidance_can_complete_all_eighteen_faults_without_skipping_safety(self):
+    def test_guidance_can_complete_all_seventeen_faults_without_skipping_safety(self):
         self.node(r'''
-const seen=new Set();for(let seed=1;seed<400;seed++){
+const seen=new Set();for(let seed=1;seed<400;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed),key=j.product.id+':'+j.fault.component+':'+j.fault.reason;if(seen.has(key))continue;seen.add(key);
  let s=act(E.create(),'accept',{seed}).state,c={selected:null,mode:'voltage',diagnosis:'',reason:'',stock:'',orientation:''},count=0;
  while(!s.active.delivered&&count++<80){
@@ -33,7 +33,7 @@ const seen=new Set();for(let seed=1;seed<400;seed++){
  }
  a(s.active.delivered,j.product.id);a(count<80);a.equal(s.completed,1);a.equal(s.points,100);a.equal(C.step(j,s.active,c).id,'complete');
 }
-a.equal(seen.size,18);
+a.equal(seen.size,17);
 ''')
 
     def test_coach_recovers_after_reload_or_out_of_order_manual_actions(self):
@@ -46,7 +46,7 @@ const fresh=act(E.create(),'accept',{seed}).state;a(C.step(j,fresh.active,{}).id
 
     def test_each_case_has_suspects_reason_measurement_and_repair_explanations(self):
         self.node(r'''
-for(let seed=0;seed<90;seed++){
+for(let seed=0;seed<90;seed++){if(!E.offer(seed).fault.enabled)continue;
  const j=E.offer(seed),s=act(E.create(),'accept',{seed}).state,before=JSON.stringify(s),overview=C.overview(j,s.active),detail=C.detail(j,s.active);
  a.deepEqual(overview.map(x=>x.title),['可能坏在哪里','为什么这样怀疑','如何检测出来','如何维修和验收']);a.equal(detail.length,4);
  for(const item of [...overview,...detail])a(item.title&&item.text.length>15);
@@ -58,7 +58,7 @@ for(let seed=0;seed<90;seed++){
         self.node(r'''
 const seed=23,j=E.offer(seed);let s=evidence(act(E.create(),'accept',{seed}).state,j);s=act(s,'diagnose',{id:j.fault.component,reason:j.fault.reason}).state;const before=JSON.stringify(s);
 let g=C.step(j,s.active,{stock:'part-0',partError:'额定耐压不足'});a.equal(g.id,'stock-mismatch');a(g.body.includes('额定耐压不足'));a.equal(JSON.stringify(s),before);
-for(let x=0;x<50;x++){const j2=E.offer(x),p=j2.product.parts.find(p=>p.id===j2.fault.component);if(!p.polar)continue;let s2=evidence(act(E.create(),'accept',{seed:x}).state,j2);s2=act(s2,'diagnose',{id:p.id,reason:j2.fault.reason}).state;a.equal(C.step(j2,s2.active,{stock:'part-0',orientation:'reverse'}).id,'orientation');}
+for(let x=0;x<50;x++){if(!E.offer(x).fault.enabled)continue;const j2=E.offer(x),p=j2.product.parts.find(p=>p.id===j2.fault.component);if(!p.polar)continue;let s2=evidence(act(E.create(),'accept',{seed:x}).state,j2);s2=act(s2,'diagnose',{id:p.id,reason:j2.fault.reason}).state;a.equal(C.step(j2,s2.active,{stock:'part-0',orientation:'reverse'}).id,'orientation');}
 ''')
 
     def test_help_is_free_but_evidence_and_verification_are_still_required(self):

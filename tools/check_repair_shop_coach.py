@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopEvidence!=='undefined'"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2"):
                             return f
                     except Exception:
                         pass
@@ -107,7 +107,7 @@ with sync_playwright() as p:
             if step=='deliver':
                 report=frame.locator('#repair-verification')
                 assert report.locator('.rs-verification-row').count()==5
-                assert '验收时实测' in report.inner_text()
+                assert '验收计算值' in report.inner_text()
                 assert frame.locator('.rs-probe-picker [data-evidence="repaired"]').count()==1
                 page.set_viewport_size({'width':393,'height':960})
                 contains_page()

@@ -4,9 +4,11 @@
  const node=typeof module!=='undefined'&&module.exports;
  const D=node?require('./repair_shop_data.js'):root.RepairShopData;
  const E=node?require('./repair_shop_engine.js'):root.RepairShopEngine;
+ const P=node?require('./repair_shop_physics.js'):root.RepairShopPhysics;
  const recorded=(a,mode,id,after=false)=>(a.measurements||[]).find(m=>m.key===mode+':'+id+':'+after)||null;
  function describe(m){
   if(!m)return {tone:'unknown',label:'尚未检测',proof:false,text:'先选择位号和工具，记录一次测量。'};
+  if(m.unsupported)return {tone:'unknown',label:'该项未建模',proof:false,text:'没有可验证的动态模型，不能据此判定元件好坏；不参与本关验收。'};
   if(m.mode==='component')return m.proof?
    {tone:'abnormal',label:'隔离异常',proof:true,text:'断电隔离后的读数偏离本关正常参考。再结合通电线索判断失效类型，不能只凭外观。'}:
    {tone:'reference',label:'符合隔离参考',proof:false,text:'这次隔离检测符合本关参考。它不代替整机测试，也不代表所有可能参数都已检查。'};
@@ -38,15 +40,17 @@
   const required=job.product.parts.find(p=>p.id===job.fault.component);
   const candidate=job.candidates.find(p=>p.stockId===a.installed);
   if(!candidate||E.compatible(required,candidate))return null;
+  const result=P.verify(job.product,job.fault,candidate);if(!result.pass)return null;
   const old=recorded(a,'component',required.id);
-  const rows=[{kind:'component',id:required.id,label:required.id+' · 隔离元件复测',before:old?.value||null,after:D.healthy(required),pass:true}];
+  const rows=[{kind:'component',id:required.id,label:required.id+' · 隔离元件复测',before:old?.value||null,after:result.part.value,pass:result.part.pass}];
   for(let i=0;i<job.product.parts.length;i++){
    const p=job.product.parts[i],m=recorded(a,'voltage',p.id);
-   rows.push({kind:'voltage',id:p.id,label:p.id+' 测试点 / 对GND',before:m?.value||null,after:job.product.normal[i].toFixed(2)+' V',pass:true});
+   const actual=result.volts[i],reference=job.product.normal[i];
+   rows.push({kind:'voltage',id:p.id,label:p.id+' · '+job.product.model.ports[i],before:m?.value||null,after:P.voltage(actual),pass:actual!==null&&Number.isFinite(actual)&&Math.abs(actual-reference)<=Math.max(1e-9,Math.abs(reference)*.05)});
   }
   const wave=(a.measurements||[]).find(m=>m.mode==='scope'&&m.key.endsWith(':false'));
-  rows.push({kind:'function',id:'system',label:'功能与负载测试',before:wave?.value||null,after:job.product.behavior,pass:true});
-  return {rows,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
+  rows.push({kind:'function',id:'system',label:'已建模项目验收',before:wave?.value||null,after:result.summary,pass:result.pass});
+  return {rows,checks:result.checks,modelVersion:P.VERSION,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
  }
  const api=Object.freeze({describe,part,checklist,report});
  if(node)module.exports=api;else root.RepairShopEvidence=api;

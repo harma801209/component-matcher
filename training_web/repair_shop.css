@@ -126,3 +126,18 @@
  #repair-shop .rs-coach-mini p{font-size:12px;line-height:1.8;color:#665e46;margin:6px 0}
  #repair-shop .rs-coach-mini button{width:100%;font-size:12px}
 }
+#repair-shop .rs-model-panel{margin:16px 0;padding:16px;border:1px solid #abc3b4;border-radius:10px;background:#f5f9f1;min-width:0;color:#345448}
+#repair-shop .rs-model-panel summary{cursor:pointer;font-weight:700;line-height:1.65;min-height:32px}
+#repair-shop .rs-model-panel ul{padding-left:20px;margin:12px 0;font-size:13px;line-height:1.9}
+#repair-shop .rs-model-panel p{font-size:12px;line-height:1.9}
+#repair-shop .rs-model-panel a{display:block;font-size:12px;line-height:2;color:#245e63}
+#repair-shop .rs-model-panel .rs-circuit-netlist{margin:14px 0;padding:12px;background:#e8f0e4;border-radius:6px;font:12px/1.9 Consolas,monospace;overflow-x:auto;max-width:100%;white-space:pre}
+#repair-shop .rs-model-boundary{padding-left:10px;border-left:3px solid #b79d5b}
+#repair-shop .rs-acceptance-limits{font-size:13px;line-height:1.9;padding-left:24px}
+#repair-shop .rs-3d-board{width:100%;min-width:0;background:radial-gradient(ellipse at center,#f7f7ec,#e1e7d9);border-radius:10px;overflow:hidden}
+#repair-shop canvas.rs-board-canvas{display:block;width:100%;height:365px;aspect-ratio:auto;touch-action:none;cursor:grab;outline-offset:-4px}
+#repair-shop canvas.rs-board-canvas:active{cursor:grabbing}
+#repair-shop .rs-3d-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#e8eddf;border-top:1px solid #d4ddcc;color:#526957;font-size:12px}
+#repair-shop .rs-3d-controls button{min-height:38px;padding:6px 12px;white-space:nowrap;font-size:12px}
+@media(max-width:600px){#repair-shop canvas.rs-board-canvas{height:310px}#repair-shop .rs-3d-controls{font-size:11px;padding:8px}#repair-shop .rs-3d-controls span{max-width:65%}}
+@media(max-width:600px){#repair-shop .rs-model-panel{padding:12px}#repair-shop .rs-model-panel .rs-circuit-netlist{font-size:11px}}

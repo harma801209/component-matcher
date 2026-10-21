@@ -872,8 +872,16 @@ a.throws(()=>g.build('other',0,{box,tube}),RangeError);a.throws(()=>g.build('res
 
     def test_learner_page_omits_admin_copy_and_keeps_explanations(self):
         page = build_training_html()
-        for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用', '系统已核对', '不模拟', '未经披露', '计算条件与补充说明', '学习记录说明', '不随会员账号同步']:
+        for phrase in ['管理员', '业务数据库', '不写入会员', '不改业务数据', '同一浏览器的不同账号共用', '系统已核对', '未经披露', '计算条件与补充说明', '学习记录说明', '不随会员账号同步']:
             self.assertNotIn(phrase, page)
+        # Keep generic implementation disclaimers out of the original lessons.
+        # Explicit repair-model exclusions are now required learner information:
+        # hiding them would incorrectly imply real-product/full-physics coverage.
+        lesson_sources = (WEB_ROOT / 'index.html').read_text(encoding='utf-8') + ''.join(
+            path.read_text(encoding='utf-8') for path in WEB_ROOT.glob('training*.js')
+        )
+        self.assertNotIn('不模拟', lesson_sources)
+        self.assertIn('未建模范围', page)
         for phrase in ['电路发生什么变化', '为什么会这样', '怎么向客户解释', '客户需求', '选型时还要注意']:
             self.assertIn(phrase, page)
 

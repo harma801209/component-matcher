@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count():
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2"):
                             return frame
                     except Exception:
                         pass
@@ -44,7 +44,7 @@ with sync_playwright() as p:
         page.goto(URL, wait_until='domcontentloaded', timeout=120000)
         frame = find_frame()
         assert frame.evaluate("RepairShopData.products.find(p=>p.id==='lamp').parts.find(p=>p.id==='D1').name") == '红光LED'
-        report['teaching_led']='红光LED / 2V scenario'
+        report['teaching_led']='红光LED / nonlinear calculated I-V model'
         activate(frame.get_by_role('button', name='电子维修店', exact=True))
         shop = frame.locator('#repair-shop')
         assert shop.is_visible()
@@ -57,12 +57,12 @@ with sync_playwright() as p:
         assert frame.locator('#repair-reason').input_value() == ''
         assert frame.locator('#repair-diagnosis').input_value() == ''
         assert not frame.evaluate('RepairShop.snapshot().active.power')
-        activate(shop.get_by_role('button', name=culprit+' '+next(part['name'] for part in job['product']['parts'] if part['id']==culprit), exact=True))
+        activate(shop.locator('[data-repair-focus="target-'+culprit+'"]'))
         assert frame.locator('#repair-diagnosis').input_value() == '', 'Probe choice must not answer the diagnosis'
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         assert '电压测量需要' in frame.locator('#repair-status').inner_text()
         activate(shop.get_by_role('button', name='开启模拟电源', exact=True))
-        activate(shop.get_by_role('button', name='诊断测试波形', exact=True))
+        activate(shop.get_by_role('button', name='运行 / 负载读数', exact=True))
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         activate(shop.get_by_role('button', name='关闭模拟电源', exact=True))
         activate(shop.get_by_role('button', name='断电后放电', exact=True))
@@ -139,12 +139,47 @@ with sync_playwright() as p:
         if args.gallery:
             page.set_viewport_size({'width':1440,'height':1080})
             for product_id in ['lamp','fan','speaker','clock','sensor','router']:
-                frame.evaluate('''id=>{let seed=1;while(RepairShopEngine.offer(seed).product.id!==id)seed++;const s=RepairShopEngine.apply(RepairShopEngine.create(),{type:'accept',seed}).state;localStorage.setItem(RepairShopEngine.KEY,JSON.stringify(s));}''', product_id)
+                frame.evaluate('''id=>{let seed=1;while(RepairShopEngine.offer(seed).product.id!==id||!RepairShopEngine.offer(seed).fault.enabled)seed++;const s=RepairShopEngine.apply(RepairShopEngine.create(),{type:'accept',seed}).state;localStorage.setItem(RepairShopEngine.KEY,JSON.stringify(s));}''', product_id)
                 page.reload(wait_until='domcontentloaded', timeout=120000)
                 frame=find_frame()
                 frame.locator('#repair-shop .rs-board-wrap').screenshot(path=str(OUT / ('diagram-'+product_id+'.png')))
                 assert frame.locator('.rs-probe-picker button').count()==3
+                canvas=frame.locator('.rs-board-canvas')
+                assert canvas.count()==1,'A real WebGL canvas, not the old SVG, is required'
+                frame.wait_for_function('document.querySelector(".rs-board-canvas").dataset.textureLoaded==="true"')
+                scene=frame.evaluate('RepairShop.sceneSnapshot()')
+                assert scene['renderer']=='WebGL' and scene['meshCount']>25 and scene['frames']>0,scene
+                original=frame.evaluate('RepairShop.snapshot()')
+                canvas.scroll_into_view_if_needed()
+                for part_id in scene['projections']:
+                    projected=frame.evaluate('RepairShop.sceneSnapshot()')['projections'][part_id]
+                    canvas.click(position=projected)
+                    assert frame.evaluate('RepairShop.sceneSnapshot().selected')==part_id
+                    assert frame.locator('#repair-diagnosis').input_value()==''
+                    assert frame.evaluate('RepairShop.snapshot()')==original,'3D picking must not measure, answer or spend'
+                canvas.focus()
+                yaw=frame.evaluate('RepairShop.sceneSnapshot().yaw')
+                canvas.press('ArrowRight')
+                assert frame.evaluate('RepairShop.sceneSnapshot().yaw')>yaw
+                before_zoom=frame.evaluate('RepairShop.sceneSnapshot().zoom')
+                canvas.press('+')
+                assert frame.evaluate('RepairShop.sceneSnapshot().zoom')<before_zoom
+                activate(frame.locator('[data-repair-focus="board-reset"]'))
+                assert abs(frame.evaluate('RepairShop.sceneSnapshot().yaw')+.28)<1e-9
+                assert frame.evaluate('RepairShop.sceneSnapshot().zoom')==1
+                model=frame.locator('#repair-physical-model')
+                assert model.is_visible() and '未建模范围' in model.inner_text()
+                assert model.locator('.rs-circuit-netlist').is_visible()
+                model.screenshot(path=str(OUT / ('model-'+product_id+'.png')))
+                page.set_viewport_size({'width':393,'height':960})
+                sizes=frame.evaluate('({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
+                assert sizes['scroll']<=sizes['client']+1,(product_id,sizes)
+                if product_id in ['speaker','router']:
+                    model.screenshot(path=str(OUT / ('model-phone-'+product_id+'.png')))
+                page.set_viewport_size({'width':1440,'height':1080})
             report['six_diagrams']='checked'
+            report['six_physical_models']='v2 visible, netlist/limits and phone containment checked'
+            report['six_webgl_boards']='real meshes, raycast selection, camera rotation/zoom/reset; no game-state mutation'
         assert not errors, errors
         report.update(status='passed',rewards=True,mobile_fit=True,original_lessons=True,errors=errors)
         print(json.dumps(report, ensure_ascii=False), flush=True)

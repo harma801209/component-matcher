@@ -23,17 +23,17 @@ const solve=(seed)=>{let s=act(E.create(),'accept',{seed}).state,j=E.offer(seed)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
-    def test_all_eighteen_random_faults_have_a_solvable_repair_loop(self):
+    def test_all_seventeen_random_faults_have_a_solvable_repair_loop(self):
         self.run_node(r'''
 const seen=new Set();
-for(let seed=1;seed<400;seed++){
- const j=E.offer(seed),key=j.product.id+':'+j.fault.component+':'+j.fault.reason;if(seen.has(key))continue;seen.add(key);
+for(let seed=1;seed<400;seed++){if(!E.offer(seed).fault.enabled)continue;
+ const j=E.offer(seed),key=j.product.id+':'+j.fault.component+':'+j.fault.reason;if(!j.fault.enabled||seen.has(key))continue;seen.add(key);
  const {s,c}=solve(seed),before=s.coins,r=act(s,'deliver');a(r.ok);a.equal(r.state.coins,150-c.price+j.fee);a.equal(r.state.completed,1);a.equal(r.state.points,100);a.equal(r.state.coins,before+j.fee);a(r.state.active.delivered);
  const copy=E.restore(JSON.parse(JSON.stringify(r.state)));a(copy.active.delivered);a.equal(copy.coins,r.state.coins);a.equal(copy.points,100);a.equal(act(copy,'deliver').state.coins,copy.coins);
  a(!act(copy,'accept',{seed}).ok);a.equal(act(copy,'accept',{seed}).state.completed,1);
 }
-a.equal(seen.size,18);a.equal(D.products.length,6);
-const lamp=D.products.find(p=>p.id==='lamp');a.equal(lamp.parts.find(p=>p.id==='D1').name,'红光LED');a.equal(lamp.normal[2],2);
+a.equal(seen.size,17);a.equal(D.products.length,6);
+const lamp=D.products.find(p=>p.id==='lamp');a.equal(lamp.parts.find(p=>p.id==='D1').name,'红光LED');a(lamp.normal[2]>1.9&&lamp.normal[2]<2);
 ''')
 
     def test_cannot_skip_diagnosis_safety_or_verification(self):
@@ -52,12 +52,12 @@ const {s:test}=solve(seed);a(!act(act(test,'power').state,'test').ok);a.equal(ac
 const types=new Set();for(const product of D.products)for(const p of product.parts){types.add(p.type);const options=D.candidates(p,44);a.equal(options.length,4);a.equal(options.filter(c=>!E.compatible(p,c)).length,2,p.type);a.equal(new Set(options.map(c=>c.stockId)).size,4);for(const c of options)a(D.spec(c));}
 a.equal(types.size,9);
 const req=D.products[0].parts[1],candidate=D.candidates(req,1)[0];for(const field of ['voltage','tolerance','power'])a(E.compatible(req,{...candidate,[field]:undefined}));
-for(let seed=1;seed<80;seed++){const j=E.offer(seed),p=j.product.parts.find(p=>p.id===j.fault.component);let s=evidence(act(E.create(),'accept',{seed}).state,j);s=act(s,'diagnose',{id:p.id,reason:j.fault.reason}).state;const bad=j.candidates.find(c=>E.compatible(p,c));const r=act(s,'install',{stockId:bad.stockId,orientation:'correct'});a(!r.ok);a.equal(r.state.coins,150);a(!r.state.active.installed);if(p.polar){const c=j.candidates.find(c=>!E.compatible(p,c));const rev=act(s,'install',{stockId:c.stockId,orientation:'reverse'});a(!rev.ok);a.equal(rev.state.coins,150);}}
+for(let seed=1;seed<80;seed++){if(!E.offer(seed).fault.enabled)continue;const j=E.offer(seed),p=j.product.parts.find(p=>p.id===j.fault.component);let s=evidence(act(E.create(),'accept',{seed}).state,j);s=act(s,'diagnose',{id:p.id,reason:j.fault.reason}).state;const bad=j.candidates.find(c=>E.compatible(p,c));const r=act(s,'install',{stockId:bad.stockId,orientation:'correct'});a(!r.ok);a.equal(r.state.coins,150);a(!r.state.active.installed);if(p.polar){const c=j.candidates.find(c=>!E.compatible(p,c));const rev=act(s,'install',{stockId:c.stockId,orientation:'reverse'});a(!rev.ok);a.equal(rev.state.coins,150);}}
 ''')
 
     def test_fault_and_healthy_readings_are_distinct_and_repaired_readings_restore(self):
         self.run_node(r'''
-for(let seed=0;seed<80;seed++){const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'discharge').state;for(const p of j.product.parts){const r=E.measurement(s.active,'component',p.id);a.equal(r.proof,p.id===j.fault.component);if(r.proof)a.notEqual(r.value,r.normal);else a.equal(r.value,r.normal);}const fixed=solve(seed).s;for(const p of j.product.parts){const r=E.measurement(fixed.active,'voltage',p.id);a.equal(r.value,r.normal);}a.equal(E.measurement(fixed.active,'scope',j.fault.component).value,j.product.behavior);}
+for(let seed=0;seed<80;seed++){if(!E.offer(seed).fault.enabled)continue;const j=E.offer(seed);let s=act(E.create(),'accept',{seed}).state;s=act(s,'discharge').state;for(const p of j.product.parts){const r=E.measurement(s.active,'component',p.id);a.equal(r.proof,p.id===j.fault.component);if(r.proof)a.notEqual(r.value,r.normal);else a.equal(r.value,r.normal);}const fixed=solve(seed).s;for(const p of j.product.parts){const r=E.measurement(fixed.active,'voltage',p.id);a.equal(r.value,r.normal);}a.equal(E.measurement(fixed.active,'scope',j.fault.component).value,j.product.behavior);}
 ''')
 
     def test_save_replays_actions_and_ignores_forged_completion_flags(self):
@@ -72,7 +72,7 @@ const malicious=JSON.parse('{"__proto__":{"polluted":true},"version":1,"coins":1
     def test_rewards_reserve_money_and_abandoned_parts_are_returned(self):
         self.run_node(r'''
 let s={...E.create(),coins:200,points:200};let r=act(s,'redeem',{id:'mint'});a(r.ok);a.equal(r.state.coins,120);a.equal(r.state.points,200);a.equal(r.state.theme,'mint');a(!act(r.state,'redeem',{id:'mint'}).ok);a(!act(r.state,'redeem',{id:'sign'}).ok);
-s=solve(34).s;const returned=act(s,'abandon');a(returned.ok);a.equal(returned.state.coins,150);a.equal(returned.state.completed,0);a(!returned.state.active);
+s=solve(31).s;const returned=act(s,'abandon');a(returned.ok);a.equal(returned.state.coins,150);a.equal(returned.state.completed,0);a(!returned.state.active);
 const {s:test}=solve(12);r=act(test,'deliver');const dup=act(r.state,'deliver');a(!dup.ok);a.equal(dup.state.coins,r.state.coins);a.equal(dup.state.points,r.state.points);
 ''')
 

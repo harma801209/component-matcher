@@ -2,6 +2,7 @@
 (function(root){
  'use strict';
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
+ const P=typeof module!=='undefined'&&module.exports?require('./repair_shop_physics.js'):root.RepairShopPhysics;
  const clone=x=>JSON.parse(JSON.stringify(x)),int=(x,max=10000000)=>Number.isSafeInteger(x)&&x>=0&&x<=max;
  const KEY='fruition.repair-shop.v1';
  const productName=name=>name==='USB阅读台灯'?'USB小夜灯':name;
@@ -30,20 +31,22 @@
   return '';
  }
  function measurement(a,mode,id){
-  const job=offer(a.seed),p=job.product.parts.find(p=>p.id===id),index=job.product.parts.indexOf(p);
+  const job=offer(a.seed),p=job.product.parts.find(p=>p.id===id),index=job.product.parts.indexOf(p),candidate=a.installed?job.candidates.find(c=>c.stockId===a.installed):null;
   if(!p)return {error:'先在电路板上选择要测量的器件。'};
+  if(!job.fault.enabled)return {error:'这张旧工单的晶体动态模型暂未开放，请撤销换单；未交付备件会退款，旧成绩保留。'};
+  const result=P.solve(job.product,job.fault,candidate);
   if(mode==='voltage'){
    if(!a.power)return {error:'电压测量需要先开启模拟限流电源。'};
-   const value=a.installed?job.product.normal[index]:job.fault.volts[index];
-   return {mode,id,label:id+' 对应测试点 / 对GND',value:value.toFixed(2)+' V',normal:job.product.normal[index].toFixed(2)+' V',proof:false};
+   return {mode,id,label:id+' 对应 '+job.product.model.ports[index]+' / 对GND',value:P.voltage(result.volts[index]),normal:P.voltage(job.product.normal[index]),proof:false,modelVersion:P.VERSION};
   }
   if(mode==='scope'){
    if(!a.power)return {error:'观察运行波形前，先开启模拟限流电源。'};
-   return {mode,id,label:'整机诊断测试口',value:a.installed?job.product.behavior:job.fault.wave,normal:job.product.behavior,proof:false};
+   return {mode,id,label:'规定条件下的计算测试口',value:result.summary,normal:job.product.behavior,proof:false,modelVersion:P.VERSION};
   }
   if(mode==='component'){
    if(a.power||!a.discharged)return {error:'先断电并放电。游戏会自动模拟隔离元件，避免在路测量误判。'};
-   return {mode,id,label:id+' / 隔离元件检测',value:!a.installed&&id===job.fault.component?job.fault.bad:D.healthy(p),normal:D.healthy(p),proof:!a.installed&&id===job.fault.component};
+   const isolated=P.isolated(p,P.parameters(job.product,job.fault,candidate)[id]);
+   return {mode,id,label:id+' / 隔离元件检测',value:isolated.value,normal:D.healthy(p),proof:!a.installed&&isolated.proof,unsupported:isolated.pass===null,modelVersion:P.VERSION};
   }
   if(mode==='visual')return {mode,id,label:id+' / 放大观察',value:p.name+'；外观未见明显破损，不能仅凭外观排除故障。',normal:'按维修手册核对位号、封装与标识。',proof:false};
   return {error:'请选择可用的工具。'};
@@ -55,6 +58,7 @@
   if(event.type==='accept'){
    if(a&&!a.delivered)return fail('请先完成当前工单，或确认撤销。');
    if(!int(event.seed,4294967295))return fail('无效工单。');
+   if(!offer(event.seed).fault.enabled)return fail('晶振停振关已暂停，等待完整振荡器模型验证后再开放。');
    if(a?.seed===event.seed||s.history.some(h=>h.id===offer(event.seed).id))return fail('这张工单已交付，不能重复领取报酬。');
    s.active=active(event.seed);ok=true;message='工单已接收。先看客人的描述与维修手册，再开始测量。';
   }else if(event.type==='redeem'){
@@ -71,6 +75,7 @@
    if(a.delivered)return fail('本工单已交付，不会再次结算。');
    if(record&&a.events.length>=300)return fail('本工单记录已满。请撤销工单后重新接单，已购备件会返还。');
    const job=offer(a.seed),required=job.product.parts.find(p=>p.id===job.fault.component);
+   if(!job.fault.enabled)return fail('旧晶振工单暂停：请撤销换单，未交付备件退回；已获得成绩保留。');
    if(event.type==='power'){
     a.power=!a.power;a.discharged=false;ok=true;message=a.power?'模拟限流电源已开启，可测电压、观察测试波形。':'已断电；做元件检测或更换前还需放电。';
    }else if(event.type==='discharge'){
@@ -102,7 +107,9 @@
     if(!a.installed)return fail('尚未完成维修，不能通过验收。');
     if(!a.power)return fail('先通电，再进行功能和负载测试。');
     if(a.tested)return fail('测试已经通过，请交付工单。');
-    a.tested=true;ok=true;message='功能测试、供电检查及负载复测全部通过：'+job.product.behavior;
+    const candidate=job.candidates.find(c=>c.stockId===a.installed),result=P.verify(job.product,job.fault,candidate);
+    if(!result.pass)return fail('验收未通过：'+result.checks.filter(c=>!c.pass).map(c=>c.label+'，计算为'+c.actual).join('；'));
+    a.tested=true;ok=true;message='本关已建模项目验收通过（不包含未建模功能）：'+result.summary;
    }else if(event.type==='deliver'){
     if(!a.tested||!a.installed)return fail('先完成维修并通过功能与负载复测。');
     const points=Math.max(35,100-a.mistakes*8);
@@ -126,6 +133,15 @@
   if(Array.isArray(raw.history))base.history=raw.history.slice(0,30).filter(h=>h&&typeof h.id==='string'&&h.id.length<24&&D.products.some(p=>p.name===productName(h.product))&&int(h.points,100)&&int(h.fee,200)&&typeof h.component==='string'&&h.component.length<4).map(h=>({id:h.id,product:productName(h.product),component:h.component,points:h.points,fee:h.fee}));
   const a=raw.active;
   if(a&&int(a.seed,4294967295)&&Array.isArray(a.events)&&a.events.length<=300){
+   if(!offer(a.seed).fault.enabled){
+    // Retire an unsupported legacy job without resetting economy/history or
+    // repeatedly issuing a refund on reload. Abandon is the sole refund action.
+    if(base.history.some(h=>h.id===offer(a.seed).id))return base;
+    base.active=active(a.seed);base.active.paused=true;
+    const c=offer(a.seed).candidates.find(c=>c.stockId===a.installed);
+    if(c&&a.events.some(e=>e?.type==='install'&&e.stockId===c.stockId)){base.active.installed=c.stockId;base.active.events=a.events;}
+    return base;
+   }
    // Rebuild progress from permitted actions rather than trusting completion flags.
    const replay=create();replay.coins=100000;replay.active=active(a.seed);let rebuilt=replay;
    for(const event of a.events){if(!['power','discharge','measure','diagnose','install','test','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
@@ -133,7 +149,7 @@
   }
   return base;
  }
- function nextSeeds(seed){return [0,1,2].map(i=>(Math.imul((seed+i)>>>0,1103515245)+12345)>>>0);}
+ function nextSeeds(seed){const out=[];for(let i=0;out.length<3;i++){const n=(Math.imul((seed+i)>>>0,1103515245)+12345)>>>0;if(offer(n).fault.enabled)out.push(n);}return out;}
  const api=Object.freeze({KEY,offer,create,apply,restore,compatible,measurement,nextSeeds});
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RepairShopEngine=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
