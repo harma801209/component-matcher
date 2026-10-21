@@ -138,6 +138,7 @@ def main() -> int:
                 "tests.test_catalog_result_table",
                 "tests.test_catalog_filter_panel",
                 "tests.test_product_training",
+                "tests.test_repair_shop",
                 "tests.test_jianghai_parameters",
                 "tests.test_member_auth_bridge",
             ],
