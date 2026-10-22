@@ -35,7 +35,9 @@
  let probeDirections={black:0,red:0};
  const M=window.RepairShopMechanics,B=window.RepairShopBoard;let mechanicalTool='',inspection=false,selectedNet='';
  function pickMechanical(id){if(id==='@driver'){mechanicalTool='phillips';render();return;}const n=M.next(state.active.mechanics,state.active.tested);if(id.startsWith('@screw:')){if(['unscrew','tighten'].includes(n.op))dispatch({type:'mechanical',op:n.op,id:id.slice(7),tool:mechanicalTool});else{notice='这颗螺丝已妥善收好。先完成：'+n.title+'。';render();}return;}const kind={'@cover':'cover','@brace':'brace','@connector':'plug','@board':'board'}[id];if(kind&&n.op.includes(kind))dispatch({type:'mechanical',op:n.op,tool:mechanicalTool});else{notice='先完成：'+n.title+'。';render();}}
- let boardView=null,boardElement=null,boardKey='',boardFallback=false,boardError='';
+ let boardView=null,boardElement=null,boardKey='',boardFallback=false,boardError='',firstSteps=null,firstStepsElement=null;
+ function disposeFirstSteps(){firstSteps?.dispose();firstSteps=null;firstStepsElement=null;}
+ function openFirstSteps(){screen='beginner';disposeBoard();render();window.TrainingEmbedLayout?.flush();firstStepsElement?.scrollIntoView({block:'start'});}
  function disposeBoard(){boardView?.dispose();boardView=null;boardElement=null;boardKey='';}
  function freshSeeds(){const a=new Uint32Array(1);if(window.crypto?.getRandomValues)crypto.getRandomValues(a);else a[0]=(Date.now()+Math.random()*4294967295)>>>0;seeds=E.nextSeeds(a[0]);}
  function read(){try{const raw=store.getItem(E.KEY);lastSaved=raw;if(raw&&raw.length<350000)state=E.restore(JSON.parse(raw));}catch(_){storageOK=false;}}
@@ -87,7 +89,7 @@
   if(state.revision!==memoryRevision){memoryRevision=state.revision;save();}
   render();if(result.ok&&['mechanical','power','discharge','probeMeasure','install','test','testAssembly','meterSeries'].includes(event.type))revealWorkbench();
  }
- function view(isShop){lessons.hidden=isShop;shop.hidden=!isShop;courseButton.setAttribute('aria-pressed',String(!isShop));shopButton.setAttribute('aria-pressed',String(isShop));if(isShop)render();nav.scrollIntoView({block:'start'});}
+ function view(isShop){lessons.hidden=isShop;shop.hidden=!isShop;courseButton.setAttribute('aria-pressed',String(!isShop));shopButton.setAttribute('aria-pressed',String(isShop));if(isShop)render();else{disposeFirstSteps();disposeBoard();}nav.scrollIntoView({block:'start'});}
  function heading(title,subtitle){const h=el('div',undefined,'rs-section-heading');h.append(el('h3',title));if(subtitle)h.append(el('small',subtitle));return h;}
  function select(labelText,values,current,onchange,id){const field=el('div'),label=el('label',labelText),control=el('select');control.id=id;label.htmlFor=id;const empty=el('option','请选择');empty.value='';control.append(empty);for(const [value,text] of values){const option=el('option',text);option.value=value;control.append(option);}control.value=current;control.addEventListener('change',()=>{onchange(control.value);refreshCoach();});field.append(label,control);return field;}
  function coachStep(){const a=state.active,j=E.offer(a.seed),required=j.product.parts.find(p=>p.id===j.fault.component),chosen=j.candidates.find(p=>p.stockId===stock);return C.step(j,a,{selected,mode,diagnosis,reason,stock,orientation,probes,activeLead,tool:mechanicalTool,partError:chosen?E.compatible(required,chosen):''});}
@@ -157,14 +159,17 @@
  function render(){
   supportLevel=L.support(state.completed,trainingPreference).level;coachEnabled=supportLevel!=='off';if(state.active?.currentSetup)mode='current';
   const focus=document.activeElement?.dataset.repairFocus;
-  if(!state.active||!E.offer(state.active.seed).fault.enabled)disposeBoard();
+  if(screen==='beginner'||!state.active||!E.offer(state.active.seed).fault.enabled)disposeBoard();
+  if(screen!=='beginner')disposeFirstSteps();
   shop.replaceChildren();shop.dataset.theme=state.theme;
   const header=el('header',undefined,'rs-header'),brand=el('div',undefined,'rs-brand'),name=el('div');name.append(el('strong',state.owned.includes('sign')?'妙手修复 · 电子维修店':'小小电子维修店'),el('small','THE REPAIR CORNER · 营业中'+(state.owned.includes('badge')?' · 诊断达人':'')));brand.append(el('span','⌁','rs-brand-icon'),name);header.append(brand);
-  const wallet=el('div',undefined,'rs-wallet');for(const [label,value] of [['金币',state.coins],['学习积分',state.points],['已修复',state.completed]]){const item=el('div');item.append(el('span',label),el('strong',String(value)));wallet.append(item);}header.append(wallet,button(screen==='rewards'?'返回维修台':'奖励小铺',()=>{screen=screen==='rewards'?'work':'rewards';render();}));shop.append(header);
+  const wallet=el('div',undefined,'rs-wallet');for(const [label,value] of [['金币',state.coins],['学习积分',state.points],['已修复',state.completed]]){const item=el('div');item.append(el('span',label),el('strong',String(value)));wallet.append(item);}header.append(wallet,button('新手三章',openFirstSteps,'','first-steps'),button(screen==='rewards'?'返回维修台':'奖励小铺',()=>{screen=screen==='rewards'?'work':'rewards';render();}));shop.append(header);
   const status=el('div',notice,'rs-status');status.id='repair-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');shop.append(status);
   if(state.active&&screen==='work'){const progression=el('div',undefined,'rs-learning-stage');progression.id='repair-learning-stage';progression.append(el('strong','学习阶段 '+L.support(state.completed).stage+' / 3 · '+L.support(state.completed,trainingPreference).label));const label=el('label','辅助方式'),choices=el('select');choices.id='repair-support-level';label.htmlFor=choices.id;for(const [value,text] of [['auto','渐进教学（推荐）'],['full','详细带做'],['steps','只提示目标'],['off','独立诊断']]){const o=el('option',text);o.value=value;choices.append(o);}choices.value=trainingPreference;choices.addEventListener('change',()=>teaching(choices.value));progression.append(label,choices);shop.append(progression);}
   if(!storageOK)shop.append(el('p','浏览器当前不允许保存进度，金币与工单只在本次打开期间保留。','rs-storage'));
-  if(screen==='rewards')renderRewards();else if(state.active)renderWork();else renderLobby();
+  if(screen==='beginner'){
+   if(!firstSteps){firstStepsElement=el('section');shop.append(firstStepsElement);firstSteps=window.RepairShopFirstStepsUI.create(firstStepsElement,()=>{screen='work';render();});}else{shop.append(firstStepsElement);firstSteps.render();}
+  }else if(screen==='rewards')renderRewards();else if(state.active)renderWork();else renderLobby();
   shop.append(el('footer','低压教学模拟 · 金币、积分和兑换仅限游戏内，与会员账户或真实礼品无关。','rs-footer'));
   markCoach();syncMobileControls();
   boardView?.resize();
@@ -172,7 +177,8 @@
  }
  function renderLobby(){
   const root=el('div',undefined,'rs-lobby'),hero=el('div',undefined,'rs-hero'),copy=el('div');copy.append(el('span','YOUR NEXT REPAIR','rs-eyebrow'),el('h2','把坏掉的日常，\n修成新的故事。'),el('p','今天会遇到什么客人？从一盏不亮的灯，到一块供电不稳的音箱板。用测量找到线索，选对备件，让它们重新工作。'));
-  const method=el('div',undefined,'rs-method');for(const text of ['01 找线索','02 判故障','03 选件修','04 测试交付'])method.append(el('span',text));copy.append(method);hero.append(copy,scene());root.append(hero,heading('门口的客人','6类产品 · 17种已建模故障 · 晶振停振关暂停（旧成绩保留）'));
+  const method=el('div',undefined,'rs-method');for(const text of ['01 找线索','02 判故障','03 选件修','04 测试交付'])method.append(el('span',text));copy.append(method);hero.append(copy,scene());root.append(hero);
+  const start=el('section',undefined,'rs-first-entry'),intro=el('div');intro.append(el('span','零基础 · 约10分钟','rs-eyebrow'),el('h3','第一次修好它'),el('p','先救回一盏小灯，再亲手验证一个猜测，最后换个情境自己判断。不需要先背完元器件知识。'));start.append(intro,button('进入新手三章 →',openFirstSteps,'rs-primary','first-steps-entry'));root.append(start,heading('自由接单 · 门口的客人','6类产品 · 17种已建模故障 · 晶振停振关暂停（旧成绩保留）'));
   const choice=el('div',undefined,'rs-teaching-choice');choice.append(el('strong','第一次维修？可以让师傅带你做。'));for(const [value,text] of [['full','新手教学 · 一步步带着做'],['off','自己诊断 · 随时可求助']]){const b=button(text,()=>teaching(value));b.setAttribute('aria-pressed',String(trainingPreference===value));choice.append(b);}const automatic=button('渐进教学 · 随进度减少提示',()=>teaching('auto'));automatic.setAttribute('aria-pressed',String(trainingPreference==='auto'));choice.append(automatic,el('small','渐进教学：第一单详细带做，第二单只提示目标，之后独立诊断；随时可切回详细教学，不扣积分。'));root.append(choice);
   const orders=el('div',undefined,'rs-orders');for(const seed of seeds){const job=E.offer(seed),card=el('article',undefined,'rs-order'),top=el('div',undefined,'rs-order-top'),customer=el('div');customer.append(el('strong',job.product.customer),el('small',job.id+' / '+job.product.tag));top.append(el('span',job.product.customer.slice(0,1),'rs-avatar'),customer);card.append(top,art(job.product.id),el('h3',job.product.name),el('p','“'+job.fault.symptom+'”'));const foot=el('div',undefined,'rs-order-foot');foot.append(el('strong','报酬 '+job.fee+' 金币'),button('接下这单',()=>dispatch({type:'accept',seed}),'rs-primary'));card.append(foot);orders.append(card);}root.append(orders,help());shop.append(root);
  }
@@ -329,8 +335,8 @@
   const history=el('section',undefined,'rs-history');history.append(el('h3','维修履历'));if(!state.history.length)history.append(el('p','第一张工单还在等你。完成诊断、更换和验收后，履历会出现在这里。'));else for(const h of state.history)history.append(el('p',h.product+' · '+h.component+'修复 · +'+h.fee+'金币 / +'+h.points+'积分'));root.append(history,help());shop.append(root);
  }
  window.addEventListener('storage',e=>{if(e.key===E.KEY){read();clearChoices();notice='已同步另一窗口的维修进度。';if(!shop.hidden)render();}});
- window.addEventListener('pagehide',disposeBoard);
- window.RepairShop=Object.freeze({open:()=>view(true),snapshot:()=>JSON.parse(JSON.stringify(state)),sceneSnapshot:()=>boardView?.snapshot()||(boardFallback?{renderer:'fallback',error:boardError}:null)});
+ window.addEventListener('pagehide',()=>{disposeBoard();disposeFirstSteps();});
+ window.RepairShop=Object.freeze({open:()=>view(true),snapshot:()=>JSON.parse(JSON.stringify(state)),sceneSnapshot:()=>boardView?.snapshot()||(boardFallback?{renderer:'fallback',error:boardError}:null),firstStepsSnapshot:()=>firstSteps?.snapshot()||null,firstStepsSceneSnapshot:()=>firstSteps?.sceneSnapshot()||null});
  memoryRevision=state.revision;courseButton.setAttribute('aria-pressed','true');shopButton.setAttribute('aria-pressed','false');
  if(state.active&&!state.active.delivered)view(true);
 })();

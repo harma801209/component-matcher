@@ -49,7 +49,7 @@
   product.parts.forEach((part,i)=>{
    const [x,z]=positions[i],group=new T.Group();group.position.set(x,.04,z);pcb.add(group);nodes[part.id]={group,center:[x,.55,z]};
    const packageId={resistor:'res-thick',capacitor:'cap-aluminum',ceramic:'cap-mlcc',mos:'mos-n',inductor:'ind-molded'}[part.type];
-   if(packageId){const data=P.build(packageId,{marking:part.type==='resistor'?(part.value===220?'221':part.value===4700?'472':'103'):undefined});
+   if(packageId){const data=P.build(packageId,{marking:part.type==='resistor'?(root.TrainingResistorMarking.encode(part.value)?.code||String(part.value)+'Ω'):undefined});
     for(const q of data.items){let n;if(q.type==='box'){n=box(q.p,q.size,q.c,group);if(q.rotation)n.rotation.set(...q.rotation);}else if(q.type==='rod')n=rod(q.a,q.b,q.r,q.c,group);else n=print(q.text,q.p,q.w,q.h,group,q.c);if(n&&q.rotation)n.rotation.set(...q.rotation);}
     for(const pin of data.layout.pins)pads(x+pin.point[0],z+pin.point[2]);
    }else custom(part,group);

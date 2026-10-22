@@ -10,7 +10,7 @@ def build_training_html():
     # Read on each visit so a Cloud hot update cannot retain old lesson assets.
     template = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     css = "\n".join((WEB_ROOT / name).read_text(encoding="utf-8") for name in (
-        "training.css", "training_playground.css", "training_nightlight.css", "repair_shop.css",
+        "training.css", "training_playground.css", "training_nightlight.css", "repair_shop.css", "repair_shop_first_steps.css",
     ))
     scripts = "\n".join((WEB_ROOT / name).read_text(encoding="utf-8") for name in (
         "vendor/training-three.min.js", "training_playground_math.js", "training_playground_levels.js", "training_beginner.js",
@@ -20,7 +20,7 @@ def build_training_html():
         "training_game_feedback.js", "training_game_choices.js", "training_model_labels.js", "training_playground_layout.js", "training.js", "training_tools.js", "training_circuit.js",
         "training_playground_scene.js", "training_playground.js", "training_subtype_game_scene.js", "training_subtype_game.js", "training_playground_entry.js",
         "training_catalog_ui.js", "training_journey.js", "training_nightlight_math.js", "training_nightlight_scene.js", "training_nightlight.js",
-        "repair_shop_physics.js", "repair_shop_data.js", "repair_shop_board.js", "repair_shop_mechanics.js", "repair_shop_meter.js", "repair_shop_learning.js", "repair_shop_engine.js", "repair_shop_evidence.js", "repair_shop_coach.js", "repair_shop_enclosure.js", "repair_shop_copper.js", "repair_shop_probes.js", "repair_shop_scene.js", "repair_shop_ui.js", "training_embed.js",
+        "repair_shop_physics.js", "repair_shop_data.js", "repair_shop_board.js", "repair_shop_mechanics.js", "repair_shop_meter.js", "repair_shop_learning.js", "repair_shop_engine.js", "repair_shop_first_steps.js", "repair_shop_evidence.js", "repair_shop_coach.js", "repair_shop_enclosure.js", "repair_shop_copper.js", "repair_shop_probes.js", "repair_shop_scene.js", "repair_shop_first_steps_ui.js", "repair_shop_ui.js", "training_embed.js",
     ))
     assets = {
         "pcb": "data:image/webp;base64," + base64.b64encode((WEB_ROOT / "assets/playground-pcb.webp").read_bytes()).decode("ascii"),

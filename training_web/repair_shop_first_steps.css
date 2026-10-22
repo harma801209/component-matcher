@@ -1,0 +1,43 @@
+/* The novice lane shares the repair desk palette, not its full tool density. */
+#repair-shop .rs-first-entry{display:flex;align-items:center;gap:24px;margin:24px 0;padding:26px 30px;background:#fff8e7;border:1px solid #d8bd81;border-radius:14px}
+#repair-shop .rs-first-entry>div{flex:1}#repair-shop .rs-first-entry h3{font-size:24px;margin:4px 0 9px}#repair-shop .rs-first-entry p{margin:0;max-width:680px}
+#repair-shop .rs-first{padding:20px 0;color:#294844}
+#repair-shop .rs-first-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;font-weight:700}
+#repair-shop .rs-first-work{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,1fr);gap:22px;align-items:start;scroll-margin-top:8px}
+#repair-shop .rs-first-board{min-width:0;background:#e6ebde;border:9px solid #d5af76;border-radius:15px;overflow:hidden;position:sticky;top:8px}
+#repair-shop .rs-first-canvas{height:430px;position:relative}#repair-shop .rs-first-canvas canvas{display:block;width:100%;height:100%;touch-action:none}
+#repair-shop .rs-first-board-caption{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;font-size:13px}
+#repair-shop .rs-first-task{min-width:0;background:#fffdf6;padding:22px;border:1px solid #d9ddcc;border-radius:12px}
+#repair-shop .rs-first-task h3{font-size:23px;margin:0 0 10px}#repair-shop .rs-first-task p{line-height:1.65;margin:10px 0}
+#repair-shop .rs-first-actions,#repair-shop .rs-first-parts{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#repair-shop .rs-first button{min-height:42px;padding:9px 13px;font-size:15px;line-height:1.4;border-radius:8px}
+#repair-shop .rs-first button:disabled{opacity:.52}#repair-shop .rs-first button[aria-pressed=true]{background:#e5eee0;border:2px solid #326f65}
+#repair-shop .rs-first button:focus-visible,#repair-shop .rs-first select:focus-visible{outline:3px solid #c08b36;outline-offset:3px}
+#repair-shop .rs-first-reading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:16px;padding:14px;background:#e6ecda;border-radius:8px;font-size:14px}
+#repair-shop .rs-first-reading strong{font-variant-numeric:tabular-nums}#repair-shop .rs-first-stock{display:grid;gap:8px}
+#repair-shop .rs-first-stock button{text-align:left}#repair-shop .rs-first-diagnosis{display:grid;gap:8px;margin:14px 0}
+#repair-shop .rs-first select{width:100%;min-height:44px;padding:8px;border:1px solid #b7c6b8;border-radius:6px;background:#fff}
+#repair-shop .rs-first-feedback{padding:12px;background:#fff2ce;border-left:3px solid #b88a38;font-size:14px;overflow-wrap:anywhere}
+#repair-shop .rs-first-comparison{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}#repair-shop .rs-first-comparison th,#repair-shop .rs-first-comparison td{padding:10px;text-align:left;border:1px solid #cad4c4}
+#repair-shop .rs-first-reference{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;font-size:14px}#repair-shop .rs-first-manual{padding:14px;background:#e9ede1;border-radius:8px}
+#repair-shop .rs-first-manual summary{cursor:pointer;font-weight:700}#repair-shop .rs-first-manual p{margin:8px 0;line-height:1.5}
+#repair-shop .rs-first-limits,#repair-shop .rs-first-save{color:#63776a;line-height:1.6}#repair-shop .rs-first-save{display:block;margin-top:16px;font-size:12px}
+#repair-shop .rs-first-report{max-width:720px;margin:20px auto;padding:32px;background:#fff8e7;border:1px solid #d8bd81;border-radius:14px}
+#repair-shop .rs-first-report p{line-height:1.8}#repair-shop .rs-first-report small{display:block;margin-top:14px}
+#repair-shop .rs-first-success{display:inline-block;font-size:13px;color:#326f65;font-weight:700;margin-bottom:12px}
+#repair-shop .rs-first-fallback{padding:24px;line-height:1.8}
+#repair-shop .rs-first-scroll-hint{display:none}
+#repair-shop .rs-first-restart{font-size:12px;margin-top:14px}#repair-shop .rs-first-restart summary{cursor:pointer;padding:8px 0}
+@media(max-width:760px){
+ #repair-shop .rs-first-entry{display:block;padding:20px}#repair-shop .rs-first-entry button{margin-top:14px;width:100%}
+ #repair-shop .rs-first-header{font-size:13px}#repair-shop .rs-first-header button{font-size:12px;padding:8px}
+ #repair-shop .rs-first-work{display:flex;flex-direction:column;gap:0}#repair-shop .rs-first-board{width:100%;box-sizing:border-box;position:static;border-width:5px;border-radius:10px 10px 0 0}
+ #repair-shop .rs-first-canvas{height:180px}#repair-shop .rs-first-board-caption{font-size:11px;padding:4px 8px}
+ #repair-shop .rs-first-board-caption button{font-size:12px;min-height:34px;padding:5px 8px}
+ #repair-shop .rs-first-task{width:100%;box-sizing:border-box;padding:14px;border-top:0;border-radius:0 0 10px 10px;max-height:calc(var(--rs-first-viewport,640px) - 260px);overflow-y:auto;overscroll-behavior-y:contain}
+ #repair-shop .rs-first-scroll-hint{display:block;font-size:11px;color:#63776a;margin-bottom:8px}
+ #repair-shop .rs-first-task h3{font-size:18px;margin-bottom:6px}#repair-shop .rs-first-task p{font-size:13px;line-height:1.5;margin:8px 0}
+ #repair-shop .rs-first-actions,#repair-shop .rs-first-parts{gap:6px;margin:8px 0}#repair-shop .rs-first button{font-size:13px;min-height:42px;padding:8px 10px}
+ #repair-shop .rs-first-parts button{flex:1;font-size:12px;padding:7px}#repair-shop .rs-first-reading{font-size:12px;padding:10px;margin-top:10px}
+ #repair-shop .rs-first-reference{display:block;font-size:12px}#repair-shop .rs-first-report{padding:20px}#repair-shop .rs-first-entry h3{font-size:22px}
+}
