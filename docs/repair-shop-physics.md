@@ -245,6 +245,42 @@ Native Chrome checks actual copper and all three test-point raycasts on each
 product, GND/highlight membership, projection toggle, top view, phone bounds,
 unchanged state, full repair/save/assembly/reward and original lessons.
 
+## Hands-on instruments and progressive learning (2026-10-22)
+
+Voltage measurements require two explicit player-placed leads on the declared
+TP1–TP3/GND contacts, via actual3D picking or matching accessible buttons. Moving
+a lead never measures, answers a diagnosis, spends money or reveals hidden faults.
+COM is black; voltage requires the red VΩ input. Signed readings are Vred−Vblack
+from the same physical solver. Reversed/differential records retain their actual
+connections and are never substituted for a missing TP-to-GND report reading.
+Floating/unresolved nodes remain unknown, not0V. This is an ideal infinite-input-
+impedance meter; real probe loading, leakage, noise and lead resistance are absent.
+
+The optional200mA instrument must be inserted in a declared broken SRC—LOAD supply
+fixture while powered off and discharged, then powered to read. It cannot be
+connected across TP/GND, removed live, retained for board acceptance, or packed
+back into the enclosure. Reverse insertion changes the sign only. It is an ideal
+zero-burden meter, not a model of a real fused DMM. The motor uses total source
+current, the speaker uses the declared20/100mA,50%duty load average (zero with
+F1open), the router uses the separate input100Ω branch, and LDO current ignoresIq.
+It is not legitimate to infer input current from an unrelated output port.
+
+Component mode explicitly docks an off/discharged isolated component in its
+specified fixture (capacitance/ESR, LCR,4.5VMOS, diode or LDO as appropriate), then
+returns it after reading. It does not claim a generic multimeter can measure all
+those properties. Runtime mode explicitly docks the buffered diagnostic port.
+Legacy saved measurement events still replay; new UI emits connection-bearing
+events. Normal local economy, saved purchases, evidence and rewards are retained.
+
+Auto guidance uses detailed actions on the first completed repair, goal-only
+prompts on the second, and independent diagnosis thereafter. Players may expand a
+single step or change support without penalty. The post-test report links actual
+recorded observations, isolated evidence, failure reasoning, chosen specifications
+and modeled verification. Unrecorded prior measurements are never fabricated.
+Six optional transfer questions have no preselected answer; answers persist and
+never issue additional money or points, including after delivery. This progression
+is instructional support, not a validated proficiency assessment or certification.
+
 ## Primary principle references
 
 - TI, *Understanding Basic Analog – Ideal Op Amps*, noninverting gain and ideal
@@ -259,6 +295,11 @@ unchanged state, full repair/save/assembly/reward and original lessons.
   https://ctms.engin.umich.edu/CTMS/index.php?example=MotorSpeed&section=SystemModeling
 - Fluke, capacitance testing: power off, discharge and verify before measurement:
   https://www.fluke.com/en-us/learn/blog/digital-multimeters/how-to-measure-capacitance
+- Fluke, DC voltage connections, V/COM inputs and reversed DC polarity:
+  https://www.fluke.com/en-ca/learn/blog/digital-multimeters/how-to-measure-dc-voltage-with-a-digital-multimeter
+- Fluke15B/17B user manual, open the circuit and insert the current meter in
+  series; power off/discharge before resistance/capacitance work:
+  https://assets.fluke.com/manuals/15b17b__umeng0400.pdf
 
 References establish principles, not the invented board parameters or an OEM
 endorsement. All numerical examples above are independently derived teaching

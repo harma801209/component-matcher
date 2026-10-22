@@ -39,6 +39,7 @@
    if(['unscrew','tighten'].includes(mechanical.op)&&c.tool!=='phillips')return s('mechanic-tool','拿起十字螺丝刀','先拿起桌面的十字螺丝刀，再逐颗处理螺丝。也可以点击右侧工具按钮。','mechanic-tool','选择拆装工具');
    return s('mechanical-'+mechanical.op,mechanical.title,mechanical.body,'mechanic-'+(mechanical.id||mechanical.op),'拆装与归位');
   }
+  if(a.currentSetup){if(a.power)return power(false);if(!a.discharged)return s('discharge','先断电并放电','改接电流表必须在断电、确认无电之后进行。','discharge','断电检测');return s('series-remove','恢复普通供电连接','取下串联电流表，恢复正常连接后再继续诊断、验收或装配。','series-remove','断电检测');}
   if(a.installed){if(!a.power)return power(true);return s('test','运行功能与负载测试','装好不代表修好。点击测试，核对：'+job.product.behavior,'test','维修后验证');}
   if(a.diagnosed){
    const required=part(job.fault.component);
@@ -54,12 +55,19 @@
    if(c.selected!==entry)return choose(entry,'先读客人的原始症状。本关从供电相关器件开始排查，避免一上来就盲目换件。');
    if(!a.power)return power(true);
    if(c.mode!=='voltage')return s('voltage-mode','选“直流电压”工具','比较该测试点对GND的电压。正常参考为 '+job.product.normal[job.product.parts.indexOf(part(entry))].toFixed(2)+' V。','mode-voltage','通电观察');
+   if(c.probes){
+    if(c.probes.jack!=='v')return s('probe-jack','红表笔改接VΩ插孔','测电压使用VΩ和COM插孔，不能用mA插孔跨接电源。','jack-v','通电观察');
+    if(c.probes.black!=='GND')return c.activeLead!=='black'?s('probe-black','拿起黑表笔','黑表笔固定在COM。先拿起它，再点击GND测试点，建立电位参考。','lead-black','通电观察'):s('probe-ground','黑表笔接到GND','点击3D板上的GND金环，或点击工具区的GND接点。仅连接，不会自动测量。','contact-GND','通电观察');
+    const tp='TP'+(job.product.parts.indexOf(part(entry))+1);
+    if(c.probes.red!==tp)return c.activeLead!=='red'?s('probe-red','拿起红表笔','红表笔已接VΩ插孔。接下来接到 '+tp+'，与黑表笔所在GND形成电压测量。','lead-red','通电观察'):s('probe-point','红表笔接到 '+tp,'点击 '+tp+'；本表显示红表笔电位减黑表笔电位。接反会显示负号，不是电源真的反向。','contact-'+tp,'通电观察');
+   }
    return s('voltage-read','记录一次供电电压','点击“记录一次测量”。读数会与正常参考一起留在诊断笔记，不需要自己记住。','measure','通电观察');
   }
   if(!record(a,'scope')){
    if(!c.selected)return choose(entry,'已经有一次电压观察，再选择目标，以便观察本产品的诊断测试口。');
    if(!a.power)return power(true);
    if(c.mode!=='scope')return s('scope-mode','再观察运行线索','静态电压不一定暴露故障。选择“运行 / 负载读数”，查看电流、纹波、驱动或上拉状态的计算结果。','mode-scope','观察工作状态');
+   if(c.probes&&!c.probes.scope)return s('scope-dock','接入缓冲运行诊断口','该口是本板声明的整机诊断接口，不是普通万用表直接测音频、晶体或任意引脚。','dock-scope','观察工作状态');
    return s('scope-read','记录本单的运行表现','点击“记录一次测量”。正常应为：'+job.product.behavior,'measure','观察工作状态');
   }
   if(a.power)return power(false);
@@ -75,6 +83,7 @@
   const last=[...a.measurements].reverse().find(m=>m.mode==='component');
   if(c.selected!==next)return choose(next,(last?last.id+' 的隔离读数符合本关正常参考，继续排查下一处。':'现在沿维修手册的顺序检查器件。')+' 这不是直接认定 '+next+' 已损坏。');
   if(c.mode!=='component')return s('component-mode','选择“隔离元件检测”',words[part(next).type]+' 本关正常参考：'+D.healthy(part(next))+'。','mode-component','检查器件本身');
+  if(c.probes&&c.probes.fixture!==next)return s('component-dock','隔离 '+next+' 并接入测试夹具','确认无电后，模拟将目标元件隔离并放入专用夹具；不同器件使用不同测试条件。检测结束后自动归位，不是在路阻值。','dock-component','检查器件本身');
   return s('component-read','测量 '+next+' 并比较正常值','点击“记录一次测量”。正常应为 '+D.healthy(part(next))+'；若不同，结合通电线索判断，别立即盲目换件。','measure','检查器件本身');
  }
  function overview(job,a){

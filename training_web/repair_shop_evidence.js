@@ -8,11 +8,12 @@
  const recorded=(a,mode,id,after=false)=>(a.measurements||[]).find(m=>m.key===mode+':'+id+':'+after)||null;
  function describe(m){
   if(!m)return {tone:'unknown',label:'尚未检测',proof:false,text:'先选择位号和工具，记录一次测量。'};
-  if(m.unsupported)return {tone:'unknown',label:'该项未建模',proof:false,text:'没有可验证的动态模型，不能据此判定元件好坏；不参与本关验收。'};
+  if(m.unsupported)return {tone:'unknown',label:m.mode==='voltage'?'节点电位无法确定':'该项未建模',proof:false,text:m.mode==='voltage'?'浮空或未确定的节点不强行设成0V。理想仪表不含漏电和加载效应，这条记录不能证明某个元件损坏。':'没有可验证的动态模型，不能据此判定元件好坏；不参与本关验收。'};
   if(m.mode==='component')return m.proof?
    {tone:'abnormal',label:'隔离异常',proof:true,text:'断电隔离后的读数偏离本关正常参考。再结合通电线索判断失效类型，不能只凭外观。'}:
    {tone:'reference',label:'符合隔离参考',proof:false,text:'这次隔离检测符合本关参考。它不代替整机测试，也不代表所有可能参数都已检查。'};
-  if(m.mode==='voltage')return {tone:m.value===m.normal?'reference':'clue',label:m.value===m.normal?'电压符合参考':'电压偏离参考',proof:false,text:'这里比较的是测试点对GND的电压。节点电压异常可能来自上游或负载，不能直接认定这个器件坏了。'};
+  if(m.mode==='voltage')return {tone:m.value===m.normal?'reference':'clue',label:m.value===m.normal?'电压符合参考':'电压偏离参考',proof:false,text:(m.connection?'接点：红 '+m.connection.red+' − 黑 '+m.connection.black+'。':'这里比较的是测试点对GND的电压。')+' 节点电压异常可能来自上游或负载，不能直接认定这个器件坏了。'+(m.note||'')};
+  if(m.mode==='current')return {tone:m.value===m.normal?'reference':'clue',label:'供电支路电流已记录',proof:false,text:'这是SRC—LOAD支路的直流或周期平均电流，不是任意元件的电流，也不单独证明故障。'+(m.note||'')};
   if(m.mode==='scope')return {tone:'clue',label:'运行线索已记录',proof:false,text:'这是整机诊断测试口的表现，不是所选元件的单独检测。请结合断电隔离读数定位原因。'};
   return {tone:'neutral',label:'外观记录',proof:false,text:'没有明显破损不能排除内部故障，还需要电气检测。'};
  }
@@ -50,7 +51,16 @@
   }
   const wave=(a.measurements||[]).find(m=>m.mode==='scope'&&m.key.endsWith(':false'));
   rows.push({kind:'function',id:'system',label:'已建模项目验收',before:wave?.value||null,after:result.summary,pass:result.pass});
-  return {rows,checks:result.checks,modelVersion:P.VERSION,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
+  const observed=(a.measurements||[]).filter(m=>['voltage','current','scope'].includes(m.mode)&&m.key.endsWith(':false'));
+  const reasoning=[
+   {title:'客人描述',text:job.fault.symptom},
+   {title:'实际测量线索',text:observed.length?observed.map(m=>m.label+'：'+m.value+'（正常参考 '+m.normal+'）').join('；'):'未记录通电测量，不补造历史读数。'},
+   {title:'隔离检测证据',text:old?required.id+'：'+old.value+'；正常参考 '+old.normal+'。这是断电隔离后的元件检测，不是在路测量。':'未记录隔离读数，不补造历史读数。'},
+   {title:'为什么这样判断',text:required.id+' · '+(D.reasons.find(r=>r[0]===job.fault.reason)?.[1]||job.fault.reason)+'。'+job.fault.why+' 此解释适用于本关等效电路，不能仅凭相同症状推断其他产品。'},
+   {title:'为什么选这个备件',text:'原件要求：'+D.spec(required)+'；实际换件：'+D.spec(candidate)+'。已核对本板参数、封装、引脚、极性和兼容条件；不是按价格决定。'},
+   {title:'如何确认修复',text:result.summary+'。验收范围：'+job.product.model.limits+'；板级通过后仍须重新装配和成品复测才可交付。'}
+  ];
+  return {rows,reasoning,checks:result.checks,modelVersion:P.VERSION,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
  }
  const api=Object.freeze({describe,part,checklist,report});
  if(node)module.exports=api;else root.RepairShopEvidence=api;

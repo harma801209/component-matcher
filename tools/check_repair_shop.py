@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined' && RepairShopScene.VIEW_VERSION===2"):
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMeter!=='undefined' && RepairShopScene.VIEW_VERSION===3"):
                             return frame
                     except Exception:
                         pass
@@ -40,6 +40,16 @@ with sync_playwright() as p:
         def activate(locator):
             locator.focus()
             locator.press('Enter')
+
+        def lead(color, contact, picking=False):
+            activate(frame.locator('[data-repair-focus="lead-'+color+'"]'))
+            if picking:
+                canvas=frame.locator('.rs-board-canvas')
+                canvas.scroll_into_view_if_needed()
+                canvas.click(position=frame.evaluate('id=>RepairShop.sceneSnapshot().contactProjections[id]',contact))
+                assert frame.evaluate('RepairShop.sceneSnapshot().probeContacts')[color]==contact
+            else:
+                activate(frame.locator('[data-repair-focus="contact-'+contact+'"]'))
 
         def mechanical_steps(opening, picking=False):
             # Exercise visible controls, never inject a completed repair.
@@ -99,14 +109,52 @@ with sync_playwright() as p:
         assert not frame.evaluate('RepairShop.snapshot().active.power')
         activate(shop.locator('[data-repair-focus="target-'+culprit+'"]'))
         assert frame.locator('#repair-diagnosis').input_value() == '', 'Probe choice must not answer the diagnosis'
+        assert shop.get_by_role('button', name='记录一次测量', exact=True).is_disabled()
+        before_connections=frame.evaluate('RepairShop.snapshot()')
+        lead('black','GND',True)
+        lead('red','TP1',True)
+        assert frame.evaluate('RepairShop.snapshot()')==before_connections
+        frame.locator('.rs-board-wrap').screenshot(path=str(OUT/('probes-public.png' if args.public else 'probes-local.png')))
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         assert '电压测量需要' in frame.locator('#repair-status').inner_text()
         activate(shop.get_by_role('button', name='开启模拟电源', exact=True))
+        activate(shop.get_by_role('button', name='记录一次测量', exact=True))
+        forward=frame.evaluate('RepairShop.snapshot().active.measurements.at(-1).numeric')
+        lead('red','GND')
+        lead('black','TP1')
+        activate(shop.get_by_role('button', name='记录一次测量', exact=True))
+        assert frame.evaluate('RepairShop.snapshot().active.measurements.at(-1).numeric')==-forward
+        activate(shop.get_by_role('button', name='关闭模拟电源', exact=True))
+        activate(shop.get_by_role('button', name='断电后放电', exact=True))
+        activate(frame.locator('[data-repair-focus="probe-clear"]'))
+        activate(frame.locator('[data-repair-focus="jack-ma"]'))
+        lead('black','GND')
+        assert '不能跨接' in frame.locator('#repair-status').inner_text()
+        assert shop.get_by_role('button', name='记录一次测量', exact=True).is_disabled()
+        activate(frame.locator('[data-repair-focus="mode-current"]'))
+        lead('red','SRC')
+        lead('black','LOAD')
+        activate(frame.locator('[data-repair-focus="series-connect"]'))
+        assert frame.evaluate('!!RepairShop.snapshot().active.currentSetup')
+        activate(frame.locator('[data-repair-focus="power"]'))
+        activate(frame.locator('[data-repair-focus="measure"]'))
+        assert frame.evaluate('RepairShop.snapshot().active.measurements.at(-1).mode')=='current'
+        activate(frame.locator('[data-repair-focus="series-remove"]'))
+        assert frame.evaluate('!!RepairShop.snapshot().active.currentSetup')
+        activate(frame.locator('[data-repair-focus="power"]'))
+        activate(frame.locator('[data-repair-focus="discharge"]'))
+        activate(frame.locator('[data-repair-focus="series-remove"]'))
+        assert not frame.evaluate('RepairShop.snapshot().active.currentSetup')
+        activate(frame.locator('[data-repair-focus="jack-v"]'))
+        activate(shop.locator('[data-repair-focus="target-'+culprit+'"]'))
+        activate(shop.get_by_role('button', name='开启模拟电源', exact=True))
         activate(shop.get_by_role('button', name='运行 / 负载读数', exact=True))
+        activate(frame.locator('[data-repair-focus="dock-scope"]'))
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         activate(shop.get_by_role('button', name='关闭模拟电源', exact=True))
         activate(shop.get_by_role('button', name='断电后放电', exact=True))
         activate(shop.get_by_role('button', name='隔离元件检测', exact=True))
+        activate(frame.locator('[data-repair-focus="dock-component"]'))
         activate(shop.get_by_role('button', name='记录一次测量', exact=True))
         assert job['fault']['bad'] in frame.locator('#repair-meter').inner_text()
         assert frame.locator('#repair-diagnosis').input_value() == ''
@@ -149,6 +197,19 @@ with sync_playwright() as p:
         activate(shop.get_by_role('button', name='交付并领取报酬', exact=True))
         done = frame.evaluate('RepairShop.snapshot()')
         assert done['completed'] == 1 and done['points'] == 100 and done['active']['delivered']
+        assert frame.locator('#repair-reasoning-chain article').count()==6
+        assert frame.locator('#repair-transfer-quiz [aria-pressed=true]').count()==0
+        quiz=frame.evaluate('RepairShopLearning.quiz(RepairShopEngine.offer(RepairShop.snapshot().active.seed))')
+        wrong=next(o for o in quiz['options'] if not o['correct'])
+        right=next(o for o in quiz['options'] if o['correct'])
+        activate(frame.locator('[data-repair-focus="review-'+wrong['id']+'"]'))
+        assert not frame.evaluate('RepairShop.snapshot().active.review.correct')
+        activate(frame.locator('[data-repair-focus="review-'+right['id']+'"]'))
+        reviewed=frame.evaluate('RepairShop.snapshot()')
+        assert reviewed['active']['review']['correct']
+        assert reviewed['coins']==done['coins'] and reviewed['points']==done['points']
+        report['manual_probes']='3D red/black contacts, signed voltage, wrong-jack rejection, off/discharged series setup and removal'
+        report['transfer_review']='six evidence stages; manual wrong/right answers after delivery, no extra currency'
         assert job['fault']['symptom'] in shop.locator('.rs-settlement').inner_text()
         assert shop.locator('.rs-settlement').is_visible()
         report['case'] = {'product':job['product']['name'],'fault':culprit,'loop':'passed','resume':'passed'}

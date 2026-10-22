@@ -4,6 +4,8 @@
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
  const P=typeof module!=='undefined'&&module.exports?require('./repair_shop_physics.js'):root.RepairShopPhysics;
  const M=typeof module!=='undefined'&&module.exports?require('./repair_shop_mechanics.js'):root.RepairShopMechanics;
+ const Meter=typeof module!=='undefined'&&module.exports?require('./repair_shop_meter.js'):root.RepairShopMeter;
+ const Learning=typeof module!=='undefined'&&module.exports?require('./repair_shop_learning.js'):root.RepairShopLearning;
  const clone=x=>JSON.parse(JSON.stringify(x)),int=(x,max=10000000)=>Number.isSafeInteger(x)&&x>=0&&x<=max;
  const KEY='fruition.repair-shop.v1';
  const productName=name=>name==='USB阅读台灯'?'USB小夜灯':name;
@@ -13,7 +15,7 @@
   return {seed,id:'R-'+seed.toString(36).toUpperCase(),product,fault,fee:95+(x%4)*15,candidates:D.candidates(product.parts.find(p=>p.id===fault.component),seed)};
  }
  function create(){return {version:1,coins:150,points:0,completed:0,owned:[],theme:'sand',active:null,history:[],revision:0};}
- function active(seed,entry='closed'){return {seed,power:false,discharged:false,mechanics:M.create(entry),finalTested:false,measurements:[],diagnosed:false,installed:null,tested:false,delivered:false,mistakes:0,hinted:false,events:[]};}
+ function active(seed,entry='closed'){return {seed,power:false,discharged:false,mechanics:M.create(entry),currentSetup:null,review:null,finalTested:false,measurements:[],diagnosed:false,installed:null,tested:false,delivered:false,mistakes:0,hinted:false,events:[]};}
  function compatible(required,candidate){
   if(!candidate||required.type!==candidate.type||required.pkg!==candidate.pkg)return '器件类别、封装或焊盘不兼容。';
   const p=required,c=candidate;
@@ -54,7 +56,7 @@
   return {error:'请选择可用的工具。'};
  }
  function apply(state,event,record=true){
-  const s=clone(state),a=s.active;let message='',ok=false;
+  const s=clone(state),a=s.active;let message='',ok=false,reading=null;
   const fail=text=>({state:s,ok:false,message:text});
   if(!event||typeof event!=='object'||Array.isArray(event))return fail('无效操作。');
   if(event.type==='accept'){
@@ -74,11 +76,12 @@
    s.active=null;ok=true;message='已撤销本单；如有未交付备件，已退回备件架并返还采购金币。';
   }else{
    if(!a)return fail('先选择一位客人的工单。');
-   if(a.delivered)return fail('本工单已交付，不会再次结算。');
+   if(a.delivered&&event.type!=='review')return fail('本工单已交付，不会再次结算。');
    if(record&&a.events.length>=300)return fail('本工单记录已满。请撤销工单后重新接单，已购备件会返还。');
    const job=offer(a.seed),required=job.product.parts.find(p=>p.id===job.fault.component);
    if(!job.fault.enabled)return fail('旧晶振工单暂停：请撤销换单，未交付备件退回；已获得成绩保留。');
    if(event.type==='mechanical'){
+    if(a.currentSetup)return fail('先断电放电并恢复普通供电连接，取下串联电流夹具，再拆装产品。');
     if(a.power||!a.discharged)return fail('拆装前必须关闭电源、确认无电并放电。');
     const r=M.apply(a.mechanics,event,a.tested);if(r.error)return fail(r.error);a.mechanics=r.state;a.finalTested=false;ok=true;message=r.message;
    }else if(event.type==='power'){
@@ -87,10 +90,26 @@
    }else if(event.type==='discharge'){
     if(a.power)return fail('先关闭模拟电源，再放电。');
     a.discharged=true;ok=true;message='已模拟确认无电并放电。元件检测会自动隔离目标元件。';
-   }else if(event.type==='measure'){
-    const result=measurement(a,event.mode,event.id);if(result.error)return fail(result.error);
-    const key=event.mode+':'+event.id+':'+Boolean(a.installed),old=a.measurements.findIndex(m=>m.key===key);
-    const item={...result,key};if(old<0)a.measurements.push(item);else a.measurements[old]=item;
+   }else if(event.type==='meterSeries'){
+    if(a.power||!a.discharged)return fail('改接电流表前必须关闭电源、确认无电并放电。');
+    if(!M.onTable(a.mechanics))return fail('先把电路板放到检修垫，再连接串联供电夹具。');
+    if(event.leads===null){a.currentSetup=null;ok=true;message='已取下电流表并恢复普通供电连接。';}
+    else{const error=Meter.seriesError(event.leads);if(error)return fail(error);a.currentSetup={red:event.leads.red,black:event.leads.black,jack:'ma'};ok=true;message='已在断开的SRC—LOAD主供电支路串入理想电流表。现在可以通电读数；改接前仍须断电放电。';}
+   }else if(event.type==='measure'||event.type==='probeMeasure'){
+    let result;
+    if(event.type==='measure')result=measurement(a,event.mode,event.id); // Replay pre-probe saves unchanged.
+    else{
+     if(!M.onTable(a.mechanics))return fail('先将电路板取到检修垫。');
+     if(event.mode==='voltage')result=a.power?Meter.voltage(job,a,event.leads):{error:'电压测量需要先开启模拟限流电源。'};
+     else if(event.mode==='current')result=a.power?Meter.current(job,a):{error:'先在断电状态串入电流表，再开启模拟电源读数。'};
+     else if(event.mode==='component')result=event.leads?.fixture===event.id?measurement(a,event.mode,event.id):{error:'先断电放电，选择目标，再亲自点击“隔离并接入测试夹具”。'};
+     else if(event.mode==='scope')result=event.leads?.scope===true?measurement(a,event.mode,event.id):{error:'先接入本板的缓冲运行诊断口；这不是普通万用表的单元件测量。'};
+     else result=measurement(a,event.mode,event.id);
+    }
+    if(result.error)return fail(result.error);
+    if(event.type==='probeMeasure'&&['component','scope'].includes(event.mode))result.connection=event.mode==='component'?{fixture:event.id}:{scope:true};
+    const key=(result.sampleKey||result.mode+':'+result.id)+':'+Boolean(a.installed),old=a.measurements.findIndex(m=>m.key===key);
+    const item={...result,key};if(old<0)a.measurements.push(item);else a.measurements[old]=item;reading=item;
     ok=true;message='已记录：'+result.label+' — '+result.value;
    }else if(event.type==='diagnose'){
     if(a.diagnosed)return fail('诊断已确认，下一步核对备件规格。');
@@ -111,6 +130,7 @@
     else if(s.coins<candidate.price)return fail('金币不足，不能采购。');
     else{s.coins-=candidate.price;a.installed=candidate.stockId;a.tested=false;ok=true;message='已采购并更换 '+required.id+'，扣除 '+candidate.price+' 金币。现在通电进行功能与负载复测。';}
    }else if(event.type==='test'){
+    if(a.currentSetup)return fail('板级验收前，请先断电放电并恢复普通供电连接，避免把串联夹具留在产品上。');
     if(!M.onTable(a.mechanics))return fail('板级测试需要电路板位于检修垫上。');
     if(!a.installed)return fail('尚未完成维修，不能通过验收。');
     if(!a.power)return fail('先通电，再进行功能和负载测试。');
@@ -130,6 +150,10 @@
     s.coins+=job.fee;s.points+=points;s.completed+=1;a.delivered=true;a.power=false;
     s.history.unshift({id:job.id,product:job.product.name,component:job.fault.component,points,fee:job.fee});s.history=s.history.slice(0,30);
     ok=true;message='交付成功！+'+job.fee+' 金币 · +'+points+' 学习积分。';
+   }else if(event.type==='review'){
+    if(!a.tested||!a.installed)return fail('先完成维修和板级验收，再做换情境复盘。');
+    const q=Learning.quiz(job),answer=q.options.find(o=>o.id===event.answer);if(!answer)return fail('请亲自选择一个复盘答案。');
+    a.review={answer:answer.id,correct:answer.correct,attempts:Math.min(300,(a.review?.attempts||0)+1)};ok=true;message=answer.correct?'换情境判断正确。'+q.explanation:'这个判断还需要调整。'+q.explanation;
    }else if(event.type==='hint'){
     a.hinted=true;ok=true;message='师傅提示已展开，不扣积分。先看排查思路，需要时再展开本单的详细定位与维修讲解。';
    }else return fail('无效操作。');
@@ -137,7 +161,7 @@
   }
   // The local economy deliberately guarantees that a new job remains affordable.
   s.revision=Math.min(10000000,s.revision+1);
-  return {state:s,ok,message};
+  return {state:s,ok,message,reading};
  }
  function restore(raw){
   const base=create();
@@ -158,7 +182,7 @@
    }
    // Rebuild progress from permitted actions rather than trusting completion flags.
    const legacy=!a.mechanics||a.mechanics.entry==='legacy-open',replay=create();replay.coins=100000;replay.active=active(a.seed,legacy?'legacy-open':'closed');let rebuilt=replay;
-   for(const event of a.events){if(!['power','discharge','measure','diagnose','install','test','testAssembly','mechanical','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
+   for(const event of a.events){if(!['power','discharge','measure','probeMeasure','meterSeries','review','diagnose','install','test','testAssembly','mechanical','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
    if(legacy&&base.history.some(h=>h.id===offer(a.seed).id)){rebuilt.active.delivered=true;rebuilt.active.legacyCompleted=true;rebuilt.active.power=false;}
    base.active=rebuilt.active;
   }

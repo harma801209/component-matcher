@@ -30,6 +30,8 @@
  const entry=el('section',undefined,'repair-entry');entry.append(art('lamp','repair-entry-art'));const entryCopy=el('div');entryCopy.append(el('strong','开一家自己的电子维修店'),el('p','接待客人、测量找故障、选件维修，让学到的器件知识真正派上用场。'));entry.append(entryCopy,button('开门营业 →',()=>view(true)));lessons.prepend(entry);
  let state=E.create(),lastSaved=null,storageOK=true,store,selected=null,mode='voltage',diagnosis='',reason='',stock='',orientation='',meter=null,notice='',screen='work',confirmAbandon=false,seeds=[],memoryRevision=0,coachEnabled=true,hintsOpen=false,detailOpen=false;
  const COACH_KEY='fruition.repair-shop.coach.v1';
+ const Meter=window.RepairShopMeter,L=window.RepairShopLearning,TRAINING_KEY='fruition.repair-shop.support.v2';
+ let trainingPreference='auto',supportLevel='full',stepHelp=false,activeLead=null,probes={red:null,black:null,jack:'v',fixture:null,scope:false};
  const M=window.RepairShopMechanics,B=window.RepairShopBoard;let mechanicalTool='',inspection=false,selectedNet='';
  function pickMechanical(id){if(id==='@driver'){mechanicalTool='phillips';render();return;}const n=M.next(state.active.mechanics,state.active.tested);if(id.startsWith('@screw:')){if(['unscrew','tighten'].includes(n.op))dispatch({type:'mechanical',op:n.op,id:id.slice(7),tool:mechanicalTool});else{notice='这颗螺丝已妥善收好。先完成：'+n.title+'。';render();}return;}const kind={'@cover':'cover','@brace':'brace','@connector':'plug','@board':'board'}[id];if(kind&&n.op.includes(kind))dispatch({type:'mechanical',op:n.op,tool:mechanicalTool});else{notice='先完成：'+n.title+'。';render();}}
  let boardView=null,boardElement=null,boardKey='',boardFallback=false,boardError='';
@@ -37,16 +39,19 @@
  function freshSeeds(){const a=new Uint32Array(1);if(window.crypto?.getRandomValues)crypto.getRandomValues(a);else a[0]=(Date.now()+Math.random()*4294967295)>>>0;seeds=E.nextSeeds(a[0]);}
  function read(){try{const raw=store.getItem(E.KEY);lastSaved=raw;if(raw&&raw.length<350000)state=E.restore(JSON.parse(raw));}catch(_){storageOK=false;}}
  try{store=window.localStorage;read();}catch(_){storageOK=false;}
- coachEnabled=state.completed===0;try{const preference=store.getItem(COACH_KEY);if(preference==='on'||preference==='off')coachEnabled=preference==='on';}catch(_){}
+ try{const preference=store.getItem(TRAINING_KEY);if(['auto','full','steps','off'].includes(preference))trainingPreference=preference;else{const old=store.getItem(COACH_KEY);if(old==='off')trainingPreference='off';}}catch(_){}supportLevel=L.support(state.completed,trainingPreference).level;coachEnabled=supportLevel!=='off';
  hintsOpen=Boolean(state.active?.hinted);
  freshSeeds();
  function save(){try{const raw=JSON.stringify(state);store.setItem(E.KEY,raw);lastSaved=raw;storageOK=true;}catch(_){storageOK=false;}}
- function clearChoices(){selected=null;diagnosis='';reason='';stock='';orientation='';meter=null;confirmAbandon=false;hintsOpen=false;detailOpen=false;mechanicalTool='';selectedNet='';inspection=false;}
- function teaching(value){coachEnabled=value;try{store.setItem(COACH_KEY,value?'on':'off');}catch(_){}render();}
+ function clearChoices(){selected=null;diagnosis='';reason='';stock='';orientation='';meter=null;confirmAbandon=false;hintsOpen=false;detailOpen=false;mechanicalTool='';selectedNet='';inspection=false;activeLead=null;stepHelp=false;probes={red:null,black:null,jack:'v',fixture:null,scope:false};}
+ function teaching(value){trainingPreference=typeof value==='boolean'?(value?'full':'off'):value;try{store.setItem(TRAINING_KEY,trainingPreference);}catch(_){}stepHelp=false;render();}
  function dispatch(event){
+  if(event.type==='power'&&!state.active?.power&&probes.fixture){notice='隔离元件仍在测试夹具中，请先检测完成或点击“归位并断开夹具”，再开启板上电源。';render();return;}
   try{const latest=store.getItem(E.KEY);if(latest!==lastSaved){read();clearChoices();notice='另一窗口更新了维修存档，已载入最新进度。请重新确认本次操作。';render();return;}}catch(_){storageOK=false;}
   const result=E.apply(state,event);state=result.state;notice=result.message;
-  if(event.type==='measure'&&result.ok)meter=state.active.measurements.find(m=>m.key===event.mode+':'+event.id+':'+Boolean(state.active.installed));
+  if(['measure','probeMeasure'].includes(event.type)&&result.ok){meter=result.reading;if(event.mode==='component')probes.fixture=null;}
+  if(result.ok)stepHelp=false;
+  if(event.type==='meterSeries'&&result.ok&&event.leads===null){mode='voltage';probes.red=null;probes.black=null;activeLead=null;}
   if(['accept','abandon'].includes(event.type)&&result.ok){clearChoices();screen='work';if(event.type==='abandon')freshSeeds();}
   if(event.type==='deliver'&&result.ok)freshSeeds();
   if(event.type==='hint'&&result.ok)hintsOpen=true;
@@ -56,19 +61,45 @@
  function view(isShop){lessons.hidden=isShop;shop.hidden=!isShop;courseButton.setAttribute('aria-pressed',String(!isShop));shopButton.setAttribute('aria-pressed',String(isShop));if(isShop)render();nav.scrollIntoView({block:'start'});}
  function heading(title,subtitle){const h=el('div',undefined,'rs-section-heading');h.append(el('h3',title));if(subtitle)h.append(el('small',subtitle));return h;}
  function select(labelText,values,current,onchange,id){const field=el('div'),label=el('label',labelText),control=el('select');control.id=id;label.htmlFor=id;const empty=el('option','请选择');empty.value='';control.append(empty);for(const [value,text] of values){const option=el('option',text);option.value=value;control.append(option);}control.value=current;control.addEventListener('change',()=>{onchange(control.value);refreshCoach();});field.append(label,control);return field;}
- function coachStep(){const a=state.active,j=E.offer(a.seed),required=j.product.parts.find(p=>p.id===j.fault.component),chosen=j.candidates.find(p=>p.stockId===stock);return C.step(j,a,{selected,mode,diagnosis,reason,stock,orientation,tool:mechanicalTool,partError:chosen?E.compatible(required,chosen):''});}
+ function coachStep(){const a=state.active,j=E.offer(a.seed),required=j.product.parts.find(p=>p.id===j.fault.component),chosen=j.candidates.find(p=>p.stockId===stock);return C.step(j,a,{selected,mode,diagnosis,reason,stock,orientation,probes,activeLead,tool:mechanicalTool,partError:chosen?E.compatible(required,chosen):''});}
  function guideTarget(g){return g.target.startsWith('id:')?document.getElementById(g.target.slice(3)):[...shop.querySelectorAll('[data-repair-focus]')].find(n=>n.dataset.repairFocus===g.target);}
  function locate(){const target=guideTarget(coachStep());if(target&&!target.disabled){target.scrollIntoView({block:'center',behavior:'auto'});target.focus({preventScroll:true});}}
  function coachPanel(mini=false){
-  const g=coachStep(),panel=el('section',undefined,mini?'rs-coach-mini':'rs-coach');panel.id=mini?'repair-coach-mini':'repair-coach';panel.dataset.step=g.id;panel.dataset.target=g.target;
+  const raw=coachStep(),detailed=supportLevel==='full'||stepHelp,g=detailed?raw:L.brief(raw),panel=el('section',undefined,mini?'rs-coach-mini':'rs-coach');panel.id=mini?'repair-coach-mini':'repair-coach';panel.dataset.step=raw.id;panel.dataset.target=raw.target;panel.dataset.support=supportLevel;
   if(!mini){const tag=el('div',undefined,'rs-coach-caption');tag.append(el('span','师傅带你修 · '+g.group),el('small','操作教学不扣积分'));panel.append(tag);}
-  const title=el(mini?'strong':'h3',g.title);if(!mini)title.id='repair-coach-next';panel.append(title,el('p',g.body));const go=button(mini?'去操作':'带我找到这一步',locate,'rs-primary');go.dataset.repairFocus=mini?'coach-mini-go':'coach-go';panel.append(go);return panel;
+  const title=el(mini?'strong':'h3',g.title);if(!mini)title.id='repair-coach-next';panel.append(title,el('p',g.body));const go=button(detailed?(mini?'去操作':'带我找到这一步'):'展开这一步操作',detailed?locate:()=>{stepHelp=true;render();},'rs-primary');go.dataset.repairFocus=mini?'coach-mini-go':'coach-go';panel.append(go);return panel;
  }
  function markCoach(){
   for(const n of shop.querySelectorAll('.rs-coach-target')){n.classList.remove('rs-coach-target');if(n.getAttribute('aria-describedby')==='repair-coach-next')n.removeAttribute('aria-describedby');}
-  if(!coachEnabled||!state.active||screen!=='work')return;const target=guideTarget(coachStep());if(target){target.classList.add('rs-coach-target');target.setAttribute('aria-describedby','repair-coach-next');}
+  if(!coachEnabled||!state.active||screen!=='work'||(supportLevel==='steps'&&!stepHelp))return;const target=guideTarget(coachStep());if(target){target.classList.add('rs-coach-target');target.setAttribute('aria-describedby','repair-coach-next');}
  }
  function refreshCoach(){if(!coachEnabled||!state.active||screen!=='work')return;const panel=shop.querySelector('#repair-coach'),mini=shop.querySelector('#repair-coach-mini');if(panel)panel.replaceWith(coachPanel());if(mini)mini.replaceWith(coachPanel(true));markCoach();}
+ function placeContact(id){
+  const a=state.active,job=E.offer(a.seed);if(!activeLead){notice='先拿起红表笔或黑表笔，再选择接点。';render();return;}
+  if(mode==='current'&&(a.power||!a.discharged)){notice='串联电流测量需要先断电、确认无电并放电，再改接表笔。';render();return;}
+  if(mode==='voltage'&&probes.jack!=='v'){notice='红表笔仍在mA插孔，不能跨接测试点；请先改接VΩ插孔。';render();return;}
+  const allowed=mode==='current'?['SRC','LOAD']:Meter.contacts(job.product).map(x=>x.id);if(!allowed.includes(id))return;
+  const color=activeLead;probes[color]=id;activeLead=null;meter=null;if(mode==='voltage'&&color==='red'){const port=Meter.contacts(job.product).find(x=>x.id===id);if(port.part)selected=port.part;}notice=(color==='red'?'红':'黑')+'表笔已接 '+id+'。尚未测量，请点击“记录一次测量”。';render();
+ }
+ function changeMode(value){if(state.active.currentSetup){notice='先断电放电并恢复普通供电连接，再切换工具。';render();return;}mode=value;activeLead=null;meter=null;probes.red=null;probes.black=null;probes.fixture=null;stepHelp=false;render();}
+ function instrumentPanel(job){
+  const a=state.active,panel=el('section',undefined,'rs-probe-panel');panel.id='repair-probe-connections';panel.setAttribute('aria-label','表笔与测试夹具连接');
+  if(mode==='voltage'||mode==='current'){
+   panel.append(el('strong',mode==='voltage'?'亲自放置表笔':'串联电流夹具 · 200mA量程'));
+   const jack=el('div',undefined,'rs-meter-jacks');for(const [id,text] of [['v','VΩ插孔'],['ma','mA插孔']]){const b=button(text,()=>{if(a.power&&(probes.red||probes.black)){notice='请先断电，或断开表笔，再更换插孔。';render();return;}probes.jack=id;probes.red=null;probes.black=null;activeLead=null;meter=null;render();},'','jack-'+id);b.setAttribute('aria-pressed',String((a.currentSetup?.jack||probes.jack)===id));b.disabled=Boolean(a.currentSetup);jack.append(b);}panel.append(jack);
+   const leads=el('div',undefined,'rs-probe-leads');for(const color of ['black','red']){const current=a.currentSetup||probes,b=button((color==='red'?'红表笔':'黑表笔')+' · '+(color==='black'?'COM':current.jack==='v'?'VΩ':'mA')+' → '+(current[color]||'未接'),()=>{activeLead=color;meter=null;render();},'rs-lead-'+color,'lead-'+color);b.setAttribute('aria-pressed',String(activeLead===color));b.disabled=Boolean(a.currentSetup);leads.append(b);}panel.append(leads);
+   const points=el('div',undefined,'rs-probe-contacts'),choices=mode==='voltage'?Meter.contacts(job.product):[{id:'SRC',label:'SRC · 供电侧'},{id:'LOAD',label:'LOAD · 负载侧'}];for(const c of choices){const b=button(c.label,()=>placeContact(c.id),'','contact-'+c.id);b.disabled=Boolean(a.currentSetup);points.append(b);}panel.append(points);
+   if(mode==='voltage')panel.append(el('p','拿起表笔后可点3D金环，也可用以上接点按钮。读数 = 红点电位 − 黑点电位；本版只支持标出的TP与GND。'));
+   else{panel.append(el('p','电源 → SRC ─ 红mA → 理想电流表 → 黑COM ─ LOAD → 电路。改接先断电放电；禁止跨接电源或GND。接反仅改变符号。'));const connect=button(a.currentSetup?'✓ 电流表已串入供电支路':'断电串入电流表',()=>dispatch({type:'meterSeries',leads:{red:probes.red,black:probes.black,jack:probes.jack}}),'','series-connect');connect.disabled=Boolean(a.currentSetup);panel.append(connect);}
+   if(a.currentSetup)panel.append(button('恢复普通供电连接',()=>dispatch({type:'meterSeries',leads:null}),'','series-remove'));
+   else panel.append(button('断开表笔',()=>{probes.red=null;probes.black=null;activeLead=null;meter=null;render();},'','probe-clear'));
+  }else if(mode==='component'){
+   panel.append(el('strong','断电隔离 / 专用器件夹具'),el('p','普通万用表不覆盖全部检测。电容使用容量/ESR夹具，电感使用LCR夹具；MOS、LDO与二极管使用手册声明条件的专用测试。'));
+   panel.append(button(probes.fixture===selected&&selected?'✓ '+selected+' 已接入隔离夹具':'隔离并接入测试夹具',()=>{if(!selected){notice='先选择一个器件。';}else if(a.power||!a.discharged){notice='隔离检测前先关闭电源、确认无电并放电。';}else{probes.fixture=selected;meter=null;notice='已模拟隔离 '+selected+' 并接入专用夹具。记录检测后自动归位，不会把在路并联支路当成元件参数。';}render();},'','dock-component'));
+   if(probes.fixture)panel.append(button('归位并断开夹具',()=>{probes.fixture=null;meter=null;render();},'','undock-component'));
+  }else if(mode==='scope')panel.append(el('strong','缓冲运行 / 负载诊断口'),el('p','这是整机规定条件下的计算测试口，不是普通万用表的单元件读数，也不直接连接晶体引脚。'),button(probes.scope?'✓ 诊断接口已连接':'接入缓冲运行诊断口',()=>{probes.scope=true;meter=null;render();},'','dock-scope'));
+  return panel;
+ }
  function hintPanel(job){
   const panel=el('section',undefined,'rs-case-hints');panel.id='repair-case-hints';panel.append(el('h3','师傅提示 · 当前工单的维修思路'),el('p','先看排查方向；如果仍然不明白，可以展开详细定位。查看提示不扣积分，也不会自动选择答案或替你维修。'));
   const grid=el('div',undefined,'rs-hint-grid');for(const item of C.overview(job,state.active)){const row=el('article');row.append(el('h4',item.title),el('p',item.text));grid.append(row);}panel.append(grid);
@@ -87,15 +118,19 @@
   const list=el('ol');for(const row of report.rows){const item=el('li',undefined,'rs-verification-row');item.dataset.kind=row.kind;item.append(el('strong',row.label));for(const [label,value] of [['维修前记录',row.before],['验收计算值',row.after]]){const field=el('div');field.append(el('small',label),el('p',value??'未记录',value===null?'rs-reading-unknown':''));item.append(field);}item.append(el('span',row.pass?'✓ 通过':'未通过','rs-pass'));list.append(item);}panel.append(list);
   const limits=el('ul',undefined,'rs-acceptance-limits');for(const check of report.checks)limits.append(el('li',(check.pass?'✓ ':'× ')+check.label+'：'+check.actual));panel.append(limits,el('p','验证范围：'+job.product.model.limits));
   const used=el('p','更换 '+report.component+'：'+report.partSpec,'rs-installed-spec');panel.append(used);
+  const chain=el('section',undefined,'rs-reasoning-chain');chain.id='repair-reasoning-chain';chain.append(el('h3','从线索到修复 · 诊断复盘'));for(const [index,row] of report.reasoning.entries()){const item=el('article');item.append(el('span',String(index+1).padStart(2,'0')),el('h4',row.title),el('p',row.text));chain.append(item);}panel.append(chain);
+  const q=L.quiz(job),review=state.active.review,quiz=el('section',undefined,'rs-transfer-quiz');quiz.id='repair-transfer-quiz';quiz.append(el('small','换个情境，再判断一次 · 可跳过，不影响报酬'),el('h3',q.question));const answers=el('div',undefined,'rs-transfer-answers');for(const option of q.options){const b=button(option.text,()=>dispatch({type:'review',answer:option.id}),'','review-'+option.id);b.setAttribute('aria-pressed',String(review?.answer===option.id));answers.append(b);}quiz.append(answers);if(review){const feedback=el('p',(review.correct?'✓ 判断正确。':'再想一想：')+q.explanation,'rs-transfer-feedback');feedback.setAttribute('role','status');quiz.append(feedback);}panel.append(quiz);
   const money=el('div',undefined,'rs-job-economy');for(const [label,value] of [['备件成本',report.cost],['工单报酬',report.fee],['本单净收益',report.net]]){const item=el('div');item.append(el('small',label),el('strong',value+' 金币'));money.append(item);}panel.append(money,el('small',state.active.delivered?'本单已结算，不会重复发放。':'净收益为预计值，点击交付后才领取报酬；此面板不会发放金币。'));return panel;
  }
  function render(){
+  supportLevel=L.support(state.completed,trainingPreference).level;coachEnabled=supportLevel!=='off';if(state.active?.currentSetup)mode='current';
   const focus=document.activeElement?.dataset.repairFocus;
   if(!state.active||!E.offer(state.active.seed).fault.enabled)disposeBoard();
   shop.replaceChildren();shop.dataset.theme=state.theme;
   const header=el('header',undefined,'rs-header'),brand=el('div',undefined,'rs-brand'),name=el('div');name.append(el('strong',state.owned.includes('sign')?'妙手修复 · 电子维修店':'小小电子维修店'),el('small','THE REPAIR CORNER · 营业中'+(state.owned.includes('badge')?' · 诊断达人':'')));brand.append(el('span','⌁','rs-brand-icon'),name);header.append(brand);
   const wallet=el('div',undefined,'rs-wallet');for(const [label,value] of [['金币',state.coins],['学习积分',state.points],['已修复',state.completed]]){const item=el('div');item.append(el('span',label),el('strong',String(value)));wallet.append(item);}header.append(wallet,button(screen==='rewards'?'返回维修台':'奖励小铺',()=>{screen=screen==='rewards'?'work':'rewards';render();}));shop.append(header);
   const status=el('div',notice,'rs-status');status.id='repair-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');shop.append(status);
+  if(state.active&&screen==='work'){const progression=el('div',undefined,'rs-learning-stage');progression.id='repair-learning-stage';progression.append(el('strong','学习阶段 '+L.support(state.completed).stage+' / 3 · '+L.support(state.completed,trainingPreference).label));const label=el('label','辅助方式'),choices=el('select');choices.id='repair-support-level';label.htmlFor=choices.id;for(const [value,text] of [['auto','渐进教学（推荐）'],['full','详细带做'],['steps','只提示目标'],['off','独立诊断']]){const o=el('option',text);o.value=value;choices.append(o);}choices.value=trainingPreference;choices.addEventListener('change',()=>teaching(choices.value));progression.append(label,choices);shop.append(progression);}
   if(!storageOK)shop.append(el('p','浏览器当前不允许保存进度，金币与工单只在本次打开期间保留。','rs-storage'));
   if(screen==='rewards')renderRewards();else if(state.active)renderWork();else renderLobby();
   shop.append(el('footer','低压教学模拟 · 金币、积分和兑换仅限游戏内，与会员账户或真实礼品无关。','rs-footer'));
@@ -106,17 +141,17 @@
  function renderLobby(){
   const root=el('div',undefined,'rs-lobby'),hero=el('div',undefined,'rs-hero'),copy=el('div');copy.append(el('span','YOUR NEXT REPAIR','rs-eyebrow'),el('h2','把坏掉的日常，\n修成新的故事。'),el('p','今天会遇到什么客人？从一盏不亮的灯，到一块供电不稳的音箱板。用测量找到线索，选对备件，让它们重新工作。'));
   const method=el('div',undefined,'rs-method');for(const text of ['01 找线索','02 判故障','03 选件修','04 测试交付'])method.append(el('span',text));copy.append(method);hero.append(copy,scene());root.append(hero,heading('门口的客人','6类产品 · 17种已建模故障 · 晶振停振关暂停（旧成绩保留）'));
-  const choice=el('div',undefined,'rs-teaching-choice');choice.append(el('strong','第一次维修？可以让师傅带你做。'));for(const [value,text] of [[true,'新手教学 · 一步步带着做'],[false,'自己诊断 · 随时可求助']]){const b=button(text,()=>teaching(value));b.setAttribute('aria-pressed',String(coachEnabled===value));choice.append(b);}choice.append(el('small','只指引操作，不替你答题；教学和提示都不扣积分。'));root.append(choice);
+  const choice=el('div',undefined,'rs-teaching-choice');choice.append(el('strong','第一次维修？可以让师傅带你做。'));for(const [value,text] of [['full','新手教学 · 一步步带着做'],['off','自己诊断 · 随时可求助']]){const b=button(text,()=>teaching(value));b.setAttribute('aria-pressed',String(trainingPreference===value));choice.append(b);}const automatic=button('渐进教学 · 随进度减少提示',()=>teaching('auto'));automatic.setAttribute('aria-pressed',String(trainingPreference==='auto'));choice.append(automatic,el('small','渐进教学：第一单详细带做，第二单只提示目标，之后独立诊断；随时可切回详细教学，不扣积分。'));root.append(choice);
   const orders=el('div',undefined,'rs-orders');for(const seed of seeds){const job=E.offer(seed),card=el('article',undefined,'rs-order'),top=el('div',undefined,'rs-order-top'),customer=el('div');customer.append(el('strong',job.product.customer),el('small',job.id+' / '+job.product.tag));top.append(el('span',job.product.customer.slice(0,1),'rs-avatar'),customer);card.append(top,art(job.product.id),el('h3',job.product.name),el('p','“'+job.fault.symptom+'”'));const foot=el('div',undefined,'rs-order-foot');foot.append(el('strong','报酬 '+job.fee+' 金币'),button('接下这单',()=>dispatch({type:'accept',seed}),'rs-primary'));card.append(foot);orders.append(card);}root.append(orders,help());shop.append(root);
  }
  function board(job){
   if(boardKey!==job.id){disposeBoard();boardKey=job.id;boardFallback=false;
    const host=el('div',undefined,'rs-3d-board'),canvas=el('canvas');canvas.className='rs-board rs-board-canvas';canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label','3D成品与电路板：拖动旋转、缩放，或俯视查线。铜箔检修显示引脚、走线、过孔与测试点，也可用下方按钮选择网络和测量目标。');host.append(canvas);
-   try{boardView=window.RepairShopScene.create(canvas,job.product,id=>{if(id.startsWith('@')){pickMechanical(id);return;}if(id.startsWith('net:')){selectedNet=id.slice(4);selected=null;meter=null;render();return;}selectedNet='';selected=id;meter=null;render();boardElement.querySelector('canvas')?.focus({preventScroll:true});});
+   try{boardView=window.RepairShopScene.create(canvas,job.product,id=>{if(id.startsWith('contact:')){placeContact(id.slice(8));return;}if(id.startsWith('@')){pickMechanical(id);return;}if(id.startsWith('net:')){selectedNet=id.slice(4);selected=null;meter=null;render();return;}selectedNet='';selected=id;meter=null;render();boardElement.querySelector('canvas')?.focus({preventScroll:true});});
     const tools=el('div',undefined,'rs-3d-controls');tools.append(el('span','3D维修桌 · 拖动旋转 / 双指缩放'),button('全桌视角',()=>boardView?.reset(),'','board-reset'),button('聚焦电路板',()=>boardView?.focusBoard(),'','board-focus'),button('俯视查线',()=>boardView?.topView(),'','board-top'),button('铜箔检修（透视）',()=>{inspection=!inspection;render();},'','board-inspection'));host.append(tools);boardElement=host;
    }catch(error){boardError=String(error?.message||error);disposeBoard();boardKey=job.id;boardFallback=true;boardElement=boardFlat(job);}
   }
-  if(boardView){const candidate=state.active.installed?job.candidates.find(c=>c.stockId===state.active.installed):null,result=P.solve(job.product,job.fault,candidate);boardView.update(selected,{mechanics:state.active.mechanics,inspection,net:selectedNet,power:state.active.power,current:result.metrics.current,rpm:result.metrics.rpm});const toggle=boardElement.querySelector('[data-repair-focus="board-inspection"]');if(toggle){toggle.setAttribute('aria-pressed',String(inspection));toggle.textContent=inspection?'关闭透视':'铜箔检修（透视）';toggle.title=inspection?'关闭透视，恢复元器件的正常外观':'手动开启透视，查看器件下方走线';}for(const key of ['board-focus','board-top','board-inspection']){const control=boardElement.querySelector('[data-repair-focus="'+key+'"]');if(control)control.disabled=!M.onTable(state.active.mechanics);}}
+  if(boardView){const candidate=state.active.installed?job.candidates.find(c=>c.stockId===state.active.installed):null,result=P.solve(job.product,job.fault,candidate);boardView.update(selected,{mechanics:state.active.mechanics,inspection,leads:mode==='voltage'?probes:null,probeActive:mode==='voltage'&&Boolean(activeLead),net:selectedNet,power:state.active.power,current:result.metrics.current,rpm:result.metrics.rpm});const toggle=boardElement.querySelector('[data-repair-focus="board-inspection"]');if(toggle){toggle.setAttribute('aria-pressed',String(inspection));toggle.textContent=inspection?'关闭透视':'铜箔检修（透视）';toggle.title=inspection?'关闭透视，恢复元器件的正常外观':'手动开启透视，查看器件下方走线';}for(const key of ['board-focus','board-top','board-inspection']){const control=boardElement.querySelector('[data-repair-focus="'+key+'"]');if(control)control.disabled=!M.onTable(state.active.mechanics);}}
   if(boardFallback)boardElement=M.onTable(state.active.mechanics)?boardFlat(job):art(job.product.id);
   return boardElement;
  }
@@ -180,7 +215,7 @@
   const plan=B.get(p.id),panel=el('section',undefined,'rs-network-panel');panel.id='repair-copper-inspector';panel.append(el('h3','沿铜箔查电路'),el('p','点网络可高亮它的全部焊盘、分支与过孔；点测试点只选择测量目标，不会自动记录读数或确认故障。'));
   const list=el('div',undefined,'rs-network-list');for(const net of plan.nets){const b=button(net.id+' · '+net.label,()=>{selectedNet=net.id;selected=null;meter=null;render();},'','net-'+net.id);b.setAttribute('aria-pressed',String(selectedNet===net.id));list.append(b);}list.append(button('显示全部走线',()=>{selectedNet='';selected=null;meter=null;render();},'','net-all'));panel.append(list);
   const net=plan.nets.find(n=>n.id===selectedNet);if(net)panel.append(el('p',net.id+' 同一网络连接：'+net.members.join('、'),'rs-net-members'));
-  const ports=el('div',undefined,'rs-testpoint-list');for(const port of plan.ports)ports.append(button(port.id+' → '+port.part+' / '+p.model.ports[p.parts.findIndex(c=>c.id===port.part)],()=>{selected=port.part;selectedNet='';meter=null;render();},'','port-'+port.id));panel.append(ports);
+  const ports=el('div',undefined,'rs-testpoint-list');for(const port of plan.ports)ports.append(button(port.id+' → '+port.part+' / '+p.model.ports[p.parts.findIndex(c=>c.id===port.part)],()=>{if(mode==='voltage'&&activeLead){placeContact(port.id);return;}selected=port.part;selectedNet='';meter=null;render();},'','port-'+port.id));panel.append(ports);
   panel.append(el('small','铜箔检修模式：器件半透明、显示底层投影及引脚。交叉线不一定相连，带孔的金环才是层间过孔。测试电压以GND为参考。'));
   panel.append(el('small','标注“等效、理想、检验”的模块是固定教学电路块，不是可替换的原厂器件；布线与线宽为放大示意，不代表可制造PCB。'));
   if(p.id==='sensor')panel.append(el('small','U1为本板教学A引脚定义：1 IN、2 GND、3 EN（固定使能）、4 NC、5 OUT；不能套用到任意真实LDO。'));
@@ -240,9 +275,9 @@
   if(a.delivered){const panel=el('section',undefined,'rs-settlement');panel.append(el('span','REPAIR COMPLETE','rs-eyebrow'),el('h3','又一件旧物恢复了生机'),el('p','客人的问题：'+job.fault.symptom),el('p','诊断复盘：'+job.fault.why),el('p','原规格：'+D.spec(p.parts.find(x=>x.id===job.fault.component))),el('p','本单报酬 +'+job.fee+' 金币；学习积分 +'+state.history[0].points+'。备件采购已单独扣除。'));panel.append(button('接待下一位客人 →',()=>{state.active=null;clearChoices();notice='';save();freshSeeds();render();},'rs-primary','next-customer'));bench.append(panel);}
   const tools=el('aside',undefined,'rs-tools');tools.append(el('h3','诊断工具'));
   if(coachEnabled)tools.append(coachPanel(true));
-  const meterPanel=el('div',undefined,'rs-meter'),meterTop=el('div',undefined,'rs-meter-top');meterTop.append(el('span','REPAIR / MULTI TESTER'),el('span',selected||'未接探针'));const display=el('div',undefined,'rs-meter-screen');display.id='repair-meter';display.append(el('small',meter?.label||'选择工具与位号后点击测量'),el('strong',meter?.value||'— —'),el('small',meter?'正常参考：'+meter.normal:'测量结果会自动记入笔记'));
-  const modes=el('div',undefined,'rs-tool-modes');for(const [value,label] of [['voltage','直流电压'],['component','隔离元件检测'],['scope','运行 / 负载读数'],['visual','放大观察']]){const b=button(label,()=>{mode=value;meter=null;render();});b.setAttribute('aria-pressed',String(mode===value));b.dataset.repairFocus='mode-'+value;modes.append(b);}
-  const measure=button('记录一次测量',()=>dispatch({type:'measure',id:selected,mode}));measure.disabled=!selected||a.delivered;measure.dataset.repairFocus='measure';meterPanel.append(meterTop,display,modes,measure);tools.append(meterPanel,el('p',mode==='component'?'元件检测需断电、确认无电并放电；游戏自动使用隔离 / 专用夹具。':mode==='scope'?'在产品专用缓冲 / 诊断口观察，不将探头直接加载到晶体振荡引脚。':'电压探针参考GND；实测应与维修手册的正常状态比较。','rs-meter-note'));
+  const meterPanel=el('div',undefined,'rs-meter'),meterTop=el('div',undefined,'rs-meter-top');meterTop.append(el('span','REPAIR / MULTI TESTER'),el('span',selected||'尚未选择目标'));const display=el('div',undefined,'rs-meter-screen');display.id='repair-meter';display.append(el('small',meter?.label||'先选择工具并接好表笔或夹具'),el('strong',meter?.value||'— —'),el('small',meter?'正常参考：'+meter.normal:'接线不等于测量；点击记录后才写入笔记'));
+  const modes=el('div',undefined,'rs-tool-modes');for(const [value,label] of [['voltage','直流电压'],['current','串联电流'],['component','隔离元件检测'],['scope','运行 / 负载读数'],['visual','放大观察']]){const b=button(label,()=>changeMode(value));b.setAttribute('aria-pressed',String(mode===value));b.dataset.repairFocus='mode-'+value;modes.append(b);}
+  const measure=button('记录一次测量',()=>dispatch({type:'probeMeasure',id:selected,mode,leads:probes}));measure.disabled=a.delivered||(mode==='voltage'?!(probes.red&&probes.black):mode==='current'?!a.currentSetup:mode==='component'?(!selected||probes.fixture!==selected):mode==='scope'?(!selected||!probes.scope):!selected);measure.dataset.repairFocus='measure';meterPanel.append(meterTop,display,modes,instrumentPanel(job),measure);tools.append(meterPanel,el('p',mode==='component'?'元件检测需断电、确认无电并放电；游戏自动使用隔离 / 专用夹具。':mode==='scope'?'在产品专用缓冲 / 诊断口观察，不将探头直接加载到晶体振荡引脚。':'电压为红点电位减黑点电位；串联电流为主供电支路，理想仪表不含加载误差。','rs-meter-note'));
   if(meter){const f=V.describe(meter),feedback=el('section',undefined,'rs-meter-feedback');feedback.id='repair-meter-feedback';feedback.dataset.tone=f.tone;feedback.append(el('strong',f.label),el('p',f.text));tools.append(feedback);}if(!a.diagnosed)tools.append(evidenceChecklist(a));
   if(!a.delivered){const action=el('section',undefined,'rs-action');
    if(!a.diagnosed){action.append(el('h3','你的故障判断'),select('故障位号',p.parts.map(x=>[x.id,x.id+' · '+x.name]),diagnosis,v=>{diagnosis=v;},'repair-diagnosis'),select('失效类型',D.reasons,reason,v=>{reason=v;},'repair-reason'));const diagnose=button('提交诊断',()=>dispatch({type:'diagnose',id:diagnosis,reason}),'rs-primary');diagnose.dataset.repairFocus='diagnose';action.append(diagnose,el('p','需要一项通电观察，以及目标器件的断电隔离检测。'));

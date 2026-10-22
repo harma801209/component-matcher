@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopBoard!=='undefined'"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopLearning!=='undefined' && RepairShopScene.VIEW_VERSION===3"):
                             return f
                     except Exception:
                         pass
@@ -101,6 +101,12 @@ with sync_playwright() as p:
             instruction=guide.inner_text()
             traversed.append(step)
             assert guide.locator('h3').inner_text()
+            if step=='voltage-read':
+                page.set_viewport_size({'width':393,'height':960})
+                contains_page()
+                assert frame.locator('#repair-probe-connections').get_by_role('button').count()>=8
+                capture(frame.locator('.rs-meter'),'-phone-connected-meter.png')
+                page.set_viewport_size({'width':1440,'height':1080})
             if step=='complete':
                 break
             if not chose_diagnosis:
@@ -168,9 +174,30 @@ with sync_playwright() as p:
         assert done['active']['delivered']
         assert resumed and checked_stock
         assert evidence_seen and comparison_seen
+        assert frame.locator('#repair-transfer-quiz [aria-pressed=true]').count()==0
+        review_before=snapshot()
+        activate(frame.locator('#repair-transfer-quiz button').first)
+        assert snapshot()['active']['review']['attempts']==1
+        assert snapshot()['points']==review_before['points'] and snapshot()['coins']==review_before['coins']
+        frame.locator('#repair-support-level').select_option('steps')
+        assert frame.locator('#repair-coach').get_attribute('data-support')=='steps'
+        assert frame.locator('.rs-coach-target').count()==0
+        activate(frame.locator('#repair-coach').get_by_role('button',name='展开这一步操作',exact=True))
+        assert frame.locator('.rs-coach-target').count()>0
+        assert snapshot()['coins']==review_before['coins']
+        frame.locator('#repair-support-level').select_option('off')
+        assert frame.locator('#repair-coach').count()==0
+        assert frame.get_by_role('button',name='师傅提示',exact=True).count()==0 or not frame.get_by_role('button',name='师傅提示',exact=True).is_disabled()
+        frame.locator('#repair-support-level').select_option('full')
+        saved=snapshot()
+        page.reload(wait_until='domcontentloaded',timeout=120000)
+        frame=frame_now()
+        activate(frame.get_by_role('button',name='电子维修店',exact=True))
+        assert snapshot()['active']['review']==saved['active']['review']
+        assert frame.locator('#repair-support-level').input_value()=='full'
         frame.locator('#repair-coach').screenshot(path=str(OUT/(tag+'-complete.png')))
         assert not errors,errors
-        report={'status':'passed','public':args.public,'followed_visible_prompts':traversed,'free_hints':True,'resume':True,'no_auto_actions':True,'manual_diagnosis':True,'evidence_feedback':evidence_seen,'before_after_report':comparison_seen,'wrong_stock_explained':True,'phone_containment':True,'points':done['points'],'errors':errors}
+        report={'status':'passed','public':args.public,'followed_visible_prompts':traversed,'free_hints':True,'resume':True,'no_auto_actions':True,'manual_diagnosis':True,'manual_transfer_review':True,'support_modes_and_persistence':True,'evidence_feedback':evidence_seen,'before_after_report':comparison_seen,'wrong_stock_explained':True,'phone_containment':True,'points':done['points'],'errors':errors}
         (OUT/(tag+'-report.json')).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         print(json.dumps(report,ensure_ascii=False),flush=True)
     finally:
