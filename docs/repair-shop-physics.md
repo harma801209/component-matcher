@@ -305,6 +305,34 @@ moving the pointer does not allocate new geometry or textures. Wires leave the
 board towards the bench rather than ending at mounting holes. No change to the
 physical solver, saved event schema, current fixture or reward calculations.
 
+### Probe direction, soft leads and phone work area
+
+Each color has an independent, transient direction. Q/E rotates the held probe
+in 15-degree steps; accessible left/right buttons also rotate connected probes
+without moving their contact tips, changing readings or issuing engine events.
+Black defaults towards the left bench edge and red towards the right. The cable
+is a cached 40-segment tube: its initial tangent leaves the rear along the grip,
+then a cubic curve reaches the bench edge. Vertex positions/normals are updated
+in place. This is visual routing, not elastic, collision or cable-force physics.
+
+Right/middle orbit keeps the held mesh and hidden native cursor stable throughout
+the gesture. Snapping is suppressed during orbit and only a non-dragged primary
+click can attach; the canvas suppresses its browser context menu.
+
+At phone widths the compact next-action/tool dock sits immediately below the
+260-pixel scene and a single scrolling row of view controls. It invokes the same
+validated full controls, inherits their disabled state and never auto-diagnoses,
+buys, measures or pays. Successful scene-affecting actions bring the scene into
+view before its next animation frame. All tools and manuals remain below and
+are reachable from the dock. This deliberately avoids viewport-unit/sticky
+assumptions inside the production auto-height training iframe.
+
+Native Chrome checks: `tools/check_repair_shop_held_probe.py` observes visibility
+during each right-drag move, exact tip pivots, tube-buffer reuse and phone turns;
+`tools/check_repair_shop_mobile.py` clicks the real compact controls for all six
+products, observes intermediate moving frames for eight teardown steps, checks
+scene/button bounds in the top-level viewport, and tests real touch placement.
+
 ## Primary principle references
 
 - TI, *Understanding Basic Analog – Ideal Op Amps*, noninverting gain and ideal
