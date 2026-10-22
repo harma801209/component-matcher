@@ -281,6 +281,30 @@ Six optional transfer questions have no preselected answer; answers persist and
 never issue additional money or points, including after delivery. This progression
 is instructional support, not a validated proficiency assessment or certification.
 
+## Held-probe visual interaction (2026-10-22)
+
+Picking up a voltage probe now removes that lead from its previous local contact
+and shows an actual lit WebGL probe/lead mesh following the mouse or pen. The tip
+is ray-projected to the teaching-board plane, with a finite camera-depth fallback
+for near-horizon views. The held mesh deliberately draws above packages so the
+player does not lose the pointer; it is an interaction preview, not simulated
+mechanical collision, soldering, force, electrical contact or hand anatomy.
+
+Only a nearby declared TP/GND is previewed (24desktop/34touch pixels). Hover never
+changes saved evidence, equations, diagnosis, coins or points. A deliberate click
+uses the existing validated contact action; wrong mA input still rejects voltage
+placement. Blank-area clicks do not select a component or measure. Left movement
+positions the probe; right/middle drag, wheel and keyboard still control the
+camera. Two-finger gestures do not attach a lead. Leaving/canceling hides the held
+mesh; Escape or the accessible put-down button cancels holding. Native cursor is
+hidden only while the real3D preview is visible and restored on exit, cancellation,
+context loss and disposal. Accessible contact buttons remain available.
+
+The two cached held meshes and two parked meshes reuse their geometry/materials;
+moving the pointer does not allocate new geometry or textures. Wires leave the
+board towards the bench rather than ending at mounting holes. No change to the
+physical solver, saved event schema, current fixture or reward calculations.
+
 ## Primary principle references
 
 - TI, *Understanding Basic Analog – Ideal Op Amps*, noninverting gain and ideal

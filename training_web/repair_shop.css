@@ -176,6 +176,9 @@
 #repair-shop .rs-probe-leads button[aria-pressed=true]{outline:2px solid #f5c775;outline-offset:2px;background:#fff5d6}
 #repair-shop .rs-probe-contacts button{text-align:left;background:#e2eadd;border-color:#b4c2b1}
 #repair-shop .rs-probe-panel>button{width:100%;margin-top:7px}
+#repair-shop .rs-3d-board{position:relative}
+#repair-shop .rs-held-probe-status{position:absolute;inset:8px 8px auto;z-index:2;pointer-events:none;padding:7px 10px;background:#244b48ed;color:#fff4d1;font-size:12px;line-height:1.7;border:1px solid #94aa8f;border-radius:6px;overflow-wrap:anywhere}
+#repair-shop .rs-held-probe-status[hidden]{display:none}
 #repair-shop .rs-reasoning-chain{margin:24px 0;padding-top:20px;border-top:1px solid #d8dfd0}
 #repair-shop .rs-reasoning-chain>h3{margin-bottom:14px}
 #repair-shop .rs-reasoning-chain article{position:relative;margin:0 0 12px;padding:13px 16px 13px 48px;border:1px solid #d8dfd0;border-radius:8px;background:#f5f8ef;overflow-wrap:anywhere}
