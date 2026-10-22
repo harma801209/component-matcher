@@ -954,6 +954,23 @@ a.throws(()=>e.describe('__proto__',0,{}),RangeError);a.throws(()=>e.describe('d
         self.assertIn('if(!frame||!app)return',script)
         self.assertIn('training_embed.js',(Path('product_training.py')).read_text(encoding='utf-8'))
 
+    @unittest.skipUnless(shutil.which("node"), "Node is unavailable")
+    def test_embed_can_flush_phase_height_before_the_mobile_scene_scroll(self):
+        source = r'''
+const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');
+const style=()=>({setProperty(k,v){this[k]=v;}}),app={height:4200,style:style(),getBoundingClientRect(){return {height:this.height};}},container={style:style()},frame={dataset:{},style:style(),setAttribute(){},closest(){return container;}};
+frame.style.height='1050px';const scheduled=[],w={frameElement:frame,addEventListener(){}},document={getElementById(){return app;},documentElement:{dataset:{},style:style()},body:{style:style()},addEventListener(){}};
+const context={window:w,document,requestAnimationFrame:f=>scheduled.push(f),ResizeObserver:class{observe(){}}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),context);
+a.equal(frame.style.height,'1050px');a(Object.isFrozen(w.TrainingEmbedLayout));
+w.TrainingEmbedLayout.flush();a.equal(frame.style.height,'4212px');a.equal(frame.dataset.trainingHeight,'4212');
+app.height=6400;w.TrainingEmbedLayout.flush();a.equal(frame.style.height,'6412px');
+app.height=300;w.TrainingEmbedLayout.flush();a.equal(frame.style.height,'312px');
+scheduled.forEach(f=>f());a.equal(frame.style.height,'312px');a.equal(container.style.height,'auto');
+'''
+        result=subprocess.run([shutil.which("node"),"-e",source,str(WEB_ROOT/'training_embed.js')],capture_output=True,text=True,encoding='utf-8')
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "Node is unavailable; formulas also receive browser verification")
     def test_javascript_syntax_and_physics(self):
         node = shutil.which("node")

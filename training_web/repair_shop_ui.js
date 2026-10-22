@@ -48,7 +48,7 @@
  function teaching(value){trainingPreference=typeof value==='boolean'?(value?'full':'off'):value;try{store.setItem(TRAINING_KEY,trainingPreference);}catch(_){}stepHelp=false;render();}
  function putDownProbe(){activeLead=null;notice='已放下表笔。已记录的测量不变；需要重新拿起并接好后才能再次测量。';render();}
  function rotateProbe(color,delta){if(mode!=='voltage'||state.active?.currentSetup||(!probes[color]&&activeLead!==color))return;probeDirections[color]=window.RepairShopProbes.normalizeTurn(probeDirections[color]+delta);notice=(color==='black'?'黑':'红')+'表笔方向：'+probeDirections[color]+'°。只调整朝向，不改变接点、测量或金币。';render();}
- function revealWorkbench(){if(window.matchMedia('(max-width:760px)').matches)shop.querySelector('.rs-board-wrap')?.scrollIntoView({block:'start',behavior:'instant'});}
+ function revealWorkbench(){if(window.matchMedia('(max-width:760px)').matches){window.TrainingEmbedLayout?.flush();shop.querySelector('.rs-board-wrap')?.scrollIntoView({block:'start',behavior:'instant'});}}
  function mobileControl(label,target,cls=''){const b=button(label,()=>{const original=[...shop.querySelectorAll('[data-repair-focus]')].find(n=>n.dataset.repairFocus===target);if(original&&!original.disabled){original.click();revealWorkbench();}},cls,'mobile-'+target);b.dataset.mobileTarget=target;return b;}
  function mobileDock(job,mechanical=false){
   const a=state.active,dock=el('section',undefined,'rs-mobile-dock');dock.setAttribute('aria-label','画面旁快捷操作');

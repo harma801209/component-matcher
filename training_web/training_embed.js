@@ -34,6 +34,9 @@
   }
  }
  function schedule(){if(!pending){pending=true;requestAnimationFrame(resize);}}
+ // Scene actions may change an entire work phase before the observer's next
+ // frame. Let that trusted UI settle its own iframe height before scrolling.
+ window.TrainingEmbedLayout=Object.freeze({flush:resize});
  if(typeof ResizeObserver!=='undefined')new ResizeObserver(schedule).observe(app);
  else new MutationObserver(schedule).observe(app,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['open','hidden']});
  window.addEventListener('resize',schedule);

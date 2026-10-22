@@ -326,6 +326,11 @@ buys, measures or pays. Successful scene-affecting actions bring the scene into
 view before its next animation frame. All tools and manuals remain below and
 are reachable from the dock. This deliberately avoids viewport-unit/sticky
 assumptions inside the production auto-height training iframe.
+The trusted embed helper exposes a synchronous local height flush; mobile scene
+scrolling calls it first. This prevents phase transitions (short teardown to long
+electrical tools) from scrolling against the previous iframe height. The same
+all-six phone test also runs against `preview_repair_shop.py`'s `/embedded` host
+fixture using `--embedded`; standalone preview alone cannot catch this race.
 
 Native Chrome checks: `tools/check_repair_shop_held_probe.py` observes visibility
 during each right-drag move, exact tip pivots, tube-buffer reuse and phone turns;

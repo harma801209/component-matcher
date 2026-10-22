@@ -66,6 +66,7 @@ a.equal(H.nearest({bad:{x:NaN,y:2}},{x:1,y:2}),null);a.equal(H.nearest(points,{x
         self.assertIn('mobileDock(job)',ui)
         self.assertIn('if(result.ok&&',ui)
         self.assertIn("scrollIntoView({block:'start',behavior:'instant'})",ui)
+        self.assertLess(ui.index('window.TrainingEmbedLayout?.flush()'),ui.index("shop.querySelector('.rs-board-wrap')?.scrollIntoView"))
         self.assertIn('.rs-mobile-dock{display:none}',css)
         self.assertIn('height:260px',css)
 

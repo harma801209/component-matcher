@@ -10,11 +10,16 @@ from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--public', action='store_true')
+parser.add_argument('--embedded', action='store_true')
 args = parser.parse_args()
 OUT = Path(__file__).resolve().parents[2] / 'repair-shop-qa'
 OUT.mkdir(exist_ok=True)
 tag = 'mobile-workbench-public' if args.public else 'mobile-workbench-local'
+if args.embedded:
+    tag += '-embedded'
 url = 'https://fruition-component.pages.dev/?training=1' if args.public else 'http://127.0.0.1:8558/'
+if args.embedded and not args.public:
+    url += 'embedded'
 
 with sync_playwright() as p:
     browser = p.chromium.launch(channel='chrome', headless=True)
@@ -28,7 +33,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopScene!=="undefined" && RepairShopScene.VIEW_VERSION===5'):
+                        if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopScene!=="undefined" && RepairShopScene.VIEW_VERSION===5 && (!window.frameElement || !!window.TrainingEmbedLayout)'):
                             return f
                     except Exception:
                         pass
