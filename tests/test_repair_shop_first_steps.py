@@ -81,6 +81,18 @@ const marking=require(process.argv[1]+'/training_resistor_marking.js');
 for(const [value,code] of [[220,'221'],[440,'441'],[180,'181'],[4700,'472'],[10000,'103']])a.equal(marking.encode(value).code,code);
 ''')
 
+    def test_paused_workbench_shortcuts_do_not_intercept_practice_keys(self):
+        self.node(r'''
+const fs=require('node:fs'),vm=require('node:vm'),source=fs.readFileSync(process.argv[1]+'/repair_shop_ui.js','utf8');
+const body=source.match(/shop\.addEventListener\('keydown',e=>\{(.+)\}\);/)[1];let calls=[];
+const ctx={screen:'beginner',activeLead:'black',mode:'voltage',putDownProbe:()=>calls.push('down'),rotateProbe:(color,angle)=>calls.push([color,angle])};
+vm.runInNewContext('globalThis.listen=e=>{'+body+'};',ctx);
+const key=k=>ctx.listen({key:k,preventDefault:()=>calls.push('prevent'),target:{closest:()=>null}});
+for(const k of ['q','e','Escape'])key(k);a.deepEqual(calls,[]);
+ctx.screen='rewards';key('Escape');a.deepEqual(calls,[]);
+ctx.screen='work';key('q');key('e');key('Escape');a.deepEqual(calls,['prevent',['black',-15],'prevent',['black',15],'prevent','down']);
+''')
+
 
 if __name__=='__main__':
     unittest.main()

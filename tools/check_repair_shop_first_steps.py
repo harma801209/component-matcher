@@ -36,7 +36,7 @@ with sync_playwright() as p:
         while time.monotonic()<deadline:
             for f in page.frames:
                 try:
-                    if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopFirstStepsUI!=="undefined" && RepairShopFirstStepsUI.VERSION===1'):
+                    if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopFirstStepsUI!=="undefined" && RepairShopFirstStepsUI.VERSION===1 && RepairShop.FIRST_STEPS_VERSION===2'):
                         return f
                 except Exception:
                     pass
@@ -66,10 +66,27 @@ with sync_playwright() as p:
         frame.get_by_role('button',name='电子维修店',exact=True).click()
         # Accept an ordinary job by its existing UI; it must survive all practice.
         frame.get_by_role('button',name='接下这单',exact=True).first.click()
+        for _ in range(14):
+            if frame.evaluate('RepairShopMechanics.onTable(RepairShop.snapshot().active.mechanics)'):
+                break
+            target=frame.locator('#repair-coach').get_attribute('data-target')
+            frame.locator('[data-repair-focus="'+target+'"]').click()
+            page.wait_for_timeout(80)
+            frame.wait_for_function('!RepairShop.sceneSnapshot().assembly.moving')
+        assert frame.evaluate('RepairShopMechanics.onTable(RepairShop.snapshot().active.mechanics)')
+        frame.locator('[data-repair-focus="lead-black"]').click()
         paid_before=frame.evaluate('RepairShop.snapshot()')
         frame.locator('[data-repair-focus="first-steps"]').click()
         assert s()['episode']==0 and not s()['fixture']
         assert frame.evaluate('RepairShop.firstStepsSceneSnapshot().renderer')=='WebGL'
+        pristine=s()
+        frame.locator('[data-first-action="fixture"]').focus()
+        for key in ('q','e','Escape'):
+            page.keyboard.press(key)
+        assert s()==pristine
+        frame.locator('[data-first-action="exit"]').click()
+        assert frame.locator('[data-repair-focus="lead-black"]').get_attribute('aria-pressed')=='true', 'Practice Escape dropped the paused workbench probe'
+        frame.locator('[data-repair-focus="first-steps"]').click()
         click('fixture');click('power');click('observe')
         assert s()['observed']['current']==0
         click('power');click('discharge');click('part-F1');click('inspect')

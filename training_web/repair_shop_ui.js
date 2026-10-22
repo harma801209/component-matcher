@@ -75,7 +75,7 @@
   return dock;
  }
  function syncMobileControls(){for(const b of shop.querySelectorAll('[data-mobile-target]')){const original=[...shop.querySelectorAll('[data-repair-focus]')].find(n=>n.dataset.repairFocus===b.dataset.mobileTarget);b.disabled=!original||original.disabled;}}
- shop.addEventListener('keydown',e=>{if(e.key==='Escape'&&activeLead){e.preventDefault();putDownProbe();return;}if(activeLead&&mode==='voltage'&&!e.target.closest?.('input,select,textarea,[contenteditable]')&&['q','e'].includes(e.key.toLowerCase())){e.preventDefault();rotateProbe(activeLead,e.key.toLowerCase()==='q'?-15:15);}});
+ shop.addEventListener('keydown',e=>{if(screen!=='work')return;if(e.key==='Escape'&&activeLead){e.preventDefault();putDownProbe();return;}if(activeLead&&mode==='voltage'&&!e.target.closest?.('input,select,textarea,[contenteditable]')&&['q','e'].includes(e.key.toLowerCase())){e.preventDefault();rotateProbe(activeLead,e.key.toLowerCase()==='q'?-15:15);}});
  function dispatch(event){
   if(event.type==='power'&&!state.active?.power&&probes.fixture){notice='隔离元件仍在测试夹具中，请先检测完成或点击“归位并断开夹具”，再开启板上电源。';render();return;}
   try{const latest=store.getItem(E.KEY);if(latest!==lastSaved){read();clearChoices();notice='另一窗口更新了维修存档，已载入最新进度。请重新确认本次操作。';render();return;}}catch(_){storageOK=false;}
@@ -336,7 +336,7 @@
  }
  window.addEventListener('storage',e=>{if(e.key===E.KEY){read();clearChoices();notice='已同步另一窗口的维修进度。';if(!shop.hidden)render();}});
  window.addEventListener('pagehide',()=>{disposeBoard();disposeFirstSteps();});
- window.RepairShop=Object.freeze({open:()=>view(true),snapshot:()=>JSON.parse(JSON.stringify(state)),sceneSnapshot:()=>boardView?.snapshot()||(boardFallback?{renderer:'fallback',error:boardError}:null),firstStepsSnapshot:()=>firstSteps?.snapshot()||null,firstStepsSceneSnapshot:()=>firstSteps?.sceneSnapshot()||null});
+ window.RepairShop=Object.freeze({FIRST_STEPS_VERSION:2,open:()=>view(true),snapshot:()=>JSON.parse(JSON.stringify(state)),sceneSnapshot:()=>boardView?.snapshot()||(boardFallback?{renderer:'fallback',error:boardError}:null),firstStepsSnapshot:()=>firstSteps?.snapshot()||null,firstStepsSceneSnapshot:()=>firstSteps?.sceneSnapshot()||null});
  memoryRevision=state.revision;courseButton.setAttribute('aria-pressed','true');shopButton.setAttribute('aria-pressed','false');
  if(state.active&&!state.active.delivered)view(true);
 })();
