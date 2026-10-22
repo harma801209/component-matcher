@@ -5364,6 +5364,42 @@ class SystemRegressionTests(unittest.TestCase):
         ).iloc[0].to_dict()
         self.assertEqual(app["lookup_resistor_series_pricing"](frm_out_of_range, own_series_rules)["成本"], "")
 
+    def test_03aib_fpm_explicit_identity_keeps_specs_outside_standard_generation_range(self):
+        app = self.app
+        for code, resistance in [('300', .3), ('220', .22), ('330', .33), ('500', .5)]:
+            model = 'FPM253WFR'+code+'TM'
+            with self.subTest(model=model):
+                resolved = app['resolve_search_query_dataframe_and_spec'](model, get_full_search_df=lambda: pd.DataFrame())
+                row = resolved['query_df'].iloc[0].to_dict()
+                self.assertEqual(row['尺寸（inch）'], '2512')
+                self.assertEqual(row['尺寸（mm）'], '6.40*3.20mm')
+                self.assertEqual(app['clean_tol_for_match'](row['容值误差']), '1')
+                self.assertEqual(row['功率'], '3W')
+                self.assertEqual(row['安装方式'], '贴片')
+                self.assertAlmostEqual(float(row['_res_ohm']), resistance)
+                self.assertIsNone(app['parse_fojan_alloy_resistor_model'](model, brand='FOJAN'))
+                written = app['parse_resistor_spec_query']('2512 '+str(resistance)+'Ω ±1% 3W')
+                self.assertNotIn(model, app['build_fojan_alloy_models_from_spec'](written))
+                self.assertIn('非标准阻段', row['数据来源'])
+                self.assertNotEqual(app['clean_voltage'](row.get('耐压（V）', '')), '500')
+                shown = app['build_part_info_df'](resolved['query_df'], resolved['spec'], model)
+                self.assertEqual(shown.iloc[0]['尺寸（公制）'], '6432')
+                self.assertFalse(any(str(column).startswith('_') for column in shown.columns))
+                rendered = shown.to_string(index=False)
+                for value in ('2512', '6432', '3W', '±1%'):
+                    self.assertIn(value, rendered)
+        source = pd.DataFrame([{'品牌':'FOJAN(富捷)','型号':'FPM253WFR300TM','器件类型':'合金电阻','功率':'','尺寸（inch）':'','尺寸（mm）':'','容值误差':''}])
+        patched = app['normalize_resistor_model_display_fields'](source)
+        self.assertEqual(patched.iloc[0]['尺寸（inch）'], '2512')
+        self.assertEqual(patched.iloc[0]['功率'], '3W')
+        self.assertEqual(source.iloc[0]['功率'], '')
+        known = source.copy(); known.loc[0,'尺寸（mm）']='6.50*3.20mm'
+        self.assertEqual(app['normalize_resistor_model_display_fields'](known).iloc[0]['尺寸（mm）'], '6.50*3.20mm')
+        standard = app['normalize_resistor_model_display_fields'](source.assign(型号='FPM253WFR060TM'))
+        self.assertEqual(standard.iloc[0]['工作温度'], '-55~170℃')
+        self.assertEqual(standard.iloc[0]['温度系数'], '±50ppm/℃')
+        self.assertEqual(standard.iloc[0]['高度（mm）'], '0.90')
+
     def test_03aia_fojan_model_embedded_in_specification_has_priority_over_adjacent_column(self):
         app = self.app
         specification = "FOJAN/SMD FRC0402F2003TS 0402 200kΩ ±1% 1/16W LF"
