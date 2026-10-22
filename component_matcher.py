@@ -337,7 +337,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-22T00:31:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-22T14:32:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13745,6 +13745,8 @@ CHIP_PACKAGE_IMPERIAL_TO_METRIC = {
 CHIP_PACKAGE_METRIC_TO_IMPERIAL = {
     metric: imperial for imperial, metric in CHIP_PACKAGE_IMPERIAL_TO_METRIC.items()
 }
+# Manufacturer-published 6.4 x 3.2mm alias; do not change the generic 2512 map.
+CHIP_PACKAGE_METRIC_TO_IMPERIAL["6432"] = "2512"
 CHIP_PACKAGE_METRIC_CONTEXT_PATTERN = re.compile(
     r"(?:公制|METRIC)",
     flags=re.I,
@@ -17908,6 +17910,16 @@ def normalize_fojan_resistor_series_display_fields(df):
         if canonical_model != "":
             out.at[idx, "型号"] = canonical_model
         model_text = canonical_model or row.get("型号", "")
+        # Exact FPM references may be commercial/non-standard resistance bands.
+        # Fill independently encoded identity fields without widening the strict
+        # standard-series grammar or overwriting explicit source values.
+        selected_display = "器件类别" in out.columns and "器件类型" not in out.columns
+        for column, value in fojan_fpm_explicit_identity_fields(model_text).items():
+            if selected_display and column not in out.columns:
+                continue  # Never reintroduce raw/internal columns after UI selection.
+            current = clean_text(out.at[idx, column] if column in out.columns else "")
+            if current == "" or (column == "尺寸（公制）" and current == "6332"):
+                out.at[idx, column] = value
         # FCS is an overloaded FOJAN prefix: ordinary anti-sulfur chip
         # resistors and high-power alloy shunts both use it.  The exact model
         # grammar is therefore more authoritative than the generic series
@@ -39490,6 +39502,45 @@ def explicit_fojan_reference_series(model):
     return ""
 
 
+def fojan_fpm_explicit_identity_fields(model):
+    """Decode an exact FPM identity, not approval of a standard substitute.
+
+    Manufacturer FPM FJ-JS-3001-V1.0/2025.09.24 pp.2-4: 25=2512/6432,
+    3W=3W, F/G/J tolerance and decimal-R ohms. Published 2512 dimensions are
+    nominal 6.4 x 3.2 mm. Temperature/TCR/height apply only inside the explicitly
+    published standard resistance range, never to a non-standard order number.
+    """
+    compact = clean_model(model).upper()
+    match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
+    if match is None or match.group("series") != "FPM":
+        return {}
+    if match.group("size_code") != "25" or match.group("power") != "3W" or match.group("suffix") not in {"M", "ML"}:
+        return {}
+    resistance = fojan_alloy_parse_value_code(match.group("res"))
+    if resistance is None or resistance <= 0:
+        return {}
+    tolerance = FOJAN_ALLOY_TOLERANCE_CODE_MAP[match.group("tol")]
+    value, unit = ohm_to_library_value_unit(resistance)
+    standard = fojan_alloy_code_is_in_series_range("FPM", "2512", "3W", resistance * 1000, match.group("suffix"))
+    note = ("标准阻段参数见原厂规格书" if standard else
+            "非标准阻段：仅补齐料号编码基础参数；温漂、工作温度及电流极限等需原厂确认，未据此推荐替代料")
+    fields = {
+        "器件类型": "合金电阻", "系列": "FPM", "系列说明": "高功率合金电阻",
+        "尺寸（inch）": "2512", "尺寸（公制）": "6432", "尺寸（英制）": "2512",
+        "尺寸（mm）": "6.40*3.20mm", "封装代码": "2512",
+        "长度（mm）": "6.40", "宽度（mm）": "3.20", "功率": "3W", "安装方式": "贴片",
+        "容值": value, "容值单位": unit, "容值误差": tolerance,
+        "阻值@25C": f"{resistance:g}", "阻值单位": "Ω", "阻值误差": tolerance,
+        "_resistance_ohm": resistance, "_power": "3W", "_tol": tolerance,
+        "数据来源": FOJAN_FPM_DATASHEET_SOURCE + "；料号编码及2512名义尺寸；" + note,
+        "校验备注": note,
+    }
+    if standard:
+        fields.update({"工作温度": "-55~170℃", "温度系数": "±50ppm/℃", "高度（mm）": "0.90"})
+    # The 500V dielectric-withstanding test is NOT a working-voltage rating.
+    return fields
+
+
 def apply_explicit_fojan_reference_fields(parsed, model):
     """Complete identity fields for an exact FOJAN BOM/search reference.
 
@@ -39506,6 +39557,7 @@ def apply_explicit_fojan_reference_fields(parsed, model):
     out["型号"] = compact
     out["_explicit_fojan_reference"] = True
     out["_model_rule_authority"] = "fojan_explicit_reference_model"
+    out.update(fojan_fpm_explicit_identity_fields(compact))
 
     # FRM is a low-ohm alloy series. Commercial lists can legitimately add a
     # package/power/resistance band before the static catalogue is updated.
