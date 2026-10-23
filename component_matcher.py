@@ -337,7 +337,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-23T07:06:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-23T17:51:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -42994,6 +42994,11 @@ def build_part_info_df(df, spec, query_model):
     if spec is None:
         return pd.DataFrame()
     hit = pd.DataFrame()
+    # Mixed BOM text is not a model identity. Look up the already resolved
+    # model so written requirements cannot become its manufacturer data.
+    resolved_model = clean_text(spec.get("型号", ""))
+    if not looks_like_compact_part_query(query_model) and looks_like_compact_part_query(resolved_model):
+        query_model = resolved_model
     canonical_query_model = canonicalize_known_model_ocr_confusions(query_model)
     if df is not None and not df.empty and "型号" in df.columns:
         hit = df[df["型号"].astype(str).apply(clean_model) == canonical_query_model].copy()

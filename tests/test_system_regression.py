@@ -5537,6 +5537,32 @@ class SystemRegressionTests(unittest.TestCase):
                     app["SEARCH_BRAND_MODE_CUSTOM"], ["国巨YAGEO"])
         self.assertTrue(app["build_fojan_special_resistor_candidates_from_spec"](custom).empty)
 
+    def test_03aif_mixed_model_info_keeps_manufacturer_type_tolerance_and_price(self):
+        app = self.app
+        text = "12114004930H39 1MΩ;500V;±5%;1/4W;1206;FOJAN;FRV1206F1004TS;车规级;无卤"
+        resolved = app["resolve_search_query_dataframe_and_spec"](text)
+        self.assertEqual(resolved["mode"], "料号")
+        spec = dict(resolved["spec"])
+        original_frame = resolved["query_df"].copy(deep=True)
+        mixed = app["build_part_info_df"](resolved["query_df"], spec, text)
+        direct = app["build_part_info_df"](resolved["query_df"], spec, "FRV1206F1004TS")
+        pd.testing.assert_frame_equal(mixed, direct)
+        self.assertEqual(spec, resolved["spec"])
+        pd.testing.assert_frame_equal(resolved["query_df"], original_frame)
+        row = mixed.iloc[0]
+        self.assertEqual(row["型号"], "FRV1206F1004TS")
+        self.assertIn("厚膜电阻", row["器件类别"])
+        self.assertEqual(app["clean_tol_for_match"](row["容值误差"]), "1")
+        self.assertEqual(row["功率"], "1/4W")
+        self.assertEqual(app["clean_tol_for_match"](spec["容值误差"]), "5")
+        self.assertIn("需人工确认", app["input_model_spec_confirmation"](text))
+        # An explicit compact lookup must not be retargeted by a stale spec.
+        j_spec = app["parse_model_rule"]("FRV1206J105TS")
+        j_frame = app["prepare_search_dataframe"](pd.DataFrame([j_spec]))
+        j_info = app["build_part_info_df"](j_frame, spec, "FRV1206J105TS")
+        self.assertEqual(j_info.iloc[0]["型号"], "FRV1206J105TS")
+        self.assertEqual(app["clean_tol_for_match"](j_info.iloc[0]["容值误差"]), "5")
+
     def test_03aj_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
         app = self.app
         cases = (
