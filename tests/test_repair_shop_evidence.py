@@ -53,7 +53,11 @@ const seen=new Set();for(let seed=1;seed<400;seed++){if(!E.offer(seed).fault.ena
  const pending={...s.active,tested:false};a.equal(V.part(j,pending,j.fault.component).tone,'pending');
  a.equal(V.part(j,s.active,j.fault.component).tone,'repaired');
  const copy=E.restore(JSON.parse(JSON.stringify(s)));a.deepEqual(V.report(j,copy.active),report);
- const paid=act(s,'deliver').state;a.deepEqual(V.report(j,paid.active),report);a.equal(paid.coins,150-solved.c.price+j.fee);
+ const paid=act(s,'deliver').state,paidReport=V.report(j,paid.active);
+ // Delivery changes only the newly added customer feedback, never the
+ // recorded electrical evidence, selected part, service history or charge.
+ a.equal(report.customer.delivered,false);a.equal(paidReport.customer.delivered,true);
+ a.deepEqual({...paidReport,customer:report.customer},report);a.equal(paid.coins,150-solved.c.price+j.fee);
 }
 a.equal(seen.size,17);
 ''')

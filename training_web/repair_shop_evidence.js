@@ -5,6 +5,7 @@
  const D=node?require('./repair_shop_data.js'):root.RepairShopData;
  const E=node?require('./repair_shop_engine.js'):root.RepairShopEngine;
  const P=node?require('./repair_shop_physics.js'):root.RepairShopPhysics;
+ const Hands=node?require('./repair_shop_hands.js'):root.RepairShopHands;
  const recorded=(a,mode,id,after=false)=>(a.measurements||[]).find(m=>m.key===mode+':'+id+':'+after)||null;
  function describe(m){
   if(!m)return {tone:'unknown',label:'尚未检测',proof:false,text:'先选择位号和工具，记录一次测量。'};
@@ -60,7 +61,9 @@
    {title:'为什么选这个备件',text:'原件要求：'+D.spec(required)+'；实际换件：'+D.spec(candidate)+'。已核对本板参数、封装、引脚、极性和兼容条件；不是按价格决定。'},
    {title:'如何确认修复',text:result.summary+'。验收范围：'+job.product.model.limits+'；板级通过后仍须重新装配和成品复测才可交付。'}
   ];
-  return {rows,reasoning,checks:result.checks,modelVersion:P.VERSION,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
+  const feedback={lamp:'这盏小灯又能用了，谢谢你！',fan:'它又转起来了，谢谢你找到问题。',speaker:'这次规定负载测试稳定了，谢谢。',clock:'供电和复位检查好了，谢谢；走时还需要另行检查。',sensor:'电源和上拉检查正常了，谢谢。',router:'供电负载测试通过了，网络功能还需继续检查。'};
+  const service=Hands.STEPS.map(step=>({title:step.title,done:Boolean(a.rework&&a.events.some(e=>e.type==='repairStep'&&e.op===step.op))}));
+  return {rows,reasoning,service,customer:{name:job.product.customer,delivered:Boolean(a.delivered),text:a.delivered?feedback[job.product.id]:a.finalTested?'已完成装配与成品复测，等待交付。':'板级测试已通过，先装回结构件并完成成品复测。'},checks:result.checks,modelVersion:P.VERSION,component:required.id,partSpec:D.spec(candidate),cost:candidate.price,fee:job.fee,net:job.fee-candidate.price};
  }
  const api=Object.freeze({describe,part,checklist,report});
  if(node)module.exports=api;else root.RepairShopEvidence=api;

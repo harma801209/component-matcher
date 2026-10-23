@@ -30,7 +30,7 @@ with sync_playwright() as p:
             while time.monotonic() < deadline:
                 for frame in page.frames:
                     try:
-                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMeter!=='undefined' && RepairShopScene.VIEW_VERSION===5"):
+                        if frame.locator('.academy-switch').count() and frame.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopMeter!=='undefined' && RepairShopScene.VIEW_VERSION===6"):
                             return frame
                     except Exception:
                         pass
@@ -39,7 +39,15 @@ with sync_playwright() as p:
 
         def activate(locator):
             locator.focus()
-            locator.press('Enter')
+            if locator.get_attribute('data-screw-id'):
+                old=frame.evaluate('JSON.stringify(RepairShop.snapshot().active.mechanics)')
+                page.keyboard.down('Enter')
+                try:
+                    frame.wait_for_function('old=>JSON.stringify(RepairShop.snapshot().active.mechanics)!==old',arg=old,timeout=15000)
+                finally:
+                    page.keyboard.up('Enter')
+            else:
+                locator.press('Enter')
 
         def lead(color, contact, picking=False):
             activate(frame.locator('[data-repair-focus="lead-'+color+'"]'))
@@ -75,7 +83,16 @@ with sync_playwright() as p:
                     key='@screw:'+step['id'] if step['op']=='unscrew' else {'cover-out':'@cover','brace-out':'@brace','unplug':'@connector'}[step['op']]
                     prior=state()['mechanics']
                     canvas.scroll_into_view_if_needed()
-                    canvas.click(position=frame.evaluate('key=>RepairShop.sceneSnapshot().mechanicalProjections[key]',key))
+                    point=frame.evaluate('key=>RepairShop.sceneSnapshot().mechanicalProjections[key]',key)
+                    if step['op']=='unscrew':
+                        box=canvas.bounding_box();old=frame.evaluate('JSON.stringify(RepairShop.snapshot().active.mechanics)')
+                        page.mouse.move(box['x']+point['x'],box['y']+point['y']);page.mouse.down()
+                        try:
+                            frame.wait_for_function('old=>JSON.stringify(RepairShop.snapshot().active.mechanics)!==old',arg=old,timeout=15000)
+                        finally:
+                            page.mouse.up()
+                    else:
+                        canvas.click(position=point)
                     assert state()['mechanics']!=prior,(step,'Raycast must operate the visible part')
                 else:
                     activate(frame.locator('[data-repair-focus="'+target+'"]'))
@@ -184,7 +201,10 @@ with sync_playwright() as p:
         activate(shop.locator('[data-repair-focus="'+stock_id+'"]'))
         if frame.locator('#repair-orientation').count():
             frame.locator('#repair-orientation').select_option('correct')
-        activate(shop.get_by_role('button', name='采购并更换', exact=True))
+        activate(shop.locator('[data-repair-focus="install"]'))
+        for op in ['remove','clean','orient','place','inspect']:
+            activate(shop.locator('[data-repair-focus="repair-'+op+'"]'))
+        activate(shop.locator('[data-repair-focus="install-confirm"]'))
         assert frame.evaluate('!!RepairShop.snapshot().active.installed')
         activate(shop.get_by_role('button', name='运行功能与负载测试', exact=True))
         assert '先通电' in frame.locator('#repair-status').inner_text()

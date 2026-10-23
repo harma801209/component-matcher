@@ -29,7 +29,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopLearning!=='undefined' && RepairShopScene.VIEW_VERSION===5"):
+                        if f.locator('.academy-switch').count() and f.evaluate("typeof RepairShopPhysics!=='undefined' && RepairShopPhysics.VERSION===2 && typeof RepairShopLearning!=='undefined' && RepairShopScene.VIEW_VERSION===6"):
                             return f
                     except Exception:
                         pass
@@ -38,7 +38,14 @@ with sync_playwright() as p:
 
         def activate(locator):
             locator.focus()
-            locator.press('Enter')
+            if locator.get_attribute('data-screw-id'):
+                old=frame.evaluate('JSON.stringify(RepairShop.snapshot().active.mechanics)');page.keyboard.down('Enter')
+                try:
+                    frame.wait_for_function('old=>JSON.stringify(RepairShop.snapshot().active.mechanics)!==old',arg=old,timeout=15000)
+                finally:
+                    page.keyboard.up('Enter')
+            else:
+                locator.press('Enter')
 
         def snapshot():
             return frame.evaluate('RepairShop.snapshot()')

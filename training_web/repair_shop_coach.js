@@ -3,6 +3,7 @@
  'use strict';
  const D=typeof module!=='undefined'&&module.exports?require('./repair_shop_data.js'):root.RepairShopData;
  const M=typeof module!=='undefined'&&module.exports?require('./repair_shop_mechanics.js'):root.RepairShopMechanics;
+ const Hands=typeof module!=='undefined'&&module.exports?require('./repair_shop_hands.js'):root.RepairShopHands;
  const plans={
   lamp:{order:['F1','R1','D1'],where:'F1供电路径、R1限流电阻、D1发光二极管。',why:'完全不亮可能是回路某处开路；变暗则要比较供电、电流和R1阻值。不能只凭“灯不亮”就认定LED坏了。'},
   fan:{order:['F1','Q1','D1'],where:'F1保险丝、Q1电机开关、D1续流保护支路。',why:'电机不转，既可能没有供电，也可能开关没有导通；若电源进入限流，还要怀疑短路。要同时看供电和控制条件。'},
@@ -45,10 +46,11 @@
    const required=part(job.fault.component);
    if(a.power)return power(false);
    if(!a.discharged)return s('discharge','断电后还要放电','点击“断电后放电”，游戏会模拟确认无电并释放残余电荷，再允许换件。','discharge','安全换件');
+   if(a.rework){const n=Hands.nextService(a.rework);return s('repair-'+n.op,n.title,n.body,n.op==='finish'?'install-confirm':'repair-'+n.op,'分步维修');}
    if(!c.stock)return s('stock','按规格挑一枚兼容备件','原件要求：'+D.spec(required)+'。比较四个备件，不是选最贵的；要同时满足参数、封装和引脚兼容要求。','stock-list','核对备件');
    if(c.partError)return s('stock-mismatch','这枚备件还不合适',c.partError+' 回到备件抽屉重新比较；此时不会扣金币。','stock-list','核对备件');
    if(required.polar&&c.orientation!=='correct')return s('orientation','确认安装方向','对照手册的 '+required.pin+'，亲自选择“与本板A/K或正负极标记一致”。同参数装反也不能修好。','id:repair-orientation','核对极性');
-   return s('install','采购并更换故障器件','备件规格已匹配，电源已关且已放电。点击“采购并更换”；成功安装才扣采购金币。','install','执行维修');
+   return s('install','开始分步更换故障器件','备件规格已匹配，电源已关且已放电。开始分步维修；最终确认安装才扣采购金币。','install','执行维修');
   }
   const live=a.measurements.find(m=>['voltage','scope'].includes(m.mode));
   if(!live){

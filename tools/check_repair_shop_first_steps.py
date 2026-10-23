@@ -70,7 +70,15 @@ with sync_playwright() as p:
             if frame.evaluate('RepairShopMechanics.onTable(RepairShop.snapshot().active.mechanics)'):
                 break
             target=frame.locator('#repair-coach').get_attribute('data-target')
-            frame.locator('[data-repair-focus="'+target+'"]').click()
+            control=frame.locator('[data-repair-focus="'+target+'"]')
+            if control.get_attribute('data-screw-id'):
+                old=frame.evaluate('JSON.stringify(RepairShop.snapshot().active.mechanics)');control.focus();page.keyboard.down('Enter')
+                try:
+                    frame.wait_for_function('old=>JSON.stringify(RepairShop.snapshot().active.mechanics)!==old',arg=old,timeout=15000)
+                finally:
+                    page.keyboard.up('Enter')
+            else:
+                control.click()
             page.wait_for_timeout(80)
             frame.wait_for_function('!RepairShop.sceneSnapshot().assembly.moving')
         assert frame.evaluate('RepairShopMechanics.onTable(RepairShop.snapshot().active.mechanics)')

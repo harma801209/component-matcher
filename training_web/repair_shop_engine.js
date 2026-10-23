@@ -6,6 +6,8 @@
  const M=typeof module!=='undefined'&&module.exports?require('./repair_shop_mechanics.js'):root.RepairShopMechanics;
  const Meter=typeof module!=='undefined'&&module.exports?require('./repair_shop_meter.js'):root.RepairShopMeter;
  const Learning=typeof module!=='undefined'&&module.exports?require('./repair_shop_learning.js'):root.RepairShopLearning;
+ const Hands=typeof module!=='undefined'&&module.exports?require('./repair_shop_hands.js'):root.RepairShopHands;
+ const Waves=typeof module!=='undefined'&&module.exports?require('./repair_shop_waveforms.js'):root.RepairShopWaveforms;
  const clone=x=>JSON.parse(JSON.stringify(x)),int=(x,max=10000000)=>Number.isSafeInteger(x)&&x>=0&&x<=max;
  const KEY='fruition.repair-shop.v1';
  const productName=name=>name==='USB阅读台灯'?'USB小夜灯':name;
@@ -85,6 +87,7 @@
     if(a.power||!a.discharged)return fail('拆装前必须关闭电源、确认无电并放电。');
     const r=M.apply(a.mechanics,event,a.tested);if(r.error)return fail(r.error);a.mechanics=r.state;a.finalTested=false;ok=true;message=r.message;
    }else if(event.type==='power'){
+    if(!a.power&&a.rework&&!a.installed)return fail('元件正在拆换，半装状态未建模。先完成全部换件检查，不能通电。');
     if(!a.power&&!M.closed(a.mechanics)&&!M.onTable(a.mechanics))return fail('结构正在拆装，不能通电。取出的电路板可在检修垫上接限流测试电源。');
     a.power=!a.power;a.discharged=false;ok=true;message=a.power?'模拟限流电源已开启，可测电压、观察测试波形。':'已断电；做元件检测或更换前还需放电。';
    }else if(event.type==='discharge'){
@@ -96,6 +99,7 @@
     if(event.leads===null){a.currentSetup=null;ok=true;message='已取下电流表并恢复普通供电连接。';}
     else{const error=Meter.seriesError(event.leads);if(error)return fail(error);a.currentSetup={red:event.leads.red,black:event.leads.black,jack:'ma'};ok=true;message='已在断开的SRC—LOAD主供电支路串入理想电流表。现在可以通电读数；改接前仍须断电放电。';}
    }else if(event.type==='measure'||event.type==='probeMeasure'){
+    if(a.rework&&!a.installed)return fail('器件正在拆换，半装电路未建模。完成安装确认后再做电气测量。');
     let result;
     if(event.type==='measure')result=measurement(a,event.mode,event.id); // Replay pre-probe saves unchanged.
     else{
@@ -107,6 +111,7 @@
      else result=measurement(a,event.mode,event.id);
     }
     if(result.error)return fail(result.error);
+    if(event.mode==='scope'&&event.trace!==undefined){if(!Waves.valid(job.product,event.trace))return fail('此产品或工况没有对应波形模型。');result.trace={version:1,mode:event.trace.mode,load:event.trace.load};}
     if(event.type==='probeMeasure'&&['component','scope'].includes(event.mode))result.connection=event.mode==='component'?{fixture:event.id}:{scope:true};
     const key=(result.sampleKey||result.mode+':'+result.id)+':'+Boolean(a.installed),old=a.measurements.findIndex(m=>m.key===key);
     const item={...result,key};if(old<0)a.measurements.push(item);else a.measurements[old]=item;reading=item;
@@ -118,11 +123,24 @@
     if(!evidence||!live)return fail('证据还不足：需要一项通电电压/波形观察，以及对目标器件的断电隔离检测。');
     if(event.id!==job.fault.component||event.reason!==job.fault.reason){a.mistakes=Math.min(a.mistakes+1,20);message='诊断与证据还对不上。比较隔离实测值、正常参考和失效类型，再判断。';}
     else{a.diagnosed=true;ok=true;message='诊断已确认。现在按维修手册选择兼容备件，断电放电后才能更换。';}
+   }else if(event.type==='beginRepair'){
+    if(!M.onTable(a.mechanics)||!a.diagnosed||a.installed||a.rework)return fail('先完成板级诊断，或本次换件已经开始。');
+    if(a.power||!a.discharged||a.currentSetup)return fail('先断电放电，并取下串联电流夹具。');
+    const candidate=job.candidates.find(p=>p.stockId===event.stockId);if(!candidate)return fail('请先选择备件。');
+    const mismatch=compatible(required,candidate);
+    if(mismatch||required.polar&&event.orientation!=='correct'){a.mistakes=Math.min(a.mistakes+1,20);message=(mismatch||'极性或引脚方向未确认。')+' 尚未扣金币或拆下元件。';}
+    else if(s.coins<candidate.price)return fail('金币不足，不能开始换件。');
+    else{a.rework=Hands.createService(candidate.stockId,event.orientation||'none');ok=true;message='备件已核对。开始分步维修，完成安装确认后才扣金币。';}
+   }else if(event.type==='repairStep'){
+    if(!a.rework||a.installed||a.power||!a.discharged||!M.onTable(a.mechanics))return fail('先在断电放电的检修垫上开始换件。');
+    const next=Hands.service(a.rework,event.op);if(!next)return fail('换件顺序不正确，请先完成：'+Hands.nextService(a.rework).title);
+    a.rework=next;ok=true;message='已完成：'+Hands.STEPS[next.index-1].title+'。这只是声明的操作步骤模拟，不验证真实焊接工艺。';
    }else if(event.type==='install'){
     if(!M.onTable(a.mechanics))return fail('先把电路板取到检修垫上，再更换器件。');
     if(!a.diagnosed)return fail('先用测量证据确认诊断，不能盲目换件。');
     if(a.installed)return fail('备件已装好，不会重复采购。');
     if(a.power||!a.discharged)return fail('更换前必须关闭电源并放电。');
+    if(a.rework&&(a.rework.index!==Hands.STEPS.length||event.stockId!==a.rework.stockId||event.orientation!==a.rework.orientation))return fail('先完成拆旧件、焊盘、方向、放置和焊点检查，不能跳过步骤或中途换用未核对备件。');
     const candidate=job.candidates.find(p=>p.stockId===event.stockId);if(!candidate)return fail('请亲自选择一个备件。');
     const mismatch=compatible(required,candidate);
     if(mismatch){a.mistakes=Math.min(a.mistakes+1,20);message=mismatch+' 本次没有扣金币。';}
@@ -182,7 +200,7 @@
    }
    // Rebuild progress from permitted actions rather than trusting completion flags.
    const legacy=!a.mechanics||a.mechanics.entry==='legacy-open',replay=create();replay.coins=100000;replay.active=active(a.seed,legacy?'legacy-open':'closed');let rebuilt=replay;
-   for(const event of a.events){if(!['power','discharge','measure','probeMeasure','meterSeries','review','diagnose','install','test','testAssembly','mechanical','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
+   for(const event of a.events){if(!['power','discharge','measure','probeMeasure','meterSeries','review','diagnose','beginRepair','repairStep','install','test','testAssembly','mechanical','deliver','hint'].includes(event?.type))return base;rebuilt=apply(rebuilt,event).state;}
    if(legacy&&base.history.some(h=>h.id===offer(a.seed).id)){rebuilt.active.delivered=true;rebuilt.active.legacyCompleted=true;rebuilt.active.power=false;}
    base.active=rebuilt.active;
   }

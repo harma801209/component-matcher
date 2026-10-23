@@ -33,7 +33,7 @@ with sync_playwright() as p:
             while time.monotonic()<deadline:
                 for f in page.frames:
                     try:
-                        if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopScene!=="undefined" && RepairShopScene.VIEW_VERSION===5 && (!window.frameElement || !!window.TrainingEmbedLayout)'):
+                        if f.locator('.academy-switch').count() and f.evaluate('typeof RepairShopScene!=="undefined" && RepairShopScene.VIEW_VERSION===6 && (!window.frameElement || !!window.TrainingEmbedLayout)'):
                             return f
                     except Exception:
                         pass
@@ -53,7 +53,7 @@ with sync_playwright() as p:
             assert box['x']>=-1 and box['x']+box['width']<=page.viewport_size['width']+1,box
 
         def watch_motion():
-            frame.evaluate('''()=>{window.__mobileMotion=[];const start=performance.now();function sample(){const s=RepairShop.sceneSnapshot();__mobileMotion.push({moving:s.assembly.moving,points:s.mechanicalProjections});if(performance.now()-start<1000)requestAnimationFrame(sample);}requestAnimationFrame(sample);}''')
+            frame.evaluate('''()=>{const samples=[];window.__mobileMotion=samples;const start=performance.now();function sample(){const s=RepairShop.sceneSnapshot();samples.push({moving:s.assembly.moving,points:s.mechanicalProjections});if(performance.now()-start<3500)requestAnimationFrame(sample);}requestAnimationFrame(sample);}''')
 
         page.goto(url, wait_until='domcontentloaded', timeout=120000)
         frame=frame_now()
@@ -83,7 +83,14 @@ with sync_playwright() as p:
                 in_view(control)
                 before=snapshot()
                 watch_motion()
-                control.click()
+                if control.get_attribute('data-screw-id'):
+                    old=frame.evaluate('JSON.stringify(RepairShop.snapshot().active.mechanics)');control.focus();page.keyboard.down('Enter')
+                    try:
+                        frame.wait_for_function('old=>JSON.stringify(RepairShop.snapshot().active.mechanics)!==old',arg=old,timeout=15000)
+                    finally:
+                        page.keyboard.up('Enter')
+                else:
+                    control.click()
                 in_view(canvas)
                 assert snapshot()['coins']==before['coins'] and snapshot()['points']==before['points']
                 assert not snapshot()['active']['diagnosed'] and not snapshot()['active']['measurements']
