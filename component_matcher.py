@@ -30,6 +30,11 @@ import ssl
 import warnings
 import traceback
 import textwrap
+from safety_mlcc import (
+    PDC_REVIEWED_SAFETY_MODELS, documented_pdc_safety_fields,
+    enrich_documented_safety_mlcc_record, enrich_documented_safety_mlcc_frame,
+    safety_class_tokens, required_mlcc_safety_classes, safety_mlcc_candidate_satisfies,
+)
 from jianghai_parameters import (
     enrich_frame as enrich_jianghai_frame,
     enrich_record as enrich_jianghai_record,
@@ -337,7 +342,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-23T19:45:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-24T01:22:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -18815,7 +18820,7 @@ MLCC_SERIES_CLASS_RULES = [
     ("高压", [r"HIGH\s+VOLTAGE", r"高压"]),
     ("中压", [r"MEDIUM\s+VOLTAGE", r"中压"]),
     ("抗弯", [r"ANTI[- ]?BEND", r"抗弯"]),
-    ("安规", [r"SAFETY", r"安规", r"\bX1/Y2\b", r"\bX2\b"]),
+    ("安规", [r"SAFETY", r"安规", r"(?<![A-Z0-9])(?:X1|X2|Y1|Y2)(?![A-Z0-9])"]),
     ("谐振", [r"RESONANT", r"RESONANCE", r"谐振"]),
     ("高Q", [r"HIGH[- ]?Q", r"LOW[- ]?LOSS", r"高\s*Q", r"低损耗"]),
     ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"电磁干扰滤波", r"滤波"]),
@@ -22041,6 +22046,7 @@ def parse_pdc_fk(model):
             "耐压（V）": clean_voltage(voltage_map.get(model[9:12], "")),
             **decode_pdc_general_mlcc_dimension_fields_from_model(model),
             "_model_rule_authority": "pdc_fk_series",
+            **documented_pdc_safety_fields("信昌PDC", model),
         }
     except:
         return None
@@ -22202,6 +22208,12 @@ def mlcc_index_voltage_condition(voltage, exact=False):
     target = float(voltage)
     comparison = "ABS(_volt_num - ?) < 1e-9" if exact else "_volt_num >= ?"
     base = f"(_volt_num IS NOT NULL AND {comparison})"
+    # Legacy FK rows may index the 502 impulse code as 5000 V. Admit only
+    # reviewed models at their actual 250 Vac rating; the row loader repairs
+    # both display/numeric fields before strict matching. No database rewrite.
+    if (abs(target - 250) < 1e-9 if exact else target <= 250):
+        reviewed = ",".join("'" + model + "'" for model in PDC_REVIEWED_SAFETY_MODELS)
+        base = f'({base} OR (("品牌" LIKE \'%信昌%\' OR UPPER("品牌") LIKE \'%PDC%\') AND "型号" IN ({reviewed})))'
     decodable_brand_clause = (
         '("品牌" LIKE \'%国巨%\' OR UPPER("品牌") LIKE \'%YAGEO%\' '
         'OR "品牌" LIKE \'%晶瓷%\' OR UPPER("品牌") LIKE \'%KYOCERA%\' '
@@ -23116,6 +23128,10 @@ def parse_spec_query(line):
         "_mlcc_series_class": special_use,
         "_param_count": param_count
     }
+    if safety_class_tokens(raw) and looks_like_mlcc_context(raw):
+        result["_safety_class"] = "/".join(safety_class_tokens(raw))
+        result["安规"] = result["_safety_class"]
+        result["工作温度"] = extract_working_temperature_from_text(raw)
     if invalid_size_token != "":
         result["_invalid_size_token"] = invalid_size_token
         result["_unsupported_component"] = True
@@ -24791,6 +24807,12 @@ def looks_like_film_capacitor_context(text):
     upper = clean_text(text).upper()
     if upper == "":
         return False
+    # X/Y is a safety certification, not a film dielectric. Strong ceramic
+    # evidence (e.g. X7R + 1808/pF) wins over generic safety/Y2 keywords.
+    if looks_like_mlcc_context(text) and not re.search(
+        r"薄膜|FILM|POLYPROPYLENE|POLYESTER|(?<![A-Z0-9])(?:PP|PET|PPS|PEN|MKP|MKT|CBB)(?![A-Z0-9])", upper
+    ):
+        return False
     if matches_component_alias(text, "薄膜电容"):
         return True
     if re.search(r"(?<![A-Z0-9])(X1|X2|Y1|Y2)(?![A-Z0-9])", upper):
@@ -26387,7 +26409,8 @@ def get_component_display_schema(spec_or_type):
             ("宽度（mm）", "宽度(mm)"),
             ("高度（mm）", "厚度(mm)"),
             ("尺寸来源", "尺寸来源"),
-        ]
+        ] + ([("安规", "安规"), ("工作温度", "工作温度")]
+             if isinstance(spec_or_type, dict) and required_mlcc_safety_classes(spec_or_type) else [])
     if component_type == "合金电阻":
         return [
             ("系列", "系列"),
@@ -36849,6 +36872,7 @@ def build_search_text_series(frame, columns):
 def prepare_search_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
+    df = enrich_documented_safety_mlcc_frame(df)
     df = enrich_jianghai_frame(df)
     df = remove_incomplete_pdc_mlcc_models(df)
     if df.empty:
@@ -37850,7 +37874,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
             if clean_text(part) != ""
         )
     )
-    return enrich_jianghai_record(record)
+    return enrich_documented_safety_mlcc_record(enrich_jianghai_record(record))
 
 
 def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferred_component_type=""):
@@ -40501,6 +40525,10 @@ def scope_search_dataframe(df, spec):
             if not class_mask.any():
                 return base.iloc[0:0]
             mask &= class_mask
+            if not mask.any():
+                return base.iloc[0:0]
+        if required_mlcc_safety_classes(spec):
+            mask &= base.apply(lambda row: safety_mlcc_candidate_satisfies(row, spec), axis=1)
             if not mask.any():
                 return base.iloc[0:0]
     else:
@@ -44146,6 +44174,10 @@ def apply_match_levels_and_sort(df, spec):
         return df
     work = df.copy()
     target_type = infer_spec_component_type(spec)
+    if target_type == "MLCC" and required_mlcc_safety_classes(spec):
+        work = work[work.apply(lambda row: safety_mlcc_candidate_satisfies(row, spec), axis=1)].copy()
+        if work.empty:
+            return work
     if target_type == "MLCC":
         spec_size = clean_size(spec.get("尺寸（inch）", ""))
         spec_mat = clean_material(spec.get("材质（介质）", ""))

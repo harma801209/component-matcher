@@ -10201,5 +10201,107 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertNotEqual(bom_row["自有型号"], "MT21X475K350EIG")
 
 
+    def test_safety_mlcc_original_holystone_queries_return_pdc_y2(self):
+        app = self.app
+        for cap, code in ((220, "221"), (120, "121"), (150, "151")):
+            with self.subTest(cap=cap):
+                query = f"{cap}pF;250V;±10%;Y2;1808;125℃;X7R;HOLY STON;SCC1808X{code}K502TG;无卤"
+                resolved = app["resolve_search_query_dataframe_and_spec"](query)
+                self.assertEqual(app["infer_spec_component_type"](resolved["spec"]), "MLCC")
+                self.assertEqual(resolved["spec"]["_safety_class"], "Y2")
+                self.assertIn(("安规", "安规"), app["get_component_display_schema"](resolved["spec"]))
+                matches = app["run_query_match"](resolved["query_df"], resolved["mode"], resolved["spec"])
+                model = f"FK08X{code}K502EEQ"
+                self.assertIn(model, set(matches["型号"]))
+                row = matches.set_index("型号").loc[model]
+                self.assertEqual(app["clean_voltage"](row["耐压（V）"]), "250")
+                self.assertIn("Y2", row["安规"])
+                self.assertIn("125", row["工作温度"])
+                self.assertIn("无卤", row["特殊用途"])
+                self.assertNotIn("FH08X" + code + "K302EEG", set(matches["型号"]))
+
+    def test_safety_mlcc_constraints_reject_x2_unknown_and_inadequate_temperature(self):
+        app = self.app
+        query = "220pF;250V;±10%;Y2;1808;125℃;X7R;无卤"
+        spec = app["merge_query_text_hints_into_spec"](app["parse_spec_query"](query), query)
+        good = app["parse_model_rule"]("FK08X221K502EEQ", brand="信昌PDC", component_type="MLCC")
+        good["品牌"] = "Safety test brand"
+        good["型号"] = "VALID_DUAL"
+        rejected = []
+        for name, fields in (
+            ("X2_ONLY", {"安规": "X2", "_safety_class": "X2", "特殊用途": "安规/无卤"}),
+            ("CLASS_UNKNOWN", {"安规": "", "_safety_class": "", "特殊用途": "安规/无卤"}),
+            ("LOW_TEMP", {"工作温度": "-55~105℃"}),
+            ("TEMP_UNKNOWN", {"工作温度": ""}),
+            ("HALOGEN_UNKNOWN", {"特殊用途": "安规"}),
+        ):
+            row = dict(good, 型号=name)
+            row.update(fields)
+            rejected.append(row)
+        rows = app["prepare_search_dataframe"](pd.DataFrame([good, *rejected]))
+        # Use an in-memory candidate set rather than the production sidecar.
+        original_fetch = app["fetch_search_candidate_pairs"]
+        try:
+            app["fetch_search_candidate_pairs"] = lambda current_spec: None
+            matches = app["run_query_match"](rows, "规格", spec)
+            self.assertEqual(set(matches["型号"]), {"VALID_DUAL"})
+            ranked = app["apply_match_levels_and_sort"](rows, spec)
+            self.assertEqual(set(ranked["型号"]), {"VALID_DUAL"})
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+        self.assertEqual(app["detect_component_type_hint"]("薄膜电容 X2 0.1uF 275VAC PP P=15mm"), "薄膜电容")
+        self.assertEqual(app["detect_component_type_hint"]("安规 X2 0.1uF 275VAC"), "薄膜电容")
+
+    def test_safety_mlcc_stale_sidecar_impulse_is_not_working_voltage(self):
+        app = self.app
+        core = {"品牌": "信昌PDC", "型号": "FK08X121K502EEQ", "_model_clean": "FK08X121K502EEQ", "_component_type": "MLCC"}
+        detail = dict(core, _size="1808", _mat="X7R", _pf=120.0, _tol="10", _volt_num=5000.0, _safety_class="X1")
+        row = app["build_lightweight_component_row_from_search_sidecar"](core, detail, include_model_rule=False)
+        self.assertEqual(float(row["_volt_num"]), 250.0)
+        self.assertEqual(app["clean_voltage"](row["耐压（V）"]), "250")
+        self.assertEqual(row["安规"], "X1/Y2")
+        self.assertEqual(row["_safety_class"], "X1/Y2")
+        stale = pd.DataFrame([row])
+        stale.loc[0, "_volt_num"] = 5000.0
+        stale.loc[0, "耐压（V）"] = "5000"
+        repaired = app["prepare_search_dataframe"](stale)
+        self.assertEqual(float(repaired.iloc[0]["_volt_num"]), 250.0)
+        self.assertEqual(float(stale.iloc[0]["_volt_num"]), 5000.0)
+        query = "120pF;500V;±10%;Y2;1808;125℃;X7R;无卤"
+        spec = app["merge_query_text_hints_into_spec"](app["parse_spec_query"](query), query)
+        original_fetch = app["fetch_search_candidate_pairs"]
+        try:
+            app["fetch_search_candidate_pairs"] = lambda current_spec: None
+            self.assertTrue(app["run_query_match"](repaired, "规格", spec).empty)
+        finally:
+            app["fetch_search_candidate_pairs"] = original_fetch
+
+    def test_safety_mlcc_bom_keeps_y2_temperature_and_halogen_constraints(self):
+        app = self.app
+        for cap, code in ((220, "221"), (120, "121"), (150, "151")):
+            with self.subTest(cap=cap):
+                query = f"{cap}pF;250V;±10%;Y2;1808;125℃;X7R;HOLY STON;SCC1808X{code}K502TG;无卤"
+                row = app["build_bom_upload_result_row"](
+                    None, 0, {"规格": query, "品名": "陶瓷贴片电容"},
+                    {"model": None, "spec": "规格", "name": "品名", "quantity": None},
+                    query_cache={},
+                    export_settings={"mode": app["BOM_EXPORT_MODE_CUSTOM"], "brands": ["信昌PDC"], "include_cost": False},
+                )
+                self.assertEqual(row["自有型号"], f"FK08X{code}K502EEQ")
+                self.assertEqual(app["clean_voltage"](row["耐压（V）"]), "250")
+
+    def test_safety_mlcc_index_does_not_lose_legacy_row_to_exact_voltage_shortcut(self):
+        app = self.app
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute('CREATE TABLE candidates ("品牌" TEXT, "型号" TEXT, _volt_num REAL)')
+            conn.execute('INSERT INTO candidates VALUES (?,?,?)', ("信昌PDC", "FK08X121K502EEQ", 5000))
+            conn.execute('INSERT INTO candidates VALUES (?,?,?)', ("Other", "UNKNOWN", None))
+            clause, params = app["mlcc_index_voltage_condition"]("250", exact=True)
+            self.assertEqual(conn.execute('SELECT "型号" FROM candidates WHERE ' + clause, params).fetchall(), [("FK08X121K502EEQ",)])
+        unknown = app["documented_pdc_safety_fields"]("Other", "FK08X121K502EEQ")
+        self.assertEqual(unknown, {})
+        self.assertEqual(app["documented_pdc_safety_fields"]("信昌PDC", "FK08X999K502EEQ"), {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
