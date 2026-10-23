@@ -337,7 +337,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-23T06:07:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-23T07:06:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -38958,6 +38958,14 @@ def build_fojan_special_resistor_candidates_from_spec(spec):
     size = clean_size(spec.get("尺寸（inch）", ""))
     resistance_ohm = spec.get("_resistance_ohm", None)
     power = format_power_display(spec.get("_power", ""))
+    # A numeric voltage above the normal package rating already requests a
+    # high-voltage family. Do not require a redundant 高压 keyword. Keep the
+    # caller's spec untouched; normal downstream voltage checks still apply.
+    requested_voltage = safe_numeric_value(clean_voltage(spec.get("耐压（V）", "")))
+    normal_voltage = safe_numeric_value(clean_voltage(FOJAN_FRC_MAX_WORKING_VOLTAGE_BY_SIZE.get(size, "")))
+    if requested_voltage is not None and normal_voltage is not None and requested_voltage > normal_voltage:
+        requested_tokens.add("高压")
+        trigger_tokens.add("高压")
     # Precision is already explicit in a sub-1% tolerance. Do not require the
     # user to repeat it as a "高精度" keyword or alter their original spec.
     implicit_precision = False
@@ -45562,7 +45570,7 @@ def verified_bom_image_consensus_model(original, candidates, record):
     return original.replace(source, proposed), source, proposed
 
 
-def bom_image_model_spec_warnings(record):
+def bom_image_model_spec_warnings(record, *, image_review=True):
     """Compare independently written specifications with supported model rules.
 
     Never generate a replacement model, consult pricing, or change m/M units.
@@ -45604,6 +45612,8 @@ def bom_image_model_spec_warnings(record):
                 ("耐压", "耐压（V）", clean_voltage)):
             left, right = normalize(parsed.get(key, "")), normalize(written.get(key, ""))
             if left and right and left != right:
+                if key == "容值误差":
+                    left, right = clean_tol_for_display(left), clean_tol_for_display(right)
                 conflicts.append(f"{label}（型号{left}，规格{right}）")
         for label, key in (("阻值", "_resistance_ohm"), ("容量", "容值_pf")):
             left, right = parsed.get(key), written.get(key)
@@ -45614,9 +45624,45 @@ def bom_image_model_spec_warnings(record):
                         conflicts.append(f"{label}（型号{left}{unit}，规格{right}{unit}）")
                 except (TypeError, ValueError):
                     pass
+        left_power = parse_power_to_watts(parsed.get("_power", "") or parsed.get("功率", ""))
+        right_power = parse_power_to_watts(written.get("_power", "") or written.get("功率", ""))
+        if left_power is not None and right_power is not None and not math.isclose(
+            float(left_power), float(right_power), rel_tol=1e-9, abs_tol=1e-12
+        ):
+            conflicts.append(f"功率（型号{left_power:g}W，规格{right_power:g}W）")
         if conflicts:
-            warnings.append(f"型号{model}与规格不一致：" + "、".join(conflicts) + "，请对照原图确认")
+            action = "请对照原图确认" if image_review else "需人工确认"
+            warnings.append(f"型号{model}与规格不一致：" + "、".join(conflicts) + "，" + action)
     return warnings
+
+
+def input_model_spec_confirmation(*values):
+    """Warn about independently stated fields, without changing match or price.
+
+    Supported manufacturer rules are the evidence; unknown/missing fields are
+    not contradictions. Keep original text and case-sensitive resistance units.
+    """
+    text = join_bom_parts(*(clean_text(value) for value in values))
+    warnings = bom_image_model_spec_warnings({"规格型号": text}, image_review=False)
+    if not warnings:
+        return ""
+    return "规格描述与型号不同，需人工确认。" + "；".join(warnings) + "。匹配和报价仍按已识别型号处理。"
+
+
+def apply_input_model_spec_confirmation(result, *values):
+    """Attach the warning after BOM reconciliation so export cannot hide it."""
+    note = input_model_spec_confirmation(*values)
+    if not note:
+        return result
+    if result.get("状态") == "可推荐":
+        result["状态"] = "需确认"
+    for field in ("推荐理由", "差异说明", "备注1"):
+        result[field] = merge_match_confirmation_into_remark1(result.get(field, ""), note)
+    for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1):
+        if clean_text(result.get(bom_own_brand_internal_column("自有型号", idx), "")):
+            field = bom_own_brand_internal_column("自有匹配备注", idx)
+            result[field] = merge_match_confirmation_into_remark1(result.get(field, ""), note)
+    return result
 
 
 def build_bom_image_review_summary(frame):
@@ -47497,7 +47543,7 @@ def build_bom_result_row(df, line, export_settings=None):
     row["状态"] = recommendation.get("status", "需确认")
     row["推荐理由"] = recommendation.get("reason", "")
     reconcile_bom_output_status(row, export_slots, export_settings=export_settings)
-    return row
+    return apply_input_model_spec_confirmation(row, line)
 
 def build_bom_upload_result_row(
     df,
@@ -47742,6 +47788,7 @@ def build_bom_upload_result_row(
             f"name={clean_text(name_value)}",
         )
 
+    apply_input_model_spec_confirmation(result_row, model_value, spec_value, name_value, *extra_values)
     return apply_bom_image_review_to_result(result_row, record)
 
 def format_bom_elapsed_time(seconds):
@@ -52028,6 +52075,9 @@ if search_requested:
                 note="正在比对候选料号并计算推荐等级",
                 extra_chips=base_chips,
             )
+            input_confirmation = input_model_spec_confirmation(line)
+            if input_confirmation:
+                st.warning(input_confirmation)
             if mode == "系列":
                 show_df = apply_search_cost_visibility(build_series_catalog_display(query_df))
                 st.markdown(

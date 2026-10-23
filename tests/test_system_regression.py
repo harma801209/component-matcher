@@ -5453,6 +5453,90 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FRC0402F2003TS")
         self.assertEqual(result.get("自有成本", ""), "1.70")
 
+    def test_03aib_written_spec_model_disagreement_requires_confirmation_not_repricing(self):
+        app = self.app
+        text = "1MΩ;500V;±5%;1/4W;1206;FOJAN;FRV1206F1004TS;车规级;无卤"
+        note = app["input_model_spec_confirmation"]("12114004930H39", text)
+        for expected in ("规格描述与型号不同", "FRV1206F1004TS", "±1%", "±5%", "需人工确认"):
+            self.assertIn(expected, note)
+        source = {"状态": "可推荐", "推荐型号": "FRV1206F1004TS", "自有型号": "FRV1206F1004TS",
+                  "自有成本": "3.25", "自有MOQ": "5000PCS", "自有匹配备注": "原报价备注"}
+        result = app["apply_input_model_spec_confirmation"](dict(source), "12114004930H39", text)
+        self.assertEqual(result["状态"], "需确认")
+        for key in ("推荐型号", "自有型号", "自有成本", "自有MOQ"):
+            self.assertEqual(result[key], source[key])
+        for key in ("备注1", "差异说明", "推荐理由", "自有匹配备注"):
+            self.assertIn(note, result[key])
+        self.assertIn("原报价备注", result["自有匹配备注"])
+        self.assertEqual(app["apply_input_model_spec_confirmation"](result, text)["备注1"], result["备注1"])
+        conflict = app["apply_input_model_spec_confirmation"]({"状态":"参数冲突"}, text)
+        self.assertEqual(conflict["状态"], "参数冲突")
+
+    def test_03aic_model_spec_check_ignores_omissions_and_equivalent_units(self):
+        inspect = self.app["input_model_spec_confirmation"]
+        for text in (
+            "FRV1206F1004TS",
+            "1MΩ;500V;±1%;250mW;1206;FOJAN;FRV1206F1004TS;无卤",
+            "1000kΩ ±1% 0.25W 1206 FRV1206F1004TS",
+            "1206 1MΩ ±5% 1/4W",
+            "UNKNOWNXYZ123 1206 1MΩ ±5% 1/4W",
+            "FRR1206F1005TS 10MΩ ±1% 1/4W 1206",
+        ):
+            self.assertEqual(inspect(text), "", text)
+        note = inspect("FRV1206F1004TS 0603 100kΩ ±5% 1/2W")
+        for field in ("封装", "阻值", "误差", "功率"):
+            self.assertIn(field, note)
+        self.assertIn("阻值", inspect("FRC0402F1000TS 0402 100mΩ ±1% 1/16W"))
+        self.assertIn("容量", inspect("CL05A475KP5NRNC 0402 X5R 47uF ±10% 10V"))
+
+    def test_03aid_bom_warning_survives_export_reconciliation_with_original_model_price(self):
+        app = self.app
+        text = "1MΩ;500V;±5%;1/4W;1206;FOJAN;FRV1206F1004TS;车规级;无卤"
+        row = app["build_bom_upload_result_row"](
+            pd.DataFrame(), 0, {"品号":"12114004930H39", "规格":text},
+            {"model":"品号", "spec":"规格", "name":None, "quantity":None},
+            export_settings={"mode":"指定品牌", "brands":["FOJAN(富捷)"]},
+            resistor_pricing_rules=[{"series":"FRV", "type_dimension_norm":"1206 1/4W",
+                                     "range":"10R-10M", "price_1":"3.25", "package":"5000PCS"}],
+        )
+        self.assertEqual(app["clean_model"](row["自有型号"]), "FRV1206F1004TS")
+        self.assertEqual(row["自有成本"], "3.25")
+        self.assertEqual(row["状态"], "需确认")
+        for field in ("备注1", "自有匹配备注", "差异说明", "推荐理由"):
+            self.assertIn("±5%", row[field])
+            self.assertIn("±1%", row[field])
+        self.assertEqual(row["BOM规格"], text)
+        self.assertEqual(row["BOM型号"], "12114004930H39")
+        display = app["build_bom_display_df"](pd.DataFrame([row]))
+        self.assertIn("需人工确认", display.iloc[0]["备注1"])
+
+    def test_03aie_numeric_high_voltage_request_finds_verified_series_without_keyword(self):
+        app = self.app
+        text = "1MΩ;500V;±5%;1/4W;1206"
+        mode, spec = app["detect_query_mode_and_spec"](None, text)
+        spec = app["merge_query_text_hints_into_spec"](spec, text)
+        original = dict(spec)
+        candidates = app["build_fojan_rule_candidate_from_spec"](spec)
+        self.assertIn("FRV1206J105TS", candidates["型号"].tolist())
+        matched = app["run_query_match"](app["prepare_search_dataframe"](candidates), mode, spec)
+        self.assertIn("FRV1206J105TS", matched["型号"].tolist())
+        self.assertNotIn("FRC1206J105TS", matched["型号"].tolist())
+        exact = matched[matched["型号"].eq("FRV1206J105TS")].iloc[0]
+        self.assertEqual(app["clean_tol_for_match"](exact["容值误差"]), "5")
+        self.assertEqual(app["clean_voltage"](exact["耐压（V）"]), "500")
+        self.assertEqual(spec, original)
+        for voltage in ("200", "1000"):
+            case = dict(spec, **{"耐压（V）":voltage})
+            rows = app["build_fojan_special_resistor_candidates_from_spec"](case)
+            if voltage == "200":
+                self.assertTrue(rows.empty)
+            else:
+                result = app["run_query_match"](app["prepare_search_dataframe"](rows), mode, case)
+                self.assertTrue(result.empty)
+        custom = app["apply_search_brand_scope_to_spec"](dict(spec), text,
+                    app["SEARCH_BRAND_MODE_CUSTOM"], ["国巨YAGEO"])
+        self.assertTrue(app["build_fojan_special_resistor_candidates_from_spec"](custom).empty)
+
     def test_03aj_scientific_resistance_text_does_not_create_false_frr_conflicts(self):
         app = self.app
         cases = (
