@@ -344,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-24T13:47:46+08:00"
+PUBLIC_CODE_STAMP = "2026-10-24T18:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -25010,6 +25010,8 @@ def detect_component_type_hint(text):
 
 def normalize_component_type(value):
     text = clean_text(value)
+    if text in _amotech_catalog.SPECIAL_KINDS:
+        return text
     if text == "":
         return ""
     if text in UNSUPPORTED_SEMICONDUCTOR_TYPES:
@@ -25102,6 +25104,8 @@ def infer_strong_component_type_override(row, direct="", text=""):
 
 def infer_db_component_type(row):
     direct = normalize_component_type(row.get("器件类型", ""))
+    if direct in _amotech_catalog.SPECIAL_KINDS:
+        return direct
     raw_unit = clean_text(row.get("容值单位", "")).upper()
     text = " ".join([
         clean_text(row.get("器件类型", "")),
@@ -25167,6 +25171,8 @@ def infer_spec_component_type(spec):
     if spec is None:
         return ""
     direct = normalize_component_type(spec.get("器件类型", ""))
+    if direct in _amotech_catalog.SPECIAL_KINDS:
+        return direct
     raw_unit = clean_text(spec.get("容值单位", "")).upper()
     spec_text = " ".join([
         clean_text(spec.get("器件类型", "")),
@@ -36520,6 +36526,10 @@ def run_query_match(df, mode, spec):
         return pd.DataFrame()
     if bool(spec.get("_unsupported_component", False)):
         return pd.DataFrame()
+    if infer_spec_component_type(spec) in _amotech_catalog.SPECIAL_KINDS:
+        # Exact catalogue information is available. Topology/ports, RF bands
+        # and protection test conditions are not an ordinary passive match.
+        return pd.DataFrame()
     if bool(spec.get("_admin_no_match_resolution", False)):
         work = prepare_search_dataframe(df)
         if isinstance(work, pd.DataFrame) and not work.empty:
@@ -44456,6 +44466,9 @@ def detect_query_mode_and_spec(df, line, model_lookup_cache=None):
         historical_network = _amotech_catalog.decode_legacy_protection(line)
         if historical_network:
             return "暂不支持", historical_network
+        unlisted_rf = _amotech_catalog.decode_rf(_amotech_catalog.key(line))
+        if unlisted_rf:
+            return "暂不支持", unlisted_rf
     semiconductor_hint = detect_unsupported_semiconductor_type(line)
     if semiconductor_hint != "":
         exact_df = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
@@ -50089,6 +50102,13 @@ def resolve_search_query_dataframe_and_spec(
         )
 
     emit(1, "正在解析输入", "先按命名规则和规格关键词识别当前输入")
+    special = _amotech_catalog.special_record(line)
+    if special:
+        rows = amotech_prepared_catalogue()
+        rows = rows.loc[rows['型号'].eq(special['型号'])].copy()
+        emit(2,"已找到原厂目录资料",special.get('资料状态',''),"原厂目录","success",candidate_rows=len(rows))
+        return {'query_df':rows,'mode':'原厂目录','spec':special,
+                'resolution_path':'amotech_special_catalogue','used_full_df':False,'candidate_rows':len(rows)}
     series_rows = load_epson_series_catalog(line)
     if not series_rows.empty:
         series = clean_text(series_rows.iloc[0].get("系列", ""))
@@ -52171,6 +52191,19 @@ if search_requested:
             input_confirmation = input_model_spec_confirmation(line)
             if input_confirmation:
                 st.warning(input_confirmation)
+            if mode == '原厂目录':
+                st.markdown('<div class="section-title">原厂型号资料 · '+html.escape(spec['型号'])+'</div>',unsafe_allow_html=True)
+                st.caption('此类器件需核对电路拓扑、引脚和测试条件；当前展示原厂资料，不自动判定跨品牌等效。')
+                if spec.get('资料状态'):
+                    st.info(spec['资料状态'])
+                fields=['品牌','型号','器件类型',*_amotech_catalog.SPECIAL_TEXT,*_amotech_catalog.SPECIAL_NUMERIC]
+                details=pd.DataFrame([{'参数':key,'内容':str(spec[key])} for key in fields if key in spec and clean_text(spec[key])!=''])
+                st.dataframe(details,hide_index=True,use_container_width=True)
+                if spec.get('官网链接'):
+                    st.link_button('查看原厂资料',spec['官网链接'])
+                complete_line_search_audit('仅原厂资料','已展示原厂规格；未执行未经验证的等效替代。',source_frame=query_df)
+                search_stats['success'] += 1
+                continue
             if mode == "系列":
                 show_df = apply_search_cost_visibility(build_series_catalog_display(query_df))
                 st.markdown(

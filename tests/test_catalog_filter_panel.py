@@ -5,6 +5,13 @@ from tests import test_component_filters as fixtures
 
 
 class CatalogPanelTests(unittest.TestCase):
+    def test_category_chooser_keeps_new_electronic_and_future_families(self):
+        from pathlib import Path
+        template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')
+        self.assertIn("'ESD／EMI／RF'",template)
+        self.assertIn('...data.categories.map(c=>c.family)',template)
+        self.assertIn('new Set([...preferred,',template)
+
     def test_filter_template_has_no_duplicate_name_search_or_manual_search_gate(self):
         from pathlib import Path
         template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')

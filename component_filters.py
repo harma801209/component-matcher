@@ -12,6 +12,7 @@ import os
 import re
 import catalog_mlcc_completion as mlcc_completion
 import catalog_passive_completion as passive_completion
+import amotech_catalog
 
 CORE = "components_search_core"
 MISSING = "__catalog_missing__"
@@ -24,6 +25,8 @@ DETAIL_COLUMNS = ("品牌", "型号", "_component_type", "封装代码", "极性
 
 
 def family_of_kind(kind):
+    if kind in amotech_catalog.SPECIAL_KINDS:
+        return 'ESD／EMI／RF'
     if '电阻' in kind:
         return '电阻'
     if kind in {'MLCC', '钽电容'} or '电容' in kind:
@@ -170,6 +173,14 @@ def column(key, label, units=()):
 def profile(component_type):
     """Unknown/new kinds remain browsable via the complete core catalogue."""
     common = [column("品牌", "品牌")]
+    if component_type in amotech_catalog.SPECIAL_KINDS:
+        fields=common+[column(k,k) for k in ('系列','结构','尺寸（inch）','本体尺寸（mm）','回路数','安装方式')]
+        numeric = ('频段下限（MHz）','频段上限（MHz）','标称耦合（dB）') if component_type=='RF耦合器' else ('最大连续工作电压（V）','寄生电容量（pF）','串联电阻（Ω）','截止频率（MHz）')
+        for key in numeric:
+            unit=re.search(r'（(.*?)）',key)[1]
+            fields.append(column(key,key,((unit,1),)))
+        detail = ('已列频段（MHz）','分段电气参数','功率条件','引脚／端口') if component_type=='RF耦合器' else ('电容定义／测试条件','压敏／击穿电压及条件','电气参数说明')
+        return amotech_catalog.SPECIAL_TABLE,fields+[column(k,k) for k in (*detail,'工作温度','资料版本','资料状态','官网链接')]
     package = column("_size", "封装／尺寸代码")
     tolerance = column("_tol", "精度／误差")
     if component_type in {"贴片电阻", "厚膜电阻", "薄膜电阻", "合金电阻", "碳膜电阻", "绕线电阻", "金属氧化膜电阻", "热敏电阻"}:
@@ -489,6 +500,8 @@ def render(st, categories, get_snapshot, on_login, is_member, on_match, results_
         return
     if kind in SEMICONDUCTORS:
         st.caption('电压、电流按库内标注筛选，不代表相同测试条件或可直接替代；动态参数保留原始测试条件。')
+    if kind in amotech_catalog.SPECIAL_KINDS:
+        st.caption('按原厂实际型号筛选；资料版本不代表生产状态。点击型号查看测试条件、分段参数与原厂资料，不能据此认定可直接替代。')
     if len(result['fields']) == 1:
         st.info('此品类目前仅收录品牌和型号；未收录的电性参数不会默认补值。')
     active = []

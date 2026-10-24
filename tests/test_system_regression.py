@@ -315,15 +315,16 @@ class SystemRegressionTests(unittest.TestCase):
     def test_amotech_catalogue_counts_are_explicit_models_not_rule_combinations(self):
         import amotech_catalog as amo
         rows = amo.catalogue_rows()
-        self.assertEqual(len(rows),363)
-        self.assertEqual(len({r['型号'] for r in rows}),363)
+        self.assertEqual(len(rows),469)
+        self.assertEqual(len({r['型号'] for r in rows}),469)
         self.assertTrue(all(r['_catalog_membership']=='manufacturer_listed' for r in rows))
         self.assertTrue(all(r['生产状态']=='' for r in rows))
         self.assertTrue(all('价格' not in r and '库存' not in r for r in rows))
+        self.assertTrue(all('(cid:' not in str(r) for r in rows))
         conn = self.app['open_search_db_connection']()
         try:
             count = conn.execute('SELECT COUNT(DISTINCT 型号) FROM components_search_core WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
-            self.assertEqual(count,368)
+            self.assertEqual(count,474)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
             self.app['install_amotech_catalogue_overlay'](conn)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
@@ -360,7 +361,7 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_amotech_conflicting_source_rows_remain_quarantined(self):
         import amotech_catalog as amo
-        self.assertEqual(len(amo.payload()['quarantined']),3)
+        self.assertEqual(len(amo.payload()['quarantined']),5)
         for item in amo.payload()['quarantined']:
             self.assertIsNone(amo.parse_model(item['model']))
             self.assertNotIn(item['model'],amo.by_model())
@@ -395,29 +396,122 @@ class SystemRegressionTests(unittest.TestCase):
     def test_amotech_historical_network_codes_do_not_become_capacitors(self):
         import amotech_catalog as amo
         for model in ('ASES12U020R2','AMES12U05Q0R2','ADUC10S021R1','ADLC10S02050','ADMC10S02200',
-                      'SR5S02050100R','SF5S02050100R','AVL5M02200','AVLC5S01015',
+                      'SR5S02050100R','SF5S02050','AVL5M02200','AVLC5S01015',
                       'AVNC18S03Q015','AVSC5S04F050','AMLV14S03Q022200F',
                       'AVRC14S03Q030050R','AVFC5S04D150'):
             with self.subTest(model=model):
-                row = amo.parse_model(model)
+                row = amo.decode_legacy_protection(model)
                 self.assertTrue(row['_unsupported_component'])
                 self.assertNotEqual(row['器件类型'],'MLCC')
                 self.assertNotIn('容值',row)
                 self.assertNotIn('耐压（V）',row)
-                self.assertNotIn(model,amo.by_model())
-        self.assertEqual(amo.parse_model('AVL5M02200')['峰值电流（A）'],20)
+                self.assertEqual(row['_catalog_membership'],'historical_rule_only')
+        self.assertEqual(amo.decode_legacy_protection('AVL5M02200')['峰值电流（A）'],20)
         self.assertEqual(amo.parse_model('AVLC5S02200')['寄生电容量（pF）'],200)
-        self.assertEqual(amo.parse_model('AMLV14S03Q022200F')['典型截止频率（MHz）'],200)
+        self.assertEqual(amo.decode_legacy_protection('AMLV14S03Q022200F')['典型截止频率（MHz）'],200)
         self.assertIsNone(amo.parse_model('AVFC5S04Q150'))
         self.assertIsNone(amo.parse_model('AVRC14S03Q030050R',brand='TDK'))
 
     def test_amotech_unverified_network_query_gets_specific_safe_message(self):
-        self.assertTrue(self.app['build_rule_fallback_row_from_model']('AVRC14S03Q030050R').empty)
+        self.assertTrue(self.app['build_rule_fallback_row_from_model']('AVRC18S05Q030050R').empty)
         self.assertTrue(self.app['build_rule_fallback_row_from_model']('ACX02X10N104KNDG').empty)
-        result = self.app['resolve_search_query_dataframe_and_spec']('AVRC14S03Q030050R')
+        result = self.app['resolve_search_query_dataframe_and_spec']('AVRC18S05Q030050R')
         self.assertEqual(result['mode'],'暂不支持')
         self.assertIn('历史命名规则', result['spec']['_unsupported_reason'])
         self.assertTrue(result['query_df'].empty)
+
+    def test_amotech_electronics_have_separate_types_and_readonly_filter_counts(self):
+        import amotech_catalog as amo
+        import component_filters as filters
+        conn=self.app['open_search_db_connection']()
+        try:
+            for kind,expected in (('ESD保护器件',45),('EMI／ESD滤波器',50),('RF耦合器',11)):
+                with self.subTest(kind=kind):
+                    result=filters.snapshot(conn,kind,include_rows=True)
+                    self.assertEqual(result['total'],expected)
+                    self.assertEqual(dict(filters.category_counts(conn))[kind],expected)
+                    self.assertTrue(all(r['品牌']==amo.BRAND for r in result['rows']))
+                    self.assertNotIn('_pf',[f.key for f in result['fields']])
+                    self.assertEqual(filters.family_of_kind(kind),'ESD／EMI／RF')
+            self.app['install_amotech_catalogue_overlay'](conn)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM '+amo.SPECIAL_TABLE).fetchone()[0],106)
+            self.assertIsNone(conn.execute('SELECT 1 FROM main.sqlite_master WHERE name=?',(amo.SPECIAL_TABLE,)).fetchone())
+            from catalog_filter_panel import build_payload as panel_payload
+            from catalog_result_table import build_payload as table_payload
+            result=filters.snapshot(conn,'RF耦合器',include_rows=True)
+            panel=panel_payload(filters.category_counts(conn),'RF耦合器',result,result,{}, {},'',{})
+            self.assertNotIn('分段电气参数',[g['key'] for g in panel['groups']])
+            payload=table_payload(result,'RF耦合器','',{}, {},'')
+            self.assertFalse(next(c for c in payload['columns'] if c['key']=='分段电气参数')['visible'])
+        finally:conn.close()
+
+    def test_amotech_special_exact_queries_show_source_not_fake_equivalence(self):
+        import amotech_catalog as amo
+        for model,kind in (('ASES12U020R2','ESD保护器件'),('AVRC14S03Q030050R','EMI／ESD滤波器'),('CXD20T3150BG','RF耦合器')):
+            result=self.app['resolve_search_query_dataframe_and_spec'](model)
+            self.assertEqual(result['mode'],'原厂目录')
+            self.assertEqual(result['spec']['器件类型'],kind)
+            self.assertEqual(len(result['query_df']),1)
+            self.assertEqual(result['query_df'].iloc[0]['_component_type'],kind)
+            self.assertEqual(self.app['infer_spec_component_type'](result['spec']),kind)
+            self.assertTrue(self.app['run_query_match'](result['query_df'],'料号',result['spec']).empty)
+            self.assertIsNone(amo.parse_model(model,brand='TDK'))
+            self.assertIsNone(amo.parse_model(model,component_type='MLCC'))
+
+    def test_amotech_historical_source_preserves_voltage_and_capacitor_definitions(self):
+        import amotech_catalog as amo
+        sr=amo.special_record('SR5S02010010R')
+        self.assertEqual(sr['寄生电容量（pF）'],10)
+        self.assertEqual(sr['串联电阻（Ω）'],10)
+        self.assertIn('C1+C2',sr['电容定义／测试条件'])
+        self.assertEqual(sr['最大连续工作电压（V）'],5.5)
+        self.assertEqual(sr['压敏／击穿电压及条件'],'14±4 V @1mA DC')
+        self.assertEqual(amo.special_record('SF5S02100')['寄生电容量（pF）'],100)
+        self.assertNotIn('串联电阻（Ω）',amo.special_record('SF5S02100'))
+        self.assertEqual(amo.special_record('AVL5M02200')['寄生电容量（pF）'],480)
+        self.assertEqual(amo.special_record('ADUC10S021R1')['寄生电容量（pF）'],1.1)
+        self.assertEqual(amo.special_record('AMES12U05Q0R2')['本体尺寸（mm）'],'2.5 × 1.0')
+        self.assertEqual(amo.special_record('AMES12U05Q0R2')['尺寸（inch）'],'')
+        for row in amo.catalogue_rows():
+            if row.get('器件类型') in amo.SPECIAL_KINDS:
+                self.assertNotIn('容值',row)
+                self.assertNotIn('耐压（V）',row)
+                self.assertEqual(row['生产状态'],'')
+
+    def test_amotech_rf_uses_segmented_datasheet_ratings_not_summary_or_plot_axes(self):
+        import amotech_catalog as amo
+        row=amo.special_record('CXD05T3338AG')
+        self.assertEqual((row['频段下限（MHz）'],row['频段上限（MHz）']),(3300,3800))
+        row=amo.special_record('CXH03F1723AG')
+        self.assertEqual(row['频段上限（MHz）'],2300)
+        self.assertIn('0.25dB',row['分段电气参数'])
+        row=amo.special_record('CXH03T3342BG')
+        self.assertIn('3900～4200MHz',row['分段电气参数'])
+        self.assertIn('0.35',row['分段电气参数'])
+        row=amo.special_record('CXD10T2337AG')
+        self.assertEqual(row['_source_band_segments'],[[2300,2400],[2400,2500],[2630,2655],[3300,3700]])
+        self.assertIn('Preliminary',row['资料状态'])
+        self.assertIn('24W @95℃',amo.special_record('CXH02F1822AG')['功率条件'])
+        row=amo.special_record('CXH03T3337AA')
+        self.assertIn('Max.(W)',row['分段电气参数'])
+        self.assertNotIn('平均功率（W）',row)
+        unknown=amo.parse_model('CXD20T3150ZZ')
+        self.assertEqual(unknown['_catalog_membership'],'rule_only')
+        self.assertNotIn('频段下限（MHz）',unknown)
+        self.assertTrue(self.app['build_rule_fallback_row_from_model']('CXD20T3150ZZ').empty)
+        self.assertEqual(self.app['resolve_search_query_dataframe_and_spec']('CXD20T3150ZZ')['mode'],'暂不支持')
+
+    def test_amotech_special_conflicts_are_quarantined_and_existing_records_preserved(self):
+        import amotech_catalog as amo
+        for model in ('AVLC15S02036','AVFC5S04D150'):
+            self.assertIsNone(amo.special_record(model))
+            self.assertIsNone(amo.parse_model(model))
+            result=self.app['resolve_search_query_dataframe_and_spec'](model)
+            self.assertEqual(result['mode'],'暂不支持')
+            self.assertIn('不一致',result['spec']['_unsupported_reason'])
+        for model in amo.EXISTING_PROTECTION_MODELS:
+            self.assertNotIn(model,amo.by_model())
+            self.assertFalse(self.app['load_component_rows_by_clean_model'](model).empty)
 
     def test_amotech_rf_candidate_requires_engineering_confirmation_not_full_match(self):
         import amotech_catalog as amo

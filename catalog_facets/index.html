@@ -38,7 +38,8 @@ function renderChooser(){
  const label=node('label','产品类别');label.htmlFor='product-category';
  const select=node('select');select.id='product-category';select.setAttribute('aria-label','选择产品类别');
  const none=node('option','请选择器件品类');none.value='';select.append(none);
- const order=['电容','电阻','电感／磁珠','晶振／时钟','MOS管','二极管','三极管','其他'];
+ const preferred=['电容','电阻','电感／磁珠','晶振／时钟','ESD／EMI／RF','MOS管','二极管','三极管','其他'];
+ const order=[...new Set([...preferred,...data.categories.map(c=>c.family)])];
  order.filter(f=>data.categories.some(c=>c.family===f)).forEach(f=>{
   const group=node('optgroup');group.label=f;
   data.categories.filter(c=>c.family===f).forEach(c=>{const option=node('option',(c.kind||'未分类')+'（'+fmt(c.count)+'）');option.value=c.kind;group.append(option);});select.append(group);

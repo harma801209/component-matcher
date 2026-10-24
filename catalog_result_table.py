@@ -20,6 +20,7 @@ def numeric_display(field, value):
 
 def build_payload(result, kind, condition, selected, ranges, keyword, sort_key='', sort_desc=False):
     from component_filters import option_label
+    from amotech_catalog import SPECIAL_KINDS, SPECIAL_DETAIL_ONLY
     columns = [dict(key='型号',label='型号',visible=True), dict(key='品牌',label='品牌',visible=True)]
     rows = []
     for source in result['rows']:
@@ -44,7 +45,8 @@ def build_payload(result, kind, condition, selected, ranges, keyword, sort_key='
         # of unknown values crowding out actual specifications by default.
         facet=result['facets'].get(field.key,[])
         populated=(bool(facet) and facet[0] is not None) if field.units else any(value!='__catalog_missing__' for value,_ in facet)
-        columns.append(dict(key=field.key,label=labels.get(field.key,field.label.removesuffix('范围')),visible=populated))
+        detail_only = kind in SPECIAL_KINDS and field.key in SPECIAL_DETAIL_ONLY
+        columns.append(dict(key=field.key,label=labels.get(field.key,field.label.removesuffix('范围')),visible=populated and not detail_only))
     identity=[kind,selected,ranges,keyword,sort_key,sort_desc,result['total'],result['page'],result['page_size'],rows]
     view=hashlib.sha256(json.dumps(identity,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     return dict(view=view,kind=kind,condition=condition,columns=columns,rows=rows,total=result['total'],page=result['page'],pages=result['pages'],size=result['page_size'],sort=sort_key,desc=sort_desc)

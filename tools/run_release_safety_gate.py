@@ -120,6 +120,7 @@ def main() -> int:
                 "jianghai_parameters.py",
                 "amotech_catalog.py",
                 "tools/import_amotech_catalog.py",
+                "tools/import_amotech_electronics.py",
                 "sync_local_and_public.py",
             ],
             env,

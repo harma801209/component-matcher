@@ -141,6 +141,12 @@ if __name__ == '__main__':
     parser.add_argument('--output',type=Path,default=ROOT/'catalog_sources/amotech_verified.json')
     args=parser.parse_args()
     data=build(args.captures)
+    if not (args.captures/'amotech-official-rf-rows.json').exists():
+        raise SystemExit('Missing reviewed RF capture; refusing to silently shrink the published electronic-component catalogue.')
+    from import_amotech_electronics import extend
+    data=extend(data,args.captures)
+    assert len({r['型号'] for r in data['records']}) == len(data['records'])
+    assert all('(cid:' not in str(r) for r in data['records']), 'Unresolved PDF glyph in source record'
     args.output.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({'models':len(data['records']),'quarantined':len(data['quarantined']),
                       'series':dict(Counter(r['系列'] for r in data['records']))},ensure_ascii=False))

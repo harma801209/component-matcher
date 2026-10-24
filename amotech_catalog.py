@@ -51,6 +51,15 @@ HIGH_Q = re.compile(r'^(?P<series>A60[ZLSF]|A80B)(?P<cap>[0-9R]{3})'
                     r'(?P<tol>[ABCDFGJKM])(?P<terminal>TN|T)(?P<voltage>[0-9]{2,4})(?P<laser>X?)T$')
 LEGACY_SOURCE = 'https://www.mrc-gigacomp.de/pdfs/Amotech_EMI-ESD%20Catalogue(080603).pdf'
 EXISTING_PROTECTION_MODELS = frozenset(('AVLC18S02003','AVLC18S02015','AVLC3N01100','AVLC5S02100','HESP02100ES1'))
+SPECIAL_KINDS = frozenset(('ESD保护器件','EMI／ESD滤波器','RF耦合器'))
+SPECIAL_TABLE = 'components_search_amotech_special'
+SPECIAL_DETAIL_ONLY = frozenset(('电容定义／测试条件','压敏／击穿电压及条件','电气参数说明',
+                                 '分段电气参数','功率条件','引脚／端口','官网链接'))
+SPECIAL_NUMERIC = ('最大连续工作电压（V）','寄生电容量（pF）','串联电阻（Ω）','截止频率（MHz）',
+                   '频段下限（MHz）','频段上限（MHz）','标称耦合（dB）','平均功率（W）')
+SPECIAL_TEXT = ('系列','结构','尺寸（inch）','本体尺寸（mm）','回路数','安装方式','电容定义／测试条件',
+                '压敏／击穿电压及条件','电气参数说明','分段电气参数','功率条件','引脚／端口',
+                '工作温度','已列频段（MHz）','资料版本','资料状态','官网链接')
 
 
 def decode_legacy_protection(model, brand=''):
@@ -88,12 +97,16 @@ def decode_legacy_protection(model, brand=''):
         fields = {'系列':match[1],'最大连续工作电压（V）':5.5 if match[2]=='5' else int(match[2]),
                   '寄生电容量（pF）':int(match[5]),'结构':'多层阵列压敏电阻',
                   '回路数':'8' if match[4]=='E' else '4','编码尺寸':match[3]}
-    match = re.fullmatch(r'(SR|SF)(5|10|30|40)(S|M)(02|03)(010|020|030|050)(010|050|100)R',model)
+    match = re.fullmatch(r'(SR)(5|10|30|40)(S|M)(02|03)(010|020|030|050)(010|050|100)R',model)
     if match:
         fields = {'系列':match[1],'最大连续工作电压（V）':5.5 if match[2]=='5' else int(match[2]),
-                  '寄生电容量（pF）':int(match[5]),'串联电阻（Ω）':int(match[6]),
-                  '结构':'单通道 RC 保护网络' if match[1]=='SR' else '单通道穿心保护网络',
+                  '电容标称／合计（pF）':int(match[5]),'串联电阻（Ω）':int(match[6]),
+                  '结构':'单通道 RC 保护网络',
                   '编码尺寸':match[4]}
+    match = re.fullmatch(r'(SF)(5|10|30|40)(S|M)(02|03)(010|030|050|100)',model)
+    if match:
+        fields = {'系列':match[1],'最大连续工作电压（V）':5.5 if match[2]=='5' else int(match[2]),
+                  '寄生电容量（pF）':int(match[5]),'结构':'单通道穿心保护网络','编码尺寸':match[4]}
     match = re.fullmatch(r'(AMLV)(5|14|18)(S|M)(03)Q([0-9]{3})([0-9]{3})F',model)
     if match:
         fields = {'系列':match[1],'最大连续工作电压（V）':5.5 if match[2]=='5' else int(match[2]),
@@ -148,17 +161,35 @@ def by_model():
 
 def quarantine_notice(model):
     compact = key(model)
-    if not compact.startswith('AC'):
-        return None
     for row in payload()['quarantined']:
         if compact == row['model']:
-            return {'品牌':BRAND,'型号':compact,'器件类型':'MLCC','_unsupported_component':True,
-                    '_unsupported_reason':f"AMOTECH 原厂选型表的容差 {row['displayed_tolerance']} 与料号编码 {row['encoded_tolerance']}% 不一致，已暂隔离，需人工核验原厂规格书。"}
+            reason = row.get('detail') or f"原厂选型表的容差 {row.get('displayed_tolerance')} 与料号编码 {row.get('encoded_tolerance')}% 不一致"
+            return {'品牌':BRAND,'型号':compact,'器件类型':row.get('kind','MLCC'),'_unsupported_component':True,
+                    '_unsupported_reason':f"AMOTECH {reason}，已暂隔离，需人工核验原厂规格书。"}
     return None
 
 
 def catalogue_rows():
-    return [dict(r, 容值_pf=r['容值']) for r in payload()['records']]
+    return [dict(r, **({'容值_pf':r['容值']} if '容值' in r else {})) for r in payload()['records']]
+
+
+def special_record(model, brand=''):
+    if brand and not is_brand(brand):
+        return None
+    row = by_model().get(key(model))
+    return dict(row) if row and row.get('器件类型') in SPECIAL_KINDS else None
+
+
+def decode_rf(model):
+    """Field semantics only. Frequency/design codes are NOT numeric ratings."""
+    match = re.fullmatch(r'(CXH|CXD)([0-9]{2})([NTFS])([0-9]{4})([A-Z]{2})',model)
+    if not match:
+        return None
+    return {'品牌':BRAND,'型号':model,'器件类型':'RF耦合器','系列':match[1],
+            '标称耦合（dB）':int(match[2]),'封装编码':match[3],
+            '频段编码':match[4],'设计编码':match[5],
+            '_catalog_membership':'rule_only','_unsupported_component':True,
+            '_unsupported_reason':'已识别 AMOTECH RF 五段编码；频段、设计、端口和完整规格须查具体料号规格书，不能凭频段编码推算额定参数或生成替代料号。'}
 
 
 def cap_pf(code):
@@ -261,6 +292,16 @@ def decode_broadband(model):
 
 def parse_model(model, brand='', component_type=''):
     model = key(model)
+    if brand and not is_brand(brand):
+        return None
+    if quarantine_notice(model):
+        return None
+    exact = special_record(model,brand)
+    if exact:
+        return exact if not component_type or component_type == exact['器件类型'] else None
+    rf = decode_rf(model)
+    if rf:
+        return rf if not component_type or component_type == 'RF耦合器' else None
     if not component_type or component_type == 'ESD／EMI保护网络':
         historical = decode_legacy_protection(model,brand)
         if historical:
@@ -295,9 +336,13 @@ def install_search_overlay(conn, frames):
     records win by exact identity. Preserve an already installed Jianghai view.
     Rule-only combinations and quarantined records never enter these views.
     """
-    if conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name='amotech_catalogue_core'").fetchone():
-        return
+    # Detailed special-purpose records deliberately have their own schema;
+    # do not squeeze protection networks or RF couplers into capacitor tables.
+    install_special_rows(conn)
     for table in ('components_search_core','components_search_capacitor'):
+        addon = 'amotech_catalogue_' + ('core' if table.endswith('_core') else 'capacitor')
+        if conn.execute('SELECT 1 FROM temp.sqlite_master WHERE name=?',(addon,)).fetchone():
+            continue
         if not conn.execute('SELECT 1 FROM main.sqlite_master WHERE type="table" AND name=?',(table,)).fetchone():
             continue
         frame = frames.get(table)
@@ -306,7 +351,6 @@ def install_search_overlay(conn, frames):
         columns = [r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')]
         if not {'品牌','型号','_component_type'}.issubset(columns):
             continue
-        addon = 'amotech_catalogue_' + ('core' if table.endswith('_core') else 'capacitor')
         names = ','.join('"'+c+'"' for c in columns)
         conn.execute(f'CREATE TEMP TABLE "{addon}" AS SELECT * FROM main."{table}" WHERE 0')
         # Convert missing pandas/Arrow values to SQL NULL, not textual "nan".
@@ -325,3 +369,15 @@ def install_search_overlay(conn, frames):
             conn.execute(f'DROP VIEW temp."{table}"')
         conn.execute(f'CREATE TEMP VIEW "{table}" AS {base_select} UNION ALL SELECT {names} FROM temp."{addon}" a '
                      f'WHERE NOT EXISTS (SELECT 1 FROM main."{table}" b WHERE b."品牌"=a."品牌" AND b."型号"=a."型号" AND b."_component_type"=a."_component_type")')
+
+
+def install_special_rows(conn):
+    if conn.execute('SELECT 1 FROM temp.sqlite_master WHERE name=?',(SPECIAL_TABLE,)).fetchone():
+        return
+    columns = ('品牌','型号','_component_type',*SPECIAL_TEXT,*SPECIAL_NUMERIC)
+    schema = ','.join('"'+c+'" '+('REAL' if c in SPECIAL_NUMERIC else 'TEXT') for c in columns)
+    conn.execute(f'CREATE TEMP TABLE "{SPECIAL_TABLE}" ({schema}, PRIMARY KEY ("品牌","型号","_component_type"))')
+    records = [dict(r,_component_type=r['器件类型']) for r in catalogue_rows() if r.get('器件类型') in SPECIAL_KINDS]
+    names = ','.join('"'+c+'"' for c in columns)
+    conn.executemany(f'INSERT INTO "{SPECIAL_TABLE}" ({names}) VALUES ({",".join("?" for _ in columns)})',
+                     [tuple(r.get(c) for c in columns) for r in records])

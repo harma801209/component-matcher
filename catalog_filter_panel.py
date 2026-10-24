@@ -8,8 +8,11 @@ PREFIX = 'catalog_filter_'
 
 def build_payload(categories, kind, baseline, result, selected, ranges, keyword, state):
     from component_filters import family_of_kind, option_label, MISSING
+    from amotech_catalog import SPECIAL_KINDS, SPECIAL_DETAIL_ONLY
     groups = []
     for field in (baseline or {}).get('fields', []):
+        if kind in SPECIAL_KINDS and field.key in SPECIAL_DETAIL_ONLY:
+            continue
         base = baseline['facets'].get(field.key, [])
         live = result['facets'].get(field.key, [])
         group = dict(key=field.key, label=field.label.removesuffix('范围'), units=list(field.units))

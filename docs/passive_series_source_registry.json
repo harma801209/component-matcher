@@ -3,13 +3,15 @@
   "brands": [
     {
       "brand": "AMOTECH(阿莫泰克)",
-      "passive_types": ["MLCC", "贴片压敏电阻"],
+      "passive_types": ["MLCC", "贴片压敏电阻", "ESD保护器件", "EMI／ESD滤波器", "RF耦合器"],
       "official_sources": [
         {"kind": "part-numbering", "url": "https://ts.amotech.co.kr/assets/productInfo/part-numbering-mlcc.pdf"},
         {"kind": "product-search", "url": "https://ts.amotech.co.kr/mlccSearch"},
-        {"kind": "official-site", "url": "https://www.amotech.co.kr/products/esd-emi-solution/"}
+        {"kind": "official-site", "url": "https://www.amotech.co.kr/products/esd-emi-solution/"},
+        {"kind": "official-datasheet-links", "url": "https://www.amotech.co.kr/esd-emi-solution-3/"},
+        {"kind": "manufacturer-historical-catalogue-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech_EMI-ESD%20Catalogue(080603).pdf"}
       ],
-      "lookup_method": "Rev.10N MLCC numbering + explicit official product-search records + reviewed broadband/high-Q datasheets; see docs/amotech_coverage.md",
+      "lookup_method": "Rev.10N MLCC + explicit MLCC/broadband records + constrained high-Q rules + 95 historical ESD/EMI records + 11 exact RF datasheets with segmented specifications; no inferred lifecycle or automatic network/RF equivalence; see docs/amotech_coverage.md",
       "status": "partial"
     },
     {
