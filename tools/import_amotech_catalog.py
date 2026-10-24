@@ -124,9 +124,10 @@ def build(qa):
                           '安装方式':'贴片','尺寸（inch）':inch,'尺寸（mm）':metric,
                           '容值':100000,'容值单位':'pF','容值误差':tol,'耐压（V）':volt,
                           '材质（介质）':material,'工作温度':'','生产状态':'',
+                          'TCC测试温区':f'-55~{high}℃',
                           '_model_rule_authority':'amotech_official_datasheet',
                           '_catalog_membership':'manufacturer_listed','_amotech_source_url':source['url'],
-                          '备注1':f"AMOTECH 原厂规格书：{source['url']}；典型频段 {frequency}，以原厂测试条件为准；TCC测试温区 -55~{high}℃，不据此推定完整额定工作温度。",
+                          '备注1':f"AMOTECH 原厂规格书：{source['url']}；典型频段 {frequency}，以原厂测试条件为准；TCC测试温区保存于独立字段，不据此推定完整额定工作温度。",
                           '备注2':'宽带／微波用途必须另外核验 S 参数、插入损耗、回波损耗及频段；不能仅按容量、耐压认定等效。'}
     return {'schema_version':1,'reviewed_at':'2026-10-24','manufacturer':'AMOTECH',
             'policy':'Actual listed model records only. No Cartesian generation; no assumed price, stock, lifecycle or certification.',

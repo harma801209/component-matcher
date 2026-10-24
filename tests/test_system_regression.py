@@ -306,6 +306,8 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('TCC测试温区',parsed['备注1'])
         rows = self.app['load_component_rows_by_clean_model'](model)
         self.assertEqual(len(rows), 1)
+        self.assertTrue(pd.isna(rows.iloc[0]['_temp_low']))
+        self.assertTrue(pd.isna(rows.iloc[0]['_temp_high']))
         resolved = self.app['resolve_search_query_dataframe_and_spec'](model)
         self.assertEqual(resolved['mode'], '料号')
         self.assertIn(model, set(resolved['query_df']['型号']))
@@ -2910,12 +2912,14 @@ class SystemRegressionTests(unittest.TestCase):
             module.version='new';calls.append(module.name)
             return module
         namespace=dict(_workbench_importlib=SimpleNamespace(reload=reload),_catalog_filters=parent,
+                       _amotech_catalog=SimpleNamespace(name='amotech',version='old'),
                        _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=lifecycle,
                        _catalog_panasonic_lifecycle=panasonic,
                        _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'))
         exec(compile(ast.Module(body=nodes,type_ignores=[]),'actual-catalogue-reloads','exec'),namespace)
         self.assertLess(calls.index('passive'),calls.index('filters'))
         self.assertIn('lifecycle',calls)
+        self.assertIn('amotech',calls)
         self.assertLess(calls.index('panasonic'),calls.index('lifecycle'))
         self.assertNotIn('member_auth_runtime',calls)
 

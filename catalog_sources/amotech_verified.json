@@ -9757,10 +9757,11 @@
       "材质（介质）": "宽带专用介质（F）",
       "工作温度": "",
       "生产状态": "",
+      "TCC测试温区": "-55~85℃",
       "_model_rule_authority": "amotech_official_datasheet",
       "_catalog_membership": "manufacturer_listed",
       "_amotech_source_url": "https://f92588c1-f721-431d-8d22-749f1ae84e90.filesusr.com/ugd/a428b8_616cf7b4506a48f4862fe266505bd6c1.pdf",
-      "备注1": "AMOTECH 原厂规格书：https://f92588c1-f721-431d-8d22-749f1ae84e90.filesusr.com/ugd/a428b8_616cf7b4506a48f4862fe266505bd6c1.pdf；典型频段 16kHz～40GHz+，以原厂测试条件为准；TCC测试温区 -55~85℃，不据此推定完整额定工作温度。",
+      "备注1": "AMOTECH 原厂规格书：https://f92588c1-f721-431d-8d22-749f1ae84e90.filesusr.com/ugd/a428b8_616cf7b4506a48f4862fe266505bd6c1.pdf；典型频段 16kHz～40GHz+，以原厂测试条件为准；TCC测试温区保存于独立字段，不据此推定完整额定工作温度。",
       "备注2": "宽带／微波用途必须另外核验 S 参数、插入损耗、回波损耗及频段；不能仅按容量、耐压认定等效。"
     },
     {
@@ -9780,10 +9781,11 @@
       "材质（介质）": "宽带专用介质（2）",
       "工作温度": "",
       "生产状态": "",
+      "TCC测试温区": "-55~125℃",
       "_model_rule_authority": "amotech_official_datasheet",
       "_catalog_membership": "manufacturer_listed",
       "_amotech_source_url": "https://www.amotech.co.kr/pdf/bro/ABCUA10201X104KNDG_Datasheet.pdf",
-      "备注1": "AMOTECH 原厂规格书：https://www.amotech.co.kr/pdf/bro/ABCUA10201X104KNDG_Datasheet.pdf；典型频段 16kHz～40GHz+，以原厂测试条件为准；TCC测试温区 -55~125℃，不据此推定完整额定工作温度。",
+      "备注1": "AMOTECH 原厂规格书：https://www.amotech.co.kr/pdf/bro/ABCUA10201X104KNDG_Datasheet.pdf；典型频段 16kHz～40GHz+，以原厂测试条件为准；TCC测试温区保存于独立字段，不据此推定完整额定工作温度。",
       "备注2": "宽带／微波用途必须另外核验 S 参数、插入损耗、回波损耗及频段；不能仅按容量、耐压认定等效。"
     },
     {
@@ -9803,10 +9805,11 @@
       "材质（介质）": "宽带专用介质（2）",
       "工作温度": "",
       "生产状态": "",
+      "TCC测试温区": "-55~125℃",
       "_model_rule_authority": "amotech_official_datasheet",
       "_catalog_membership": "manufacturer_listed",
       "_amotech_source_url": "https://www.amotech.co.kr/pdf/bro/ABCUB10201X104KNDG_Datasheet.pdf",
-      "备注1": "AMOTECH 原厂规格书：https://www.amotech.co.kr/pdf/bro/ABCUB10201X104KNDG_Datasheet.pdf；典型频段 16kHz～56GHz+，以原厂测试条件为准；TCC测试温区 -55~125℃，不据此推定完整额定工作温度。",
+      "备注1": "AMOTECH 原厂规格书：https://www.amotech.co.kr/pdf/bro/ABCUB10201X104KNDG_Datasheet.pdf；典型频段 16kHz～56GHz+，以原厂测试条件为准；TCC测试温区保存于独立字段，不据此推定完整额定工作温度。",
       "备注2": "宽带／微波用途必须另外核验 S 参数、插入损耗、回波损耗及频段；不能仅按容量、耐压认定等效。"
     }
   ],

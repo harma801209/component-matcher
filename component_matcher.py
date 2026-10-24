@@ -81,6 +81,7 @@ import panasonic_lifecycle as _catalog_panasonic_lifecycle
 # Existing cloud script caches may still use the previous entrypoint loader.
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
+_workbench_importlib.reload(_amotech_catalog)
 # Reload leaf helpers before their importer: reloading only component_filters
 # retains the old imported completion module during Cloud hot updates.
 _workbench_importlib.reload(_catalog_filters.mlcc_completion)
@@ -343,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-24T13:06:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-24T13:47:46+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
