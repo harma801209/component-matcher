@@ -30,6 +30,7 @@ import ssl
 import warnings
 import traceback
 import textwrap
+import amotech_catalog as _amotech_catalog
 from safety_mlcc import (
     PDC_REVIEWED_SAFETY_MODELS, documented_pdc_safety_fields,
     enrich_documented_safety_mlcc_record, enrich_documented_safety_mlcc_frame,
@@ -342,7 +343,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-24T01:22:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-24T13:06:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -18823,11 +18824,12 @@ MLCC_SERIES_CLASS_RULES = [
     ("安规", [r"SAFETY", r"安规", r"(?<![A-Z0-9])(?:X1|X2|Y1|Y2)(?![A-Z0-9])"]),
     ("谐振", [r"RESONANT", r"RESONANCE", r"谐振"]),
     ("高Q", [r"HIGH[- ]?Q", r"LOW[- ]?LOSS", r"高\s*Q", r"低损耗"]),
+    ("宽带", [r"BROADBAND", r"宽带"]),
     ("EMI滤波", [r"EMI\s*FILTER", r"EMI", r"电磁干扰滤波", r"滤波"]),
     ("常规", [r"GENERAL\s*PURPOSE", r"一般共用", r"常规"]),
 ]
 # "高容" is a family/capacitance coverage label, not a required application or safety constraint.
-MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高压", "中压", "抗弯", "安规", "谐振", "高Q", "EMI滤波"}
+MLCC_STRICT_CLASS_TOKENS = {"车规", "次车规", "软端子", "工业", "高压", "中压", "抗弯", "安规", "谐振", "高Q", "宽带", "EMI滤波"}
 
 
 def mlcc_series_class_tokens(value):
@@ -19295,6 +19297,11 @@ def resolve_mlcc_series_profile(brand="", model="", series="", series_desc="", s
     brand_text = clean_brand(brand)
     brand_upper = clean_text(brand_text).upper()
     model_key = clean_model(model)
+    amotech_profile = _amotech_catalog.series_profile(model_key, brand_text)
+    if amotech_profile:
+        amotech_profile['_mlcc_series_class'] = normalize_mlcc_series_class('/'.join(
+            str(amotech_profile.get(k,'')) for k in ('系列说明','特殊用途')))
+        return amotech_profile
     series_key = clean_text(series).upper()
     is_pdc_brand = "PDC" in brand_upper or "信昌" in brand_text
     is_yageo_brand = "YAGEO" in brand_upper or "国巨" in brand_text
@@ -33823,6 +33830,9 @@ def parse_model_rule(model, brand="", component_type=""):
     m = canonicalize_known_model_ocr_confusions(model)
     if m == "":
         return None
+    parsed_amotech = _amotech_catalog.parse_model(m, brand=brand, component_type=component_type)
+    if parsed_amotech is not None:
+        return parsed_amotech
     parsed_sitime = parse_sitime_sit9121_model(m)
     if parsed_sitime is not None:
         return parsed_sitime
@@ -35536,7 +35546,24 @@ def open_search_db_connection(timeout_sec=30):
     conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec))
     conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
     install_jianghai_search_overlay(conn)
+    install_amotech_catalogue_overlay(conn)
     return conn
+
+
+@lru_cache(maxsize=1)
+def amotech_prepared_catalogue():
+    # Only public manufacturer facts, never session/customer/price state.
+    # Callers slice/copy this immutable cached catalogue before modifying it.
+    return prepare_search_dataframe(pd.DataFrame(_amotech_catalog.catalogue_rows()))
+
+
+@lru_cache(maxsize=1)
+def amotech_search_sidecar_frames():
+    return build_search_sidecar_frames(amotech_prepared_catalogue())
+
+
+def install_amotech_catalogue_overlay(conn):
+    _amotech_catalog.install_search_overlay(conn, amotech_search_sidecar_frames())
 
 
 def build_search_index_chunk_from_raw(raw_df):
@@ -37913,6 +37940,9 @@ def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferre
     seed_combined = pd.DataFrame()
     if seed_rows:
         seed_combined = filter_base_by_candidate_pairs(pd.DataFrame(seed_rows), pairs)
+    seed_combined = concat_component_frames([
+        seed_combined, filter_base_by_candidate_pairs(amotech_prepared_catalogue(), pairs),
+    ])
     if combined.empty and seed_combined.empty:
         return sidecar_combined
     combined = concat_component_frames([combined, sidecar_combined, seed_combined])
@@ -38532,6 +38562,10 @@ def load_component_rows_by_clean_models_map(models, use_database=True):
         seed_df = prepare_search_dataframe(seed_df)
 
     work_frames = []
+    amotech_prepared = amotech_prepared_catalogue()
+    amotech_exact = amotech_prepared[amotech_prepared['_model_clean'].isin(unique_models)].copy()
+    if not amotech_exact.empty:
+        work_frames.append(amotech_exact)
     prepared_exact = load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs)
     if isinstance(prepared_exact, pd.DataFrame) and not prepared_exact.empty:
         work_frames.append(prepared_exact)
@@ -39643,6 +39677,12 @@ def build_rule_fallback_row_from_model(model, brand="", allow_unpriced_explicit_
         return pd.DataFrame()
     parsed = parse_model_rule(model, brand=resolved_brand, component_type="")
     if not isinstance(parsed, dict) or not parsed:
+        return pd.DataFrame()
+    if parsed.get('_unsupported_component') or (
+        _amotech_catalog.is_brand(parsed.get('品牌',''))
+        and parsed.get('_catalog_membership') != 'manufacturer_listed'
+    ):
+        # A syntactically decoded order code is not a verified catalogue row.
         return pd.DataFrame()
     if resolved_brand == "FOJAN(富捷)" and explicit_fojan_reference:
         parsed = apply_explicit_fojan_reference_fields(parsed, compact_model)
@@ -43322,6 +43362,8 @@ def classify_match_level(row, spec):
 
     # MLCC 必须以真实存在的尺寸和容值为前提，不能拿查询值回填后伪装成可匹配。
     if target_type == "MLCC":
+        if _amotech_catalog.rf_confirmation_required(row, spec):
+            return "需确认替代", 4
         if spec_size == "" or spec_pf is None:
             return "需确认替代", 4
         if row_size_raw == "" or row_pf is None:
@@ -44017,6 +44059,8 @@ def build_match_confirmation_detail(row, spec):
     if level not in PARTIAL_MATCH_LEVELS:
         return ""
     component_type = infer_spec_component_type(spec)
+    if component_type == "MLCC" and _amotech_catalog.rf_confirmation_required(row, spec):
+        return "需向工程确认：宽带／微波电容的工作频段、S参数、插入损耗、回波损耗、Q／ESR及焊盘；基础参数相同不等于射频性能等效。"
     if component_type in TIMING_COMPONENT_TYPES:
         detail = timing_match_confirmation_detail(row, spec, component_type)
         if detail != "":
@@ -44264,6 +44308,9 @@ def apply_match_levels_and_sort(df, spec):
                 level_series.loc[partial_mask] = "部分参数匹配"
                 rank_series.loc[partial_mask] = 2
 
+        rf_mask = work.apply(lambda row: _amotech_catalog.rf_confirmation_required(row, spec), axis=1)
+        level_series.loc[rf_mask] = "需确认替代"
+        rank_series.loc[rf_mask] = 4
         work["推荐等级"] = level_series
         work["_level_rank"] = rank_series
         work["_mlcc_class_rank"] = row_mlcc_class.astype(str).apply(lambda value: mlcc_series_class_sort_rank(value, spec_mlcc_class))
@@ -44401,6 +44448,13 @@ def apply_match_levels_and_sort(df, spec):
 def detect_query_mode_and_spec(df, line, model_lookup_cache=None):
     if not isinstance(model_lookup_cache, dict):
         model_lookup_cache = {}
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        quarantined_amotech = _amotech_catalog.quarantine_notice(line)
+        if quarantined_amotech:
+            return "暂不支持", quarantined_amotech
+        historical_network = _amotech_catalog.decode_legacy_protection(line)
+        if historical_network:
+            return "暂不支持", historical_network
     semiconductor_hint = detect_unsupported_semiconductor_type(line)
     if semiconductor_hint != "":
         exact_df = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
@@ -49865,6 +49919,7 @@ def cached_catalog_passive_source(data_signature, component_type):
                            timeout=10, check_same_thread=False)
     try:
         install_jianghai_search_overlay(conn)
+        install_amotech_catalogue_overlay(conn)
         install_catalog_parameters(conn, data_signature, component_type)
         return _catalog_filters.passive_completion.SharedSource(conn)
     except Exception:

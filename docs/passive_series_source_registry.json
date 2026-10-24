@@ -2,6 +2,17 @@
   "generated_note": "Curated official-source registry for passive-component series completion. Use official manufacturer product pages, catalogs, part-number search systems, or datasheets before adding family-code rules.",
   "brands": [
     {
+      "brand": "AMOTECH(阿莫泰克)",
+      "passive_types": ["MLCC", "贴片压敏电阻"],
+      "official_sources": [
+        {"kind": "part-numbering", "url": "https://ts.amotech.co.kr/assets/productInfo/part-numbering-mlcc.pdf"},
+        {"kind": "product-search", "url": "https://ts.amotech.co.kr/mlccSearch"},
+        {"kind": "official-site", "url": "https://www.amotech.co.kr/products/esd-emi-solution/"}
+      ],
+      "lookup_method": "Rev.10N MLCC numbering + explicit official product-search records + reviewed broadband/high-Q datasheets; see docs/amotech_coverage.md",
+      "status": "partial"
+    },
+    {
       "brand": "威世Vishay",
       "passive_types": [
         "薄膜电阻",

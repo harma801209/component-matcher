@@ -118,6 +118,8 @@ def main() -> int:
                 "streamlit_app.py",
                 "product_training.py",
                 "jianghai_parameters.py",
+                "amotech_catalog.py",
+                "tools/import_amotech_catalog.py",
                 "sync_local_and_public.py",
             ],
             env,

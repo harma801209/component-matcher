@@ -791,6 +791,7 @@ class PassiveParameterCompletionTests(unittest.TestCase):
             conn.close()
             namespace=dict(sqlite3=sqlite3,SEARCH_DB_PATH=str(path),
                 install_jianghai_search_overlay=lambda conn:called.append('manufacturer'),
+                install_amotech_catalogue_overlay=lambda conn:called.append('amotech_catalogue'),
                 install_catalog_parameters=lambda *args:called.append('specs'),
                 _catalog_filters=SimpleNamespace(passive_completion=completion))
             exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
@@ -802,7 +803,7 @@ class PassiveParameterCompletionTests(unittest.TestCase):
                 self.assertEqual(list(workers.map(lambda _:read(),range(4))),['PUBLIC-ONLY']*4)
             with self.assertRaises(sqlite3.OperationalError):
                 resource.connection.execute('DELETE FROM catalogue')
-            self.assertEqual(called,['manufacturer','specs'])
+            self.assertEqual(called,['manufacturer','amotech_catalogue','specs'])
             self.assertNotIn('session_state',ast.unparse(function))
             self.assertNotIn('current_member',ast.unparse(function))
             resource.connection.close()

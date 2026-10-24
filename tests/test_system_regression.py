@@ -291,6 +291,145 @@ class SystemRegressionTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
+    def test_amotech_original_broadband_part_is_a_real_catalogue_record(self):
+        import amotech_catalog as amo
+        model = 'ABCUA06F0XX104MNDG'
+        parsed = self.app['parse_model_rule'](model)
+        self.assertEqual(parsed['品牌'], amo.BRAND)
+        self.assertEqual(parsed['尺寸（inch）'], '01005')
+        self.assertEqual(parsed['尺寸（mm）'], '0402')
+        self.assertEqual(parsed['容值'], 100000)
+        self.assertEqual(parsed['容值误差'], '20')
+        self.assertEqual(parsed['耐压（V）'], 6.3)
+        self.assertNotEqual(parsed['材质（介质）'], 'X7R')
+        self.assertEqual(parsed['工作温度'],'')
+        self.assertIn('TCC测试温区',parsed['备注1'])
+        rows = self.app['load_component_rows_by_clean_model'](model)
+        self.assertEqual(len(rows), 1)
+        resolved = self.app['resolve_search_query_dataframe_and_spec'](model)
+        self.assertEqual(resolved['mode'], '料号')
+        self.assertIn(model, set(resolved['query_df']['型号']))
+
+    def test_amotech_catalogue_counts_are_explicit_models_not_rule_combinations(self):
+        import amotech_catalog as amo
+        rows = amo.catalogue_rows()
+        self.assertEqual(len(rows),363)
+        self.assertEqual(len({r['型号'] for r in rows}),363)
+        self.assertTrue(all(r['_catalog_membership']=='manufacturer_listed' for r in rows))
+        self.assertTrue(all(r['生产状态']=='' for r in rows))
+        self.assertTrue(all('价格' not in r and '库存' not in r for r in rows))
+        conn = self.app['open_search_db_connection']()
+        try:
+            count = conn.execute('SELECT COUNT(DISTINCT 型号) FROM components_search_core WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
+            self.assertEqual(count,368)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
+            self.app['install_amotech_catalogue_overlay'](conn)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM main.components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],0)
+        finally:
+            conn.close()
+
+    def test_amotech_all_standard_material_codes_and_ambiguity_boundaries(self):
+        import amotech_catalog as amo
+        for code,(material,high) in amo.MATERIAL.items():
+            with self.subTest(code=code):
+                parsed = amo.parse_model('AC'+code+'02X'+('1B' if code=='H' else '10')+'N104KNDG')
+                self.assertEqual(parsed['材质（介质）'],material)
+                self.assertEqual(parsed['容值'],100000)
+                self.assertEqual(parsed['尺寸（inch）'],'0402')
+                self.assertEqual(parsed['_catalog_membership'],'rule_only')
+        self.assertEqual(amo.parse_model('ACX02X2BN104KNDG')['耐压（V）'],'')
+        self.assertIn('200/250V',amo.parse_model('ACX02X2BN104KNDG')['备注2'])
+        for bad in ('ACZ02X10N104KNDG','ACX99X10N104KNDG','ACX02X99N104KNDG','ACX02X10N1RRKNDG','ACX02X10N104KNDGJUNK','ACH02X10N104KNDG'):
+            self.assertIsNone(amo.parse_model(bad))
+        self.assertIsNone(amo.parse_model('ACX02X10N104KNDG',brand='YAGEO'))
+        self.assertIsNone(amo.parse_model('ACX02X10N104KNDG',component_type='贴片电阻'))
+
+    def test_amotech_high_q_values_tolerances_voltages_and_optional_codes(self):
+        import amotech_catalog as amo
+        self.assertEqual(len(amo.payload()['high_q_rules']['A60Z']['capacitances']),34)
+        for model in ('A60Z0R2BT200T','A60L270KTN200T','A60S101MT250XT','A60F241JT250T','A80B102MT50XT'):
+            with self.subTest(model=model):
+                self.assertIsNotNone(amo.parse_model(model))
+        for bad in ('A60Z0R2JT200T','A60Z101KT200T','A60L0R2BT200XT','A60F242JT250T','A80B102MT500T','A80B0R1AT500T'):
+            self.assertIsNone(amo.parse_model(bad))
+        self.assertEqual(amo.parse_model('A60L1R0BT200T')['容值误差'],'0.1pF')
+        self.assertNotIn('A60L1R0BT200T',amo.by_model())
+
+    def test_amotech_conflicting_source_rows_remain_quarantined(self):
+        import amotech_catalog as amo
+        self.assertEqual(len(amo.payload()['quarantined']),3)
+        for item in amo.payload()['quarantined']:
+            self.assertIsNone(amo.parse_model(item['model']))
+            self.assertNotIn(item['model'],amo.by_model())
+            self.assertIn('已暂隔离',amo.quarantine_notice(item['model'])['_unsupported_reason'])
+
+    def test_amotech_broadband_does_not_match_ordinary_mlcc_class(self):
+        classify = self.app['infer_mlcc_series_class_from_spec']
+        parsed = self.app['parse_model_rule']('ABCUA06F0XX104MNDG')
+        self.assertIn('宽带',classify(parsed))
+        match = self.app['mlcc_series_class_matches']
+        self.assertFalse(match('常规','宽带'))
+        self.assertFalse(match('宽带','常规'))
+        self.assertTrue(match('宽带','宽带'))
+        derived = self.app['parse_model_rule']('ABCUA06F0XX473MNDG')
+        self.assertEqual(derived['_catalog_membership'],'rule_only')
+        self.assertNotIn('ABCUA06F0XX473MNDG',__import__('amotech_catalog').by_model())
+
+    def test_amotech_actual_models_are_available_to_parameter_filter(self):
+        import component_filters as filters
+        import amotech_catalog as amo
+        conn = self.app['open_search_db_connection']()
+        try:
+            filters.install_mlcc_parameters(conn,[])
+            table,_ = filters.available_profile(conn,'MLCC')
+            count = conn.execute(f'SELECT COUNT(DISTINCT 型号) FROM "{table}" WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
+            self.assertEqual(count,363)
+            row = conn.execute(f'SELECT _size,_pf,_tol,_volt_num,_mount_style FROM "{table}" WHERE 型号=?',('ABCUA06F0XX104MNDG',)).fetchone()
+            self.assertEqual(row,('01005',100000.0,'20',6.3,'贴片'))
+        finally:
+            conn.close()
+
+    def test_amotech_historical_network_codes_do_not_become_capacitors(self):
+        import amotech_catalog as amo
+        for model in ('ASES12U020R2','AMES12U05Q0R2','ADUC10S021R1','ADLC10S02050','ADMC10S02200',
+                      'SR5S02050100R','SF5S02050100R','AVL5M02200','AVLC5S01015',
+                      'AVNC18S03Q015','AVSC5S04F050','AMLV14S03Q022200F',
+                      'AVRC14S03Q030050R','AVFC5S04D150'):
+            with self.subTest(model=model):
+                row = amo.parse_model(model)
+                self.assertTrue(row['_unsupported_component'])
+                self.assertNotEqual(row['器件类型'],'MLCC')
+                self.assertNotIn('容值',row)
+                self.assertNotIn('耐压（V）',row)
+                self.assertNotIn(model,amo.by_model())
+        self.assertEqual(amo.parse_model('AVL5M02200')['峰值电流（A）'],20)
+        self.assertEqual(amo.parse_model('AVLC5S02200')['寄生电容量（pF）'],200)
+        self.assertEqual(amo.parse_model('AMLV14S03Q022200F')['典型截止频率（MHz）'],200)
+        self.assertIsNone(amo.parse_model('AVFC5S04Q150'))
+        self.assertIsNone(amo.parse_model('AVRC14S03Q030050R',brand='TDK'))
+
+    def test_amotech_unverified_network_query_gets_specific_safe_message(self):
+        self.assertTrue(self.app['build_rule_fallback_row_from_model']('AVRC14S03Q030050R').empty)
+        self.assertTrue(self.app['build_rule_fallback_row_from_model']('ACX02X10N104KNDG').empty)
+        result = self.app['resolve_search_query_dataframe_and_spec']('AVRC14S03Q030050R')
+        self.assertEqual(result['mode'],'暂不支持')
+        self.assertIn('历史命名规则', result['spec']['_unsupported_reason'])
+        self.assertTrue(result['query_df'].empty)
+
+    def test_amotech_rf_candidate_requires_engineering_confirmation_not_full_match(self):
+        import amotech_catalog as amo
+        target = amo.parse_model('ABCUA1010XX104MNDG')
+        target['容值_pf'] = target['容值']
+        candidate = amo.parse_model('ABCUC1010XX104MNDG')
+        work = self.app['prepare_search_dataframe'](pd.DataFrame([dict(candidate,容值_pf=candidate['容值'])]))
+        scalar_level = self.app['classify_match_level'](work.iloc[0],target)[0]
+        self.assertEqual(scalar_level,'需确认替代')
+        result = self.app['apply_match_levels_and_sort'](work,target)
+        self.assertEqual(result.iloc[0]['推荐等级'],'需确认替代')
+        self.assertIn('S参数',self.app['build_match_confirmation_detail'](result.iloc[0],target))
+        self.assertFalse(amo.rf_confirmation_required(target,target))
+
     def test_bom_image_independent_model_spec_validation(self):
         inspect = self.app['bom_image_model_spec_warnings']
         valid = {'物料名称':'贴片电容', '规格型号':'SAMSUNG/SMD CL05A475KP5NRNC 0402 X5R 4.7uF ±10% 10V LF'}
