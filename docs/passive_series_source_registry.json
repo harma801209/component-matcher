@@ -9,9 +9,10 @@
         {"kind": "product-search", "url": "https://ts.amotech.co.kr/mlccSearch"},
         {"kind": "official-site", "url": "https://www.amotech.co.kr/products/esd-emi-solution/"},
         {"kind": "official-datasheet-links", "url": "https://www.amotech.co.kr/esd-emi-solution-3/"},
-        {"kind": "manufacturer-historical-catalogue-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech_EMI-ESD%20Catalogue(080603).pdf"}
+        {"kind": "manufacturer-historical-catalogue-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech_EMI-ESD%20Catalogue(080603).pdf"},
+        {"kind": "manufacturer-2018-lineup-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech-EMC-filters-varistors-MLCC-chip-capacitors-201810.pdf"}
       ],
-      "lookup_method": "Rev.10N MLCC + explicit MLCC/broadband records + constrained high-Q rules + 95 historical ESD/EMI records + 11 exact RF datasheets with segmented specifications; no inferred lifecycle or automatic network/RF equivalence; see docs/amotech_coverage.md",
+      "lookup_method": "Rev.10N MLCC + explicit MLCC/broadband records + constrained high-Q rules + 95 historical ESD/EMI records + 11 exact RF datasheets + 24 actual AIES/AVMC/ASF/ADF/AHFE/ADMF records from 2018 Rev.R22; unknown six-family ordering definitions not invented; conditional specs, no inferred lifecycle or automatic equivalence; see docs/amotech_coverage.md",
       "status": "partial"
     },
     {

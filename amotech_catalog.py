@@ -56,10 +56,25 @@ SPECIAL_TABLE = 'components_search_amotech_special'
 SPECIAL_DETAIL_ONLY = frozenset(('电容定义／测试条件','压敏／击穿电压及条件','电气参数说明',
                                  '分段电气参数','功率条件','引脚／端口','官网链接'))
 SPECIAL_NUMERIC = ('最大连续工作电压（V）','寄生电容量（pF）','串联电阻（Ω）','截止频率（MHz）',
-                   '频段下限（MHz）','频段上限（MHz）','标称耦合（dB）','平均功率（W）')
-SPECIAL_TEXT = ('系列','结构','尺寸（inch）','本体尺寸（mm）','回路数','安装方式','电容定义／测试条件',
+                   '频段下限（MHz）','频段上限（MHz）','标称耦合（dB）','平均功率（W）',
+                   '额定电压（V）','合计电容量（pF）','电容量上限（pF）','直流电阻上限（Ω）',
+                   '共模阻抗@100MHz（Ω）','适用时钟上限（MHz）','钳位电压@1A8／20µs（V）','峰值电流@8／20µs（A）')
+SPECIAL_TEXT = ('系列','结构','尺寸（inch）','尺寸（mm）','本体尺寸（mm）','回路数','安装方式','电容定义／测试条件',
                 '压敏／击穿电压及条件','电气参数说明','分段电气参数','功率条件','引脚／端口',
                 '工作温度','已列频段（MHz）','资料版本','资料状态','官网链接')
+
+
+def automotive_confirmation(model, brand=''):
+    """Recognize a family only; the 2018 lineup is NOT an ordering-code table."""
+    model=key(model)
+    if brand and not is_brand(brand) or model in by_model() or quarantine_notice(model):
+        return None
+    match=re.fullmatch(r'(AIES|AVMC|ADF|ASF|AHFE|ADMF)[0-9][A-Z0-9]{4,24}',model)
+    if not match:
+        return None
+    return {'品牌':BRAND,'型号':model,'系列':match[1],'器件类型':'ESD／EMI保护网络',
+            '_unsupported_component':True,'_catalog_membership':'unverified_family',
+            '_unsupported_reason':f'已识别 AMOTECH {match[1]} 系列；公开2018产品表未列此完整型号，且没有完整订货编码定义，须核对具体规格书，不能凭相似代码生成参数、报价或替代。'}
 
 
 def decode_legacy_protection(model, brand=''):
@@ -302,6 +317,9 @@ def parse_model(model, brand='', component_type=''):
     rf = decode_rf(model)
     if rf:
         return rf if not component_type or component_type == 'RF耦合器' else None
+    automotive = automotive_confirmation(model,brand)
+    if automotive:
+        return automotive if not component_type or component_type == 'ESD／EMI保护网络' else None
     if not component_type or component_type == 'ESD／EMI保护网络':
         historical = decode_legacy_protection(model,brand)
         if historical:

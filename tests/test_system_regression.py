@@ -315,8 +315,8 @@ class SystemRegressionTests(unittest.TestCase):
     def test_amotech_catalogue_counts_are_explicit_models_not_rule_combinations(self):
         import amotech_catalog as amo
         rows = amo.catalogue_rows()
-        self.assertEqual(len(rows),469)
-        self.assertEqual(len({r['型号'] for r in rows}),469)
+        self.assertEqual(len(rows),493)
+        self.assertEqual(len({r['型号'] for r in rows}),493)
         self.assertTrue(all(r['_catalog_membership']=='manufacturer_listed' for r in rows))
         self.assertTrue(all(r['生产状态']=='' for r in rows))
         self.assertTrue(all('价格' not in r and '库存' not in r for r in rows))
@@ -324,7 +324,7 @@ class SystemRegressionTests(unittest.TestCase):
         conn = self.app['open_search_db_connection']()
         try:
             count = conn.execute('SELECT COUNT(DISTINCT 型号) FROM components_search_core WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
-            self.assertEqual(count,474)
+            self.assertEqual(count,498)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
             self.app['install_amotech_catalogue_overlay'](conn)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
@@ -361,7 +361,7 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_amotech_conflicting_source_rows_remain_quarantined(self):
         import amotech_catalog as amo
-        self.assertEqual(len(amo.payload()['quarantined']),5)
+        self.assertEqual(len(amo.payload()['quarantined']),6)
         for item in amo.payload()['quarantined']:
             self.assertIsNone(amo.parse_model(item['model']))
             self.assertNotIn(item['model'],amo.by_model())
@@ -425,7 +425,7 @@ class SystemRegressionTests(unittest.TestCase):
         import component_filters as filters
         conn=self.app['open_search_db_connection']()
         try:
-            for kind,expected in (('ESD保护器件',45),('EMI／ESD滤波器',50),('RF耦合器',11)):
+            for kind,expected in (('ESD保护器件',51),('EMI／ESD滤波器',68),('RF耦合器',11)):
                 with self.subTest(kind=kind):
                     result=filters.snapshot(conn,kind,include_rows=True)
                     self.assertEqual(result['total'],expected)
@@ -434,7 +434,7 @@ class SystemRegressionTests(unittest.TestCase):
                     self.assertNotIn('_pf',[f.key for f in result['fields']])
                     self.assertEqual(filters.family_of_kind(kind),'ESD／EMI／RF')
             self.app['install_amotech_catalogue_overlay'](conn)
-            self.assertEqual(conn.execute('SELECT COUNT(*) FROM '+amo.SPECIAL_TABLE).fetchone()[0],106)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM '+amo.SPECIAL_TABLE).fetchone()[0],130)
             self.assertIsNone(conn.execute('SELECT 1 FROM main.sqlite_master WHERE name=?',(amo.SPECIAL_TABLE,)).fetchone())
             from catalog_filter_panel import build_payload as panel_payload
             from catalog_result_table import build_payload as table_payload
@@ -447,7 +447,10 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_amotech_special_exact_queries_show_source_not_fake_equivalence(self):
         import amotech_catalog as amo
-        for model,kind in (('ASES12U020R2','ESD保护器件'),('AVRC14S03Q030050R','EMI／ESD滤波器'),('CXD20T3150BG','RF耦合器')):
+        for model,kind in (('ASES12U020R2','ESD保护器件'),('AVRC14S03Q030050R','EMI／ESD滤波器'),('CXD20T3150BG','RF耦合器'),
+                           ('AIES12U02AG1','ESD保护器件'),('AVMC18S03120','ESD保护器件'),
+                           ('ASF10S03065EF5','EMI／ESD滤波器'),('ADF10S05Q080EF2','EMI／ESD滤波器'),
+                           ('AHFE12D900CL','EMI／ESD滤波器'),('ADMF12D065F08','EMI／ESD滤波器')):
             result=self.app['resolve_search_query_dataframe_and_spec'](model)
             self.assertEqual(result['mode'],'原厂目录')
             self.assertEqual(result['spec']['器件类型'],kind)
@@ -503,7 +506,7 @@ class SystemRegressionTests(unittest.TestCase):
 
     def test_amotech_special_conflicts_are_quarantined_and_existing_records_preserved(self):
         import amotech_catalog as amo
-        for model in ('AVLC15S02036','AVFC5S04D150'):
+        for model in ('AVLC15S02036','AVFC5S04D150','AVMC18S03220'):
             self.assertIsNone(amo.special_record(model))
             self.assertIsNone(amo.parse_model(model))
             result=self.app['resolve_search_query_dataframe_and_spec'](model)
@@ -512,6 +515,89 @@ class SystemRegressionTests(unittest.TestCase):
         for model in amo.EXISTING_PROTECTION_MODELS:
             self.assertNotIn(model,amo.by_model())
             self.assertFalse(self.app['load_component_rows_by_clean_model'](model).empty)
+
+    def test_amotech_2018_preserves_old_records_and_imports_only_actual_rows(self):
+        import amotech_catalog as amo
+        old=amo.payload()['records'][:469]
+        digest=hashlib.sha256(json.dumps(old,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        self.assertEqual(digest,'bfd6f3d6adf61b9bc120f007d7a03a6f7bee62e12829e224297c8ea03c7a8583')
+        new=amo.payload()['records'][469:]
+        from collections import Counter
+        self.assertEqual(Counter(r['系列'] for r in new),{'ASF':6,'ADF':4,'AHFE':4,'ADMF':4,'AIES':3,'AVMC':3})
+        for row in new:
+            self.assertIn('2018',row['资料版本'])
+            self.assertIn('待核验',row['资料状态'])
+            self.assertEqual(row['_source_sha256'],'aa4dc9e722cd23f7b36d941d04e9c9907334362b419688bd5199e48a422e14fa')
+            self.assertTrue(row['_source_table_row'])
+            self.assertEqual(row['生产状态'],'')
+            self.assertNotIn('AEC-Q200',str(row))
+        # Customer MP lists and suspected typos do not establish spec records.
+        self.assertNotIn('AHFE20Q101EL',amo.by_model())
+        self.assertNotIn('AFFE12D900CL',amo.by_model())
+
+    def test_amotech_2018_preserves_voltage_limits_clock_and_metric_size_meanings(self):
+        import amotech_catalog as amo
+        row=amo.special_record('AHFE12D900CL')
+        self.assertEqual(row['尺寸（mm）'],'1210')
+        self.assertEqual(row['本体尺寸（mm）'],'1.2 × 1.0')
+        self.assertFalse(row.get('尺寸（inch）'))
+        self.assertEqual((row['额定电压（V）'],row['共模阻抗@100MHz（Ω）'],row['直流电阻上限（Ω）'],row['电容量上限（pF）']),(5,90,5,1.7))
+        self.assertNotIn('寄生电容量（pF）',row)
+        self.assertNotIn('串联电阻（Ω）',row)
+        row=amo.special_record('ASF10S03065EF5')
+        self.assertEqual(row['合计电容量（pF）'],65)
+        self.assertIn('32.5+32.5',row['电容定义／测试条件'])
+        self.assertNotIn('寄生电容量（pF）',row)
+        self.assertNotIn('额定电压（V）',row)
+        self.assertNotIn('截止频率（MHz）',row)
+        self.assertEqual(row['适用时钟上限（MHz）'],70)
+        row=amo.special_record('ADMF12D065F08')
+        self.assertEqual(row['额定电压（V）'],10)
+        self.assertIn('25±5 V @1mA',row['压敏／击穿电压及条件'])
+        self.assertIn('14±5Ω',row['电气参数说明'])
+        self.assertEqual(row['适用时钟上限（MHz）'],80)
+        self.assertIn('±30%',row['电容定义／测试条件'])
+        row=amo.special_record('AIES24U02CG2')
+        self.assertEqual((row['额定电压（V）'],row['寄生电容量（pF）']),(24,.1))
+        self.assertIn('35V典型',row['电气参数说明'])
+        self.assertIn('未列',row['电容定义／测试条件'])
+        row=amo.special_record('AVMC18S05400')
+        self.assertEqual(row['峰值电流@8／20µs（A）'],120)
+        self.assertEqual(row['钳位电压@1A8／20µs（V）'],40)
+        self.assertIn('24.5V',row['压敏／击穿电压及条件'])
+        self.assertNotIn('额定电压（V）',row)
+        self.assertNotIn('最大连续工作电压（V）',row)
+
+    def test_amotech_2018_new_fields_are_filterable_without_false_nominal_values(self):
+        import amotech_catalog as amo
+        import component_filters as filters
+        conn=self.app['open_search_db_connection']()
+        try:
+            result=filters.snapshot(conn,'EMI／ESD滤波器',{'系列':['AHFE'],'尺寸（mm）':['1210']},
+                                    {'共模阻抗@100MHz（Ω）':(90,90)},include_rows=True)
+            self.assertEqual(result['total'],1)
+            self.assertEqual(result['rows'][0]['型号'],'AHFE12D900CL')
+            row=result['rows'][0]
+            self.assertIsNone(row['寄生电容量（pF）'])
+            self.assertEqual(row['电容量上限（pF）'],1.7)
+            result=filters.snapshot(conn,'ESD保护器件',{'系列':['AVMC']},
+                                    {'峰值电流@8／20µs（A）':(100,None)},include_rows=True)
+            self.assertEqual(result['total'],1)
+            self.assertEqual(result['rows'][0]['型号'],'AVMC18S05400')
+        finally:conn.close()
+
+    def test_amotech_2018_unknown_designs_are_not_generated_by_guessing(self):
+        import amotech_catalog as amo
+        for model in ('AIES24U02ZZ1','AVMC18S03999','ASF10S03065ZZ1','ADF10S05Q080ZZ1','AHFE12D900ZZ','ADMF12D065ZZ1'):
+            with self.subTest(model=model):
+                row=amo.parse_model(model)
+                self.assertEqual(row['_catalog_membership'],'unverified_family')
+                self.assertNotIn('额定电压（V）',row)
+                self.assertIn('没有完整订货编码',row['_unsupported_reason'])
+                self.assertIsNone(amo.parse_model(model,brand='TDK'))
+                result=self.app['resolve_search_query_dataframe_and_spec'](model)
+                self.assertEqual(result['mode'],'暂不支持')
+                self.assertTrue(result['query_df'].empty)
 
     def test_amotech_rf_candidate_requires_engineering_confirmation_not_full_match(self):
         import amotech_catalog as amo

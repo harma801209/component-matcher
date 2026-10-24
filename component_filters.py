@@ -174,8 +174,15 @@ def profile(component_type):
     """Unknown/new kinds remain browsable via the complete core catalogue."""
     common = [column("品牌", "品牌")]
     if component_type in amotech_catalog.SPECIAL_KINDS:
-        fields=common+[column(k,k) for k in ('系列','结构','尺寸（inch）','本体尺寸（mm）','回路数','安装方式')]
-        numeric = ('频段下限（MHz）','频段上限（MHz）','标称耦合（dB）') if component_type=='RF耦合器' else ('最大连续工作电压（V）','寄生电容量（pF）','串联电阻（Ω）','截止频率（MHz）')
+        fields=common+[column(k,k) for k in ('系列','结构','尺寸（inch）','尺寸（mm）','本体尺寸（mm）','回路数','安装方式')]
+        if component_type=='RF耦合器':
+            numeric=('频段下限（MHz）','频段上限（MHz）','标称耦合（dB）')
+        elif component_type=='ESD保护器件':
+            numeric=('最大连续工作电压（V）','额定电压（V）','寄生电容量（pF）','钳位电压@1A8／20µs（V）','峰值电流@8／20µs（A）')
+        else:
+            numeric=('最大连续工作电压（V）','额定电压（V）','寄生电容量（pF）','合计电容量（pF）',
+                     '电容量上限（pF）','串联电阻（Ω）','直流电阻上限（Ω）','共模阻抗@100MHz（Ω）',
+                     '适用时钟上限（MHz）','截止频率（MHz）')
         for key in numeric:
             unit=re.search(r'（(.*?)）',key)[1]
             fields.append(column(key,key,((unit,1),)))

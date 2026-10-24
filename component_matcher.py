@@ -344,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-24T18:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-24T23:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -44463,6 +44463,9 @@ def detect_query_mode_and_spec(df, line, model_lookup_cache=None):
         quarantined_amotech = _amotech_catalog.quarantine_notice(line)
         if quarantined_amotech:
             return "暂不支持", quarantined_amotech
+        automotive_network = _amotech_catalog.automotive_confirmation(line)
+        if automotive_network:
+            return "暂不支持", automotive_network
         historical_network = _amotech_catalog.decode_legacy_protection(line)
         if historical_network:
             return "暂不支持", historical_network
