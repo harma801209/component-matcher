@@ -344,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-24T23:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-25T13:38:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -28159,7 +28159,8 @@ def non_mlcc_capacitor_dimension_fields_from_record(record):
 
 
 def extract_pitch_mm_value_from_text(text):
-    upper = clean_text(text).upper()
+    # Source URLs may contain pagination such as ?p=3; that is not lead pitch.
+    upper = re.sub(r'https?://[^\s；;<>]+',' ',clean_text(text),flags=re.I).upper()
     if upper == "":
         return ""
     match = re.search(r"\bP\s*=?\s*(\d+(?:\.\d+)?)\s*MM\b", upper)
@@ -28180,7 +28181,7 @@ def extract_pitch_mm_value_from_text(text):
 
 
 def looks_like_throughhole_capacitor_package(value):
-    upper = clean_text(value).upper()
+    upper = re.sub(r'https?://[^\s；;<>]+',' ',clean_text(value),flags=re.I).upper()
     if upper == "":
         return False
     return any(token in upper for token in ["THROUGHHOLE", "RADIAL", "AXIAL", "LEADED"]) or re.search(r"\bP\s*=", upper) is not None
@@ -39691,7 +39692,8 @@ def build_rule_fallback_row_from_model(model, brand="", allow_unpriced_explicit_
         return pd.DataFrame()
     if parsed.get('_unsupported_component') or (
         _amotech_catalog.is_brand(parsed.get('品牌',''))
-        and parsed.get('_catalog_membership') != 'manufacturer_listed'
+        and (parsed.get('_catalog_membership') not in {'manufacturer_listed','cross_verified_listed'}
+             or compact_model not in _amotech_catalog.by_model())
     ):
         # A syntactically decoded order code is not a verified catalogue row.
         return pd.DataFrame()

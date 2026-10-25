@@ -12,7 +12,7 @@
         {"kind": "manufacturer-historical-catalogue-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech_EMI-ESD%20Catalogue(080603).pdf"},
         {"kind": "manufacturer-2018-lineup-mirror", "url": "https://www.mrc-gigacomp.de/pdfs/Amotech-EMC-filters-varistors-MLCC-chip-capacitors-201810.pdf"}
       ],
-      "lookup_method": "Rev.10N MLCC + explicit MLCC/broadband records + constrained high-Q rules + 95 historical ESD/EMI records + 11 exact RF datasheets + 24 actual AIES/AVMC/ASF/ADF/AHFE/ADMF records from 2018 Rev.R22; unknown six-family ordering definitions not invented; conditional specs, no inferred lifecycle or automatic equivalence; see docs/amotech_coverage.md",
+      "lookup_method": "Rev.10N MLCC + explicit MLCC/broadband records + constrained high-Q rules and 61 finite channel-listed identities crosschecked against manufacturer PDFs (separate provenance, not manufacturer-listed or lifecycle claims) + 95 historical ESD/EMI records + 11 exact RF datasheets + 24 actual AIES/AVMC/ASF/ADF/AHFE/ADMF records from 2018 Rev.R22; unknown ordering definitions not invented; no inferred lifecycle or automatic equivalence; see docs/amotech_coverage.md",
       "status": "partial"
     },
     {

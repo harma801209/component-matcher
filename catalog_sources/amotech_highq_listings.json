@@ -1,0 +1,84 @@
+{
+  "reviewed_at": "2026-10-25",
+  "policy": "Exact publicly listed identities only; electrical fields must independently pass the manufacturer PDF value/tolerance/voltage table. These are channel listings, not manufacturer lifecycle, price, stock, certification or guaranteed orderability. Do not expand combinations or silently repair aliases.",
+  "groups": [
+    {
+      "url": "https://www.yic-electronics.com/pdf/Amotech/A60L0R1BT200T.html",
+      "evidence": "Visible complete model in page title plus the explicitly named Hot Parts links; no electrical/stock/pricing fields imported from this page.",
+      "models": ["A60F360JT250T", "A60F390JT250T", "A60F3R0BT250T", "A60F3R3BT250T", "A60F3R6CT250T", "A60F3R9CT250T", "A60F430JT250T", "A60F470JT250T", "A60F4R3BT250T", "A60F4R7CT250T", "A60F510JT250T", "A60F560JT250T", "A60F5R1CT250T", "A60F5R6CT250T", "A60F620JT250T", "A60F680JT250T", "A60F6R2CT250T", "A60F6R8CT250T", "A60F750JT250T", "A60F7R5CT250T", "A60F820JT250T", "A60F8R2CT250T", "A60F910JT250T", "A60F9R1JT250T", "A60L0R1BT200T", "A60L0R2BT200T", "A60L0R3BT200T", "A60L0R4BT200T", "A60L0R5BT200T", "A60L0R6BT200T", "A60L0R7BT200T", "A60L0R8BT200T", "A60L0R9BT200T", "A60L100JT200T", "A60L110JT200T"]
+    },
+    {
+      "url": "https://www.yic-electronics.com/pdf/Amotech/A60L2R2BT200T.html",
+      "models": ["A60L2R2BT200T", "A60L220JT200T"]
+    },
+    {
+      "url": "https://www.rxelectronics.com/details/Amotech/A60L0R9BT200T.html",
+      "models": ["A60L120JT200T", "A60L180JT200T", "A60L150JT200T"]
+    },
+    {
+      "url": "https://www.rxelectronics.com/linecard/Amotech.html",
+      "models": ["A60L9R1JT200T", "A60S360JT250T", "A60L3R3BT200T", "A60Z3R3BT200T"]
+    },
+    {
+      "url": "https://www.excestore.com/Manufacturers/Amotech",
+      "models": ["A60L3R0BT200T", "A60L1R3BT200T", "A60Z3R0BT200T"]
+    },
+    {
+      "url": "https://www.ic-components.com/products/Amotech/A60L1R1BT200T.jsp",
+      "models": ["A60L1R1BT200T"]
+    },
+    {
+      "url": "https://www.ic-components.com/products/Amotech/A60L5R6CT200T.jsp",
+      "models": ["A60L5R6CT200T"]
+    },
+    {
+      "url": "https://www.global-ic.com/productdetail/Amotech-A60Z1R2BT200T-8463485",
+      "models": ["A60Z1R2BT200T"]
+    },
+    {
+      "url": "https://www.sic-components.com/capacitors/ceramic-capacitors?manufacturer_id=1217&page=9",
+      "models": ["A60Z0R4BT200T", "A60L1R3BT200T"]
+    },
+    {
+      "url": "https://www.lcsc.com/product-detail/C3902292.html",
+      "models": ["A60F221JT250T"]
+    },
+    {
+      "url": "https://www.lcsc.com/product-detail/C3861390.html",
+      "models": ["A60F0R5BT250T"]
+    },
+    {
+      "url": "https://www.lcsc.com/product-detail/C3861844.html",
+      "models": ["A60F5R6CT250T"]
+    },
+    {
+      "url": "https://www.lcsc.com/product-detail/C6110492.html",
+      "models": ["A60L1R3BT200T"]
+    },
+    {
+      "url": "https://www.rellpower.com/store/manufacturers/amotech?p=3",
+      "evidence": "Public search-indexed actual record headings; live page remained at security verification. The page's numeric dimensions and capacitance columns are not trusted or copied.",
+      "models": ["A80B221FT200X", "A80B221JT200X", "A80B271FT200X", "A80B271JT200X", "A80B2R2BT500XT", "A80B300FT500X", "A80B300JT500X", "A80B5R6CT500XT", "A80B680JT500XT"]
+    },
+    {
+      "url": "https://www.ariat-tech.com/parts/Amotech/A80B331JT200T",
+      "models": ["A80B331JT200T"]
+    },
+    {
+      "url": "https://www.ariat-tech.com/parts/Amotech/A80B0R6BT500T",
+      "models": ["A80B0R6BT500T"]
+    },
+    {
+      "url": "https://www.allelcoelec.com/productdetails/Amotech/A80B510JT500T.html",
+      "models": ["A80B510JT500T"]
+    },
+    {
+      "url": "https://www.allelcoelec.es/productdetails/Amotech/A80B3R9CT500T.html",
+      "models": ["A80B3R9CT500T"]
+    },
+    {
+      "url": "https://www.rxelectronics.com/details/Amotech/A80B681JT050T.html",
+      "models": ["A80B681JT050T"]
+    }
+  ]
+}

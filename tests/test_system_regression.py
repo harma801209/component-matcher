@@ -315,19 +315,19 @@ class SystemRegressionTests(unittest.TestCase):
     def test_amotech_catalogue_counts_are_explicit_models_not_rule_combinations(self):
         import amotech_catalog as amo
         rows = amo.catalogue_rows()
-        self.assertEqual(len(rows),493)
-        self.assertEqual(len({r['型号'] for r in rows}),493)
-        self.assertTrue(all(r['_catalog_membership']=='manufacturer_listed' for r in rows))
+        self.assertEqual(len(rows),554)
+        self.assertEqual(len({r['型号'] for r in rows}),554)
+        self.assertTrue(all(r['_catalog_membership'] in {'manufacturer_listed','cross_verified_listed'} for r in rows))
         self.assertTrue(all(r['生产状态']=='' for r in rows))
         self.assertTrue(all('价格' not in r and '库存' not in r for r in rows))
         self.assertTrue(all('(cid:' not in str(r) for r in rows))
         conn = self.app['open_search_db_connection']()
         try:
             count = conn.execute('SELECT COUNT(DISTINCT 型号) FROM components_search_core WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
-            self.assertEqual(count,498)
-            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
+            self.assertEqual(count,559)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],424)
             self.app['install_amotech_catalogue_overlay'](conn)
-            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],363)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],424)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM main.components_search_capacitor WHERE 品牌=?',(amo.BRAND,)).fetchone()[0],0)
         finally:
             conn.close()
@@ -387,7 +387,7 @@ class SystemRegressionTests(unittest.TestCase):
             filters.install_mlcc_parameters(conn,[])
             table,_ = filters.available_profile(conn,'MLCC')
             count = conn.execute(f'SELECT COUNT(DISTINCT 型号) FROM "{table}" WHERE 品牌=?',(amo.BRAND,)).fetchone()[0]
-            self.assertEqual(count,363)
+            self.assertEqual(count,424)
             row = conn.execute(f'SELECT _size,_pf,_tol,_volt_num,_mount_style FROM "{table}" WHERE 型号=?',('ABCUA06F0XX104MNDG',)).fetchone()
             self.assertEqual(row,('01005',100000.0,'20',6.3,'贴片'))
         finally:
@@ -521,7 +521,7 @@ class SystemRegressionTests(unittest.TestCase):
         old=amo.payload()['records'][:469]
         digest=hashlib.sha256(json.dumps(old,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         self.assertEqual(digest,'bfd6f3d6adf61b9bc120f007d7a03a6f7bee62e12829e224297c8ea03c7a8583')
-        new=amo.payload()['records'][469:]
+        new=amo.payload()['records'][469:493]
         from collections import Counter
         self.assertEqual(Counter(r['系列'] for r in new),{'ASF':6,'ADF':4,'AHFE':4,'ADMF':4,'AIES':3,'AVMC':3})
         for row in new:
@@ -598,6 +598,103 @@ class SystemRegressionTests(unittest.TestCase):
                 result=self.app['resolve_search_query_dataframe_and_spec'](model)
                 self.assertEqual(result['mode'],'暂不支持')
                 self.assertTrue(result['query_df'].empty)
+
+    def test_amotech_listed_high_q_preserves_all_previous_records_and_identity_sources(self):
+        import amotech_catalog as amo
+        from collections import Counter
+        old=amo.payload()['records'][:493]
+        digest=hashlib.sha256(json.dumps(old,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        self.assertEqual(digest,'07f2c766f2c97e4bbe03e7e88309ac97f4d65e8be3db09e330104dca63b5be95')
+        new=amo.payload()['records'][493:]
+        self.assertEqual(Counter(r['系列'] for r in new),{'A60F':26,'A60L':22,'A60S':1,'A60Z':4,'A80B':8})
+        with open(os.path.join(self.base_dir,'catalog_sources','amotech_highq_listings.json'),encoding='utf-8') as handle:
+            listing=json.load(handle)
+        explicit={m for group in listing['groups'] for m in group['models']}
+        for row in new:
+            self.assertIn(row['型号'],explicit)
+            self.assertTrue(row['_identity_source_urls'])
+            self.assertEqual(row['_catalog_membership'],'cross_verified_listed')
+            self.assertIn('渠道',row['型号来源'])
+            self.assertIn('2021',row['资料版本'])
+            self.assertEqual(row['生产状态'],'')
+            self.assertNotIn('库存',row)
+            self.assertNotIn('价格',row)
+            self.assertIn(row['_source_sha256'],{r['source_sha256'] for r in amo.payload()['high_q_rules'].values()})
+
+    def test_amotech_listed_high_q_exact_queries_and_conditions(self):
+        import amotech_catalog as amo
+        for model,pf,tol,voltage,size in (
+            ('A60Z3R3BT200T',3.3,'0.1pF',200,'0201'),
+            ('A60L1R3BT200T',1.3,'0.1pF',200,'0402'),
+            ('A60S360JT250T',36,'5',250,'0603'),
+            ('A60F221JT250T',220,'5',250,'0805'),
+            ('A80B681JT050T',680,'5',50,'1111'),
+        ):
+            with self.subTest(model=model):
+                row=amo.parse_model(model)
+                self.assertEqual((row['容值'],row['容值误差'],row['耐压（V）'],row['尺寸（inch）']),(pf,tol,voltage,size))
+                self.assertEqual(row['材质（介质）'],'C0G')
+                self.assertEqual(row['工作温度'],'-55~125℃')
+                result=self.app['resolve_search_query_dataframe_and_spec'](model)
+                self.assertEqual(result['mode'],'料号')
+                actual=result['query_df'][result['query_df']['型号'].eq(model)]
+                self.assertEqual(len(actual),1)
+                self.assertEqual(actual.iloc[0]['_component_type'],'MLCC')
+                self.assertFalse(self.app['build_rule_fallback_row_from_model'](model).empty)
+        row=amo.parse_model('A60F5R6CT250T')
+        self.assertEqual(row['容值误差'],'0.25pF')
+        self.assertEqual(row['厚度上限（mm）'],1.3)
+        self.assertNotIn('厚度（mm）',row)
+        self.assertTrue(amo.rf_confirmation_required(row,amo.parse_model('ACC02X10N104KNDG')))
+
+    def test_amotech_listed_high_q_filter_uses_actual_rows_and_absolute_tolerance(self):
+        import amotech_catalog as amo
+        import component_filters as filters
+        conn=self.app['open_search_db_connection']()
+        try:
+            result=filters.snapshot(conn,'MLCC',{'品牌':[amo.BRAND],'_size':['0805'],'_mat':[self.app['clean_material']('C0G')]},
+                                    {'_pf':(.5,.5),'_volt_num':(250,250)},include_rows=True)
+            self.assertEqual(result['total'],1)
+            self.assertEqual(result['rows'][0]['型号'],'A60F0R5BT250T')
+            self.assertEqual(result['rows'][0]['_tol'],'0.1PF')
+            row=conn.execute('SELECT _pf,_tol,_volt_num FROM components_search_capacitor WHERE 品牌=? AND 型号=?',
+                             (amo.BRAND,'A80B681JT050T')).fetchone()
+            self.assertEqual(row,(680.0,'5',50.0))
+        finally:conn.close()
+
+    def test_amotech_source_pagination_is_not_a_throughhole_package_or_pitch(self):
+        extract=self.app['extract_pitch_mm_value_from_text']
+        throughhole=self.app['looks_like_throughhole_capacitor_package']
+        source='1111 原厂及型号来源：https://www.rellpower.com/store/manufacturers/amotech?p=3'
+        self.assertFalse(throughhole(source))
+        self.assertEqual(extract(source),'')
+        self.assertTrue(throughhole('RADIAL P=5mm'))
+        self.assertEqual(extract('RADIAL P=5mm'),'5mm')
+        self.assertEqual(extract('https://example.com/?p=3；实际脚距 P=2.54mm'),'2.54mm')
+        rows=self.app['amotech_prepared_catalogue']()
+        for model in ('A80B2R2BT500XT','A80B5R6CT500XT','A80B680JT500XT'):
+            row=rows[rows['型号'].eq(model)].iloc[0]
+            self.assertEqual(row['_component_type'],'MLCC')
+            self.assertEqual(row['_mount_style'],'贴片')
+
+    def test_amotech_listed_high_q_incomplete_aliases_and_unlisted_combinations_stay_out(self):
+        import amotech_catalog as amo
+        pending=amo.payload()['pending_high_q_listings']
+        self.assertEqual(len(pending),6)
+        for item in pending:
+            self.assertNotIn(item['model'],amo.by_model())
+            self.assertIsNone(amo.parse_model(item['model']))
+            self.assertTrue(self.app['build_rule_fallback_row_from_model'](item['model']).empty)
+        model='A60L1R0BT200T'
+        self.assertEqual(amo.parse_model(model)['_catalog_membership'],'rule_only')
+        self.assertNotIn(model,amo.by_model())
+        original=self.app['parse_model_rule']
+        try:
+            # A caller-supplied provenance label alone cannot establish identity.
+            fake=dict(amo.parse_model(model),_catalog_membership='cross_verified_listed')
+            self.app['parse_model_rule']=lambda *args,**kwargs:fake
+            self.assertTrue(self.app['build_rule_fallback_row_from_model'](model).empty)
+        finally:self.app['parse_model_rule']=original
 
     def test_amotech_rf_candidate_requires_engineering_confirmation_not_full_match(self):
         import amotech_catalog as amo
