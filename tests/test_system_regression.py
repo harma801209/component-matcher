@@ -1142,6 +1142,122 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(app['find_power_in_text'](text), power, text)
         self.assertIsNone(app['parse_resistor_spec_query']('MLCC 0402 1 M ±20% 6.3V'))
 
+    def test_milliohm_split_ocr_units_and_package(self):
+        app = self.app
+        cases = [
+            ('HoLLR25 1 2-3W-2m R- 1 % Milliohm(毫欧) 2mQ2,±1 %,3W', .002),
+            ('HoJ LR251 2-3W-500mR- 1% Milliohm(毫欧) 500mΩ,±1 %,3W', .5),
+            ('HoLLR2512-3W-2mR-1% Milliohm(毫欧) 2mΩ,±1%,3W', .002),
+            ('HoJLR2512-3W-500mR-1% Milliohm(毫欧) 500mΩ,±1%,3W', .5),
+        ]
+        for text, resistance in cases:
+            with self.subTest(text=text):
+                parsed = app['parse_resistor_spec_query'](text)
+                self.assertEqual(parsed['型号'], text)
+                self.assertEqual(parsed['器件类型'], '合金电阻')
+                self.assertEqual(parsed['尺寸（inch）'], '2512')
+                self.assertEqual(parsed['_resistance_ohm'], resistance)
+                self.assertEqual(parsed['_power'], '3W')
+                self.assertEqual(app['clean_tol_for_match'](parsed['容值误差']), '1')
+        for text, expected in [('2m R', .002), ('2 m R', .002), ('2m Ω', .002),
+                               ('2mQ2,±1 %,3W', .002), ('2MQ2,±1%,3W', 2_000_000),
+                               ('2MΩ', 2_000_000), ('2MR', 2_000_000), ('500mΩ', .5)]:
+            self.assertEqual(app['find_resistance_in_text'](text), expected, text)
+        self.assertIsNone(app['find_resistance_in_text']('2m'))
+        self.assertEqual(app['normalize_bom_image_cell']('2mQ2,±1 %,3W'), '2mΩ,±1 %,3W')
+        for text in ('ABC2mQ2,±1%', 'HoJLR2512-3W-500mR-1%', '2200500039 5028465'):
+            self.assertEqual(app['normalize_bom_image_cell'](text), text)
+        self.assertEqual(app['milliohm_description_package']('ABC25 1 2-3W-2mR-1%'), '')
+
+    def test_milliohm_split_ocr_search_and_bom(self):
+        app = self.app
+        text = 'HoLLR25 1 2-3W-2m R- 1 % Milliohm(毫欧) 2mQ2,±1 %,3W'
+        resolved = app['resolve_search_query_dataframe_and_spec'](text)
+        self.assertNotEqual(resolved['resolution_path'], 'model_token_prefix_lookup')
+        self.assertEqual(resolved['spec']['_resistance_ohm'], .002)
+        self.assertEqual(resolved['spec']['尺寸（inch）'], '2512')
+        matched = app['run_query_match'](resolved['query_df'], resolved['mode'], resolved['spec'])
+        self.assertIn('FPM253WFR002TM', set(matched['型号'].map(app['clean_model'])))
+        record = {'model': 'HoLLR25 1 2-3W-2m R- 1 %', 'brand': 'Milliohm(毫欧)', 'spec': '2mQ2,±1 %,3W'}
+        result = app['build_bom_upload_result_row'](
+            pd.DataFrame(), 0, record,
+            {'model': 'model', 'spec': 'spec', 'name': 'brand', 'quantity': None},
+            export_settings={'mode': '指定品牌', 'brands': ['FOJAN(富捷)']},
+        )
+        self.assertEqual(result['BOM型号'], record['model'])
+        self.assertEqual(result['BOM规格'], record['spec'])
+        self.assertEqual(result['尺寸（inch）'], '2512')
+        self.assertNotIn(result['状态'], {'无匹配', '解析失败'})
+        self.assertIn('FPM253WFR002TM', '|'.join(str(value) for value in result.values()))
+        self.assertNotIn('型号HOLLR25与规格不一致', result['差异说明'])
+
+    def test_milliohm_bom_cache_keeps_milli_and_mega_distinct(self):
+        app = self.app
+        for milli, mega in [('2mΩ', '2MΩ'), ('2mR', '2MR'), ('2m R', '2M R'), ('2mohm', '2Mohm'), ('2m', '2M')]:
+            self.assertNotEqual(app['bom_query_cache_key'](milli), app['bom_query_cache_key'](mega))
+        for queries in [('2512 2mΩ ±1% 3W', '2512 2MΩ ±1% 3W'),
+                        ('2512 2MΩ ±1% 3W', '2512 2mΩ ±1% 3W')]:
+            cache = {}
+            for text in queries:
+                result = app['evaluate_bom_candidate'](pd.DataFrame(), text, '规格列', 0, query_cache=cache)
+                expected = .002 if '2mΩ' in text else 2_000_000
+                self.assertEqual(result['spec']['_resistance_ohm'], expected)
+        self.assertGreaterEqual(app['BOM_MATCH_OUTPUT_VERSION'], 5)
+
+    def test_milliohm_description_conflicts_do_not_fall_back_to_fewer_fields(self):
+        app = self.app
+        record = {'model': 'HoLLR25 1 2-3W-2m R- 1 %', 'brand': 'Milliohm(毫欧)', 'spec': '500mΩ,±1%,3W'}
+        text = ' '.join(record.values())
+        parsed = app['parse_resistor_spec_query'](text)
+        self.assertTrue(parsed['_unsupported_component'])
+        result = app['build_bom_upload_result_row'](
+            pd.DataFrame(), 0, record,
+            {'model': 'model', 'spec': 'spec', 'name': 'brand', 'quantity': None},
+            export_settings={'mode': '指定品牌', 'brands': ['FOJAN(富捷)']},
+        )
+        self.assertEqual(result['状态'], '解析失败')
+        self.assertIn('阻值不一致', result['失败原因'])
+        self.assertEqual(result['推荐型号'], '')
+
+    def test_milliohm_unverified_500mohm_3w_is_not_auto_quoted(self):
+        app = self.app
+        text = 'HoJ LR251 2-3W-500mR- 1% Milliohm(毫欧) 500mΩ,±1 %,3W'
+        resolved = app['resolve_search_query_dataframe_and_spec'](text)
+        self.assertEqual(resolved['spec']['_resistance_ohm'], .5)
+        self.assertEqual(resolved['spec']['尺寸（inch）'], '2512')
+        self.assertNotIn('FPM253WFR500TM', app['build_fojan_alloy_models_from_spec'](resolved['spec']))
+        self.assertNotIn('FPM253WFR500TN', app['build_fojan_alloy_models_from_spec'](resolved['spec']))
+        notice = app['build_fojan_nonstandard_resistance_notice'](resolved['spec'])
+        for part in ('FPM253WFR500TN', '待原厂确认', '不自动', '2W', '3W'):
+            self.assertIn(part, notice)
+        self.assertEqual(app['build_fojan_unverified_alloy_notice'](dict(resolved['spec'], _resistance_ohm=.002)), '')
+        fields = app['fojan_fpm_explicit_identity_fields']('FPM253WFR500TN')
+        self.assertEqual(fields['尺寸（inch）'], '2512')
+        self.assertEqual(fields['_power'], '3W')
+        self.assertEqual(fields['_resistance_ohm'], .5)
+        self.assertNotIn('工作温度', fields)
+        self.assertNotIn('温度系数', fields)
+        level, _ = app['classify_match_level'](pd.DataFrame([fields]).iloc[0], fields)
+        self.assertEqual(level, '需确认替代')
+        self.assertTrue(app['collect_recommendation_warnings'](pd.DataFrame([fields]).iloc[0], fields))
+        exact = app['resolve_search_query_dataframe_and_spec']('FPM253WFR500TN')
+        exact_matches = app['run_query_match'](exact['query_df'], exact['mode'], exact['spec'])
+        recommendation = app['build_procurement_recommendation'](exact_matches, exact['spec'])
+        self.assertEqual(recommendation['status'], '需确认')
+        self.assertIsNone(app['parse_fojan_alloy_resistor_model']('FPM253WFR500TN'))
+        self.assertIsNone(app['parse_fojan_alloy_resistor_model']('FPM253WFR500TM'))
+        fake_m_price = [{'series': 'FPM', 'size': '2512', 'power': '3W', 'range': '1~680mR', 'price_1': '123', 'package': '4000PCS'}]
+        self.assertEqual(app['lookup_resistor_series_pricing'](dict(fields, 型号='FPM253WFR500TN'), rules=fake_m_price)['成本'], '')
+        record = {'model': 'HoJ LR251 2-3W-500mR- 1%', 'brand': 'Milliohm(毫欧)', 'spec': '500mΩ,±1 %,3W'}
+        result = app['build_bom_upload_result_row'](
+            pd.DataFrame(), 0, record,
+            {'model': 'model', 'spec': 'spec', 'name': 'brand', 'quantity': None},
+            export_settings={'mode': '指定品牌', 'brands': ['FOJAN(富捷)']},
+        )
+        self.assertEqual(result['状态'], '无匹配')
+        self.assertIn('待原厂确认', result['差异说明'])
+        self.assertEqual(result['推荐型号'], '')
+
     def test_resistor_ocr_repair_invalidates_previous_bom_output_version(self):
         app = self.app
         self.assertGreaterEqual(app['BOM_MATCH_OUTPUT_VERSION'], 4)

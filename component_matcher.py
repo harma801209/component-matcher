@@ -318,8 +318,8 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 140
-BOM_MATCH_OUTPUT_VERSION = 4
+QUERY_RESULT_CACHE_VERSION = 141
+BOM_MATCH_OUTPUT_VERSION = 5
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -344,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-26T11:01:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-26T13:40:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -13364,6 +13364,9 @@ def should_try_model_token_lookup_before_fast_query(line, mode, spec, exact_part
         return False
     if spec is not None and bool(spec.get("_unsupported_component", False)):
         return False
+    if spec is not None and spec.get("_milliohm_description"):
+        # Broken vendor descriptions are not authoritative truncated PNs.
+        return False
     text = clean_text(line)
     if text == "" or not re.search(r"[\s,;；|/\\]", text):
         return False
@@ -16604,6 +16607,11 @@ FOJAN_FMB_DATASHEET_SOURCE = (
 FOJAN_FPM_DATASHEET_SOURCE = (
     "FPM Series Low Resistance High Power Alloy Resistor Product Specifications "
     "FJ-JS-3001-V1.0/2025.09.24"
+)
+FOJAN_FPM_LEGACY_ORDERING_SOURCE = (
+    "FOJAN FPM FJ-JS-3004-V1.0/2024.03.27 pp.1-3; "
+    "https://atta.szlcsc.com/upload/public/pdf/source/20250318/"
+    "C5F122670D95A5962CFB97BFCB71D97F.pdf"
 )
 FOJAN_FRM_1206_EVIDENCE_SOURCE = (
     "FRM Series Low Resistance Alloy Resistor Product Specifications "
@@ -23269,8 +23277,36 @@ def normalize_common_tolerance_symbol_typos(text):
     return re.sub(r"(?<![\u4e00-\u9fff])[士土]\s*(?=\d+(?:\.\d+)?\s*%)", "±", value)
 
 
+def normalize_resistor_ocr_measurement_units(text):
+    """Repair explicit measurement units without case-folding milli to mega.
+
+    Q2 is an ohm alias only in a numeric field before an explicit tolerance.
+    Never apply such substitutions inside arbitrary manufacturer identities.
+    """
+    value = re.sub(
+        r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s*m[ \t]+([RrΩΩ])(?=$|[\s,;；/\\|()（）%\-])",
+        r"\1m\2", clean_text(text),
+    )
+    return re.sub(
+        r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s*([mkKM]?)\s*Q2\s*[,，;；]?"
+        r"(?=\s*(?:±|\+/-)\s*\d+(?:\.\d+)?\s*%)",
+        r"\1\2Ω,", value,
+    )
+
+
+def milliohm_description_package(text):
+    """Extract a package field, not a repaired/verified manufacturer identity."""
+    match = re.search(
+        r"(?<![A-Z0-9])(?:HO\s*)?(?:J\s*)?L{1,2}R\s*(2\s*5\s*1\s*2)"
+        r"\s*-\s*\d+(?:\.\d+)?\s*W\s*-\s*\d+(?:\.\d+)?\s*m\s*R"
+        r"\s*-\s*\d+(?:\.\d+)?\s*%",
+        clean_text(text), flags=re.I,
+    )
+    return re.sub(r"\s+", "", match.group(1)) if match else ""
+
+
 def normalize_resistor_value_tolerance_separator(text):
-    value = clean_text(text)
+    value = normalize_resistor_ocr_measurement_units(text)
     if value == "":
         return ""
     # OCR can separate a standalone resistance suffix (``RES\0201\1 M\F``).
@@ -23319,6 +23355,10 @@ def find_resistance_in_text(text):
     value_candidates = []
     for match in RESISTOR_VALUE_PATTERN.finditer(upper):
         token = clean_text(match.group(1))
+        original_token = raw[match.start(1):match.end(1)]
+        if re.fullmatch(r"\d+(?:\.\d+)?m", original_token):
+            # An incomplete lowercase milli unit must not become mega-ohms.
+            continue
         parsed = parse_resistance_token_to_ohm(token)
         if parsed is not None:
             value_candidates.append((match.start(), token, parsed))
@@ -23328,6 +23368,9 @@ def find_resistance_in_text(text):
             if not is_embedded_resistor_package_token(item[1])
         ]
         return (non_package_candidates or value_candidates)[0][2]
+
+    if re.search(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)?m(?=$|[\s,;；/\\|()\-])", raw):
+        return None
 
     ohm_match = RESISTOR_OHM_PATTERN.search(upper)
     if ohm_match:
@@ -23736,6 +23779,11 @@ def get_row_resistance_for_pricing(row):
 def lookup_resistor_series_pricing(row, rules=None):
     component_type = normalize_component_type(row.get("器件类型", ""))
     if component_type not in RESISTOR_COMPONENT_TYPES:
+        return {"成本": "", "更新时间": "", "MOQ": ""}
+    identity = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(clean_model(row.get("型号", "")))
+    if identity and identity.group("series") == "FPM" and identity.group("suffix") == "N":
+        # Legacy N ordering is not approval of the 3W/500mΩ band. Do not
+        # borrow M-material series prices; exact imported costs are separate.
         return {"成本": "", "更新时间": "", "MOQ": ""}
     series = normalize_resistor_pricing_series(row)
     if series == "":
@@ -25573,6 +25621,11 @@ def parse_resistor_spec_query(line):
     invalid_size_token = find_invalid_leading_zero_size_token(tokens, component_type)
     metric_size, converted_imperial_size = find_chip_package_size_codes_in_query(normalized_raw)
     size = converted_imperial_size or find_embedded_size(normalized_raw)
+    milliohm_package = milliohm_description_package(normalized_raw)
+    if size == "" and milliohm_package:
+        size = milliohm_package
+    if milliohm_package:
+        component_type = "合金电阻"
     if size == "" and fojan_alloy_series:
         size = find_fojan_alloy_size_in_text(fojan_alloy_series, normalized_raw)
     if size == "":
@@ -25651,6 +25704,15 @@ def parse_resistor_spec_query(line):
         "_core_param_count": param_count,
         "_param_count": param_count,
     }
+    if milliohm_package:
+        result["_milliohm_description"] = True
+        measured_values = [parse_explicit_resistance_measurement_to_ohm(m.group(1), m.group(2))
+                           for m in EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN.finditer(normalized_raw)]
+        measured_values = [value for value in measured_values if value is not None]
+        if measured_values and any(not math.isclose(value, measured_values[0], rel_tol=1e-9, abs_tol=1e-12)
+                                   for value in measured_values[1:]):
+            result["_unsupported_component"] = True
+            result["_unsupported_reason"] = "毫欧型号描述与独立规格列的阻值不一致，请对照原图人工确认；已停止自动匹配和报价。"
     if invalid_size_token != "":
         result["_invalid_size_token"] = invalid_size_token
         result["_unsupported_component"] = True
@@ -38737,6 +38799,9 @@ def fojan_neighboring_standard_resistances(resistance_ohm, tolerance):
 def build_fojan_nonstandard_resistance_notice(spec):
     if not isinstance(spec, dict):
         return ""
+    alloy_notice = build_fojan_unverified_alloy_notice(spec)
+    if alloy_notice:
+        return alloy_notice
     component_type = infer_spec_component_type(spec)
     if component_type == "合金电阻" or component_type not in RESISTOR_COMPONENT_TYPES:
         return ""
@@ -38764,6 +38829,26 @@ def build_fojan_nonstandard_resistance_notice(spec):
             "这些阻值不会被当作当前阻值的精确替代自动返回。"
         )
     return notice
+
+
+def build_fojan_unverified_alloy_notice(spec):
+    """Explain the exact unresolved variant; never emit it as a substitute."""
+    if not isinstance(spec, dict) or not fojan_brand_requested_or_unset(spec):
+        return ""
+    resistance = spec.get("_resistance_ohm")
+    if (infer_spec_component_type(spec) not in RESISTOR_COMPONENT_TYPES
+            or clean_size(spec.get("尺寸（inch）", "")) != "2512"
+            or clean_tol_for_match(spec.get("容值误差", "")) != "1"
+            or format_power_display(spec.get("_power", "")) != "3W"
+            or resistance is None or abs(float(resistance) - .5) > 1e-12):
+        return ""
+    return (
+        "已识别为 2512／500mΩ（0.5Ω）／±1%／3W。"
+        "待原厂确认的料号线索：FPM253WFR500TN（N 材质，不能改成 M）。"
+        "已核验的原厂标准电气表未覆盖该 3W 阻段，2W 的阻段不能套用到 3W；"
+        "请取得该完整型号的专用规格书，确认功率、温漂及焊盘。"
+        "此线索不计入匹配结果，不自动生成替代料或套用 M 版本报价；不能据此判断富捷做不了。"
+    )
 
 
 def parse_valid_fojan_resistor_model(model):
@@ -39615,7 +39700,7 @@ def fojan_fpm_explicit_identity_fields(model):
     match = FOJAN_ALLOY_MODEL_PATTERN.fullmatch(compact)
     if match is None or match.group("series") != "FPM":
         return {}
-    if match.group("size_code") != "25" or match.group("power") != "3W" or match.group("suffix") not in {"M", "ML"}:
+    if match.group("size_code") != "25" or match.group("power") != "3W" or match.group("suffix") not in {"M", "ML", "N"}:
         return {}
     resistance = fojan_alloy_parse_value_code(match.group("res"))
     if resistance is None or resistance <= 0:
@@ -39633,11 +39718,14 @@ def fojan_fpm_explicit_identity_fields(model):
         "容值": value, "容值单位": unit, "容值误差": tolerance,
         "阻值@25C": f"{resistance:g}", "阻值单位": "Ω", "阻值误差": tolerance,
         "_resistance_ohm": resistance, "_power": "3W", "_tol": tolerance,
-        "数据来源": FOJAN_FPM_DATASHEET_SOURCE + "；料号编码及2512名义尺寸；" + note,
+        "数据来源": (FOJAN_FPM_LEGACY_ORDERING_SOURCE if match.group("suffix") == "N" else FOJAN_FPM_DATASHEET_SOURCE) + "；料号编码及2512名义尺寸；" + note,
         "校验备注": note,
     }
     if standard:
         fields.update({"工作温度": "-55~170℃", "温度系数": "±50ppm/℃", "高度（mm）": "0.90"})
+    if match.group("suffix") == "N":
+        fields["_fojan_variant_unverified"] = True
+        fields["校验备注"] = "仅按 N 版本编码识别基础参数，完整型号的专用电气参数待原厂确认，不代表已核验可直接替代"
     # The 500V dielectric-withstanding test is NOT a working-voltage rating.
     return fields
 
@@ -43241,6 +43329,8 @@ def fojan_frc_model_sort_parts(brand, model):
     return suffix_match.group(1), 0 if suffix_match.group(2) == "TS" else 1
 
 def classify_match_level(row, spec):
+    if clean_text(row.get("_fojan_variant_unverified", "")).lower() == "true":
+        return "需确认替代", "完整 N 版本电气参数待原厂确认"
     # 比较时区分数据库原始值和查询补齐值，避免把空白字段伪装成“完全匹配”
     row_size_raw = clean_size(row.get("尺寸（inch）", ""))
     row_mat_raw = clean_material(row.get("材质（介质）", ""))
@@ -43886,6 +43976,10 @@ def collect_recommendation_warnings(row, spec):
     if row is None or spec is None:
         return []
     warnings_list = []
+    if clean_text(row.get("_fojan_variant_unverified", "")).lower() == "true":
+        warnings_list.append("完整 N 版本电气参数待原厂确认，基础编码不代表已核验可直接替代")
+    if spec.get("_milliohm_description") and clean_model(row.get("型号", "")).startswith("FPM") and clean_model(row.get("型号", "")).endswith("TML"):
+        warnings_list.append("L 为大电极版本，原描述未确认电极／焊盘，需核对焊盘兼容性")
     target_type = infer_spec_component_type(spec)
     missing_compliance = missing_soft_compliance_tokens(
         row.get("特殊用途", ""),
@@ -45551,7 +45645,7 @@ BOM_IMAGE_VERIFIED_MODEL_ALIASES = {"CL31A106M0HNNNE": "CL31A106MOHNNNE"}
 
 def normalize_bom_image_cell(text):
     """Repair constrained spacing/units and explicitly source-verified aliases."""
-    text = re.sub(r"\s+", " ", clean_text(text)).strip()
+    text = re.sub(r"\s+", " ", normalize_resistor_ocr_measurement_units(text)).strip()
     text = re.sub(r"(?<![A-Z0-9.])(\d+)\s+\.\s*(\d+)(?=\s*(?:[pnuµμ]F|[mkKM]?[ΩΩQ]|[VW])(?![A-Z0-9]))",
                   r"\1.\2",text,flags=re.I)
     text = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", text)
@@ -45720,6 +45814,11 @@ def bom_image_model_spec_warnings(record, *, image_review=True):
                                 and re.search(r"电阻|電阻|电容|電容|电感|二极管|resistor|capacitor|inductor|diode", clean_text(value), re.I)))
     combined = join_bom_parts(model_text, specification, *collect_bom_extra_spec_values(record, mapping))
     models = list(dict.fromkeys(extract_model_like_tokens(combined)))
+    if milliohm_description_package(combined):
+        # Only the printed description's fields are known. A token such as
+        # HOLLR25 must not be decoded as an independently verified model.
+        models = [model for model in models
+                  if not re.match(r"^(?:HO)?(?:J)?L{1,2}R", clean_model(model))]
     # Mixed 型号/规格 columns can be mapped to either role. Remove every model
     # from both roles before reading the independently printed parameters.
     written_text = combined
@@ -47033,6 +47132,11 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
 
     # Case 1: no usable explicit FOJAN model was found, so normal written
     # specification matching remains the authority.
+    if not prioritized_fojan_models and milliohm_description_package(model_value):
+        # This source puts the package in its model-like description, not
+        # in the numeric specification column. Keep both before early exit.
+        add_candidate(join_bom_parts(model_value, spec_value, name_value, *extra_values),
+                      "规格列+品名列+毫欧封装描述")
     add_candidate(join_bom_parts(spec_value, name_value), "规格列+品名列")
     if extra_values:
         add_candidate(join_bom_parts(spec_value, name_value, *extra_values), "规格列+品名列+其他列")
@@ -47091,6 +47195,9 @@ def describe_bom_result(candidate_result):
         min_required = other_passive_min_required_params(spec) if clean_text(spec.get("器件类型", "")) != "" else 3
         return f"{source}已识别出部分规格，但关键参数不足 {min_required} 项"
     if status == "无匹配":
+        alloy_notice = build_fojan_unverified_alloy_notice(spec)
+        if alloy_notice:
+            return alloy_notice
         if is_other_passive_mode(mode):
             component_type = normalized_other_passive_mode(spec, mode)
             return f"已识别为{component_type}规格，但当前数据库未找到可匹配结果"
@@ -47119,7 +47226,10 @@ def describe_bom_result(candidate_result):
     return f"使用{source}解析成功"
 
 def bom_query_cache_key(query_text):
-    return re.sub(r"\s+", " ", clean_text(query_text)).strip().upper()
+    # Model letters are case-insensitive, but SI milli/mega are not.
+    value = normalize_resistor_ocr_measurement_units(query_text)
+    value = re.sub(r"(?<=\d)[ \t]*m(?=$|[ \t]*(?:Ω|Ω|[Rr]|[Oo][Hh][Mm][Ss]?|Q2)(?![A-Za-z0-9]))", "毫", value)
+    return re.sub(r"\s+", " ", value).strip().upper()
 
 
 def store_bom_query_cache(query_cache, cache_key, value, limit=256):
@@ -47536,6 +47646,11 @@ def choose_best_bom_candidate(
             bool(item.get("fojan_model_reference"))
             for item in candidates[idx + 1:]
         )
+        if (isinstance(best.get("spec"), dict) and best["spec"].get("_milliohm_description")
+                and bom_candidate_core_count(best) >= 4 and not later_explicit_fojan_model):
+            # Do not retry a smaller set of fields after a complete printed
+            # description returned no rows (or reported contradictory units).
+            break
         if bom_candidate_has_authoritative_spec(best):
             # Specifications remain authoritative when they return a result.
             # If they return no rows, however, continue to the explicitly
@@ -47889,6 +48004,11 @@ def build_bom_upload_result_row(
     result_row.update(export_slots)
     restore_explicit_fojan_model_display(result_row, explicit_fojan_display_map)
     reconcile_bom_output_status(result_row, export_slots, export_settings=export_settings)
+    if result_row.get("状态") == "无匹配" and bom_export_includes_fojan(export_settings):
+        notice = build_fojan_unverified_alloy_notice(spec)
+        if notice:
+            result_row["差异说明"] = notice
+            result_row["推荐理由"] = notice
     preserve_unpriced_explicit_fojan_reference(
         result_row,
         explicit_fojan_display_map,
