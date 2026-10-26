@@ -6121,14 +6121,16 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertEqual(candidates[0]["source"], "规格内富捷型号（已核对规格）")
             self.assertEqual(candidates[0]["explicit_fojan_model"], "FRC0402F2003TS")
 
-        # Case 4: with only written parameters in the specification, a
-        # matching FOJAN model from the adjacent column becomes the identity.
+        # A separate, translated FOJAN MPN is now checked against the written
+        # requirement rather than promoted into a model-only authority.
         parameter_only = "FOJAN/SMD 0402 200kΩ ±1% 1/16W LF"
         adjacent_candidates = app["build_bom_query_candidates"](
             "", parameter_only, "贴片电阻", extra_values=[adjacent_same]
         )
-        self.assertEqual(adjacent_candidates[0]["source"], "相邻栏富捷型号（已核对规格）")
-        self.assertEqual(adjacent_candidates[0]["explicit_fojan_model"], "FRC0402F2003TS")
+        self.assertTrue(adjacent_candidates[0]["description_priority"])
+        self.assertEqual(adjacent_candidates[0]["source"], "规格列+品名列（描述优先）")
+        self.assertIn("FRC0402F2003TS", adjacent_candidates[0]["separate_fojan_models"])
+        self.assertNotIn("FRC0402F2003TS", adjacent_candidates[0]["query"])
 
         # A contradicting embedded model is not promoted over the written
         # specification; this protects against a bad copy/paste in the BOM.
@@ -6157,6 +6159,118 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(result.get("解析来源"), "规格内富捷型号（已核对规格）")
         self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FRC0402F2003TS")
         self.assertEqual(result.get("自有成本", ""), "1.70")
+
+    def test_bom_separate_fojan_description_controls_selection_and_price(self):
+        app = self.app
+        description = "RES 22 OHM 1/16W 5% 0402 SMD"
+        rules = [{"series":"FRC", "type_dimension_norm":"0402 1/16W", "range":"10R-1M",
+                  "price_5":"1.11", "price_1":"2.22", "package":"10000PCS"}]
+        cases = (
+            ("FRC0402J220 TS", False),
+            ("FRC0402J221TS", True),  # 220 ohms is not 22 ohms.
+            ("FRC0402F22R0TS", True),  # 1% must not overwrite the written 5%.
+            ("FRC0603J220TS", True),
+        )
+        cache = {}
+        for mpn, conflict in cases:
+            with self.subTest(mpn=mpn):
+                record = {"湖州料号":"0100-0038-P001", "客户料号":"0100-0038",
+                          "描述":description, "MPN":mpn, "AVL":"富捷", "数量":555}
+                mapping = app["guess_bom_column_mapping"](pd.DataFrame([record]))
+                self.assertEqual(mapping["model"], "MPN")
+                self.assertEqual(mapping["spec"], "描述")
+                row = app["build_bom_upload_result_row"](
+                    pd.DataFrame(), 0, record, mapping, query_cache=cache,
+                    export_settings={"mode":"指定品牌", "brands":["FOJAN(富捷)"]},
+                    resistor_pricing_rules=rules,
+                )
+                self.assertEqual(app["clean_model"](row["自有型号"]), "FRC0402J220TS")
+                self.assertEqual(app["clean_model"](row["推荐型号"]), "FRC0402J220TS")
+                self.assertEqual(row["自有成本"], "1.11")
+                self.assertEqual(row["容值误差"], "±5%")
+                self.assertTrue(row["解析来源"].startswith("规格列"))
+                self.assertEqual(row["BOM型号"], mpn)
+                self.assertEqual(row["BOM规格"], description)
+                if conflict:
+                    self.assertEqual(row["状态"], "需确认")
+                    for field in ("备注1", "差异说明", "推荐理由", "自有匹配备注"):
+                        self.assertIn("规格描述与独立MPN不同", row[field])
+                        self.assertIn("已按规格描述匹配", row[field])
+                        self.assertNotIn("匹配和报价仍按已识别型号处理", row[field])
+                    display = app["build_bom_display_df"](pd.DataFrame([row]))
+                    self.assertIn("需人工确认", display.iloc[0]["备注1"])
+
+    def test_bom_separate_fojan_no_match_cannot_reappear_in_export(self):
+        app = self.app
+        for description, mpn in (
+            ("2512 500mΩ ±1% 3W 合金电阻", "FPM253WFR500TM"),
+            ("2512 500mΩ ±1% 3W FOJAN 合金电阻", "FPM253WFR500TM"),
+            ("1206 1MΩ ±5% 1/4W 1000V", "FRV1206F1004TS"),
+        ):
+            with self.subTest(description=description):
+                row = app["build_bom_upload_result_row"](
+                    pd.DataFrame(), 0, {"MPN":mpn, "描述":description},
+                    {"model":"MPN", "spec":"描述", "name":None, "quantity":None},
+                    export_settings={"mode":"指定品牌", "brands":["FOJAN(富捷)"]},
+                )
+                self.assertEqual(row["状态"], "无匹配")
+                self.assertEqual(row["自有型号"], "")
+                self.assertEqual(row["自有成本"], "")
+                self.assertEqual(row["推荐型号"], "")
+                self.assertIn("描述", row["差异说明"])
+
+    def test_bom_separate_fojan_compatible_special_series_is_spec_checked(self):
+        app = self.app
+        candidates = app["build_bom_query_candidates"](
+            "FRR0603F1000TS", "0603 100Ω ±1% 1/10W 抗硫化", "贴片电阻",
+        )
+        self.assertEqual(len(candidates), 1)
+        best = app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
+        self.assertTrue(best["description_priority"])
+        self.assertEqual(best["reference_model_verified"], "FRR0603F1000TS")
+        self.assertFalse(best.get("exact_fojan_model_pinned", False))
+        self.assertEqual(set(best["matched"]["型号"].map(app["clean_model"])), {"FRR0603F1000TS"})
+        self.assertEqual(app["clean_tol_for_match"](best["spec"]["容值误差"]), "1")
+        ordinary = app["choose_best_bom_candidate"](pd.DataFrame(), app["build_bom_query_candidates"](
+            "FRC0603F1000TS", "0603 100Ω ±1% 1/10W 抗硫化", "贴片电阻",
+        ))
+        self.assertFalse(ordinary.get("reference_model_verified"))
+        self.assertNotIn("FRC0603F1000TS", set(ordinary["matched"]["型号"].map(app["clean_model"])))
+
+    def test_bom_separate_fojan_incomplete_description_keeps_written_fields(self):
+        app = self.app
+        row = app["build_bom_upload_result_row"](
+            pd.DataFrame(), 0, {"MPN":"FRC0402J220 TS", "描述":"RES 22 OHM 0402"},
+            {"model":"MPN", "spec":"描述", "name":None, "quantity":None},
+            export_settings={"mode":"指定品牌", "brands":["FOJAN(富捷)"]},
+        )
+        self.assertEqual(app["clean_model"](row["自有型号"]), "FRC0402J220TS")
+        self.assertEqual(row["状态"], "需确认")
+        self.assertIn("补充参考", row["备注1"])
+        self.assertIn("需人工确认", row["备注1"])
+        self.assertEqual(row["BOM规格"], "RES 22 OHM 0402")
+
+    def test_bom_separate_fojan_empty_description_retains_model_only_policy(self):
+        app = self.app
+        for description in ("", "贴片电阻"):
+            candidates = app["build_bom_query_candidates"]("FRC0402J220TS", description, "")
+            self.assertFalse(any(item.get("description_priority") for item in candidates))
+            best = app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
+            self.assertTrue(best.get("exact_fojan_model_pinned"))
+            self.assertEqual(best.get("explicit_fojan_model"), "FRC0402J220TS")
+        self.assertGreaterEqual(app["BOM_MATCH_OUTPUT_VERSION"], 6)
+
+    def test_bom_separate_fojan_auxiliary_mpn_cannot_override_description(self):
+        app = self.app
+        candidates = app["build_bom_query_candidates"](
+            "0100-0038-P001", "RES 22 OHM 1/16W 5% 0402 SMD", "贴片电阻",
+            extra_values=["FRC0402J221 TS"],
+        )
+        self.assertTrue(candidates[0]["description_priority"])
+        self.assertNotIn("FRC0402", candidates[0]["query"])
+        best = app["choose_best_bom_candidate"](pd.DataFrame(), candidates)
+        self.assertAlmostEqual(float(best["spec"]["_resistance_ohm"]), 22)
+        self.assertNotIn("FRC0402J221TS", set(best["matched"]["型号"].map(app["clean_model"])))
 
     def test_03aib_written_spec_model_disagreement_requires_confirmation_not_repricing(self):
         app = self.app

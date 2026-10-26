@@ -319,8 +319,8 @@ COMPONENTS_SEARCH_CHUNK_ROWS = 5000
 PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
-QUERY_RESULT_CACHE_VERSION = 141
-BOM_MATCH_OUTPUT_VERSION = 5
+QUERY_RESULT_CACHE_VERSION = 142
+BOM_MATCH_OUTPUT_VERSION = 6
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -345,7 +345,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-26T19:02:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-26T21:52:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -47121,6 +47121,33 @@ def build_bom_query_candidates(model_value, spec_value, name_value, extra_values
     )
     explicit_fojan_model = model_explicit_fojan_models[0] if model_explicit_fojan_models else ""
 
+    # A FOJAN MPN in another cell may be a salesperson's translated candidate,
+    # not the customer's original requirement. Keep independently written
+    # parameters authoritative through selection AND export. Model-only rows
+    # and a complete model inside the specification retain their old policy.
+    separate_models = list(dict.fromkeys(model_explicit_fojan_models + following_explicit_fojan_models))
+    if not spec_explicit_fojan_models:
+        separate_models = list(dict.fromkeys(separate_models + extract_explicit_fojan_models_from_bom(
+            spec_value, model_value, name_value, *extra_values,
+        )))
+        # FPM identities outside the standard electrical range are still
+        # separate references, never permission to bypass the description.
+        compact_mpn = clean_model(model_value)
+        if fojan_fpm_explicit_identity_fields(compact_mpn) and compact_mpn not in separate_models:
+            separate_models.append(compact_mpn)
+    if separate_models and not spec_explicit_fojan_models:
+        written = (parse_resistor_spec_query(spec_value)
+                   if looks_like_resistor_context(spec_value) else parse_spec_query(spec_value))
+        if isinstance(written, dict) and count_query_params(written) > 0:
+            safe_name = "" if extract_explicit_fojan_models_from_bom(name_value) else name_value
+            return [{
+                "query": join_bom_parts(spec_value, safe_name),
+                "source": "规格列+品名列（描述优先）",
+                "description_priority": True,
+                "written_specification": clean_text(spec_value),
+                "separate_fojan_models": separate_models,
+            }]
+
     def add_candidate(text, source, *, fojan_model_reference=False, exact_fojan_model=""):
         query = join_bom_parts(text)
         if query and query not in seen:
@@ -47622,6 +47649,113 @@ def pin_bom_result_to_explicit_fojan_model(candidate_result, exact_model, cost_l
     return True
 
 
+def validate_bom_separate_fojan_reference(result, candidate, cost_lookup=None):
+    """Reuse a separate MPN only after matching it against the written spec.
+
+    The exact-model lookup is merely evidence here: it must never replace the
+    specification with the model's encoded values or bypass the spec matcher.
+    A no-match/unsupported/contradictory description cannot fall back to a
+    narrower model-only quote. Neither cached query results nor source rows
+    are mutated.
+    """
+    result["description_priority"] = True
+    result["separate_fojan_models"] = list(candidate.get("separate_fojan_models", []))
+    spec = result.get("spec")
+    if not isinstance(spec, dict) or spec.get("_unsupported_component"):
+        return result
+    if result.get("status") == "参数冲突":
+        return result
+    written = candidate.get("written_specification", "")
+    for model in result["separate_fojan_models"]:
+        if input_model_spec_confirmation(model, written):
+            continue
+        if clean_model(model).startswith("FPM") and parse_fojan_alloy_resistor_model(
+            model, brand="FOJAN(富捷)", component_type="合金电阻",
+        ) is None:
+            # An exact FPM code can expose basic identity fields outside its
+            # published electrical range. That is not substitute approval.
+            continue
+        reference = dict(result)
+        reference["matched"] = pd.DataFrame()
+        reference["query_df"] = pd.DataFrame()
+        if not pin_bom_result_to_explicit_fojan_model(reference, model, cost_lookup=cost_lookup):
+            continue
+        reference_rows = reference["matched"]
+        if "_fojan_variant_unverified" in reference_rows.columns:
+            reference_rows = reference_rows[~reference_rows["_fojan_variant_unverified"].map(
+                lambda value: clean_text(value).lower() == "true"
+            )].copy()
+        if reference_rows.empty:
+            continue
+        # Never use mode="料号": that path intentionally bypasses spec
+        # filtering for direct model searches, which is not this BOM policy.
+        # The ordinary scope keeps an exact lookup row when it is absent from
+        # the bounded sidecar prefetch. Set only that identity on a local copy;
+        # all independently written constraints still pass through the matcher.
+        validation_spec = dict(spec, **{"型号": model})
+        checked = run_query_match(prepare_search_dataframe(reference_rows), "规格", validation_spec)
+        if not isinstance(checked, pd.DataFrame) or checked.empty:
+            continue
+        checked = checked[checked["型号"].astype(str).map(clean_model).eq(clean_model(model))].copy()
+        if checked.empty:
+            continue
+        complete_description = bom_candidate_has_authoritative_spec(result)
+        recommendation = build_procurement_recommendation(checked, spec)
+        result.update({
+            "matched": checked,
+            "query_df": checked.copy(),
+            "recommendation": recommendation,
+            "status": recommendation.get("status", "需确认"),
+            "recommendation_reason": recommendation.get("reason", ""),
+            "top_match_level": recommendation.get("level", ""),
+            "parse_status": "解析成功",
+            "failure_reason": "",
+            "source": "规格列+品名列（独立MPN已校验）",
+            "reference_model_verified": clean_model(model),
+        })
+        if result.get("mode") in {"规格不足", "无法识别"}:
+            result["mode"] = infer_spec_component_type(spec) or "规格"
+        if not complete_description:
+            result["description_reference_note"] = (
+                "描述未提供的参数仅以独立MPN解析结果作补充参考，需人工确认；"
+                "已填写的规格要求未被型号覆盖。"
+            )
+        result["difference_note"] = describe_bom_result(result)
+        return result
+    result["description_reference_note"] = "独立MPN尚未通过描述校验，未据此锁定型号或报价。"
+    return result
+
+
+def apply_bom_description_priority_confirmation(result_row, best, written_specification):
+    """Keep the description-first decision visible after price reconciliation."""
+    warnings = []
+    models = best.get("separate_fojan_models", [])
+    # Extraction may also return a shorter suffix-free token. Check complete
+    # identities once; do not turn those aliases into extra conflicts.
+    models = [model for model in models if not any(
+        other != model and other.startswith(model) for other in models
+    )]
+    for model in models:
+        warnings.extend(bom_image_model_spec_warnings(
+            {"规格型号": join_bom_parts(model, written_specification)}, image_review=False,
+        ))
+    note = clean_text(best.get("description_reference_note", ""))
+    if warnings:
+        note = ("规格描述与独立MPN不同，需人工确认。" + "；".join(dict.fromkeys(warnings))
+                + "。已按规格描述匹配，未按不一致的原MPN覆盖规格或报价。")
+    if not note:
+        return result_row
+    if result_row.get("状态") == "可推荐":
+        result_row["状态"] = "需确认"
+    for field in ("推荐理由", "差异说明", "备注1"):
+        result_row[field] = merge_match_confirmation_into_remark1(result_row.get(field, ""), note)
+    for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1):
+        if clean_text(result_row.get(bom_own_brand_internal_column("自有型号", idx), "")):
+            field = bom_own_brand_internal_column("自有匹配备注", idx)
+            result_row[field] = merge_match_confirmation_into_remark1(result_row.get(field, ""), note)
+    return result_row
+
+
 def choose_best_bom_candidate(
     df,
     candidates,
@@ -47657,6 +47791,8 @@ def choose_best_bom_candidate(
             exact_part_rows=prefetched_rows,
             export_settings=export_settings,
         )
+        if candidate.get("description_priority"):
+            return validate_bom_separate_fojan_reference(result, candidate, cost_lookup=cost_lookup)
         if candidate.get("fojan_model_reference"):
             result["fojan_model_reference"] = True
             exact_model = clean_model(candidate.get("explicit_fojan_model", ""))
@@ -47997,7 +48133,10 @@ def build_bom_upload_result_row(
 
     best_source = clean_text(best.get("source", ""))
     explicit_fojan_model = next(iter(explicit_fojan_display_map), "")
-    strict_explicit_fojan_export = bool(explicit_fojan_model) and bom_export_includes_fojan(export_settings)
+    description_priority = bool(best.get("description_priority"))
+    strict_explicit_fojan_export = (
+        not description_priority and bool(explicit_fojan_model) and bom_export_includes_fojan(export_settings)
+    )
     export_exact_model = (
         (explicit_fojan_model if strict_explicit_fojan_export else "")
         or clean_text(best.get("explicit_fojan_model", ""))
@@ -48032,11 +48171,12 @@ def build_bom_upload_result_row(
         if notice:
             result_row["差异说明"] = notice
             result_row["推荐理由"] = notice
-    preserve_unpriced_explicit_fojan_reference(
-        result_row,
-        explicit_fojan_display_map,
-        export_settings=export_settings,
-    )
+    if not description_priority:
+        preserve_unpriced_explicit_fojan_reference(
+            result_row,
+            explicit_fojan_display_map,
+            export_settings=export_settings,
+        )
 
     if spec is not None and infer_spec_component_type(spec) == "MLCC":
         refs = resolve_mlcc_brand_references(
@@ -48064,7 +48204,10 @@ def build_bom_upload_result_row(
             f"name={clean_text(name_value)}",
         )
 
-    apply_input_model_spec_confirmation(result_row, model_value, spec_value, name_value, *extra_values)
+    if description_priority:
+        apply_bom_description_priority_confirmation(result_row, best, spec_value)
+    else:
+        apply_input_model_spec_confirmation(result_row, model_value, spec_value, name_value, *extra_values)
     return apply_bom_image_review_to_result(result_row, record)
 
 def format_bom_elapsed_time(seconds):
