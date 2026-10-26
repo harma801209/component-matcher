@@ -1787,6 +1787,100 @@ class SystemRegressionTests(unittest.TestCase):
             )
             self.assertEqual(str(resolved["spec"].get("容值误差", "")), "5", model)
 
+    def test_admin_session_is_fixed_24_hours_and_member_policy_unchanged(self):
+        from unittest.mock import patch
+        app = self.app
+        accounts = {}
+        for username, role in [('DayAdminTTL', 'admin'), ('DayMemberTTL', 'member')]:
+            ok, message = app['create_member_account'](username, 'day-ttl-test-secret', company='Isolated TTL Test', phone='000', job_title='其他')
+            self.assertTrue(ok, message)
+            account = app['get_member_by_username'](username)
+            with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+                conn.execute("UPDATE members SET role=?, status='active' WHERE id=?", (role, account['id']))
+            accounts[role] = account
+        anchor = int(time.time())
+        with patch.object(app['time'], 'time', return_value=anchor):
+            admin_token = app['create_member_session'](accounts['admin']['id'])
+            member_token = app['create_member_session'](accounts['member']['id'])
+        def expiry(token):
+            with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+                row = conn.execute('SELECT expires_at_ts FROM member_sessions WHERE token=?', (token,)).fetchone()
+            return row[0] if row else None
+        self.assertEqual(expiry(admin_token), anchor + 86400)
+        self.assertEqual(expiry(member_token), anchor + 43200)
+        for elapsed in [12 * 3600 + 1, 23 * 3600 + 3599]:
+            with patch.object(app['time'], 'time', return_value=anchor + elapsed):
+                admin = app['get_member_by_session_token'](admin_token)
+                self.assertIsNotNone(admin)
+                self.assertEqual(admin['_session_expires_at_ts'], anchor + 86400)
+                self.assertEqual(expiry(admin_token), anchor + 86400)
+        with patch.object(app['time'], 'time', return_value=anchor + 7 * 3600):
+            ordinary = app['get_member_by_session_token'](member_token)
+            self.assertIsNotNone(ordinary)
+            self.assertEqual(ordinary['_session_expires_at_ts'], anchor + 19 * 3600)
+        with patch.object(app['time'], 'time', return_value=anchor + 86400):
+            self.assertIsNone(app['get_member_by_session_token'](admin_token))
+        self.assertIsNone(expiry(admin_token))
+
+    def test_admin_session_rechecks_role_status_and_password_revocation(self):
+        app = self.app
+        username = 'DayAdminRevoke'
+        ok, message = app['create_member_account'](username, 'day-revoke-secret', company='Isolated TTL Test', phone='000', job_title='其他')
+        self.assertTrue(ok, message)
+        account = app['get_member_by_username'](username)
+        member_id = account['id']
+        with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+            conn.execute("UPDATE members SET role='admin', status='active' WHERE id=?", (member_id,))
+        token = app['create_member_session'](member_id)
+        with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+            conn.execute("UPDATE members SET role='member' WHERE id=?", (member_id,))
+        demoted = app['get_member_by_session_token'](token)
+        self.assertEqual(demoted['role'], 'member')
+        self.assertLessEqual(demoted['_session_expires_at_ts'], int(time.time()) + 43200)
+        with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+            conn.execute("UPDATE members SET role='admin', status='disabled' WHERE id=?", (member_id,))
+        self.assertIsNone(app['get_member_by_session_token'](token))
+        with self.assertRaises(ValueError):
+            app['create_member_session'](member_id)
+        with sqlite3.connect(app['MEMBER_AUTH_DB_PATH']) as conn:
+            conn.execute("UPDATE members SET status='active' WHERE id=?", (member_id,))
+        token = app['create_member_session'](member_id)
+        ok, message = app['update_member_account_admin'](
+            member_id, username, role='admin', status='active', new_password='new-day-revoke-secret',
+        )
+        self.assertTrue(ok, message)
+        self.assertIsNone(app['get_member_by_session_token'](token))
+
+    def test_member_bridge_uses_validated_server_expiry_not_browser_renewal(self):
+        app = self.app
+        originals = {key: app[key] for key in ['st', 'components', 'current_member', 'get_query_param_value', 'requested_page_mode']}
+        scripts = []
+        fake_st = type('FakeStreamlit', (), {'session_state': {}})()
+        server_expiry = int(time.time()) + 3600
+        validated_member = {'role': 'admin', '_session_token': 'synthetic_day_admin_token_for_test_only', '_session_expires_at_ts': server_expiry}
+        try:
+            app['st'] = fake_st
+            app['components'] = type('FakeComponents', (), {'html': staticmethod(lambda script, **kwargs: scripts.append(script))})()
+            app['current_member'] = lambda: validated_member
+            app['get_query_param_value'] = lambda name: 'synthetic-channel' if name == app['MEMBER_AUTH_BRIDGE_CHANNEL_PARAM'] else ''
+            app['requested_page_mode'] = lambda: 'search'
+            app['render_member_auth_browser_persistence_bridge']()
+            self.assertIn('const ttlSeconds = 86400;', scripts[-1])
+            self.assertIn(f'const sessionExpiresAt = {server_expiry * 1000};', scripts[-1])
+            self.assertIn('const expiresAt = String(sessionExpiresAt);', scripts[-1])
+            self.assertNotIn('const expiresAt = String(now + ttlMs);', scripts[-1])
+            self.assertIn('Math.floor((sessionExpiresAt - now) / 1000)', scripts[-1])
+            validated_member['role'] = 'member'
+            app['render_member_auth_browser_persistence_bridge']()
+            self.assertIn('const ttlSeconds = 43200;', scripts[-1])
+            app['current_member'] = lambda: None
+            fake_st.session_state['_member_auth_token'] = 'unvalidated-token-must-not-be-saved'
+            app['render_member_auth_browser_persistence_bridge']()
+            self.assertIn('const token = "";', scripts[-1])
+            self.assertNotIn('unvalidated-token-must-not-be-saved', scripts[-1])
+        finally:
+            app.update(originals)
+
     def test_02_member_auth_approval_profile_and_search_logs(self):
         app = self.app
         app["ensure_configured_admin_member_account"]()

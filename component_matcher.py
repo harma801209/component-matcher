@@ -264,6 +264,7 @@ NO_MATCH_ADMIN_DEFAULT_USERNAME = "terry46"
 NO_MATCH_ADMIN_LEGACY_DEFAULT_USERNAMES = ("amdin", "Terry46")
 NO_MATCH_ADMIN_DEFAULT_PASSWORD = "123456"
 MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
+MEMBER_AUTH_ADMIN_SESSION_TTL_SECONDS = 24 * 60 * 60
 MEMBER_SEARCH_COPY_TICKET_TTL_SECONDS = 7 * 24 * 60 * 60
 MEMBER_AUTH_QUERY_PARAM = "member_token"
 MEMBER_LOGOUT_QUERY_PARAM = "member_logout"
@@ -344,7 +345,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-26T13:40:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-26T19:02:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -4776,12 +4777,23 @@ def delete_member_account_admin(member_id):
     return int(cursor.rowcount or 0) > 0, "会员已删除。"
 
 
+def member_session_ttl_seconds(member):
+    """Use a server-verified account role, never a browser role claim."""
+    return (MEMBER_AUTH_ADMIN_SESSION_TTL_SECONDS
+            if member and normalize_member_role(member.get("role", "")) == "admin"
+            else MEMBER_AUTH_SESSION_TTL_SECONDS)
+
+
 def create_member_session(member_id):
     ensure_member_auth_schema()
     token = secrets.token_urlsafe(32)
-    expires_at_ts = int(time.time()) + MEMBER_AUTH_SESSION_TTL_SECONDS
     now = current_timestamp_text()
     with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        account = conn.execute("SELECT role, status FROM members WHERE id=?", (int(member_id),)).fetchone()
+        if account is None or normalize_member_status(account["status"]) != "active":
+            raise ValueError("账号不存在或未启用，无法创建登录会话。")
+        expires_at_ts = int(time.time()) + member_session_ttl_seconds(dict(account))
         conn.execute(
             "INSERT INTO member_sessions (token, member_id, created_at, expires_at_ts) VALUES (?, ?, ?, ?)",
             (token, int(member_id), now, expires_at_ts),
@@ -4855,17 +4867,27 @@ def get_member_by_session_token(token):
             """,
             (token, now_ts),
         ).fetchone()
-        if row is None:
+        if row is None or normalize_member_status(row["status"]) != "active":
+            row = None
             conn.execute("DELETE FROM member_sessions WHERE token=?", (token,))
             conn.commit()
             flush_needed = True
         else:
             current_expiry = int(row["_session_expires_at_ts"] or 0)
-            flush_needed = current_expiry <= now_ts + max(60, MEMBER_AUTH_SESSION_TTL_SECONDS // 2)
+            is_admin_session = normalize_member_role(row["role"]) == "admin"
+            # Admin expiry is fixed at login +24h, not sliding indefinitely.
+            # Ordinary members retain the existing12h sliding policy. If an
+            # administrator is demoted, its remaining lifetime is capped too.
+            member_expiry_cap = now_ts + MEMBER_AUTH_SESSION_TTL_SECONDS
+            flush_needed = not is_admin_session and (
+                current_expiry <= now_ts + max(60, MEMBER_AUTH_SESSION_TTL_SECONDS // 2)
+                or current_expiry > member_expiry_cap
+            )
             if flush_needed:
+                current_expiry = member_expiry_cap
                 conn.execute(
                     "UPDATE member_sessions SET expires_at_ts=? WHERE token=?",
-                    (now_ts + MEMBER_AUTH_SESSION_TTL_SECONDS, token),
+                    (current_expiry, token),
                 )
                 conn.commit()
     if row is None:
@@ -4875,7 +4897,7 @@ def get_member_by_session_token(token):
     if flush_needed:
         flush_member_auth_remote_snapshot()
     member = member_row_to_dict(row)
-    member.pop("_session_expires_at_ts", None)
+    member["_session_expires_at_ts"] = current_expiry
     if member and normalize_member_status(member.get("status", "")) == "active":
         member["_session_token"] = token
         return member
@@ -4910,6 +4932,7 @@ def current_member():
 
 
 def render_member_auth_browser_persistence_bridge():
+    member = None
     clear_token = bool(st.session_state.pop("_member_auth_clear_browser_token", False))
     clear_token_value = clean_text(st.session_state.pop("_member_auth_clear_browser_token_value", ""))
     clear_outer_page_modes = bool(st.session_state.pop(ADMIN_ROUTE_CLEAR_OUTER_SHELL_KEY, False))
@@ -4918,10 +4941,8 @@ def render_member_auth_browser_persistence_bridge():
         st.session_state.pop("_member_display_name", None)
         token = ""
     else:
-        current_member()
-        token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(
-            get_query_param_value(MEMBER_AUTH_QUERY_PARAM)
-        )
+        member = current_member()
+        token = clean_text(member.get("_session_token", "")) if member else ""
     bridge_channel = clean_text(get_query_param_value(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM))
     active_page_mode = requested_page_mode()
     active_admin_module = ""
@@ -4929,7 +4950,8 @@ def render_member_auth_browser_persistence_bridge():
         requested_admin_module = clean_text(get_query_param_value(ADMIN_BACKEND_MODULE_QUERY_PARAM)).lower()
         if requested_admin_module in ADMIN_BACKEND_MODULE_LABEL_BY_SLUG:
             active_admin_module = requested_admin_module
-    ttl_seconds = int(MEMBER_AUTH_SESSION_TTL_SECONDS)
+    ttl_seconds = int(member_session_ttl_seconds(member))
+    session_expires_at_ms = int((member or {}).get("_session_expires_at_ts") or 0) * 1000
     script = f"""
     <script>
     (function() {{
@@ -4947,6 +4969,7 @@ def render_member_auth_browser_persistence_bridge():
         const activeAdminModule = {json.dumps(active_admin_module)};
         const ttlSeconds = {ttl_seconds};
         const ttlMs = ttlSeconds * 1000;
+        const sessionExpiresAt = {session_expires_at_ms};
         const now = Date.now();
         const targetWindow = window.parent || window;
 
@@ -5045,8 +5068,8 @@ def render_member_auth_browser_persistence_bridge():
             return;
         }}
 
-        if (token) {{
-            const expiresAt = String(now + ttlMs);
+        if (token && sessionExpiresAt > now) {{
+            const expiresAt = String(sessionExpiresAt);
             const storage = getStorage();
             try {{
                 if (storage) {{
@@ -5054,7 +5077,7 @@ def render_member_auth_browser_persistence_bridge():
                     storage.setItem(expiresKey, expiresAt);
                 }}
             }} catch (err) {{}}
-            writeCookie(token, ttlSeconds);
+            writeCookie(token, Math.max(0, Math.floor((sessionExpiresAt - now) / 1000)));
             notifyOuterShell("save", token, expiresAt);
             return;
         }}

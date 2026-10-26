@@ -196,6 +196,19 @@ class MemberAuthBridgeSourceTests(unittest.TestCase):
         self.assertIn("MEMBER_AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60", self.matcher)
         self.assertIn("const ttlMs = 12 * 60 * 60 * 1000;", self.worker)
 
+    def test_admin_session_uses_24h_server_expiry_without_extending_member_policy(self):
+        self.assertIn('MEMBER_AUTH_ADMIN_SESSION_TTL_SECONDS = 24 * 60 * 60', self.matcher)
+        bridge_start = self.matcher.index('def render_member_auth_browser_persistence_bridge():')
+        bridge_end = self.matcher.index('\ndef set_current_member', bridge_start)
+        bridge = self.matcher[bridge_start:bridge_end]
+        self.assertIn('member = current_member()', bridge)
+        self.assertIn('const expiresAt = String(sessionExpiresAt);', bridge)
+        self.assertIn('token && sessionExpiresAt > now', bridge)
+        self.assertNotIn('const expiresAt = String(now + ttlMs);', bridge)
+        # The shell already accepts the explicit server-provided expiry. Its
+        #12h fallback stays unchanged; it does not truncate a24h admin session.
+        self.assertIn('Number(expiresAt) > currentTime ? Number(expiresAt)', self.worker)
+
     def test_member_snapshot_api_keeps_version_history(self):
         self.assertIn("member_auth_snapshot_history", self.worker)
         self.assertIn('searchParams.get("version")', self.worker)
