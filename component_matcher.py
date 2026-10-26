@@ -319,7 +319,7 @@ PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
 QUERY_RESULT_CACHE_VERSION = 140
-BOM_MATCH_OUTPUT_VERSION = 3
+BOM_MATCH_OUTPUT_VERSION = 4
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -344,7 +344,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-25T13:38:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-26T11:01:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -23273,6 +23273,14 @@ def normalize_resistor_value_tolerance_separator(text):
     value = clean_text(text)
     if value == "":
         return ""
+    # OCR can separate a standalone resistance suffix (``RES\0201\1 M\F``).
+    # Join only a complete numeric field and R/K/uppercase M; never compact
+    # model identities, adjacent BOM numbers, MHz, or lowercase milli notation.
+    value = re.sub(
+        r"(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)[ \t]+([RrKkM])(?=$|[\s_,;/\\|()（）])",
+        r"\1\2",
+        value,
+    )
     # Customer BOMs often use KR/MR as a unit suffix (for example 10KR =
     # 10K ohm) and may contain spaces around the decimal point. Normalize
     # only standalone numeric resistor tokens so manufacturer models such as
@@ -24256,6 +24264,21 @@ def find_power_in_text(text):
     # Normalize them before looking for a fraction so the fallback `\d+W`
     # pattern cannot silently turn 1／10W into 10W.
     normalized = raw.replace("毫瓦", "mW").replace("瓦", "W").replace("／", "/").replace("\\", "/")
+    # A split denominator must be handled before the scalar-W fallback:
+    # ``1/1 6W`` is a common OCR rendering of 1/16W, not a six-watt rating.
+    # Recover only known fractional ratings; otherwise fail closed instead
+    # of silently taking the last digit group as a separate wattage.
+    split_fraction_match = re.search(
+        r"(?<![A-Z0-9.])(\d+)\s*/\s*(\d+(?:[ \t]+\d+)+)\s*W(?![A-Z0-9])",
+        normalized,
+        flags=re.I,
+    )
+    if split_fraction_match:
+        numerator = split_fraction_match.group(1)
+        denominator = re.sub(r"[ \t]+", "", split_fraction_match.group(2))
+        if numerator == "1" and denominator in {"10", "16", "20", "32"}:
+            return format_power_display(f"1/{denominator}W")
+        return ""
     broken_fraction_match = re.search(
         r"(?<![A-Z0-9.])1\s*[/;；]\s*(2|4|8|10|16|20|32)\s*W(?![A-Z0-9])",
         normalized,

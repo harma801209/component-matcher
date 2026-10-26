@@ -1077,6 +1077,81 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertFalse(app["bom_ocr_dataframe_is_usable"](noise))
         self.assertFalse(app["bom_grid_dataframe_is_usable"](noise))
 
+    def test_resistor_ocr_split_fields_parse_without_rewriting_source(self):
+        app = self.app
+        cases = [
+            (r'8 2200500039 RES\0201\1 M\F\1/20W 5028465', 1_000_000, '0201', '1', '1/20W'),
+            (r'17 2201500001 RES\0402\0R\J\1/1 6W 475380', 0, '0402', '5', '1/16W'),
+            (r'RES\0402\0R\W\1/1 6W', 0, '0402', '', '1/16W'),
+            (r'RES\0201\1 M\F\1/2 0W', 1_000_000, '0201', '1', '1/20W'),
+        ]
+        for text, ohms, size, tolerance, power in cases:
+            with self.subTest(text=text):
+                parsed = app['parse_resistor_spec_query'](text)
+                self.assertIsNotNone(parsed)
+                self.assertEqual(parsed['型号'], text)
+                self.assertEqual(parsed['器件类型'], '贴片电阻')
+                self.assertEqual(parsed['尺寸（inch）'], size)
+                self.assertEqual(parsed['_resistance_ohm'], ohms)
+                self.assertEqual(app['clean_tol_for_match'](parsed['容值误差']), tolerance)
+                self.assertEqual(parsed['_power'], power)
+                mode, detected = app['detect_query_mode_and_spec'](pd.DataFrame(), text)
+                self.assertEqual(mode, '贴片电阻')
+                self.assertEqual(detected['_resistance_ohm'], ohms)
+
+    def test_resistor_ocr_split_fields_match_search_and_bom(self):
+        app = self.app
+        cases = [
+            (r'8 2200500039 RES\0201\1 M\F\1/20W 5028465', 'FRC0201F1004TS'),
+            (r'17 2201500001 RES\0402\0R\J\1/1 6W 475380', 'FRC0402P000TS'),
+            (r'17 2201500001 RES\0402\0R\W\1/1 6W 475380', 'FRC0402P000TS'),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                resolved = app['resolve_search_query_dataframe_and_spec'](text)
+                self.assertNotEqual(resolved['resolution_path'], 'full_dataframe')
+                matches = app['run_query_match'](resolved['query_df'], resolved['mode'], resolved['spec'])
+                self.assertIn(expected, set(matches['型号'].map(app['clean_model'])))
+                frame = app['build_bom_ocr_dataframe_from_text'](text)
+                self.assertEqual(frame.iloc[0]['OCR原文'], text)
+                result = app['build_bom_upload_result_row'](
+                    pd.DataFrame(), 0, frame.iloc[0].to_dict(),
+                    {'model': None, 'spec': 'OCR原文', 'name': None, 'quantity': None},
+                )
+                self.assertEqual(result['BOM规格'], text)
+                self.assertNotIn(result['状态'], {'解析失败', '无匹配'})
+                if '\\W\\' in text:
+                    # The source image's J may be OCR'd as W. Fixing spaces
+                    # must not silently invent a 5% requirement in that case.
+                    self.assertEqual(resolved['spec']['容值误差'], '')
+                    self.assertEqual(result['状态'], '需确认')
+                else:
+                    self.assertEqual(app['clean_model'](result['推荐型号']), expected)
+
+    def test_resistor_ocr_space_repairs_keep_units_and_fraction_boundaries(self):
+        app = self.app
+        normalize = app['normalize_resistor_value_tolerance_separator']
+        for text in ('ABC1 M', '1 MHz', '1 m', '1 mΩ', '1 mR', '2200500039 5028465', 'FRC0201F1004 TS'):
+            self.assertEqual(normalize(text), text)
+        for text, expected in [('1 M', 1_000_000), ('1 MΩ', 1_000_000), ('1 mΩ', .001), ('1 mR', .001), ('4.7 K', 4700)]:
+            self.assertEqual(app['find_resistance_in_text'](text), expected)
+        for text, power in [('1/1 6W', '1/16W'), ('1／1 6 W', '1/16W'),
+                            ('1/1 0W', '1/10W'), ('1/3 2W', '1/32W'), ('6W', '6W'),
+                            ('1/16W', '1/16W'), ('62.5mW', '1/16W'),
+                            ('1/1 7W', ''), ('2/1 6W', ''), ('1/1 6V', '')]:
+            self.assertEqual(app['find_power_in_text'](text), power, text)
+        self.assertIsNone(app['parse_resistor_spec_query']('MLCC 0402 1 M ±20% 6.3V'))
+
+    def test_resistor_ocr_repair_invalidates_previous_bom_output_version(self):
+        app = self.app
+        self.assertGreaterEqual(app['BOM_MATCH_OUTPUT_VERSION'], 4)
+        upload = UploadedBytes('same-source.png', b'unchanged-source-image')
+        mapping = {'model': None, 'spec': 'OCR原文', 'name': None, 'quantity': None}
+        signature = json.loads(app['build_bom_workbook_run_signature'](upload, {'sheet': mapping}))
+        self.assertEqual(signature['matching_logic_version'], app['BOM_MATCH_OUTPUT_VERSION'])
+        legacy = dict(signature, matching_logic_version=3)
+        self.assertNotEqual(signature, legacy)
+
     def test_bom_image_normalization_preserves_models_and_milli_mega_resistance(self):
         app = self.app
         fixtures = [("UNI0HM/SMD HP06W2J047KT5E 1206 470m Q ± 5% 1/2W LF", .47, "HP06W2J047KT5E"),
