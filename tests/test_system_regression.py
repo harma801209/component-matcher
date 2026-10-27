@@ -3477,11 +3477,13 @@ class SystemRegressionTests(unittest.TestCase):
                        _amotech_catalog=SimpleNamespace(name='amotech',version='old'),
                        _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=lifecycle,
                        _catalog_panasonic_lifecycle=panasonic,
-                       _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'))
+                       _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'),
+                       _bom_model_comparison=SimpleNamespace(name='bom_comparison',version='old'))
         exec(compile(ast.Module(body=nodes,type_ignores=[]),'actual-catalogue-reloads','exec'),namespace)
         self.assertLess(calls.index('passive'),calls.index('filters'))
         self.assertIn('lifecycle',calls)
         self.assertIn('amotech',calls)
+        self.assertIn('bom_comparison',calls)
         self.assertLess(calls.index('panasonic'),calls.index('lifecycle'))
         self.assertNotIn('member_auth_runtime',calls)
 
@@ -6159,6 +6161,56 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertEqual(result.get("解析来源"), "规格内富捷型号（已核对规格）")
         self.assertEqual(app["clean_model"](result.get("自有型号", "")), "FRC0402F2003TS")
         self.assertEqual(result.get("自有成本", ""), "1.70")
+
+    def test_bom_comparison_explains_supported_model_fields_without_equivalence_claim(self):
+        explain = self.app["describe_bom_compared_models"]
+        note = explain("FRC0402F2200TS", "FRC0402J220 TS")
+        for expected in ("误差", "±1%", "±5%", "阻值", "220Ω", "22Ω", "需人工确认"):
+            self.assertIn(expected, note)
+        self.assertNotIn("系列", note)
+        series = explain("FRC0603F1000TS", "FRR0603F1000TS")
+        self.assertIn("系列：原型号 FRC，系统型号 FRR", series)
+        self.assertIn("±5%", explain("FRC0402P000TS", "FRC0402F0000TS"))
+        cap_note = explain("CL05A475KP5NRNC", "CL05A105KP5NRNC")
+        self.assertIn("容量", cap_note)
+        unknown = explain("UNKNOWN123", "UNKNOWN124")
+        self.assertIn("暂无可用", unknown)
+        self.assertIn("不能据此判断", unknown)
+        self.assertIn("多个型号", explain("A;B", "C"))
+        suffix = explain("FPM253WFR002TM", "FPM253WFR002TML")
+        self.assertIn("不代表可以互换", suffix)
+
+    def test_bom_comparison_panel_uses_full_frames_and_sheet_scoped_keys(self):
+        from unittest.mock import patch
+        app = self.app
+        original = pd.DataFrame({"MPN": ["FRC0402J220 TS"] * 250})
+        result = pd.DataFrame({"自有型号": ["FRC0402J220 TS"] * 250, "自有成本": ["KEEP"] * 250})
+        with patch.object(app["_bom_model_comparison"], "render_panel", return_value="DONE") as render:
+            self.assertEqual(app["render_bom_model_comparison_panel"](original, result, "file-a", "Sheet1"), "DONE")
+            args, kwargs = render.call_args
+            self.assertIs(args[1], original)
+            self.assertIs(args[2], result)
+            self.assertEqual(len(args[1]), 250)
+            self.assertEqual(kwargs["model_columns"]["匹配型号"], "自有型号")
+            first_key = kwargs["key"]
+            app["render_bom_model_comparison_panel"](original, result, "file-a", "Sheet2")
+            self.assertNotEqual(render.call_args.kwargs["key"], first_key)
+            app["render_bom_model_comparison_panel"](original, result, "file-b", "Sheet1")
+            self.assertNotEqual(render.call_args.kwargs["key"], first_key)
+        self.assertEqual(set(result["自有成本"]), {"KEEP"})
+
+    def test_bom_comparison_selection_does_not_invalidate_matching_run_signature(self):
+        app = self.app
+        uploaded = UploadedBytes("comparison.csv", b"MPN\nFRC0402J220TS\n")
+        mappings = {"Sheet1": {"model":"MPN", "spec":None, "name":None, "quantity":None}}
+        before = app["build_bom_workbook_run_signature"](uploaded, mappings)
+        app["st"].session_state["bom_model_compare_signature_test_columns"] = ["original:0", "matched:0"]
+        try:
+            after = app["build_bom_workbook_run_signature"](uploaded, mappings)
+        finally:
+            app["st"].session_state.pop("bom_model_compare_signature_test_columns", None)
+        self.assertEqual(before, after)
+        self.assertEqual(app["BOM_MATCH_OUTPUT_VERSION"], 6)
 
     def test_bom_separate_fojan_description_controls_selection_and_price(self):
         app = self.app

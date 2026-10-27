@@ -76,6 +76,7 @@ import precision_theme as _workbench_theme
 import component_filters as _catalog_filters
 import catalog_result_table as _catalog_result_table
 import catalog_filter_panel as _catalog_filter_panel
+import bom_model_comparison as _bom_model_comparison
 import manufacturer_lifecycle as _catalog_lifecycle
 import panasonic_lifecycle as _catalog_panasonic_lifecycle
 # Existing cloud script caches may still use the previous entrypoint loader.
@@ -91,6 +92,7 @@ _workbench_importlib.reload(_catalog_lifecycle)
 _workbench_importlib.reload(_catalog_filters)
 _workbench_importlib.reload(_catalog_result_table)
 _workbench_importlib.reload(_catalog_filter_panel)
+_workbench_importlib.reload(_bom_model_comparison)
 from precision_theme import CSS as WORKBENCH_CSS, TABLE_CSS as WORKBENCH_TABLE_CSS, render_header as render_workbench_header
 from bom_job_store import (
     create_or_update_job as _create_or_update_bom_job,
@@ -345,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-26T21:52:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-27T14:33:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49341,6 +49343,82 @@ def build_bom_matched_export_df(upload_df, result_df, include_cost=True):
     return export_df
 
 
+def describe_bom_compared_models(original_model, matched_model):
+    """Explain code differences from existing rules, without lookup or repricing."""
+    fields = []
+    for value in (original_model, matched_model):
+        compact = _bom_model_comparison.model_key(value)
+        if re.search(r"[;,；，|]", compact) or canonicalize_known_model_ocr_confusions(compact) != compact:
+            return "型号文字不同；含多个型号、额外文本或待确认字符，请人工核对，未自动判定等效。"
+        parsed = parse_model_rule(compact, brand=infer_rule_fallback_brand_from_model(compact))
+        if not isinstance(parsed, dict):
+            return "型号文字不同；至少一个型号暂无可用的完整命名解析，需人工确认，不能据此判断电气规格是否等效。"
+        parsed = dict(parsed)
+        ordinary_fojan = parse_valid_fojan_resistor_model(compact)
+        if ordinary_fojan is not None:
+            parsed.update({"系列": ordinary_fojan["series"], "尺寸（inch）": ordinary_fojan["size"],
+                           "容值误差": ordinary_fojan["tolerance"],
+                           "_resistance_ohm": ordinary_fojan["resistance_ohm"],
+                           "_power": RESISTOR_POWER_BY_SIZE.get(ordinary_fojan["size"], ""),
+                           "耐压（V）": FOJAN_FRC_MAX_WORKING_VOLTAGE_BY_SIZE.get(ordinary_fojan["size"], "")})
+        elif parsed.get("_model_rule_authority") == "generic_resistor_model":
+            # A generic prefix can include size/tolerance characters. It is
+            # not evidence that the manufacturer defines a distinct series.
+            parsed.pop("系列", None)
+        fields.append(parsed)
+    left, right = fields
+    differences = []
+    compared = 0
+    for label, column, normalize, display in (
+        ("封装", "尺寸（inch）", clean_size, clean_size),
+        ("误差", "容值误差", clean_tol_for_match, clean_tol_for_display),
+        ("介质", "材质（介质）", clean_material, clean_material),
+        ("系列", "系列", clean_text, clean_text),
+    ):
+        a, b = normalize(left.get(column, "")), normalize(right.get(column, ""))
+        if a and b:
+            compared += 1
+            if a != b:
+                differences.append(f"{label}：原型号 {display(a)}，系统型号 {display(b)}")
+    for label, a, b, unit in (
+        ("阻值", left.get("_resistance_ohm"), right.get("_resistance_ohm"), "Ω"),
+        ("容量", left.get("容值_pf"), right.get("容值_pf"), "pF"),
+        ("功率", parse_power_to_watts(left.get("_power", "") or left.get("功率", "")),
+         parse_power_to_watts(right.get("_power", "") or right.get("功率", "")), "W"),
+        ("耐压", clean_voltage(left.get("耐压（V）", "")), clean_voltage(right.get("耐压（V）", "")), "V"),
+    ):
+        if a is None or b is None or clean_text(a) == "" or clean_text(b) == "":
+            continue
+        try:
+            a, b = float(a), float(b)
+        except (ValueError, TypeError):
+            continue
+        if not math.isfinite(a) or not math.isfinite(b):
+            continue
+        compared += 1
+        if not math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12):
+            differences.append(f"{label}：原型号 {a:.12g}{unit}，系统型号 {b:.12g}{unit}")
+    if differences:
+        return "；".join(differences) + "。以上为已接入命名规则的解析差异，需人工确认。"
+    if compared:
+        return "型号文字不同；已解析的基础参数未发现差异，但包装、版本或其他尾码仍需人工确认，不代表可以互换。"
+    return "型号文字不同，现有规则未解析出可比较的参数，需人工确认。"
+
+
+def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, sheet_name):
+    # Pass full active-sheet frames, never the filtered/paged main-table view.
+    # This UI state is intentionally absent from matching/pricing run signatures.
+    columns = {bom_slot_name("匹配型号", idx): bom_own_brand_internal_column("自有型号", idx)
+               for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)}
+    key = "bom_model_compare_" + hashlib.sha256(
+        f"{workbook_signature}|{sheet_name}".encode("utf-8")
+    ).hexdigest()[:20]
+    return _bom_model_comparison.render_panel(
+        st, upload_df, result_df, key=key, model_columns=columns,
+        detail=describe_bom_compared_models,
+    )
+
+
 def copy_excel_cell_style(src_cell, dst_cell):
     if src_cell is None or dst_cell is None:
         return
@@ -51774,6 +51852,9 @@ def render_bom_upload_page():
                                 height=220,
                                 scrolling=False,
                             )
+                        render_bom_model_comparison_panel(
+                            bom_df, bom_result_df, workbook_signature, selected_sheet_name,
+                        )
                         clickable_bom_html = render_clickable_result_table(
                             display_bom_result_df,
                             hide_columns=[],
