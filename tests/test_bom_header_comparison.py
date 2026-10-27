@@ -106,26 +106,38 @@ class HeaderComparisonTests(unittest.TestCase):
         self.assertEqual(report["left_label"], "原表 · MPN")
         self.assertEqual(report["right_label"], "系统 · 匹配型号")
 
-    def test_paging_and_show_all_do_not_reduce_worksheet_counts(self):
+    def test_global_issues_share_the_main_table_and_keep_summary_coverage(self):
         frame = pd.DataFrame({"MPN": ["A"] * 250, "匹配型号": ["B"] * 250})
-        ui = HeaderUI(issues_only=False)
-        ui.session_state["check_page_column:0_column:1_0"] = 99
+        ui, calls, views = HeaderUI(), [], []
+        ui.session_state["check_table"] = {**self.event(frame, ["column:0", "column:1"]), "issues_only": True, "page": 99}
+        def renderer(view):
+            views.append(view)
+            return "FILTERED"
         report = render_table(ui, frame, table_html="TABLE", original_column_count=1,
                               visible_columns=list(frame.columns), key="check",
-                              component=lambda **kwargs: self.event(frame, ["column:0", "column:1"]))
+                              component=lambda **kwargs: calls.append(kwargs), table_renderer=renderer,
+                              visible_row_positions=[0, 1])
         self.assertEqual(report["different"], 250)
-        self.assertEqual(len(ui.tables[0]), 50)
-        self.assertEqual(ui.tables[0].iloc[0]["BOM行号"], 202)
+        self.assertEqual(len(views[0]), 50)
+        self.assertEqual(calls[0]["table_html"], "FILTERED")
+        self.assertEqual(calls[0]["report"]["rows"][0]["row_number"], "202")
+        self.assertEqual(calls[0]["report"]["page"], 3)
+        self.assertFalse(ui.tables)
+        self.assertFalse(ui.messages)
 
     def test_consistent_report_is_only_shown_after_click(self):
         frame = pd.DataFrame({"MPN": ["A", "B"], "匹配型号": ["a", " b "]})
         ui = HeaderUI(issues_only=False)
+        calls = []
+        ui.session_state["check_table"] = self.event(frame, ["column:0", "column:1"])
         report = render_table(ui, frame, table_html="TABLE", original_column_count=1,
                               visible_columns=list(frame.columns), key="check",
-                              component=lambda **kwargs: self.event(frame, ["column:0", "column:1"]))
+                              component=lambda **kwargs: calls.append(kwargs))
         self.assertEqual(report["same"], 2)
-        self.assertTrue(any(kind == "success" for kind, _ in ui.messages))
-        self.assertEqual(len(ui.tables[0]), 2)
+        self.assertEqual(calls[0]["report"]["same"], 2)
+        self.assertFalse(calls[0]["report"]["issues_only"])
+        self.assertFalse(ui.messages)
+        self.assertFalse(ui.tables)
 
     def test_renderer_waits_for_button_then_warns_without_changing_data(self):
         frame = self.frame()
@@ -139,11 +151,14 @@ class HeaderComparisonTests(unittest.TestCase):
                                        visible_columns=list(frame.columns), key="check", component=component))
         self.assertFalse(ui.tables)
         event = self.event(frame)
+        ui.session_state["check_table"] = event
         report = render_table(ui, frame, table_html="TABLE", original_column_count=2,
                               visible_columns=list(frame.columns), key="check", component=component)
         self.assertEqual(report["different"], 1)
-        self.assertEqual(len(ui.tables[0]), 1)
-        self.assertTrue(any(kind == "warning" for kind, _ in ui.messages))
+        self.assertFalse(ui.tables)
+        self.assertFalse(ui.messages)
+        self.assertEqual(calls[-1]["report"]["different"], 1)
+        self.assertEqual(calls[-1]["report"]["rows"][0]["status"], "不一致")
         self.assertEqual(len(calls[-1]["headers"]), 4)
         pd.testing.assert_frame_equal(frame, before)
         self.assertEqual(ui.session_state["member_token"], "KEEP")
@@ -157,9 +172,57 @@ class HeaderComparisonTests(unittest.TestCase):
                      visible_columns=["MPN", "匹配型号"], key="check", component=component)
         self.assertEqual([item["key"] for item in calls[0]["headers"]], ["column:1", "column:2"])
         self.assertNotIn("匹配成本", str(calls[0]["headers"]))
+        ui.session_state["check_table"] = self.event(frame, ["column:1", "column:3"])
         self.assertIsNone(render_table(ui, frame, table_html="TABLE", original_column_count=2,
                                        visible_columns=["MPN", "匹配型号"], key="check",
                                        component=lambda **kwargs: self.event(frame, ["column:1", "column:3"])))
+
+    def test_only_visible_rows_receive_annotations_until_global_filter_is_enabled(self):
+        frame = self.frame()
+        ui, calls = HeaderUI(), []
+        ui.session_state["check_table"] = self.event(frame)
+        render_table(ui, frame, table_html="TABLE", original_column_count=2,
+                     visible_columns=list(frame.columns), visible_row_positions=[1], key="check",
+                     component=lambda **kwargs: calls.append(kwargs))
+        self.assertEqual(calls[0]["report"]["total"], 2)
+        self.assertEqual(len(calls[0]["report"]["rows"]), 1)
+        self.assertEqual(calls[0]["report"]["rows"][0]["status"], "一致")
+
+    def test_all_consistent_issues_view_keeps_headers_and_no_duplicate_result_grid(self):
+        frame = pd.DataFrame({"MPN": ["A"], "匹配型号": ["a"]})
+        ui, calls, views = HeaderUI(), [], []
+        ui.session_state["check_table"] = {**self.event(frame, ["column:0", "column:1"]), "issues_only": True}
+        def renderer(view): views.append(view); return "HEADERS ONLY"
+        render_table(ui, frame, table_html="TABLE", original_column_count=1,
+                     visible_columns=list(frame.columns), key="check", table_renderer=renderer,
+                     component=lambda **kwargs: calls.append(kwargs))
+        self.assertEqual(len(views[0]), 0)
+        self.assertEqual(calls[0]["report"]["rows"], [])
+        self.assertEqual(calls[0]["report"]["total"], 1)
+        self.assertFalse(ui.messages)
+        self.assertFalse(ui.tables)
+
+    def test_hidden_columns_are_not_exposed_in_filtered_rows(self):
+        frame = self.frame()
+        ui, views = HeaderUI(), []
+        ui.session_state["check_table"] = {**self.event(frame), "issues_only": True}
+        def renderer(view): views.append(view); return "FILTERED"
+        render_table(ui, frame, table_html="TABLE", original_column_count=2,
+                     visible_columns=["MPN", "匹配型号"], key="check", table_renderer=renderer,
+                     component=lambda **kwargs: None)
+        self.assertEqual(list(views[0].columns), ["MPN", "匹配型号"])
+        self.assertEqual(len(views[0]), 1)
+
+    def test_bad_annotation_alignment_fails_in_the_same_component(self):
+        frame = self.frame()
+        ui, calls = HeaderUI(), []
+        ui.session_state["check_table"] = self.event(frame)
+        self.assertIsNone(render_table(ui, frame, table_html="TABLE", original_column_count=2,
+                                      visible_columns=list(frame.columns), visible_row_positions=[99], key="check",
+                                      component=lambda **kwargs: calls.append(kwargs)))
+        self.assertIn("未对齐", calls[0]["error"])
+        self.assertIsNone(calls[0]["report"])
+        self.assertFalse(ui.messages)
 
     def test_component_has_real_checkboxes_and_click_only_message(self):
         source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
@@ -167,6 +230,10 @@ class HeaderComparisonTests(unittest.TestCase):
         self.assertIn('型号比对</button>', source)
         self.assertEqual(source.count("send('streamlit:setComponentValue'"), 1)
         self.assertIn("run.onclick=", source)
+        self.assertIn('id="compare-result"', source)
+        self.assertIn('id="compare-issues"', source)
+        self.assertIn("details.className='compare-note'", source)
+        self.assertIn("details.open=expandedRows.has", source)
         self.assertIn("event.source!==window.parent", source)
         self.assertIn("event.origin!==window.location.origin", source)
         self.assertNotIn("},'*')", source)

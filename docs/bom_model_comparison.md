@@ -24,8 +24,14 @@ Different text is not proof of electrical incompatibility, and equal text is
 not independent specification validation.
 
 After clicking, the page shows full-sheet consistent/different/missing counts,
-a warning for issues, and an issues-only grid by default. Its own 100-row paging
-does not reduce summary coverage. Existing model parsers explain independently
+a compact result line immediately beside/below the selection and button in
+the same toolbar. There is no independent report section or comparison grid
+below the BOM. The default view keeps the existing BOM rows visible. Issues
+are highlighted in their selected cells with expandable row-number/reason
+details. The toolbar's issues-only switch replaces the same table with all
+worksheet issues, not merely issues on the visible main page. Its own100-row
+paging stays in the toolbar and does not reduce full-sheet summary coverage.
+Existing model parsers explain independently
 known package, tolerance, resistance, capacitance, power, voltage and series
 differences. Unknown codes and parser errors require human review, without
 failing or altering the main BOM result. Parameter omissions do not become
@@ -37,7 +43,12 @@ The comparison frame uses the same cost-permission gate and preserves raw
 original cells even if their headers overlap display-normalizer field names.
 A content revision rejects stale button events after data changes. Draft
 checkbox changes remain browser-local; only clicking the button sends the
-selected positions. A previous report labels the compared pair explicitly.
+selected positions. Result/filter/page state are returned to the same keyed
+component using Streamlit's pre-rerun widget value, with no second render and
+no application rerun loop. Changing draft columns hides stale annotations.
+Filter/page events only change the comparison view, never matching or prices.
+Only currently displayed row annotations are sent; hidden columns stay hidden
+even in global issues mode. Empty issues keep the headers and a compact message.
 Pricing permissions and existing export contents are unchanged; no matching
 or output-version bump is needed. The component has no external dependencies,
 network calls, persistent browser storage or application-data writes.

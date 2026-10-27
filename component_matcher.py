@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-27T18:22:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-27T20:02:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49406,7 +49406,7 @@ def describe_bom_compared_models(original_model, matched_model):
 
 
 def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, sheet_name,
-                                      *, display_df=None, include_cost=False):
+                                      *, display_df=None, include_cost=False, visible_row_positions=None):
     # Pass full active-sheet frames, never the filtered/paged main-table view.
     # This UI state is intentionally absent from matching/pricing run signatures.
     full_frame = build_bom_matched_export_df(upload_df, result_df, include_cost=include_cost)
@@ -49419,6 +49419,7 @@ def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, 
         full_frame.isetitem(position, upload_df.iloc[:, position].reset_index(drop=True))
     if display_df is None:
         display_df = format_display_df(full_frame)
+        visible_row_positions = list(range(len(full_frame)))
     # Match the exact rendered header order, including normalized display fields.
     page_frame = display_df.copy()
     for normalize in (normalize_resistor_model_display_fields,
@@ -49440,6 +49441,11 @@ def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, 
         visible_columns=[col for col in page_frame.columns if col != "_量产状态链接"],
         detail=describe_bom_compared_models,
         row_numbers=result_df["BOM行号"].tolist() if "BOM行号" in result_df else None,
+        visible_row_positions=visible_row_positions if visible_row_positions is not None else [],
+        table_renderer=lambda view: render_clickable_result_table(
+            format_display_df(view), hide_columns=[], show_official_status=False,
+            wrapper_class="bom-result-table-wrap", footer_html="", outer_footer_html="",
+        ),
     )
 
 
@@ -51880,6 +51886,8 @@ def render_bom_upload_page():
                             bom_df, bom_result_df, workbook_signature, selected_sheet_name,
                             display_df=display_bom_result_df,
                             include_cost=bom_export_settings.get("include_cost", False),
+                            visible_row_positions=[int(bom_df.index.get_loc(index)) for index in page_indexes]
+                            if bom_df.index.is_unique and len(page_bom_df) == len(page_indexes) else [],
                         )
 
         except Exception as e:

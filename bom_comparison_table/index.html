@@ -10,6 +10,19 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
 #compare-selection{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 #compare-selection button{background:#eef4ff;padding:5px 9px;font-size:13px}
 #compare-message{color:#647a93;font-size:13px}
+.compare-result{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-basis:100%;padding:8px 0 2px;border-top:1px solid #e3eaf4;font-size:13px}
+.compare-result[hidden],#compare-empty[hidden],#compare-pages[hidden]{display:none}
+#compare-summary{color:#167052;font-weight:600}
+#compare-summary[data-level="warning"]{color:#925600}
+.compare-filter{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto}
+.compare-filter input{width:17px;height:17px;accent-color:#1553ed}
+#compare-pages{display:inline-flex;align-items:center;gap:8px}
+#compare-pages button{padding:4px 8px;font-size:12px}
+#compare-empty{padding:16px;color:#60748f;font-size:14px;border:1px solid #e3eaf4;border-top:0}
+.result-table td.compare-cell-issue{background:#fff4dc!important;box-shadow:inset 0 -2px #dda44e}
+.compare-note{margin-top:4px;white-space:normal;font-size:12px;color:#805213}
+.compare-note summary{cursor:pointer;font-weight:600}
+.compare-note p{margin:6px 0 2px;line-height:1.5;overflow-wrap:anywhere;max-width:340px}
 .result-table th .compare-heading{display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:3px 4px 3px 0;white-space:nowrap}
 .compare-heading input{width:18px;height:18px;margin:0;accent-color:#1553ed;cursor:pointer;flex:none}
 .result-table th.compare-selected{background:#e4eeff!important;box-shadow:inset 0 -3px #1553ed}
@@ -21,7 +34,11 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
 <span id="compare-message" role="status">勾选两个栏位</span>
 <div id="compare-selection"></div>
 <button id="compare-run" type="button" disabled>型号比对</button>
-</div><div id="table-root"></div>
+<div id="compare-result" class="compare-result" hidden>
+<span id="compare-summary" role="status"></span>
+<label class="compare-filter"><input id="compare-issues" type="checkbox">仅显示不一致和缺失</label>
+<span id="compare-pages" hidden><button id="compare-prev" type="button">上一组差异</button><span id="compare-page"></span><button id="compare-next" type="button">下一组差异</button></span>
+</div></div><div id="table-root"></div><div id="compare-empty" role="status" hidden></div>
 <script>
 (() => {
   const root=document.getElementById('table-root');
@@ -29,7 +46,13 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
   const selection=document.getElementById('compare-selection');
   const message=document.getElementById('compare-message');
   const run=document.getElementById('compare-run');
+  const result=document.getElementById('compare-result'),summary=document.getElementById('compare-summary');
+  const filter=document.getElementById('compare-issues'),empty=document.getElementById('compare-empty');
+  const pages=document.getElementById('compare-pages'),pageLabel=document.getElementById('compare-page');
+  const prev=document.getElementById('compare-prev'),next=document.getElementById('compare-next');
   let revision='',selected=[],submitted=[],options=[],lastHtml='',hostDisabled=false;
+  let report=null,pending=false,lastRequest=0,requestCounter=0,error='';
+  const expandedRows=new Set();
   const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},window.location.origin);
   function height(){
     const wrap=root.querySelector('.bom-result-table-wrap');
@@ -40,7 +63,49 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
       const overflow=wrap.scrollWidth>wrap.clientWidth+1?18:0;
       wrap.style.maxHeight=Math.ceil((head?head.getBoundingClientRect().height:0)+rowsHeight+overflow+2)+'px';
     }
-    send('streamlit:setFrameHeight',{height:Math.ceil(toolbar.getBoundingClientRect().height+root.getBoundingClientRect().height+24)});
+    send('streamlit:setFrameHeight',{height:Math.ceil(toolbar.getBoundingClientRect().height+root.getBoundingClientRect().height+empty.getBoundingClientRect().height+24)});
+  }
+  function paintReport(){
+    const rows=Array.from(root.querySelectorAll('tbody tr'));
+    rows.forEach(row=>{
+      row.querySelectorAll('.compare-note').forEach(note=>{
+        if(note.open)expandedRows.add(note.dataset.rowKey);
+        else expandedRows.delete(note.dataset.rowKey);
+        note.remove();
+      });
+      row.querySelectorAll('.compare-cell-issue').forEach(cell=>cell.classList.remove('compare-cell-issue'));
+    });
+    const active=report&&selected.join('|')===report.columns.join('|')&&!pending;
+    result.hidden=!active;empty.hidden=true;
+    if(!active)return;
+    summary.textContent='全表 '+report.total+' 行 · 一致 '+report.same+' · 不一致 '+report.different+' · 缺失 '+report.missing;
+    summary.dataset.level=report.different||report.missing?'warning':'success';
+    filter.checked=report.issues_only;filter.disabled=hostDisabled||!report.can_filter;
+    pages.hidden=!report.issues_only||report.page_count<=1;
+    pageLabel.textContent='差异 '+report.page+' / '+report.page_count+' 页';
+    prev.disabled=hostDisabled||report.page<=1;next.disabled=hostDisabled||report.page>=report.page_count;
+    const marked=options.map((option,index)=>report.columns.includes(option.key)?index:-1).filter(index=>index>=0);
+    const noteColumn=marked.find(index=>options[index].source==='matched')??marked[marked.length-1];
+    rows.forEach((row,index)=>{
+      const item=report.rows[index];
+      if(!item||item.status==='一致')return;
+      marked.forEach(column=>row.children[column]?.classList.add('compare-cell-issue'));
+      const cell=row.children[noteColumn];
+      if(!cell)return;
+      const details=document.createElement('details');details.className='compare-note';
+      details.dataset.rowKey=report.request+'|'+item.row_number;
+      details.open=expandedRows.has(details.dataset.rowKey);
+      details.ontoggle=()=>{
+        if(details.open)expandedRows.add(details.dataset.rowKey);else expandedRows.delete(details.dataset.rowKey);
+        height();
+      };
+      const title=document.createElement('summary');title.textContent='原表第 '+item.row_number+' 行 · '+item.status;
+      const note=document.createElement('p');note.textContent=item.note;
+      details.append(title,note);cell.append(details);
+    });
+    if(report.issues_only&&!rows.length){
+      empty.hidden=false;empty.textContent='整张工作表没有不一致或缺失型号。取消“仅显示不一致和缺失”可查看全部物料。';
+    }
   }
   function sync(){
     root.querySelectorAll('input[data-compare-key]').forEach(input=>{
@@ -60,8 +125,9 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
       selection.append(remove);
     });
     const dirty=selected.join('|')!==submitted.join('|');
-    message.textContent=selected.length===2?(dirty?'已选 2 栏，点击比对':'已选 2 栏'):('勾选两个栏位（'+selected.length+'/2）');
-    run.disabled=hostDisabled||selected.length!==2;
+    message.textContent=error||(pending?'正在更新比对结果…':selected.length===2?(dirty?'已选 2 栏，点击比对':'已选 2 栏'):('勾选两个栏位（'+selected.length+'/2）'));
+    run.disabled=hostDisabled||pending||selected.length!==2;
+    paintReport();
     height();
   }
   function installHeaders(){
@@ -117,19 +183,28 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
     });
     table.style.width=total+'px';table.style.minWidth=total+'px';
   }
-  run.onclick=()=>{
-    if(run.disabled)return;
-    submitted=selected.slice();
-    send('streamlit:setComponentValue',{value:{revision,columns:submitted,request:Date.now()},dataType:'json'});
+  function requestView(issuesOnly=false,page=1){
+    submitted=selected.slice();lastRequest=Date.now()+(++requestCounter);pending=true;error='';
+    send('streamlit:setComponentValue',{value:{revision,columns:submitted,request:lastRequest,issues_only:issuesOnly,page},dataType:'json'});
     sync();
-  };
+  }
+  run.onclick=()=>{if(!run.disabled)requestView(false,1);};
+  filter.onchange=()=>{if(!filter.disabled)requestView(filter.checked,1);};
+  prev.onclick=()=>{if(!prev.disabled)requestView(true,report.page-1);};
+  next.onclick=()=>{if(!next.disabled)requestView(true,report.page+1);};
   window.addEventListener('message',event=>{
     if(event.source!==window.parent||event.origin!==window.location.origin||event.data?.type!=='streamlit:render')return;
     const args=event.data.args||{};
     hostDisabled=Boolean(event.data.disabled);
     const nextOptions=Array.isArray(args.headers)?args.headers:[];
     const changed=revision!==args.revision;
-    if(changed){revision=args.revision;selected=[];submitted=[];}
+    if(report?.request!==args.report?.request)expandedRows.clear();
+    report=args.report||null;error=args.error||'';
+    if(changed){
+      revision=args.revision;selected=report?report.columns.slice():[];submitted=selected.slice();
+      pending=false;lastRequest=report?.request||0;
+    }
+    if(error||report?.request===lastRequest)pending=false;
     options=nextOptions;
     const valid=new Set(options.map(item=>item.key));
     selected=selected.filter(key=>valid.has(key)).slice(0,2);
@@ -149,6 +224,7 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
     sync();
   });
   new ResizeObserver(height).observe(root);
+  root.addEventListener('toggle',height,true);
   window.addEventListener('resize',height);
   send('streamlit:componentReady',{apiVersion:1});
 })();

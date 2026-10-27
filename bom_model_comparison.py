@@ -176,48 +176,46 @@ def header_component():
 
 
 def render_table(st, frame, *, table_html, original_column_count, visible_columns,
-                 key, detail=None, row_numbers=None, component=None):
-    """Header checkboxes stay in the table; only the button requests a report."""
+                 key, detail=None, row_numbers=None, component=None,
+                 visible_row_positions=None, table_renderer=None):
+    """One component owns the controls, report and annotated result table."""
     choices = display_column_choices(frame, original_column_count)
     headers = header_choices(choices, list(frame.columns), visible_columns)
     revision = comparison_revision(frame)
-    invoke = component or header_component()
-    event = invoke(table_html=table_html, headers=headers, revision=revision,
-                   key=key + "_table", default=None)
-    # Only visible, already-authorized columns are accepted from the frontend.
+    # On a component event, Streamlit updates this keyed widget value before
+    # rerunning the script. Read it first so the same render receives its report.
+    event = st.session_state.get(key + "_table")
     selected = selected_display_columns(event, frame, headers, revision=revision)
-    if selected is None:
-        return None
-    try:
-        report = compare_display_columns(frame, selected, detail=detail, row_numbers=row_numbers)
-    except ValueError as exc:
-        st.warning(str(exc))
-        return None
-    st.caption(f"上次比对：{report['left_label']} ↔ {report['right_label']}（整张工作表；忽略空格与大小写）")
-    summary = (f"共 {report['total']} 行 · 一致 {report['same']} 行 · "
-               f"不一致 {report['different']} 行 · 缺失型号 {report['missing']} 行")
-    if report["different"] or report["missing"]:
-        st.warning(summary + "。请核对下方差异说明，不能直接当成同一型号。")
-    else:
-        st.success(summary + "。所选两栏型号全部一致。")
-    issues_only = st.checkbox("仅显示不一致和缺失", value=True, key=key + "_issues_only")
-    rows = [row for row in report["rows"] if not issues_only or row["对比状态"] != "一致"]
-    if not rows:
-        return report
-    page_count = max(1, math.ceil(len(rows) / 100))
-    page = 1
-    if page_count > 1:
-        page_key = key + "_page_" + "_".join(item["key"] for item in selected) + f"_{int(issues_only)}"
-        current = st.session_state.get(page_key, 1)
+    report, payload, error = None, None, ""
+    positions = list(range(len(frame))) if visible_row_positions is None else list(visible_row_positions)
+    if selected is not None:
         try:
-            current = min(page_count, max(1, int(current)))
-        except (TypeError, ValueError):
-            current = 1
-        st.session_state[page_key] = current
-        page = int(st.number_input("对比结果页码", min_value=1, max_value=page_count, step=1, key=page_key))
-    start = (page - 1) * 100
-    visible = rows[start:start + 100]
-    st.caption(f"对比明细第 {start + 1}–{start + len(visible)} 行 / 共 {len(rows)} 行；BOM行号对应原表物料行。")
-    st.dataframe(pd.DataFrame(visible), hide_index=True, use_container_width=True,
-                 height=min(480, 38 + 56 * len(visible)))
+            report = compare_display_columns(frame, selected, detail=detail, row_numbers=row_numbers)
+            issues = [index for index, row in enumerate(report["rows"]) if row["对比状态"] != "一致"]
+            issues_only = event.get("issues_only") is True and table_renderer is not None
+            page_count = max(1, math.ceil(len(issues) / 100)) if issues_only else 1
+            try:
+                page = min(page_count, max(1, int(event.get("page", 1))))
+            except (ValueError, TypeError, OverflowError):
+                page = 1
+            if issues_only:
+                positions = issues[(page - 1) * 100:page * 100]
+                # Filter the complete worksheet, not just the main visible page.
+                # Restrict to the same authorized/visible columns as before.
+                view = frame.iloc[positions, [item["position"] for item in headers]].copy()
+                table_html = table_renderer(view)
+            if any(type(pos) is not int or not 0 <= pos < len(frame) for pos in positions):
+                raise ValueError("当前显示行与原表未对齐，请重新加载结果后比对。")
+            payload = {name: report[name] for name in ("total", "same", "different", "missing", "left_label", "right_label")}
+            payload.update(columns=list(event["columns"]), request=event["request"],
+                           issues_only=issues_only, can_filter=table_renderer is not None,
+                           page=page, page_count=page_count, view_count=len(positions),
+                           rows=[{"row_number": text(report["rows"][pos]["BOM行号"]),
+                                  "status": report["rows"][pos]["对比状态"],
+                                  "note": report["rows"][pos]["差异说明"]} for pos in positions])
+        except ValueError as exc:
+            report, error = None, str(exc)
+    invoke = component or header_component()
+    invoke(table_html=table_html, headers=headers, revision=revision, report=payload, error=error,
+           key=key + "_table", default=None)
     return report
