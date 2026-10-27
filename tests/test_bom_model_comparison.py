@@ -1,49 +1,13 @@
 import unittest
-from contextlib import nullcontext
 
 import pandas as pd
 
-from bom_model_comparison import column_choices, compare_columns, model_key, render_panel
+from bom_model_comparison import column_choices, compare_columns, model_key
 
 
 FIELDS = {"匹配型号": "自有型号", "匹配型号2": "自有型号2"}
 
 
-class FakeUI:
-    def __init__(self, selected=None, issues_only=True):
-        self.session_state = {"check_columns": selected or [], "member_token": "KEEP", "cost_scope": "KEEP"}
-        self.issues_only = issues_only
-        self.messages = []
-        self.tables = []
-
-    def expander(self, *args, **kwargs):
-        return nullcontext()
-
-    def multiselect(self, label, options, **kwargs):
-        self.asserted_options = [(key, kwargs["format_func"](key)) for key in options]
-        self.max_selections = kwargs["max_selections"]
-        return self.session_state.get(kwargs["key"], [])
-
-    def caption(self, message):
-        self.messages.append(("caption", message))
-
-    def info(self, message):
-        self.messages.append(("info", message))
-
-    def warning(self, message):
-        self.messages.append(("warning", message))
-
-    def success(self, message):
-        self.messages.append(("success", message))
-
-    def checkbox(self, label, **kwargs):
-        return self.issues_only
-
-    def number_input(self, label, **kwargs):
-        return self.session_state[kwargs["key"]]
-
-    def dataframe(self, frame, **kwargs):
-        self.tables.append(frame.copy(deep=True))
 
 
 class BomModelComparisonTests(unittest.TestCase):
@@ -152,41 +116,6 @@ class BomModelComparisonTests(unittest.TestCase):
         self.assertEqual(report["different"], 1)
         self.assertIn("暂无法解析", report["rows"][0]["差异说明"])
 
-    def test_ui_waits_for_selection_then_automatically_warns(self):
-        original, result = self.frames()
-        ui = FakeUI()
-        self.assertIsNone(render_panel(ui, original, result, key="check", model_columns=FIELDS))
-        self.assertFalse(ui.tables)
-        ui.session_state["check_columns"] = ["original:0", "matched:0"]
-        report = render_panel(ui, original, result, key="check", model_columns=FIELDS)
-        self.assertEqual(report["total"], 5)
-        self.assertTrue(any(kind == "warning" and "不一致 1 行" in message for kind, message in ui.messages))
-        self.assertEqual(len(ui.tables[0]), 4)
-        self.assertEqual(ui.session_state["member_token"], "KEEP")
-        self.assertEqual(ui.session_state["cost_scope"], "KEEP")
-        self.assertEqual(ui.max_selections, 2)
-
-    def test_consistent_ui_and_show_all_and_stale_choice_reset(self):
-        original = pd.DataFrame({"MPN": ["A", "B"]})
-        result = pd.DataFrame({"自有型号": ["a", "b"]})
-        ui = FakeUI(["original:0", "matched:0"], issues_only=False)
-        report = render_panel(ui, original, result, key="check", model_columns=FIELDS)
-        self.assertEqual(report["same"], 2)
-        self.assertTrue(any(kind == "success" for kind, message in ui.messages))
-        self.assertEqual(len(ui.tables[0]), 2)
-        ui.session_state["check_columns"] = ["original:99", "matched:0"]
-        self.assertIsNone(render_panel(ui, original, result, key="check", model_columns=FIELDS))
-        self.assertEqual(ui.session_state["check_columns"], ["matched:0"])
-
-    def test_comparison_paging_does_not_reduce_summary_coverage(self):
-        original = pd.DataFrame({"MPN": ["A"] * 250})
-        result = pd.DataFrame({"自有型号": ["B"] * 250})
-        ui = FakeUI(["original:0", "matched:0"])
-        ui.session_state["check_page_original:0_matched:0_1"] = 99
-        report = render_panel(ui, original, result, key="check", model_columns=FIELDS)
-        self.assertEqual(report["different"], 250)
-        self.assertEqual(len(ui.tables[0]), 50)
-        self.assertEqual(ui.tables[0].iloc[0]["BOM行号"], 202)
 
 
 if __name__ == "__main__":

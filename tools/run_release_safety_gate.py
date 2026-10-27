@@ -133,6 +133,7 @@ def main() -> int:
                 "unittest",
                 "tests.test_bom_resilience",
                 "tests.test_bom_model_comparison",
+                "tests.test_bom_header_comparison",
                 "tests.test_bom_ocr_runtime",
                 "tests.test_bom_image_review",
                 "tests.test_bom_native_excel",

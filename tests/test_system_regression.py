@@ -6185,18 +6185,22 @@ class SystemRegressionTests(unittest.TestCase):
         app = self.app
         original = pd.DataFrame({"MPN": ["FRC0402J220 TS"] * 250})
         result = pd.DataFrame({"自有型号": ["FRC0402J220 TS"] * 250, "自有成本": ["KEEP"] * 250})
-        with patch.object(app["_bom_model_comparison"], "render_panel", return_value="DONE") as render:
+        with patch.object(app["_bom_model_comparison"], "render_table", return_value="DONE") as render:
             self.assertEqual(app["render_bom_model_comparison_panel"](original, result, "file-a", "Sheet1"), "DONE")
             args, kwargs = render.call_args
-            self.assertIs(args[1], original)
-            self.assertIs(args[2], result)
             self.assertEqual(len(args[1]), 250)
-            self.assertEqual(kwargs["model_columns"]["匹配型号"], "自有型号")
+            self.assertEqual(list(args[1]["MPN"]), list(original["MPN"]))
+            self.assertEqual(list(args[1]["匹配型号"]), list(result["自有型号"]))
+            self.assertNotIn("匹配成本", args[1].columns)
+            self.assertEqual(kwargs["original_column_count"], 1)
+            self.assertIn("<table", kwargs["table_html"])
             first_key = kwargs["key"]
             app["render_bom_model_comparison_panel"](original, result, "file-a", "Sheet2")
             self.assertNotEqual(render.call_args.kwargs["key"], first_key)
             app["render_bom_model_comparison_panel"](original, result, "file-b", "Sheet1")
             self.assertNotEqual(render.call_args.kwargs["key"], first_key)
+            app["render_bom_model_comparison_panel"](original, result, "file-a", "Sheet1", include_cost=True)
+            self.assertIn("匹配成本", render.call_args.args[1].columns)
         self.assertEqual(set(result["自有成本"]), {"KEEP"})
 
     def test_bom_comparison_selection_does_not_invalidate_matching_run_signature(self):

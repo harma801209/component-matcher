@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;background:white}
+.compare-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;font-size:14px;min-height:38px}
+.compare-toolbar button{border:1px solid #bdd0ee;border-radius:6px;background:white;color:#244b7a;padding:8px 14px;font:inherit;cursor:pointer}
+.compare-toolbar #compare-run{margin-left:auto;background:#1553ed;border-color:#1553ed;color:white;font-weight:600;min-height:40px}
+.compare-toolbar #compare-run:disabled{background:#edf1f7;border-color:#dce3ed;color:#7e8ca0;cursor:default}
+#compare-selection{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#compare-selection button{background:#eef4ff;padding:5px 9px;font-size:13px}
+#compare-message{color:#647a93;font-size:13px}
+.result-table th .compare-heading{display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:3px 4px 3px 0;white-space:nowrap}
+.compare-heading input{width:18px;height:18px;margin:0;accent-color:#1553ed;cursor:pointer;flex:none}
+.result-table th.compare-selected{background:#e4eeff!important;box-shadow:inset 0 -3px #1553ed}
+.result-table th .compare-heading:focus-within{outline:2px solid #1553ed;outline-offset:2px}
+.result-table th .col-resizer{position:absolute;right:0;top:0;width:7px;height:100%;cursor:col-resize}
+@media(max-width:600px){.compare-toolbar{gap:8px}.compare-toolbar #compare-run{padding:8px 12px}#compare-selection{width:100%;order:3}}
+</style></head>
+<body><div class="compare-toolbar" aria-label="型号比对操作栏">
+<span id="compare-message" role="status">勾选两个栏位</span>
+<div id="compare-selection"></div>
+<button id="compare-run" type="button" disabled>型号比对</button>
+</div><div id="table-root"></div>
+<script>
+(() => {
+  const root=document.getElementById('table-root');
+  const toolbar=document.querySelector('.compare-toolbar');
+  const selection=document.getElementById('compare-selection');
+  const message=document.getElementById('compare-message');
+  const run=document.getElementById('compare-run');
+  let revision='',selected=[],submitted=[],options=[],lastHtml='',hostDisabled=false;
+  const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},window.location.origin);
+  function height(){
+    const wrap=root.querySelector('.bom-result-table-wrap');
+    if(wrap){
+      const rows=Array.from(wrap.querySelectorAll('tbody tr')).slice(0,10);
+      const head=wrap.querySelector('thead');
+      const rowsHeight=rows.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
+      const overflow=wrap.scrollWidth>wrap.clientWidth+1?18:0;
+      wrap.style.maxHeight=Math.ceil((head?head.getBoundingClientRect().height:0)+rowsHeight+overflow+2)+'px';
+    }
+    send('streamlit:setFrameHeight',{height:Math.ceil(toolbar.getBoundingClientRect().height+root.getBoundingClientRect().height+24)});
+  }
+  function sync(){
+    root.querySelectorAll('input[data-compare-key]').forEach(input=>{
+      input.checked=selected.includes(input.dataset.compareKey);
+      input.disabled=hostDisabled||(!input.checked&&selected.length>=2);
+      input.closest('th').classList.toggle('compare-selected',input.checked);
+    });
+    selection.replaceChildren();
+    selected.forEach(key=>{
+      const option=options.find(item=>item.key===key);
+      if(!option)return;
+      const remove=document.createElement('button');
+      remove.type='button';remove.textContent=option.label+' ×';
+      remove.setAttribute('aria-label','取消勾选 '+option.label);
+      remove.disabled=hostDisabled;
+      remove.onclick=()=>{selected=selected.filter(value=>value!==key);sync();};
+      selection.append(remove);
+    });
+    const dirty=selected.join('|')!==submitted.join('|');
+    message.textContent=selected.length===2?(dirty?'已选 2 栏，点击比对':'已选 2 栏'):('勾选两个栏位（'+selected.length+'/2）');
+    run.disabled=hostDisabled||selected.length!==2;
+    height();
+  }
+  function installHeaders(){
+    root.querySelectorAll('thead th').forEach((th,index)=>{
+      const option=options[index];
+      if(!option)return;
+      const label=document.createElement('label');label.className='compare-heading';
+      const input=document.createElement('input');input.type='checkbox';
+      input.dataset.compareKey=option.key;
+      input.setAttribute('aria-label','勾选 '+option.label);
+      const name=document.createElement('span');name.textContent=th.textContent;
+      label.append(input,name);th.replaceChildren(label);
+      input.onchange=()=>{
+        selected=selected.filter(value=>value!==option.key);
+        if(input.checked&&selected.length<2)selected.push(option.key);
+        sync();
+      };
+      const handle=document.createElement('span');handle.className='col-resizer';
+      handle.setAttribute('aria-hidden','true');th.append(handle);
+      handle.onpointerdown=event=>{
+        event.preventDefault();event.stopPropagation();
+        const start=event.clientX,width=th.getBoundingClientRect().width;
+        const col=root.querySelectorAll('colgroup col')[index];
+        handle.setPointerCapture(event.pointerId);
+        handle.onpointermove=move=>{
+          const size=Math.max(88,width+move.clientX-start)+'px';
+          for(const node of [th,col])if(node){node.style.width=size;node.style.minWidth=size;node.style.maxWidth=size;}
+          const table=th.closest('table');
+          const total=Array.from(table.querySelectorAll('colgroup col')).reduce((sum,item)=>sum+parseFloat(item.style.width||0),0);
+          table.style.width=total+'px';table.style.minWidth=total+'px';
+          height();
+        };
+        handle.onpointerup=()=>{handle.onpointermove=null;};
+        handle.onpointercancel=()=>{handle.onpointermove=null;};
+      };
+    });
+    const table=root.querySelector('table');
+    if(!table)return;
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+    const cols=Array.from(table.querySelectorAll('colgroup col'));
+    let total=0;
+    table.querySelectorAll('thead th').forEach((th,index)=>{
+      ctx.font='600 14px "Segoe UI", "Microsoft YaHei", sans-serif';
+      let width=ctx.measureText(th.textContent.trim()).width+56;
+      ctx.font='14px "Segoe UI", "Microsoft YaHei", sans-serif';
+      table.querySelectorAll('tbody tr').forEach(row=>{
+        const cell=row.children[index];
+        if(cell)cell.textContent.split('\n').forEach(line=>{width=Math.max(width,ctx.measureText(line.trim()).width+28);});
+      });
+      width=Math.ceil(Math.min(560,Math.max(88,width)));
+      for(const node of [th,cols[index]])if(node){node.style.width=width+'px';node.style.minWidth=width+'px';node.style.maxWidth=width+'px';}
+      total+=width;
+    });
+    table.style.width=total+'px';table.style.minWidth=total+'px';
+  }
+  run.onclick=()=>{
+    if(run.disabled)return;
+    submitted=selected.slice();
+    send('streamlit:setComponentValue',{value:{revision,columns:submitted,request:Date.now()},dataType:'json'});
+    sync();
+  };
+  window.addEventListener('message',event=>{
+    if(event.source!==window.parent||event.origin!==window.location.origin||event.data?.type!=='streamlit:render')return;
+    const args=event.data.args||{};
+    hostDisabled=Boolean(event.data.disabled);
+    const nextOptions=Array.isArray(args.headers)?args.headers:[];
+    const changed=revision!==args.revision;
+    if(changed){revision=args.revision;selected=[];submitted=[];}
+    options=nextOptions;
+    const valid=new Set(options.map(item=>item.key));
+    selected=selected.filter(key=>valid.has(key)).slice(0,2);
+    if(lastHtml!==args.table_html){
+      const oldWrap=root.querySelector('.bom-result-table-wrap');
+      const oldX=oldWrap?.scrollLeft||0,oldY=oldWrap?.scrollTop||0;
+      const doc=new DOMParser().parseFromString(args.table_html||'','text/html');
+      root.replaceChildren();
+      // Only copy trusted renderer styles and the escaped result-table wrapper.
+      // Never execute script blocks from the supplied HTML.
+      doc.querySelectorAll('style').forEach(style=>root.append(style.cloneNode(true)));
+      const wrap=doc.querySelector('.bom-result-table-wrap');
+      if(wrap){wrap.querySelectorAll('script').forEach(script=>script.remove());root.append(wrap);}
+      lastHtml=args.table_html;installHeaders();
+      if(wrap&&!changed){wrap.scrollLeft=oldX;wrap.scrollTop=oldY;}
+    }
+    sync();
+  });
+  new ResizeObserver(height).observe(root);
+  window.addEventListener('resize',height);
+  send('streamlit:componentReady',{apiVersion:1});
+})();
+</script></body></html>

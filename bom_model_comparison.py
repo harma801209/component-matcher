@@ -94,57 +94,130 @@ def compare_columns(original, result, selected, *, detail=None):
     return report
 
 
-def render_panel(st, original, result, *, key, model_columns, detail=None):
-    """Compare the entire active sheet, independent of the main-table filters."""
-    choices = column_choices(original, result, model_columns)
+def display_column_choices(frame, original_column_count):
+    """Positional IDs keep duplicate source and generated headers distinct."""
+    labels = [text(column) for column in frame.columns]
+    choices = []
+    for position, label in enumerate(labels):
+        origin = "原表" if position < original_column_count else "系统"
+        suffix = f"（第 {position + 1} 栏）" if labels.count(label) > 1 else ""
+        choices.append({"key": f"column:{position}", "position": position,
+                        "source": "original" if position < original_column_count else "matched",
+                        "label": f"{origin} · {label or '未命名栏'}{suffix}"})
+    return choices
+
+
+def comparison_revision(frame):
+    """Invalidate old button events when rows, values or headers change."""
+    import hashlib
+    import json
+    digest = hashlib.sha256(json.dumps([text(col) for col in frame.columns],
+                                      ensure_ascii=True).encode("utf-8"))
+    # Text conversion follows comparison semantics, including true nulls.
+    values = frame.map(text)
+    digest.update(pd.util.hash_pandas_object(values, index=False).values.tobytes())
+    return digest.hexdigest()
+
+
+def selected_display_columns(event, frame, choices, *, revision=None):
+    if not isinstance(event, dict) or not event.get("request"):
+        return None
+    if event.get("revision") != (revision or comparison_revision(frame)):
+        return None
+    keys = event.get("columns")
+    if not isinstance(keys, list) or len(keys) != 2 or not all(isinstance(key, str) for key in keys):
+        return None
     by_key = {item["key"]: item for item in choices}
-    selection_key = key + "_columns"
-    raw_stored = st.session_state.get(selection_key, [])
-    stored = raw_stored if isinstance(raw_stored, list) else []
-    valid = list(dict.fromkeys(item for item in stored if item in by_key))[:2]
-    if raw_stored != valid:
-        st.session_state[selection_key] = valid
-    with st.expander("匹配后型号对比", expanded=True):
-        selected_keys = st.multiselect(
-            "勾选要对比的两个栏位", list(by_key), format_func=lambda value: by_key[value]["label"],
-            max_selections=2, key=selection_key, placeholder="例如：原表 · MPN ＋ 系统 · 匹配型号",
-        )
-        st.caption("对比当前工作表全部物料，不受复核筛选和每页显示影响；忽略空格和大小写，不改动原表、匹配结果或报价。文字一致不代替规格校验。")
-        if len(selected_keys) != 2:
-            st.info("勾选一个原表型号栏位和一个系统匹配型号栏位后，自动检查是否一致。")
-            return None
-        if any(value not in by_key for value in selected_keys):
-            st.warning("所选栏位已改变，请重新勾选。")
-            return None
-        try:
-            report = compare_columns(original, result, [by_key[value] for value in selected_keys], detail=detail)
-        except ValueError as exc:
-            st.warning(str(exc))
-            return None
-        summary = (f"共 {report['total']} 行 · 一致 {report['same']} 行 · "
-                   f"不一致 {report['different']} 行 · 缺失型号 {report['missing']} 行")
-        if report["different"] or report["missing"]:
-            st.warning(summary + "。请核对下方差异说明，不能直接当成同一型号。")
-        else:
-            st.success(summary + "。所选两栏型号全部一致。")
-        issues_only = st.checkbox("仅显示不一致和缺失", value=True, key=key + "_issues_only")
-        rows = [row for row in report["rows"] if not issues_only or row["对比状态"] != "一致"]
-        if not rows:
-            return report
-        page_count = max(1, math.ceil(len(rows) / 100))
-        page = 1
-        if page_count > 1:
-            page_key = key + "_page_" + "_".join(selected_keys) + f"_{int(issues_only)}"
-            current = st.session_state.get(page_key, 1)
-            try:
-                current = min(page_count, max(1, int(current)))
-            except (TypeError, ValueError):
-                current = 1
-            st.session_state[page_key] = current
-            page = int(st.number_input("对比结果页码", min_value=1, max_value=page_count, step=1, key=page_key))
-        start = (page - 1) * 100
-        visible = rows[start:start + 100]
-        st.caption(f"对比明细第 {start + 1}–{start + len(visible)} 行 / 共 {len(rows)} 行；BOM行号对应原表物料行。")
-        st.dataframe(pd.DataFrame(visible), hide_index=True, use_container_width=True,
-                     height=min(480, 38 + 56 * len(visible)))
+    if keys[0] == keys[1] or any(key not in by_key for key in keys):
+        return None
+    return [by_key[key] for key in keys]
+
+
+def compare_display_columns(frame, selected, *, detail=None, row_numbers=None):
+    """Compare two explicitly selected displayed columns, without remapping BOM."""
+    if len(selected) != 2:
+        raise ValueError("请勾选两个不同的栏位。")
+    if selected[0].get("source") == "matched" and selected[1].get("source") == "original":
+        selected = selected[::-1]
+    if selected[0].get("source") == selected[1].get("source"):
+        detail = None
+    positions = [item.get("position") for item in selected]
+    if (any(not isinstance(pos, int) or not 0 <= pos < len(frame.columns) for pos in positions)
+            or positions[0] == positions[1]):
+        raise ValueError("所选栏位已改变，请重新勾选。")
+    left = pd.DataFrame({"value": frame.iloc[:, positions[0]].tolist()})
+    right = pd.DataFrame({"value": frame.iloc[:, positions[1]].tolist()})
+    if row_numbers is not None:
+        if len(row_numbers) != len(frame):
+            raise ValueError("原表行号与结果行数不同，请先完成当前工作表匹配。")
+        right["BOM行号"] = list(row_numbers)
+    pair = [{"source": "original", "position": 0, "label": selected[0]["label"]},
+            {"source": "matched", "column": "value", "label": selected[1]["label"]}]
+    return compare_columns(left, right, pair, detail=detail)
+
+
+def header_choices(choices, columns, visible_columns):
+    remaining = list(enumerate(columns))
+    visible = []
+    for column in visible_columns:
+        found = next(((index, value) for index, value in remaining if value == column), None)
+        if found is None:
+            continue
+        index, _ = found
+        visible.append(choices[index])
+        remaining = [item for item in remaining if item[0] != index]
+    return visible
+
+
+def header_component():
+    from pathlib import Path
+    import streamlit.components.v1 as components
+    return components.declare_component("bom_header_compare", path=str(Path(__file__).with_name("bom_comparison_table")))
+
+
+def render_table(st, frame, *, table_html, original_column_count, visible_columns,
+                 key, detail=None, row_numbers=None, component=None):
+    """Header checkboxes stay in the table; only the button requests a report."""
+    choices = display_column_choices(frame, original_column_count)
+    headers = header_choices(choices, list(frame.columns), visible_columns)
+    revision = comparison_revision(frame)
+    invoke = component or header_component()
+    event = invoke(table_html=table_html, headers=headers, revision=revision,
+                   key=key + "_table", default=None)
+    # Only visible, already-authorized columns are accepted from the frontend.
+    selected = selected_display_columns(event, frame, headers, revision=revision)
+    if selected is None:
+        return None
+    try:
+        report = compare_display_columns(frame, selected, detail=detail, row_numbers=row_numbers)
+    except ValueError as exc:
+        st.warning(str(exc))
+        return None
+    st.caption(f"上次比对：{report['left_label']} ↔ {report['right_label']}（整张工作表；忽略空格与大小写）")
+    summary = (f"共 {report['total']} 行 · 一致 {report['same']} 行 · "
+               f"不一致 {report['different']} 行 · 缺失型号 {report['missing']} 行")
+    if report["different"] or report["missing"]:
+        st.warning(summary + "。请核对下方差异说明，不能直接当成同一型号。")
+    else:
+        st.success(summary + "。所选两栏型号全部一致。")
+    issues_only = st.checkbox("仅显示不一致和缺失", value=True, key=key + "_issues_only")
+    rows = [row for row in report["rows"] if not issues_only or row["对比状态"] != "一致"]
+    if not rows:
         return report
+    page_count = max(1, math.ceil(len(rows) / 100))
+    page = 1
+    if page_count > 1:
+        page_key = key + "_page_" + "_".join(item["key"] for item in selected) + f"_{int(issues_only)}"
+        current = st.session_state.get(page_key, 1)
+        try:
+            current = min(page_count, max(1, int(current)))
+        except (TypeError, ValueError):
+            current = 1
+        st.session_state[page_key] = current
+        page = int(st.number_input("对比结果页码", min_value=1, max_value=page_count, step=1, key=page_key))
+    start = (page - 1) * 100
+    visible = rows[start:start + 100]
+    st.caption(f"对比明细第 {start + 1}–{start + len(visible)} 行 / 共 {len(rows)} 行；BOM行号对应原表物料行。")
+    st.dataframe(pd.DataFrame(visible), hide_index=True, use_container_width=True,
+                 height=min(480, 38 + 56 * len(visible)))
+    return report

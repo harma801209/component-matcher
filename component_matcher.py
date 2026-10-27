@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-27T14:33:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-27T18:22:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49405,17 +49405,41 @@ def describe_bom_compared_models(original_model, matched_model):
     return "型号文字不同，现有规则未解析出可比较的参数，需人工确认。"
 
 
-def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, sheet_name):
+def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, sheet_name,
+                                      *, display_df=None, include_cost=False):
     # Pass full active-sheet frames, never the filtered/paged main-table view.
     # This UI state is intentionally absent from matching/pricing run signatures.
-    columns = {bom_slot_name("匹配型号", idx): bom_own_brand_internal_column("自有型号", idx)
-               for idx in range(1, BOM_OWN_BRAND_EXPORT_MAX_SLOTS + 1)}
+    full_frame = build_bom_matched_export_df(upload_df, result_df, include_cost=include_cost)
+    for normalize in (normalize_resistor_model_display_fields,
+                      normalize_joyin_ntc_series_display_fields, normalize_timing_model_display_fields):
+        full_frame = normalize(full_frame)
+    # Compare source cells exactly as uploaded, even when a source header such
+    # as 型号/系列 is also recognized by a generic display-only normalizer.
+    for position in range(len(upload_df.columns)):
+        full_frame.isetitem(position, upload_df.iloc[:, position].reset_index(drop=True))
+    if display_df is None:
+        display_df = format_display_df(full_frame)
+    # Match the exact rendered header order, including normalized display fields.
+    page_frame = display_df.copy()
+    for normalize in (normalize_resistor_model_display_fields,
+                      normalize_joyin_ntc_series_display_fields, normalize_timing_model_display_fields):
+        page_frame = normalize(page_frame)
+    table_html = render_clickable_result_table(
+        page_frame, hide_columns=[], show_official_status=False,
+        wrapper_class="bom-result-table-wrap", footer_html="", outer_footer_html="",
+    )
     key = "bom_model_compare_" + hashlib.sha256(
         f"{workbook_signature}|{sheet_name}".encode("utf-8")
     ).hexdigest()[:20]
-    return _bom_model_comparison.render_panel(
-        st, upload_df, result_df, key=key, model_columns=columns,
+    if len(upload_df) != len(result_df):
+        components.html(table_html, height=estimate_bom_result_iframe_height(len(page_frame)), scrolling=False)
+        st.warning("原表与匹配结果行数不同，请先完成当前工作表匹配后再比对。")
+        return None
+    return _bom_model_comparison.render_table(
+        st, full_frame, key=key, table_html=table_html, original_column_count=len(upload_df.columns),
+        visible_columns=[col for col in page_frame.columns if col != "_量产状态链接"],
         detail=describe_bom_compared_models,
+        row_numbers=result_df["BOM行号"].tolist() if "BOM行号" in result_df else None,
     )
 
 
@@ -51854,23 +51878,9 @@ def render_bom_upload_page():
                             )
                         render_bom_model_comparison_panel(
                             bom_df, bom_result_df, workbook_signature, selected_sheet_name,
+                            display_df=display_bom_result_df,
+                            include_cost=bom_export_settings.get("include_cost", False),
                         )
-                        clickable_bom_html = render_clickable_result_table(
-                            display_bom_result_df,
-                            hide_columns=[],
-                            show_official_status=False,
-                            wrapper_class="bom-result-table-wrap",
-                            footer_html="",
-                            outer_footer_html="",
-                        )
-                        if clickable_bom_html:
-                            components.html(
-                                clickable_bom_html,
-                                height=estimate_bom_result_iframe_height(
-                                    len(display_bom_result_df),
-                                ),
-                                scrolling=False,
-                            )
 
         except Exception as e:
             active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))

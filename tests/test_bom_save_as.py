@@ -21,7 +21,7 @@ class BomSaveAsSourceTests(unittest.TestCase):
 
     def test_bom_result_uses_the_save_as_component(self):
         start = self.matcher.index('download_key_source = f"{workbook_signature}')
-        end = self.matcher.index("clickable_bom_html = render_clickable_result_table", start)
+        end = self.matcher.index("render_bom_model_comparison_panel(", start)
         download_block = self.matcher[start:end]
         self.assertIn("components.html(", download_block)
         self.assertIn("build_bom_download_footer_html(", download_block)
