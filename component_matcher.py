@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-28T08:56:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-28T09:50:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -51725,28 +51725,15 @@ def render_bom_upload_page():
                     bom_result_df = bom_sheet_results.get(selected_sheet_name, st.session_state.get("_bom_result_df", pd.DataFrame()))
                     if isinstance(bom_result_df, pd.DataFrame) and not bom_result_df.empty:
                         bom_display_df = build_bom_display_df(bom_result_df)
-                        status_options = [
-                            value for value in ["可推荐", "需确认", "参数冲突", "无匹配", "解析失败"]
-                            if value in set(bom_display_df.get("状态", pd.Series(dtype=str)).astype(str))
-                        ]
-                        review_cols = st.columns([0.48, 0.38, 0.14], gap="small")
-                        selected_statuses = review_cols[0].multiselect(
-                            "复核状态",
-                            status_options,
-                            key=f"bom_review_status_{workbook_signature}_{selected_sheet_name}",
-                            placeholder="全部状态",
-                        )
-                        review_keyword = review_cols[1].text_input(
-                            "查找结果",
-                            key=f"bom_review_keyword_{workbook_signature}_{selected_sheet_name}",
-                            placeholder="型号、品牌或备注",
+                        st.markdown(
+                            f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}'
+                            f'<span style="margin-left:12px;font-size:14px;font-weight:400;color:#647a93">{len(bom_display_df):,} 条</span></div>',
+                            unsafe_allow_html=True,
                         )
                         active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))
-                        retry_failed = review_cols[2].button(
-                            "重试失败项",
-                            key=f"bom_retry_failed_{workbook_signature}_{selected_sheet_name}",
-                            disabled=not active_job_id,
-                            use_container_width=True,
+                        selected_statuses, review_keyword, review_page_size, retry_failed = _bom_model_comparison.render_review_toolbar(
+                            st, bom_display_df, workbook_signature=workbook_signature,
+                            sheet_name=selected_sheet_name, retry_available=bool(active_job_id),
                         )
                         if retry_failed:
                             retry_checkpoint = reset_bom_job_failed_rows(
@@ -51772,54 +51759,13 @@ def render_bom_upload_page():
                             ).any(axis=1)
                             bom_view_df = bom_view_df[text_mask]
                         filtered_bom_row_count = len(bom_view_df)
-                        review_page_cols = st.columns([0.24, 0.76], gap="small")
-                        review_page_size = review_page_cols[0].selectbox(
-                            "每页显示",
-                            [50, 100, 200, "全部"],
-                            index=3,
-                            key=f"bom_review_page_size_v2_{workbook_signature}_{selected_sheet_name}",
-                        )
-                        numeric_page_size = (
-                            max(1, filtered_bom_row_count)
-                            if review_page_size == "全部"
-                            else max(1, int(review_page_size))
-                        )
-                        review_page_count = max(
-                            1,
-                            int(math.ceil(filtered_bom_row_count / numeric_page_size))
-                            if filtered_bom_row_count
-                            else 1,
-                        )
-                        review_page_key = (
-                            f"bom_review_page_number_{workbook_signature}_{selected_sheet_name}_{review_page_size}"
-                        )
-                        try:
-                            stored_review_page = int(st.session_state.get(review_page_key, 1) or 1)
-                        except Exception:
-                            stored_review_page = 1
-                        stored_review_page = min(max(1, stored_review_page), review_page_count)
-                        st.session_state[review_page_key] = stored_review_page
-                        review_page_number = int(
-                            review_page_cols[1].number_input(
-                                "页码",
-                                min_value=1,
-                                max_value=review_page_count,
-                                step=1,
-                                key=review_page_key,
-                                disabled=review_page_count <= 1,
-                            )
-                        )
-                        review_page_start = (review_page_number - 1) * numeric_page_size
-                        review_page_end = min(
-                            filtered_bom_row_count,
-                            review_page_start + numeric_page_size,
+                        review_page_start, review_page_end = _bom_model_comparison.render_review_page_picker(
+                            st, filtered_bom_row_count, review_page_size,
+                            workbook_signature=workbook_signature, sheet_name=selected_sheet_name,
                         )
                         bom_page_df = bom_view_df.iloc[review_page_start:review_page_end].copy()
-                        displayed_start = review_page_start + 1 if filtered_bom_row_count else 0
-                        st.caption(
-                            f"复核视图显示第 {displayed_start}-{review_page_end} 行 / 筛选后 {filtered_bom_row_count} 行"
-                            f"（原表共 {len(bom_display_df)} 行）；下载文件仍包含完整结果。"
-                        )
+                        if filtered_bom_row_count != len(bom_display_df):
+                            st.caption(f"筛选后 {filtered_bom_row_count:,} 条 / 共 {len(bom_display_df):,} 条")
 
                         status_counts = count_bom_recommendation_statuses(bom_result_df)
                         component_distribution_text = build_bom_component_distribution_text(bom_result_df)
@@ -51857,7 +51803,6 @@ def render_bom_upload_page():
                                 "已读取旧版 .xls；原始文件不会转换或修改。"
                                 "下载内容是独立的 .xlsx 匹配结果工作簿，并按原分页保留已解析数据。"
                             )
-                        st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
                         render_bom_model_comparison_panel(
                             bom_df, bom_result_df, workbook_signature, selected_sheet_name,
                             display_df=display_bom_result_df,

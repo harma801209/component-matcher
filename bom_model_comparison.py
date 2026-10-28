@@ -29,6 +29,59 @@ def model_key(value):
     return "" if key in {"N/A", "-", "—", "未提供", "未匹配", "无匹配"} else key
 
 
+def render_review_toolbar(st, frame, *, workbook_signature, sheet_name, retry_available=False):
+    """Compact view controls; retain existing keys and never start a retry here."""
+    statuses = frame["状态"].map(text) if "状态" in frame else pd.Series(dtype=str)
+    status_options = [value for value in ("可推荐", "需确认", "参数冲突", "无匹配", "解析失败")
+                      if statuses.eq(value).any()]
+    show_retry = bool(retry_available and statuses.isin({"解析失败", "无匹配"}).any())
+    cols = st.columns([0.27, 0.43, 0.16, 0.14] if show_retry else [0.30, 0.50, 0.20], gap="small")
+    selected = cols[0].multiselect(
+        "复核状态", status_options,
+        key=f"bom_review_status_{workbook_signature}_{sheet_name}",
+        placeholder="全部匹配状态", label_visibility="collapsed",
+    )
+    keyword = cols[1].text_input(
+        "查找结果", key=f"bom_review_keyword_{workbook_signature}_{sheet_name}",
+        placeholder="查找型号、品牌或备注", label_visibility="collapsed",
+    )
+    size = cols[2].selectbox(
+        "每页显示", [50, 100, 200, "全部"], index=3,
+        key=f"bom_review_page_size_v2_{workbook_signature}_{sheet_name}",
+        format_func=lambda value: "全部物料" if value == "全部" else f"{value} 条 / 页",
+        label_visibility="collapsed",
+    )
+    retry = show_retry and cols[3].button(
+        "重试失败项", key=f"bom_retry_failed_{workbook_signature}_{sheet_name}",
+        help="重新处理解析失败或无匹配的物料，不重跑已成功的行。",
+        use_container_width=True,
+    )
+    return selected, keyword, size, bool(retry)
+
+
+def render_review_page_picker(st, row_count, page_size, *, workbook_signature, sheet_name):
+    """Hide a single-page picker and clamp old page state when filters shrink."""
+    row_count = max(0, int(row_count))
+    size = max(1, row_count if page_size == "全部" else int(page_size))
+    page_count = max(1, math.ceil(row_count / size))
+    key = f"bom_review_page_number_{workbook_signature}_{sheet_name}_{page_size}"
+    try:
+        page = int(st.session_state.get(key, 1) or 1)
+    except (TypeError, ValueError):
+        page = 1
+    page = min(max(1, page), page_count)
+    st.session_state[key] = page
+    if page_count > 1:
+        cols = st.columns([0.18, 0.82], gap="small")
+        page = int(cols[0].number_input(
+            "页码", min_value=1, max_value=page_count, step=1, key=key,
+            label_visibility="collapsed", help=f"共 {page_count} 页",
+        ))
+        cols[1].caption(f"第 {page} / {page_count} 页 · 共 {row_count:,} 条")
+    start = (page - 1) * size
+    return start, min(row_count, start + size)
+
+
 def column_choices(original, result, model_columns):
     choices = []
     if not isinstance(original, pd.DataFrame) or not isinstance(result, pd.DataFrame):

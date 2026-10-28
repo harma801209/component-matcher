@@ -7,6 +7,7 @@ import pandas as pd
 from bom_model_comparison import (
     compare_display_columns, display_column_choices, comparison_revision,
     render_table, selected_display_columns,
+    render_review_toolbar, render_review_page_picker,
 )
 
 
@@ -276,6 +277,127 @@ class HeaderComparisonTests(unittest.TestCase):
             self.assertEqual(header_component(), "COMPONENT")
         self.assertEqual(declare.call_args.args[0], "bom_header_compare_v2")
         self.assertTrue(declare.call_args.kwargs["path"].endswith("bom_comparison_table"))
+
+
+class ReviewUI:
+    def __init__(self, **responses):
+        self.responses, self.calls = responses, []
+        self.session_state = {"member_token": "KEEP", "cost_scope": "KEEP"}
+
+    def columns(self, weights, **kwargs):
+        self.calls.append(("columns", weights, kwargs))
+        return [self] * len(weights)
+
+    def multiselect(self, label, options, **kwargs):
+        self.calls.append(("multiselect", label, kwargs))
+        return self.responses.get(label, [])
+
+    def text_input(self, label, **kwargs):
+        self.calls.append(("text_input", label, kwargs))
+        return self.responses.get(label, "")
+
+    def selectbox(self, label, options, **kwargs):
+        self.calls.append(("selectbox", label, kwargs))
+        return self.responses.get(label, options[kwargs["index"]])
+
+    def button(self, label, **kwargs):
+        self.calls.append(("button", label, kwargs))
+        return self.responses.get(label, False)
+
+    def number_input(self, label, **kwargs):
+        self.calls.append(("number_input", label, kwargs))
+        return self.session_state[kwargs["key"]]
+
+    def caption(self, text): self.calls.append(("caption", text, {}))
+
+
+class CompactReviewToolbarTests(unittest.TestCase):
+    def toolbar(self, statuses, ui=None, retry=True):
+        ui = ui or ReviewUI()
+        result = render_review_toolbar(ui, pd.DataFrame({"状态": statuses}),
+                                       workbook_signature="file", sheet_name="Sheet1", retry_available=retry)
+        return ui, result
+
+    def page(self, count, size, previous=None):
+        ui = ReviewUI()
+        key = f"bom_review_page_number_file_Sheet1_{size}"
+        if previous is not None: ui.session_state[key] = previous
+        window = render_review_page_picker(ui, count, size, workbook_signature="file", sheet_name="Sheet1")
+        return ui, window
+
+    def test_healthy_results_have_one_compact_row_without_retry(self):
+        ui, result = self.toolbar(["可推荐", "需确认", "参数冲突"])
+        self.assertEqual(result, ([], "", "全部", False))
+        self.assertEqual(len(ui.calls[0][1]), 3)
+        self.assertFalse(any(call[0] == "button" for call in ui.calls))
+        for kind, _, kwargs in ui.calls:
+            if kind in {"multiselect", "text_input", "selectbox"}:
+                self.assertEqual(kwargs["label_visibility"], "collapsed")
+
+    def test_retry_button_only_appears_for_existing_retryable_statuses(self):
+        for status in ("解析失败", "无匹配"):
+            with self.subTest(status=status):
+                ui, result = self.toolbar([status], ReviewUI(**{"重试失败项": True}))
+                self.assertTrue(result[3])
+                self.assertEqual(len(ui.calls[0][1]), 4)
+                self.assertEqual([call[1] for call in ui.calls if call[0] == "button"], ["重试失败项"])
+
+    def test_retry_without_active_job_is_hidden_not_a_dead_button(self):
+        ui, result = self.toolbar(["解析失败"], retry=False)
+        self.assertFalse(result[3])
+        self.assertFalse(any(call[0] == "button" for call in ui.calls))
+
+    def test_filters_and_existing_keys_are_preserved(self):
+        ui, result = self.toolbar(["可推荐", "无匹配"], ReviewUI(**{
+            "复核状态": ["无匹配"], "查找结果": "FRC", "每页显示": 50,
+        }))
+        self.assertEqual(result[:3], (["无匹配"], "FRC", 50))
+        self.assertEqual(ui.calls[1][2]["key"], "bom_review_status_file_Sheet1")
+        self.assertEqual(ui.calls[2][2]["key"], "bom_review_keyword_file_Sheet1")
+        self.assertEqual(ui.calls[3][2]["key"], "bom_review_page_size_v2_file_Sheet1")
+        self.assertEqual(ui.session_state, {"member_token": "KEEP", "cost_scope": "KEEP"})
+
+    def test_all_rows_mode_hides_page_picker_and_clamps_old_page(self):
+        ui, window = self.page(51, "全部", 9)
+        self.assertEqual(window, (0, 51))
+        self.assertEqual(ui.session_state["bom_review_page_number_file_Sheet1_全部"], 1)
+        self.assertEqual(ui.calls, [])
+
+    def test_exactly_one_numeric_page_hides_picker(self):
+        ui, window = self.page(50, 50, 2)
+        self.assertEqual(window, (0, 50))
+        self.assertEqual(ui.calls, [])
+
+    def test_multiple_pages_keep_last_partial_page(self):
+        ui, window = self.page(51, 50, 2)
+        self.assertEqual(window, (50, 51))
+        inputs = [call for call in ui.calls if call[0] == "number_input"]
+        self.assertEqual(len(inputs), 1)
+        self.assertEqual(inputs[0][2]["max_value"], 2)
+        self.assertEqual(inputs[0][2]["label_visibility"], "collapsed")
+
+    def test_empty_filtered_results_have_no_dead_page_control(self):
+        ui, window = self.page(0, 50, 3)
+        self.assertEqual(window, (0, 0))
+        self.assertEqual(ui.calls, [])
+
+    def test_filtered_page_is_clamped_and_bad_previous_value_is_safe(self):
+        ui, window = self.page(101, 50, 99)
+        self.assertEqual(window, (100, 101))
+        for previous in ("invalid", -3):
+            self.assertEqual(self.page(101, 50, previous)[1], (0, 50))
+
+    def test_compact_tools_are_inside_result_section_before_comparison_table(self):
+        source = (Path(__file__).resolve().parents[1] / "component_matcher.py").read_text(encoding="utf-8")
+        title = source.index('BOM匹配结果 · {html.escape(selected_sheet_name)}')
+        tools = source.index("_bom_model_comparison.render_review_toolbar(", title)
+        pages = source.index("_bom_model_comparison.render_review_page_picker(", tools)
+        table = source.index("render_bom_model_comparison_panel(", pages)
+        self.assertLess(title, tools)
+        self.assertLess(tools, pages)
+        self.assertLess(pages, table)
+        self.assertNotIn("复核视图显示第", source[title:table])
+        self.assertNotIn("review_page_cols", source[title:table])
 
 
 if __name__ == "__main__":

@@ -62,3 +62,5 @@ primary button override the table theme's generic white-button rule. Frontend
 component identity v2 refreshes this asset in already-open fragments without
 reloading the browser, clearing uploaded files or changing authentication.
 预览软件选择、复制预览链接、下载 Excel 及其操作说明统一放在结果表格下方靠右；结果标题上方不再保留导出控件的空白区域。移动仅改变渲染顺序，不改变完整结果导出范围或链接生成逻辑。
+
+结果复核控件并入结果标题下方的一行：状态、关键词及每页数量保留原有控件键和筛选逻辑，不再独占带标签的大模块。仅当工作表包含“解析失败／无匹配”且存在可重试任务时显示重试按钮；只有超过一页时显示页码，筛选缩小时仍会校正旧页码。默认全部物料时不显示冗余分页栏和长说明。完整结果下载仍不受筛选、分页影响。
