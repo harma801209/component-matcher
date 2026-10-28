@@ -6,7 +6,9 @@ SQL identifiers/expressions are internal constants; all user values are bound.
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
+from collections import OrderedDict
 import hashlib
+import json
 import math
 import os
 import re
@@ -246,6 +248,15 @@ def profile(component_type):
 
 
 def available_profile(conn, component_type):
+    # A frozen, kind-scoped projection of the *completed* public catalogue.
+    # Expressions have already been evaluated, including unit conversions and
+    # official lifecycle joins. No account/price columns enter this projection.
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_browse_metadata'").fetchone():
+        row = conn.execute('SELECT kind, fields FROM catalog_browse_metadata').fetchone()
+        if row and row[0] == component_type:
+            fields = [Field(key, label, '"'+key+'"', tuple(tuple(unit) for unit in units))
+                      for key, label, units in json.loads(row[1])]
+            return 'catalog_browse_source', fields
     table, fields = profile(component_type)
     if component_type == 'MLCC' and conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_mlcc_source'").fetchone():
         table = 'catalog_mlcc_source'
@@ -283,9 +294,71 @@ def category_counts(conn):
 
 def has_unique_model_rows(conn, component_type):
     table, _ = available_profile(conn, component_type)
+    if table == 'catalog_browse_source':
+        # The exact legacy identity expression has its own ordered TEMP index.
+        # Avoid COUNT(DISTINCT ...) building another large temporary B-tree.
+        return conn.execute('SELECT 1 FROM catalog_browse_source GROUP BY '
+            'COALESCE("品牌",\'\')||char(0)||"型号" HAVING COUNT(*)>1 LIMIT 1').fetchone() is None
     type_expression = '"_component_type"' if component_type else 'COALESCE("_component_type",\'\')'
     count, unique = conn.execute(f'SELECT COUNT(*),COUNT(DISTINCT COALESCE("品牌",\'\')||char(0)||"型号") FROM "{table}" WHERE {type_expression}=? AND COALESCE("型号",\'\')<>\'\'', (component_type,)).fetchone()
     return count == unique
+
+
+def prepare_browse_source(conn, component_type):
+    """Freeze only public filter fields in a connection-local sequential table.
+
+    Run once, after all identity-preserving parameter/lifecycle overlays. The
+    original read-only source and its indexes are never changed. Keeping one
+    kind together avoids repeated random reads through the full-library index.
+    """
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_browse_metadata'").fetchone():
+        if conn.execute('SELECT kind FROM catalog_browse_metadata').fetchone()[0] != component_type:
+            raise ValueError('筛选资源品类不一致。')
+        return
+    table, fields = available_profile(conn, component_type)
+    columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
+    projection = ['"品牌"', '"型号"', '"_component_type"']
+    projection += [f'({field.expression}) AS "{field.key}"' for field in fields if field.key != '品牌']
+    projection += ['"'+key+'"' for key in ('_lifecycle_source', '_lifecycle_checked') if key in columns]
+    conn.execute('CREATE TEMP TABLE catalog_browse_source AS SELECT '+','.join(projection)+
+                 f' FROM "{table}" WHERE "_component_type"=? AND COALESCE("型号",\'\')<>\'\'', (component_type,))
+    conn.execute('CREATE INDEX catalog_browse_order ON catalog_browse_source("品牌","型号")')
+    conn.execute('CREATE INDEX catalog_browse_identity ON catalog_browse_source(COALESCE("品牌",\'\')||char(0)||"型号")')
+    conn.execute('CREATE TEMP TABLE catalog_browse_metadata (kind TEXT, fields TEXT)')
+    conn.execute('INSERT INTO catalog_browse_metadata VALUES (?,?)', (component_type,
+                 json.dumps([(f.key, f.label, f.units) for f in fields], ensure_ascii=False)))
+
+
+class QueryCache:
+    """Bounded immutable aggregate results, owned by one frozen public source.
+
+    Caller holds the SharedSource lock. SQL + bound values are the key, so page,
+    sorting and membership never invalidate identical counts/facets. There is
+    no cross-connection reuse and no raw model rows or account state here.
+    """
+    def __init__(self, connection, max_entries=128, max_cells=50000):
+        self.connection = connection
+        self.max_entries = max_entries
+        self.max_cells = max_cells
+        self.entries = OrderedDict()
+        self.cells = 0
+
+    def fetch(self, conn, sql, params):
+        if conn is not self.connection:
+            raise ValueError('筛选统计缓存与数据源不一致。')
+        key = (sql, tuple(params))
+        if key in self.entries:
+            self.entries.move_to_end(key)
+            return self.entries[key][0]
+        rows = tuple(tuple(row) for row in conn.execute(sql, params).fetchall())
+        cells = sum(len(row) for row in rows) + 1
+        if self.max_entries > 0 and cells <= self.max_cells:
+            while self.entries and (len(self.entries) >= self.max_entries or self.cells + cells > self.max_cells):
+                _, (_, old_cells) = self.entries.popitem(last=False)
+                self.cells -= old_cells
+            self.entries[key] = (rows, cells)
+            self.cells += cells
+        return rows
 
 
 def text_expression(field):
@@ -357,7 +430,7 @@ def where_clause(fields, component_type, selected, ranges, keyword="", omit="", 
     return ' AND '.join(clauses), params
 
 
-def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, sort_key="", sort_desc=False, verified_unique=False, keyword_mode="contains"):
+def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=1, page_size=20, include_rows=False, sort_key="", sort_desc=False, verified_unique=False, keyword_mode="contains", query_cache=None):
     table, fields = available_profile(conn, component_type)
     selected, ranges = selected or {}, ranges or {}
     where, params = where_clause(fields, component_type, selected, ranges, keyword, keyword_mode=keyword_mode)
@@ -374,22 +447,27 @@ def snapshot(conn, component_type, selected=None, ranges=None, keyword="", page=
     # The app caches an actual uniqueness audit by database revision and kind.
     # Never assume a table is unique just because the normal builder dedupes it.
     counter = 'COUNT(*)' if verified_unique else f'COUNT(DISTINCT {identity})'
-    total = int(conn.execute(f'SELECT {counter} FROM "{table}" WHERE {where}', params).fetchone()[0])
+    def aggregate(sql, values):
+        if query_cache is not None:
+            return query_cache.fetch(conn, sql, values)
+        return conn.execute(sql, values).fetchall()
+    total = int(aggregate(f'SELECT {counter} FROM "{table}" WHERE {where}', params)[0][0])
     facets = {}
     for field in fields:
         own_where, own_params = where_clause(fields, component_type, selected, ranges, keyword, omit=field.key, keyword_mode=keyword_mode)
         expr = field.expression if field.units else text_expression(field)
         if field.units:
-            facets[field.key] = list(conn.execute(f'SELECT MIN(({expr})), MAX(({expr})) FROM "{table}" WHERE {own_where}', own_params).fetchone())
+            facets[field.key] = list(aggregate(f'SELECT MIN(({expr})), MAX(({expr})) FROM "{table}" WHERE {own_where}', own_params)[0])
         else:
-            facets[field.key] = [(MISSING if value is None else str(value), int(count)) for value, count in conn.execute(f'SELECT {expr} AS value, {counter} FROM "{table}" WHERE {own_where} GROUP BY value ORDER BY value', own_params)]
+            facets[field.key] = [(MISSING if value is None else str(value), int(count)) for value, count in aggregate(f'SELECT {expr} AS value, {counter} FROM "{table}" WHERE {own_where} GROUP BY value ORDER BY value', own_params)]
     size = max(1, min(100, int(page_size)))
     pages = max(1, (total + size - 1) // size)
     page = max(1, min(pages, int(page)))
     rows = []
     if include_rows and total:
         projection = ','.join(f'({field.expression}) AS "{field.key}"' for field in fields if field.key != '品牌')
-        if table == 'catalog_lifecycle_source':
+        if table == 'catalog_lifecycle_source' or (table == 'catalog_browse_source' and
+                '_lifecycle_source' in {r[1] for r in conn.execute('PRAGMA table_info(catalog_browse_source)')}):
             projection += ',"_lifecycle_source","_lifecycle_checked"'
         if projection:
             projection = ',' + projection

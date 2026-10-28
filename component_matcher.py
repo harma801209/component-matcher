@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-28T09:50:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-28T20:10:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -50357,7 +50357,10 @@ def cached_catalog_passive_source(data_signature, component_type):
         install_jianghai_search_overlay(conn)
         install_amotech_catalogue_overlay(conn)
         install_catalog_parameters(conn, data_signature, component_type)
-        return _catalog_filters.passive_completion.SharedSource(conn)
+        _catalog_filters.prepare_browse_source(conn, component_type)
+        source = _catalog_filters.passive_completion.SharedSource(conn)
+        source.verified_unique = _catalog_filters.has_unique_model_rows(conn, component_type)
+        return source
     except Exception:
         conn.close()
         raise
@@ -50380,11 +50383,11 @@ def cached_catalog_snapshot(data_signature, component_type, selected, ranges, ke
         restored_signature = catalog_filter_data_signature()
         if restored_signature != data_signature:
             return cached_catalog_snapshot(restored_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, keyword_mode)
-    verified_unique = cached_catalog_unique(data_signature, component_type)
     if component_type in _catalog_filters.passive_completion.KINDS:
         source = cached_catalog_passive_source(data_signature, component_type)
         with source.lock:
-            return _catalog_filters.snapshot(source.connection, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=verified_unique, keyword_mode=keyword_mode)
+            return _catalog_filters.snapshot(source.connection, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=source.verified_unique, keyword_mode=keyword_mode, query_cache=source.query_cache)
+    verified_unique = cached_catalog_unique(data_signature, component_type)
     conn = open_search_db_connection(timeout_sec=10)
     if conn is None:
         raise ValueError("器件筛选索引暂不可用，请稍后重试或使用型号搜索。")

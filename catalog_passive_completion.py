@@ -299,8 +299,10 @@ def install(conn, kind, compressed, table):
 class SharedSource:
     """Public-catalogue-only resource; never holds member/customer/cost state."""
     def __init__(self, connection):
+        from component_filters import QueryCache
         self.connection = connection
         self.lock = threading.RLock()
+        self.query_cache = QueryCache(connection)
 
     def __del__(self):
         try:

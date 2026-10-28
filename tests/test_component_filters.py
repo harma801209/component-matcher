@@ -793,7 +793,9 @@ class PassiveParameterCompletionTests(unittest.TestCase):
                 install_jianghai_search_overlay=lambda conn:called.append('manufacturer'),
                 install_amotech_catalogue_overlay=lambda conn:called.append('amotech_catalogue'),
                 install_catalog_parameters=lambda *args:called.append('specs'),
-                _catalog_filters=SimpleNamespace(passive_completion=completion))
+                _catalog_filters=SimpleNamespace(passive_completion=completion,
+                    prepare_browse_source=lambda *args:called.append('browse'),
+                    has_unique_model_rows=lambda *args:True))
             exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
             resource=namespace['cached_catalog_passive_source']('revision','薄膜电阻')
             def read():
@@ -803,7 +805,8 @@ class PassiveParameterCompletionTests(unittest.TestCase):
                 self.assertEqual(list(workers.map(lambda _:read(),range(4))),['PUBLIC-ONLY']*4)
             with self.assertRaises(sqlite3.OperationalError):
                 resource.connection.execute('DELETE FROM catalogue')
-            self.assertEqual(called,['manufacturer','amotech_catalogue','specs'])
+            self.assertEqual(called,['manufacturer','amotech_catalogue','specs','browse'])
+            self.assertTrue(resource.verified_unique)
             self.assertNotIn('session_state',ast.unparse(function))
             self.assertNotIn('current_member',ast.unparse(function))
             resource.connection.close()
@@ -844,6 +847,145 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         self.assertEqual(snapshot_function('missing-revision','MLCC',{}, {},'',1,20,True),'canonical-result')
         self.assertEqual(called[0],('restore',('missing-revision','MLCC')))
         self.assertEqual(called[1][1][0],'restored-revision')
+
+
+class CatalogPerformanceTests(unittest.TestCase):
+    def fixture(self):
+        fixture = CatalogFilterTests()
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        return fixture.conn
+
+    @staticmethod
+    def public_result(result):
+        return {**result, 'fields':[(f.key,f.label,f.units) for f in result['fields']]}
+
+    def test_frozen_projection_preserves_counts_facets_filters_sort_and_pages(self):
+        from component_filters import prepare_browse_source, QueryCache
+        cases = [dict(),dict(page=2,page_size=2),dict(page=999,page_size=2),
+                 dict(selected={'品牌':['A'],'_size':['0402','0603']}),
+                 dict(selected={'_size':[MISSING]}),dict(ranges={'_res_ohm':(0,0)}),
+                 dict(ranges={'_res_ohm':(100,5600)},sort_key='_tol'),
+                 dict(sort_key='_res_ohm',sort_desc=True),
+                 dict(keyword='R_100%',keyword_mode='exact'),dict(keyword='R',keyword_mode='prefix')]
+        conn = self.fixture()
+        expected = [self.public_result(snapshot(conn,'厚膜电阻',include_rows=True,**case)) for case in cases]
+        categories = category_counts(conn)
+        prepare_browse_source(conn,'厚膜电阻')
+        self.assertFalse(has_unique_model_rows(conn,'厚膜电阻'))
+        cache = QueryCache(conn)
+        for case, result in zip(cases,expected):
+            self.assertEqual(self.public_result(snapshot(conn,'厚膜电阻',include_rows=True,query_cache=cache,**case)),result)
+        self.assertEqual(category_counts(conn),categories)
+
+    def test_frozen_unit_expressions_remain_equivalent(self):
+        from component_filters import prepare_browse_source, QueryCache
+        for kind, ranges in [('晶振',{'frequency_hz':(16e6,16e6)}),('功率电感',{'inductance_uh':(1,1)}),('MLCC',{'_pf':(100000,100000)})]:
+            conn = self.fixture()
+            expected = self.public_result(snapshot(conn,kind,ranges=ranges,include_rows=True))
+            prepare_browse_source(conn,kind)
+            self.assertEqual(self.public_result(snapshot(conn,kind,ranges=ranges,include_rows=True,query_cache=QueryCache(conn))),expected)
+
+    def test_page_size_sort_and_membership_reuse_aggregates_not_model_rows(self):
+        from component_filters import prepare_browse_source, QueryCache
+        conn = self.fixture()
+        prepare_browse_source(conn,'厚膜电阻')
+        cache = QueryCache(conn)
+        first = snapshot(conn,'厚膜电阻',page_size=2,include_rows=False,query_cache=cache)
+        queries = []
+        conn.set_trace_callback(queries.append)
+        second = snapshot(conn,'厚膜电阻',page=2,page_size=2,include_rows=True,query_cache=cache)
+        third = snapshot(conn,'厚膜电阻',page_size=100,include_rows=True,sort_key='_res_ohm',query_cache=cache)
+        aggregates = [sql for sql in queries if 'COUNT(' in sql or 'MIN((' in sql]
+        self.assertEqual(aggregates,[])
+        self.assertEqual(first['total'],third['total'])
+        self.assertFalse(first['rows'])
+        self.assertEqual(len(second['rows']),2)
+        self.assertNotEqual(second['rows'],third['rows'])
+        self.assertTrue(all('LIMIT' not in sql for sql,_ in cache.entries))
+
+    def test_own_facet_is_reused_when_only_that_selection_changes(self):
+        from component_filters import prepare_browse_source, QueryCache
+        conn = self.fixture()
+        prepare_browse_source(conn,'厚膜电阻')
+        cache = QueryCache(conn)
+        initial = snapshot(conn,'厚膜电阻',query_cache=cache)
+        queries = []
+        conn.set_trace_callback(queries.append)
+        filtered = snapshot(conn,'厚膜电阻',{'品牌':['A']},query_cache=cache)
+        self.assertEqual(filtered['facets']['品牌'],initial['facets']['品牌'])
+        self.assertLess(filtered['total'],initial['total'])
+        self.assertFalse(any(sql.startswith('SELECT NULLIF(TRIM(CAST(("品牌") AS TEXT)') for sql in queries))
+        self.assertEqual(self.public_result(filtered),self.public_result(snapshot(conn,'厚膜电阻',{'品牌':['A']})))
+
+    def test_aggregate_cache_is_bounded_connection_scoped_and_results_are_copied(self):
+        from component_filters import prepare_browse_source, QueryCache
+        conn = self.fixture()
+        cache = QueryCache(conn,max_entries=2,max_cells=6)
+        for number in range(10):
+            self.assertEqual(cache.fetch(conn,'SELECT ?', [number]),((number,),))
+            self.assertLessEqual(len(cache.entries),2)
+            self.assertLessEqual(cache.cells,6)
+        cache.fetch(conn,'SELECT * FROM components_search_resistor',[])
+        self.assertLessEqual(cache.cells,6)
+        with self.assertRaises(ValueError): cache.fetch(self.fixture(),'SELECT 1',[])
+        prepare_browse_source(conn,'厚膜电阻')
+        cache = QueryCache(conn)
+        first = snapshot(conn,'厚膜电阻',query_cache=cache)
+        first['facets']['品牌'].append(('NOT-A-BRAND',99999))
+        first['facets']['_res_ohm'][0] = -999
+        result = snapshot(conn,'厚膜电阻',query_cache=cache)
+        self.assertNotIn(('NOT-A-BRAND',99999),result['facets']['品牌'])
+        self.assertEqual(result['facets']['_res_ohm'][0],0)
+
+    def test_exact_identity_audit_retains_null_blank_brand_and_empty_model_semantics(self):
+        from component_filters import prepare_browse_source
+        conn = self.fixture()
+        conn.executemany('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?)',[
+            (None,'NULL-BRAND','MLCC','0402','X7R',1,'10',16),
+            ('','NULL-BRAND','MLCC','0402','X7R',1,'10',16),
+            ('B','','MLCC','0402','X7R',1,'10',16)])
+        expected = snapshot(conn,'MLCC',include_rows=True)
+        self.assertFalse(has_unique_model_rows(conn,'MLCC'))
+        prepare_browse_source(conn,'MLCC')
+        self.assertFalse(has_unique_model_rows(conn,'MLCC'))
+        self.assertEqual(self.public_result(snapshot(conn,'MLCC',include_rows=True)),self.public_result(expected))
+        self.assertEqual(conn.execute('SELECT COUNT(*) FROM catalog_browse_source WHERE 型号=\'\'').fetchone()[0],0)
+
+    def test_lifecycle_evidence_and_completed_fields_are_frozen_together(self):
+        from component_filters import prepare_browse_source, QueryCache
+        conn = self.fixture()
+        conn.execute("CREATE TEMP VIEW catalog_lifecycle_source AS SELECT r.*,'量产' AS 生产状态,'https://manufacturer.example/spec' AS _lifecycle_source,'2026-10-28' AS _lifecycle_checked FROM components_search_resistor r WHERE _component_type='厚膜电阻'")
+        expected = self.public_result(snapshot(conn,'厚膜电阻',{'生产状态':['量产']},include_rows=True))
+        prepare_browse_source(conn,'厚膜电阻')
+        actual = self.public_result(snapshot(conn,'厚膜电阻',{'生产状态':['量产']},include_rows=True,query_cache=QueryCache(conn)))
+        self.assertEqual(actual,expected)
+        self.assertEqual(actual['rows'][0]['_lifecycle_checked'],'2026-10-28')
+
+    def test_frozen_source_is_readonly_public_only_and_disappears_on_close(self):
+        import hashlib,tempfile
+        from contextlib import closing
+        from pathlib import Path
+        from component_filters import prepare_browse_source
+        conn = self.fixture()
+        conn.execute('ALTER TABLE components_search_resistor ADD COLUMN customer_cost TEXT')
+        conn.execute("UPDATE components_search_resistor SET customer_cost='PRIVATE'")
+        conn.commit()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'catalogue.sqlite'
+            with closing(sqlite3.connect(path)) as target: conn.backup(target)
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            readonly = sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+            prepare_browse_source(readonly,'厚膜电阻')
+            prepare_browse_source(readonly,'厚膜电阻')
+            with self.assertRaises(ValueError): prepare_browse_source(readonly,'MLCC')
+            columns = {row[1] for row in readonly.execute('PRAGMA table_info(catalog_browse_source)')}
+            self.assertNotIn('customer_cost',columns)
+            self.assertEqual(snapshot(readonly,'厚膜电阻')['total'],6)
+            readonly.close()
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+            with closing(sqlite3.connect(path)) as reopened:
+                self.assertFalse(reopened.execute("SELECT name FROM sqlite_master WHERE name LIKE 'catalog_browse_%'").fetchall())
 
 
 class CatalogFilterUITests(unittest.TestCase):
