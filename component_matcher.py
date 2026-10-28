@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-28T20:10:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-28T22:00:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -50379,7 +50379,10 @@ def resolve_catalog_mlcc_rule(model, brand):
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key="", sort_desc=False, keyword_mode="contains"):
     if component_type in _catalog_filters.passive_completion.KINDS and not os.path.isfile(PREPARED_CACHE_PATH):
-        cached_catalog_parameters(data_signature, component_type)
+        # Restore first, then use the stable asset revision. Decoding here
+        # would cache under the old missing-file key and decode the same MLCC
+        # details again immediately under the restored key.
+        ensure_streamlit_cloud_data_bundle(required_paths=[PREPARED_CACHE_PATH])
         restored_signature = catalog_filter_data_signature()
         if restored_signature != data_signature:
             return cached_catalog_snapshot(restored_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, keyword_mode)

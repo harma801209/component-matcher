@@ -78,6 +78,11 @@ def load_parameter_rows(path, component_type, model_resolver=None):
         # Select one actual record, never manufacture a composite specification.
         seen.add(identity)
         if component_type == 'MLCC':
+            # Whole-record first-wins deduplication above must precede this
+            # fast path. Mount-only family inference is performed directly on
+            # the index below, so complete unchanged rows need no decoding here.
+            if all(mlcc_completion.text(row.get(key)) for key in mlcc_completion.FIELDS[:3]) and not mlcc_completion.text(row.get('安装方式')):
+                continue
             completed = mlcc_completion.complete(row, model_resolver)
             # SMD family inference runs directly on the current index below.
             # Cache only actual source/decoder repairs, not >100k identical

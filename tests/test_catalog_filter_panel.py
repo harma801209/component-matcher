@@ -5,6 +5,42 @@ from tests import test_component_filters as fixtures
 
 
 class CatalogPanelTests(unittest.TestCase):
+    def test_category_loading_feedback_survives_old_render_until_acknowledged(self):
+        import shutil,subprocess
+        from pathlib import Path
+        node=shutil.which('node')
+        if not node:self.skipTest('Node is required for the isolated frontend event test')
+        # Minimal DOM event unit test, not browser or production-page evidence.
+        harness=r'''
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+class El{
+ constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.events={};this.dataset={};this.style={};this.textContent='';const set=new Set();this.classList={add:v=>set.add(v),remove:v=>set.delete(v),contains:v=>set.has(v)};}
+ append(...nodes){this.children.push(...nodes)} prepend(...nodes){this.children.unshift(...nodes)}
+ replaceChildren(...nodes){this.children=nodes;this.textContent=''}
+ setAttribute(k,v){this.attributes[k]=v} getAttribute(k){return this.attributes[k]??null} removeAttribute(k){delete this.attributes[k]}
+ addEventListener(k,v){this.events[k]=v} querySelector(){return null} querySelectorAll(){return []}
+ getBoundingClientRect(){return {height:400}} focus(){}
+}
+const root=new El('main'),events={},messages=[],parent={postMessage:m=>messages.push(m)};
+const context={innerWidth:1000,parent,document:{getElementById:()=>root,createElement:tag=>new El(tag),activeElement:null},window:{addEventListener:(name,fn)=>events[name]=fn},ResizeObserver:class{observe(){}},Date,Map,Set,Number,String};
+const html=fs.readFileSync(process.argv[1],'utf8');vm.runInNewContext(html.split('<script>')[1].split('</script>')[0],context);
+function all(node){return [node,...node.children.flatMap(all)]}
+const payload={view:'old',ack:'',kind:null,categories:[{kind:'厚膜电阻',family:'电阻',count:10}],groups:[]};
+const render=value=>events.message({source:parent,data:{type:'streamlit:render',args:{payload:value}}});
+render(payload);const select=all(root).find(n=>n.tag==='select');select.value='厚膜电阻';select.events.change();
+select.events.change();
+assert(root.classList.contains('busy'));assert(all(root).some(n=>n.getAttribute('role')==='status'&&n.textContent.includes('厚膜电阻')));
+const request=messages.find(m=>m.type==='streamlit:setComponentValue').value;
+render(payload);assert(root.classList.contains('busy'));assert(all(root).some(n=>n.getAttribute('role')==='status'));
+render({...payload,view:'new',kind:'厚膜电阻',ack:request.event});
+assert(!root.classList.contains('busy'));assert(!all(root).some(n=>n.getAttribute('role')==='status'));assert(all(root).some(n=>n.tag==='h2'&&n.textContent==='厚膜电阻'));
+assert.equal(messages.filter(m=>m.type==='streamlit:setComponentValue').length,1);
+console.log('CATEGORY_LOADING_EVENT_TEST_PASSED');
+'''
+        result=subprocess.run([node,'-e',harness,str(Path(__file__).resolve().parents[1]/'catalog_facets/index.html')],capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('CATEGORY_LOADING_EVENT_TEST_PASSED',result.stdout)
+
     def test_category_chooser_keeps_new_electronic_and_future_families(self):
         from pathlib import Path
         template=(Path(__file__).resolve().parents[1]/'catalog_facets/index.html').read_text(encoding='utf-8')

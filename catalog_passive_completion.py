@@ -196,12 +196,67 @@ def complete(row, model_resolver=None):
     return patch
 
 
-def load(path, kind, model_resolver=None, index_path=None, trusted_power_sources=frozenset({'text', 'numeric', 'context', 'thermistor_max_power'})):
+def kind_batches(source, columns, kind):
+    """Skip provably unrelated row groups before decoding projected columns."""
+    import pyarrow.compute as pc
+    column = source.schema_arrow.get_field_index('_component_type')
+    groups = []
+    for position in range(source.num_row_groups):
+        statistics = source.metadata.row_group(position).column(column).statistics
+        if statistics and statistics.has_min_max:
+            lower, upper = statistics.min, statistics.max
+            if isinstance(lower, str) and isinstance(upper, str) and (kind < lower or kind > upper):
+                continue
+        groups.append(position)
+    for batch in source.iter_batches(batch_size=2048, columns=columns, row_groups=groups, use_threads=False):
+        batch = batch.filter(pc.equal(batch.column('_component_type'), kind))
+        if batch.num_rows:
+            yield batch
+
+
+def resistor_candidates(batch, kind, existing, missing_keys):
+    """Conservative pruning only when indexed resistor fields are complete.
+
+    Existing-field gaps must always be visited. With all four indexed scalar/
+    package fields available, the only other possible output is body size:
+    explicit prepared body, physical dimensions, or the established FOJAN rule.
+    Everything else follows the unchanged full decoder. Unicode dimensions are
+    deliberately over-included: Arrow/RE2 and Python differ on Unicode digits.
+    """
+    expected = {'_size', '_tol', '_res_ohm', '_power_watt', '_body_size'}
+    # Arrow rebuilds its lookup hash for each batch. Dense gap sets must use
+    # the general path instead of repeatedly hashing hundreds of thousands
+    # of identities (notably legacy thin-film power gaps).
+    if fields_for_kind(kind) != expected or existing != expected - {'_body_size'} or missing_keys is None or len(missing_keys) > 8192:
+        return batch
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    def strings(key):
+        return pc.fill_null(pc.cast(batch.column(key), pa.string()), '') if key in batch.schema.names else pa.array([''] * batch.num_rows)
+    def present(key):
+        raw = strings(key)
+        value = pc.utf8_upper(pc.utf8_trim_whitespace(raw))
+        return pc.or_(pc.invert(pc.is_in(value, value_set=pa.array(sorted(EMPTY)))),
+                      pc.match_substring_regex(raw, r'[^\x00-\x7F]'))
+    identities = pc.binary_join_element_wise(strings('品牌'), strings('型号'), '\0')
+    keep = pc.is_in(identities, value_set=missing_keys)
+    keep = pc.or_(keep, present('_body_size'))
+    dimensions = strings('尺寸（mm）')
+    physical = pc.match_substring_regex(dimensions, r'[0-9].*[x×*].*[0-9]|[ØΦφ]\s*[0-9]|[dD][0-9]')
+    unicode = pc.match_substring_regex(dimensions, r'[^\x00-\x7F]')
+    keep = pc.or_(keep, pc.or_(physical, unicode))
+    if kind in {'贴片电阻', '厚膜电阻'}:
+        brand = pc.replace_substring(pc.utf8_upper(strings('品牌')), ' ', '')
+        keep = pc.or_(keep, pc.or_(pc.match_substring(brand, 'FOJAN'), pc.match_substring(brand, '富捷')))
+    return batch.filter(keep)
+
+
+def load(path, kind, model_resolver=None, index_path=None, trusted_power_sources=frozenset({'text', 'numeric', 'context', 'thermistor_max_power'}), candidate_pruning=True):
     """Stream projected public specification columns into immutable gzip bytes."""
     if kind not in KINDS or not Path(path).is_file():
         return b''
     import pyarrow.parquet as pq
-    import pyarrow.compute as pc
+    import pyarrow as pa
     existing, missing = set(), {}
     ordered = sorted(fields_for_kind(kind))
     bits = {key:1 << position for position,key in enumerate(ordered)}
@@ -214,6 +269,9 @@ def load(path, kind, model_resolver=None, index_path=None, trusted_power_sources
             for brand, model, value in index.execute(f'SELECT 品牌,型号,({mask}) AS gaps FROM "{table}" WHERE _component_type=? AND COALESCE(型号,\'\')<>\'\' AND gaps>0', (kind,)):
                 identity = (brand or '')+'\0'+model
                 missing[identity] = missing.get(identity,0) | value
+    body_only = candidate_pruning and fields_for_kind(kind) == {'_size', '_tol', '_res_ohm', '_power_watt', '_body_size'} and existing == {'_size', '_tol', '_res_ohm', '_power_watt'}
+    missing_keys = pa.array(list(missing), type=pa.string()) if body_only and len(missing) <= 8192 else None
+    body_decode_mask = bits.get('_size', 0) | bits.get('_res_ohm', 0)
     output = io.BytesIO()
     with pq.ParquetFile(path) as source, gzip.GzipFile(fileobj=output, mode='wb', mtime=0, compresslevel=1) as zipped:
         names = set(source.schema_arrow.names)
@@ -224,11 +282,22 @@ def load(path, kind, model_resolver=None, index_path=None, trusted_power_sources
             wanted.add('_power_source')
         columns = sorted(wanted & names)
         projected = fields_for_kind(kind) - {'_temp_low', '_temp_high'}
-        for batch in source.iter_batches(batch_size=2048, columns=columns, use_threads=False):
-            batch = batch.filter(pc.equal(batch.column('_component_type'), kind))
+        for batch in kind_batches(source, columns, kind):
+            if candidate_pruning:
+                batch = resistor_candidates(batch, kind, existing, missing_keys)
             for row in batch.to_pylist():
-                patch = complete(row, model_resolver)
                 gap_mask = missing.get((row['品牌'] or '')+'\0'+(row['型号'] or ''),0)
+                if body_only and not gap_mask & body_decode_mask:
+                    # Size/rule-decoded resistance cannot change here. Power
+                    # and tolerance gaps use the unchanged explicit-field
+                    # transfer below; neither has a generic resistor decoder.
+                    patch = {}
+                    if text(row.get('型号')) and not text(row.get('_body_size')):
+                        value = physical_size(row.get('尺寸（mm）')) or fojan_explicit_specs(row).get('_body_size')
+                        if value:
+                            patch['_body_size'] = value
+                else:
+                    patch = complete(row, model_resolver)
                 # Existing indexed fields may be absent/stale even when their
                 # prepared counterpart was already normalized. Do not cache
                 # Python dicts for hundreds of thousands of these records.

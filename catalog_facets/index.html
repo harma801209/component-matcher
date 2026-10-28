@@ -21,16 +21,26 @@ body{color:#3b474a;font-family:Arial,"Microsoft YaHei",sans-serif}
 @media(max-width:650px){.summary{gap:10px}.summary-conditions{flex:1 1 180px}.summary .clear-all{min-width:120px;min-height:40px}}
 .range-sliders{position:relative;height:19px;margin:0 0 3px}.range-sliders input{position:absolute;width:100%;height:18px;margin:0;left:0;top:0;accent-color:#2164bc;pointer-events:none;background:transparent}.range-sliders input::-webkit-slider-thumb{pointer-events:auto}.range-sliders input::-moz-range-thumb{pointer-events:auto}.range-sliders input:focus-visible{outline:2px solid #2164bc;outline-offset:1px;z-index:2}.numeric .available{min-height:20px;margin-bottom:4px;font-size:10px}.numeric .number-row{margin-bottom:5px}.numeric .number-row input,.numeric .number-row select{height:28px}.numeric-body{padding:7px 10px}.numeric .range-apply{min-height:24px;padding:1px 10px;font-size:11px}
 </style>
+<style>.kind-loading{margin:0 0 12px;padding:10px 12px;border:1px solid #c9dced;background:#eff6fd;color:#225d96;font-size:13px;line-height:1.6}.busy:has(.kind-loading){opacity:1}.busy:has(.kind-loading)>:not(.kind-loading){opacity:.65}</style>
 
 <script>
-(()=>{'use strict';let data=null,lastHeight=0,lastWidth=innerWidth,eventId=0,chooserOpen=false;
+(()=>{'use strict';let data=null,lastHeight=0,lastWidth=innerWidth,eventId=0,chooserOpen=false,pendingKind=null;
 const root=document.getElementById('root'),searches=new Map(),limits=new Map();
 const send=(type,extra={})=>parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
 const fmt=n=>Number(n).toLocaleString('en-US');
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;}
 function button(text,fn,cls){const b=node('button',text,cls);b.type='button';b.addEventListener('click',fn);return b;}
 function height(){const h=Math.ceil(root.getBoundingClientRect().height)+4;if(h!==lastHeight){lastHeight=h;send('streamlit:setFrameHeight',{height:h});}}
-function request(action,extra={}){root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event:Date.now()+'-'+(++eventId),action,...extra},dataType:'json'});}
+function request(action,extra={}){
+ if(pendingKind)return;
+ const event=Date.now()+'-'+(++eventId);
+ if(action==='kind'){
+  pendingKind={kind:extra.kind,view:data.view,event};
+  const hint=node('p','正在加载「'+extra.kind+'」的规格参数，首次准备数据需要稍候…','kind-loading');
+  hint.setAttribute('role','status');hint.setAttribute('aria-live','polite');root.prepend(hint);height();
+ }
+ root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event,action,...extra},dataType:'json'});
+}
 function labelInput(text,type){const label=node('label');const input=node('input');input.type=type;label.append(input,node('span',text));return {label,input};}
 function hasSelection(g){return g.units.length?Boolean(g.low||g.high):g.options.some(o=>o.checked);}
 function renderChooser(){
@@ -137,6 +147,10 @@ function render(){
 window.addEventListener('message',event=>{
  if(event.source!==parent||event.data?.type!=='streamlit:render')return;
  const value=event.data.args?.payload;if(!value)return;
+ // Streamlit can replay the previous arguments before handling the category
+ // action. Keep immediate feedback until its acknowledgement/new view arrives.
+ if(pendingKind&&value.view===pendingKind.view&&value.ack!==pendingKind.event&&value.kind!==pendingKind.kind)return;
+ pendingKind=null;
  const changedKind=data?.kind!==value.kind;
  const next={...value,groups:value.groups.map(g=>({...g,options:g.options?.map(o=>({...o}))}))};
  if(changedKind){chooserOpen=false;searches.clear();limits.clear();}

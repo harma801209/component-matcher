@@ -5,6 +5,7 @@ Only missing fields are filled. Existing nonempty indexed values win.
 See docs/catalog_parameter_completion.md for the primary-source references.
 """
 import re
+from functools import lru_cache
 
 FIELDS = ('_size', '_mat', '_tol', '_mount_style')
 RAW_COLUMNS = ('品牌', '型号', '_component_type', *FIELDS, '尺寸（inch）',
@@ -40,9 +41,9 @@ def tolerance(value):
     return ''
 
 
-def surface_family(brand, model):
-    """Recognized chip families only: notably excludes Murata DE* leaded parts."""
-    brand = brand.upper()
+@lru_cache(maxsize=256)
+def surface_patterns(brand):
+    """Compile only the unchanged, applicable rules once per public brand."""
     families = (
         (('MURATA', '村田'), r'^(?:GR[MJTLQ]|GC[MJAGQR]|G[JQ]M|LL[ADLMR]|KCA|WBM|ZRB)'),
         (('SAMSUNG', '三星'), r'^CL'),
@@ -62,8 +63,12 @@ def surface_family(brand, model):
         (('KEMET', '基美'), r'^C\d{4}'),
         (('KYOCERA', 'AVX', '晶瓷'), r'^(?:\d{4}|K[AG]M\d{2})'),
     )
-    return any(any(token in brand for token in names) and re.match(pattern, model)
-               for names, pattern in families)
+    return tuple(re.compile(pattern) for names, pattern in families if any(token in brand for token in names))
+
+
+def surface_family(brand, model):
+    """Recognized chip families only: notably excludes Murata DE* leaded parts."""
+    return any(pattern.match(model) for pattern in surface_patterns(brand.upper()))
 
 
 def complete(record, model_resolver=None):

@@ -71,6 +71,36 @@ cache eviction, cross-connection rejection, anonymous row suppression, and
 read-only source fingerprints. Timings are diagnostic, not test assertions: they
 depend on hardware and exclude network/startup/first parameter-asset restoration.
 
+### First category selection follow-up
+
+The query cache above does not eliminate cold specification preparation. The
+follow-up avoids decoding unrelated Parquet row groups, then conservatively
+prunes resistor rows only when all indexed package/electrical fields are present
+and body size is the sole additional field. Every indexed gap is retained, as
+are explicit prepared bodies, physical dimensions (including Unicode text), and
+existing FOJAN series-rule candidates. Rows without package/rule-resistance gaps
+run only the unchanged body-size branch; explicit power/tolerance transfers
+remain unchanged. Dense missing-identity sets bypass Arrow membership pruning,
+avoiding a large hash rebuild for every batch. All other schemas/types retain
+the general decoder.
+This does not discard missing-data rows or hide missing options from the index.
+
+MLCC's first source pass skips unchanged records only **after** first-whole-record
+deduplication. Applicable SMD-family regexes are cached per public brand, without
+changing their patterns, matching scope or excluding valid families. The later
+indexed completion still applies all original mounting rules. On cold asset
+restoration, only the published detail asset is restored before canonicalizing
+the revision; details are no longer decoded twice under missing/restored keys.
+
+The original validated temporary-table installation and final projection remain
+unchanged. Data patches, lifecycle citations, duplicates, known zeros and exact
+facet counts retain the same semantics.
+
+Selecting a category immediately shows an accessible loading message. Replayed
+old component arguments cannot dismiss it; a new view/acknowledgement does.
+This is feedback for actual work, not an animation or stale count pretending the
+category has loaded. No extra input, matching or account actions are introduced.
+
 ## FOJAN verified follow-up — 2026-10-20
 
 FRC/FPS/FPL dimensions are taken from the **L × W × H** table on page 3,

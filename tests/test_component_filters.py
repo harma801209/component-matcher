@@ -839,17 +839,130 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         called=[]
         namespace=dict(_catalog_filters=SimpleNamespace(passive_completion=SimpleNamespace(KINDS={'MLCC'})),
             os=SimpleNamespace(path=SimpleNamespace(isfile=lambda path:False)),PREPARED_CACHE_PATH='public.parquet',
-            cached_catalog_parameters=lambda *args:called.append(('restore',args)),
+            ensure_streamlit_cloud_data_bundle=lambda **kwargs:called.append(('restore',kwargs)),
             catalog_filter_data_signature=lambda:'restored-revision')
         exec(compile(ast.Module(body=[function],type_ignores=[]),str(path),'exec'),namespace)
         snapshot_function=namespace['cached_catalog_snapshot']
         namespace['cached_catalog_snapshot']=lambda *args:called.append(('canonical',args)) or 'canonical-result'
         self.assertEqual(snapshot_function('missing-revision','MLCC',{}, {},'',1,20,True),'canonical-result')
-        self.assertEqual(called[0],('restore',('missing-revision','MLCC')))
+        self.assertEqual(called[0],('restore',{'required_paths':['public.parquet']}))
         self.assertEqual(called[1][1][0],'restored-revision')
 
 
 class CatalogPerformanceTests(unittest.TestCase):
+    def test_dense_gap_sets_do_not_rebuild_large_arrow_membership_hashes(self):
+        import pyarrow as pa
+        from unittest.mock import patch
+        from catalog_passive_completion import resistor_candidates
+        batch=pa.RecordBatch.from_pylist([dict(品牌='A',型号='R1',_component_type='薄膜电阻')])
+        with patch('pyarrow.compute.is_in',side_effect=AssertionError('dense hash rebuilt')):
+            self.assertIs(resistor_candidates(batch,'薄膜电阻',{'_size','_res_ohm','_tol','_power_watt'},pa.array([str(i) for i in range(8193)])),batch)
+            self.assertIs(resistor_candidates(batch,'薄膜电阻',{'_size','_res_ohm','_tol','_power_watt'},None),batch)
+
+    def test_cold_resistor_pruning_keeps_every_actual_patch_and_skips_noop_decodes(self):
+        import tempfile,gzip,json
+        from pathlib import Path
+        from contextlib import closing
+        from unittest.mock import patch
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        import catalog_passive_completion as completion
+        rows = [dict(品牌='A',型号=f'R{i}',_component_type='厚膜电阻',_size='0402',_tol='1',
+                     _res_ohm=1000,_power_watt=.0625,_power_source='context',**{'尺寸（mm）':'1005','成本':999}) for i in range(1000)]
+        rows[0]['尺寸（mm）']='1.0×0.5'
+        rows[1]['_body_size']='AXIAL'
+        rows[2].update(品牌='FO JAN(富捷)',型号='FRC0402F1001TS')
+        rows[5]['尺寸（mm）']='１２×３４'
+        rows[6]['尺寸（mm）']='d5.1x2.3mm'
+        rows[7]['品牌']=None
+        rows[8]['尺寸（mm）']='N/A'
+        rows[9]['_body_size']='0'
+        rows[10]['_body_size']='\ufeff'
+        rows[4]['_power_source']='size'
+        rows.append({**rows[0],'_body_size':'SECOND-ACTUAL-RECORD'})
+        # Arrow's schema is fixed by its first record; include optional fields
+        # there so later explicit values are not silently discarded by a fixture.
+        rows[0]['_body_size']=None
+        with tempfile.TemporaryDirectory() as folder:
+            prepared,index=Path(folder)/'public.parquet',Path(folder)/'public.sqlite'
+            pq.write_table(pa.Table.from_pylist(rows),prepared,row_group_size=100)
+            with closing(sqlite3.connect(index)) as conn:
+                conn.execute('CREATE TABLE components_search_resistor (品牌 TEXT,型号 TEXT,_component_type TEXT,_size TEXT,_res_ohm REAL,_tol TEXT,_power_watt REAL)')
+                conn.executemany('INSERT INTO components_search_resistor VALUES (?,?,?,?,?,?,?)',
+                    [(r['品牌'],r['型号'],r['_component_type'],r['_size'],r['_res_ohm'],r['_tol'],r['_power_watt']) for r in rows[:1000]])
+                conn.execute("UPDATE components_search_resistor SET _size=NULL WHERE 型号='R3'")
+                conn.execute("UPDATE components_search_resistor SET _power_watt=NULL WHERE 型号='R4'")
+                conn.execute("UPDATE components_search_resistor SET _power_watt=NULL,_tol=NULL WHERE 型号='R11'")
+                conn.commit()
+            with patch.object(completion,'complete',wraps=completion.complete) as decode:
+                reference=completion.load(prepared,'厚膜电阻',index_path=index,candidate_pruning=False)
+                unpruned_calls=decode.call_count
+            with patch.object(completion,'complete',wraps=completion.complete) as decode:
+                result=completion.load(prepared,'厚膜电阻',index_path=index)
+                pruned_calls=decode.call_count
+            expected=[json.loads(row) for row in gzip.decompress(reference).splitlines()]
+            self.assertEqual([json.loads(row) for row in gzip.decompress(result).splitlines()],expected)
+            self.assertLess(pruned_calls,unpruned_calls/10)
+            self.assertNotIn('成本',gzip.decompress(result).decode())
+            self.assertTrue(any(r[2].get('_body_size')=='１２×３４' for r in expected))
+            self.assertTrue(any(r[2].get('_body_size')=='SECOND-ACTUAL-RECORD' for r in expected))
+            self.assertTrue(any(r[2].get('_body_size')=='\ufeff' for r in expected))
+
+    def test_parquet_row_groups_skip_only_proven_unrelated_kinds(self):
+        import tempfile
+        from pathlib import Path
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from catalog_passive_completion import kind_batches
+        table=pa.Table.from_pylist([{'品牌':'A','型号':'R1','_component_type':'厚膜电阻'},
+                                   {'品牌':'B','型号':'Q1','_component_type':'MOSFET'}])
+        with tempfile.TemporaryDirectory() as folder:
+            for statistics in (True,False):
+                path=Path(folder)/str(statistics)
+                pq.write_table(table,path,row_group_size=1,write_statistics=statistics)
+                with pq.ParquetFile(path) as source:
+                    calls=[]
+                    class Spy:
+                        schema_arrow=source.schema_arrow
+                        metadata=source.metadata
+                        num_row_groups=source.num_row_groups
+                        def iter_batches(self,**kwargs):
+                            calls.append(kwargs['row_groups'])
+                            return source.iter_batches(**kwargs)
+                    result=[r for batch in kind_batches(Spy(),table.schema.names,'厚膜电阻') for r in batch.to_pylist()]
+                    self.assertEqual([r['型号'] for r in result],['R1'])
+                    self.assertEqual(calls,[[0]] if statistics else [[0,1]])
+
+    def test_mlcc_early_skip_keeps_first_whole_record_and_explicit_mount(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        import catalog_mlcc_completion as completion
+        rows=[dict(品牌='A',型号='C1',_component_type='MLCC',_size='0402',_mat='X7R',_tol='10',安装方式=None),
+              dict(品牌='A',型号='C1',_component_type='MLCC',_size=None,_mat='X7R',_tol='10',安装方式='插件',**{'尺寸（inch）':'0603'}),
+              dict(品牌='B',型号='C2',_component_type='MLCC',_size='0603',_mat='X5R',_tol='20',安装方式='插件')]
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'public.parquet'
+            pq.write_table(pa.Table.from_pylist(rows),path)
+            with patch.object(completion,'complete',wraps=completion.complete) as decode:
+                repaired=load_parameter_rows(path,'MLCC')
+            self.assertEqual(decode.call_count,1)
+            self.assertEqual([r['型号'] for r in repaired],['C2'])
+            self.assertEqual(repaired[0]['_mount_style'],'插件')
+
+    def test_surface_brand_pattern_cache_retains_model_checks(self):
+        from catalog_mlcc_completion import surface_family,surface_patterns
+        surface_patterns.cache_clear()
+        for brand,model,expected in [('村田Murata','GRM123',True),('村田Murata','DE1E',False),
+            ('SAMSUNG','CL123',True),('SAMSUNG','GRM123',False),('UNKNOWN','CL123',False),
+            ('Kyocera AVX','KAM12',True),('Murata Samsung','CL123',True)]:
+            self.assertEqual(surface_family(brand,model),expected)
+        for _ in range(100): surface_family('SAMSUNG','CL-ANOTHER-MODEL')
+        self.assertGreaterEqual(surface_patterns.cache_info().hits,100)
+        self.assertLessEqual(surface_patterns.cache_info().currsize,256)
+
     def fixture(self):
         fixture = CatalogFilterTests()
         fixture.setUp()
