@@ -241,6 +241,42 @@ class HeaderComparisonTests(unittest.TestCase):
         self.assertNotIn("localStorage", source)
         self.assertNotIn("fetch(", source)
 
+    def test_top_scrollbar_is_before_the_table_and_keyboard_accessible(self):
+        source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
+        self.assertLess(source.index('id="table-top-scroll"'), source.index('id="table-root"'))
+        self.assertIn('aria-label="表格顶部横向滚动条" tabindex="0"', source)
+        self.assertIn("topSpacer.style.width=wrap.scrollWidth", source)
+        self.assertIn("topScroll.style.width=wrap.clientWidth", source)
+        self.assertIn("topScroll.hidden=!overflow", source)
+
+    def test_scroll_sync_is_bidirectional_local_and_rebound_on_table_replacement(self):
+        source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("wrap.scrollLeft=topScroll.scrollLeft", source)
+        self.assertIn("topScroll.scrollLeft=wrap.scrollLeft", source)
+        self.assertIn("wrap.addEventListener('scroll'", source)
+        self.assertIn("topScroll.addEventListener('scroll'", source)
+        self.assertIn("updateTopScroll();", source)
+        self.assertIn("topScroll.getBoundingClientRect().height", source)
+        self.assertIn("Math.abs(wrap.scrollLeft-topScroll.scrollLeft)>.5", source)
+        self.assertEqual(source.count("send('streamlit:setComponentValue'"), 1)
+
+    def test_primary_button_states_override_the_existing_important_table_theme(self):
+        source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("background:#1555e8!important", source)
+        self.assertIn("color:#fff!important", source)
+        self.assertIn("#compare-run:disabled", source)
+        self.assertIn("background:#eaf0f7!important", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr) auto", source)
+        self.assertIn("class=\"compare-fields\"", source)
+
+    def test_frontend_version_loads_new_assets_without_refreshing_the_browser(self):
+        from unittest.mock import patch
+        from bom_model_comparison import header_component
+        with patch("streamlit.components.v1.declare_component", return_value="COMPONENT") as declare:
+            self.assertEqual(header_component(), "COMPONENT")
+        self.assertEqual(declare.call_args.args[0], "bom_header_compare_v2")
+        self.assertTrue(declare.call_args.kwargs["path"].endswith("bom_comparison_table"))
+
 
 if __name__ == "__main__":
     unittest.main()

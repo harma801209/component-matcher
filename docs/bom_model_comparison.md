@@ -52,3 +52,13 @@ even in global issues mode. Empty issues keep the headers and a compact message.
 Pricing permissions and existing export contents are unchanged; no matching
 or output-version bump is needed. The component has no external dependencies,
 network calls, persistent browser storage or application-data writes.
+
+The table has a second native horizontal scrollbar immediately above its
+headings. It mirrors the bottom scrollbar in both directions without a server
+event. Its width/range update after window resize, column resizing, filtering
+and table replacement; it hides if all columns fit. Both scroll regions support
+keyboard navigation. A compact grouped selection area and clear blue/disabled
+primary button override the table theme's generic white-button rule. Frontend
+component identity v2 refreshes this asset in already-open fragments without
+reloading the browser, clearing uploaded files or changing authentication.
+预览软件选择、复制预览链接、下载 Excel 及其操作说明统一放在结果表格下方靠右；结果标题上方不再保留导出控件的空白区域。移动仅改变渲染顺序，不改变完整结果导出范围或链接生成逻辑。

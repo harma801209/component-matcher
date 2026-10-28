@@ -21,12 +21,22 @@ class BomSaveAsSourceTests(unittest.TestCase):
 
     def test_bom_result_uses_the_save_as_component(self):
         start = self.matcher.index('download_key_source = f"{workbook_signature}')
-        end = self.matcher.index("render_bom_model_comparison_panel(", start)
+        end = self.matcher.index("\n        except Exception as e:", start)
         download_block = self.matcher[start:end]
         self.assertIn("components.html(", download_block)
         self.assertIn("build_bom_download_footer_html(", download_block)
         self.assertIn("bridge_channel=get_query_param_text(MEMBER_AUTH_BRIDGE_CHANNEL_PARAM)", download_block)
         self.assertNotIn("st.download_button(", download_block)
+
+    def test_preview_and_download_controls_are_below_the_comparison_table(self):
+        title = self.matcher.index('BOM匹配结果 · {html.escape(selected_sheet_name)}')
+        comparison = self.matcher.index("render_bom_model_comparison_panel(", title)
+        footer = self.matcher.index("result_footer_cols = st.columns", title)
+        download = self.matcher.index("build_bom_download_footer_html(", footer)
+        self.assertLess(title, comparison)
+        self.assertLess(comparison, footer)
+        self.assertLess(footer, download)
+        self.assertNotIn("result_header_cols", self.matcher[title:download])
 
     def test_legacy_xls_exports_a_separate_result_workbook(self):
         self.assertIn("def build_independent_bom_result_workbook_bytes(", self.matcher)

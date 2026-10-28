@@ -3,15 +3,21 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;background:white}
-.compare-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;font-size:14px;min-height:38px}
+.compare-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px 16px;margin:0;padding:12px 14px;font-size:14px;min-height:58px;box-sizing:border-box;border:1px solid #dce5f1;border-bottom:0;border-radius:10px 10px 0 0;background:#f8faff}
+.compare-fields{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;min-width:0}
+.compare-label{font-size:14px;font-weight:650;color:#23415f;white-space:nowrap}
 .compare-toolbar button{border:1px solid #bdd0ee;border-radius:6px;background:white;color:#244b7a;padding:8px 14px;font:inherit;cursor:pointer}
-.compare-toolbar #compare-run{margin-left:auto;background:#1553ed;border-color:#1553ed;color:white;font-weight:600;min-height:40px}
-.compare-toolbar #compare-run:disabled{background:#edf1f7;border-color:#dce3ed;color:#7e8ca0;cursor:default}
+.compare-toolbar #compare-run{margin-left:0;background:#1555e8!important;border:1px solid #1555e8!important;color:#fff!important;border-radius:7px!important;font-weight:650;min-height:42px;min-width:116px;padding:9px 20px;box-shadow:0 2px 7px rgba(21,85,232,.15);white-space:nowrap}
+.compare-toolbar #compare-run:not(:disabled):hover{background:#1046c4!important;border-color:#1046c4!important}
+.compare-toolbar #compare-run:disabled{background:#eaf0f7!important;border-color:#dce5f1!important;color:#7a8da7!important;box-shadow:none;cursor:default}
 #compare-selection{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-#compare-selection button{background:#eef4ff;padding:5px 9px;font-size:13px}
+#compare-selection button{background:#eaf1ff!important;color:#234f92!important;border-color:#cfddf0!important;padding:5px 9px;font-size:13px;min-height:30px;line-height:20px}
 #compare-message{color:#647a93;font-size:13px}
-.compare-result{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-basis:100%;padding:8px 0 2px;border-top:1px solid #e3eaf4;font-size:13px}
+.compare-result{display:flex;align-items:center;gap:12px;flex-wrap:wrap;grid-column:1/-1;padding:9px 0 0;border-top:1px solid #e3eaf4;font-size:13px}
 .compare-result[hidden],#compare-empty[hidden],#compare-pages[hidden]{display:none}
+.table-top-scroll{height:16px;max-width:100%;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;background:#f0f4fa;border-top:1px solid #dce5f1;border-bottom:1px solid #dce5f1;overscroll-behavior:contain}
+.table-top-scroll[hidden]{display:none}
+#table-top-scroll-spacer{height:1px}
 #compare-summary{color:#167052;font-weight:600}
 #compare-summary[data-level="warning"]{color:#925600}
 .compare-filter{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto}
@@ -28,17 +34,18 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
 .result-table th.compare-selected{background:#e4eeff!important;box-shadow:inset 0 -3px #1553ed}
 .result-table th .compare-heading:focus-within{outline:2px solid #1553ed;outline-offset:2px}
 .result-table th .col-resizer{position:absolute;right:0;top:0;width:7px;height:100%;cursor:col-resize}
-@media(max-width:600px){.compare-toolbar{gap:8px}.compare-toolbar #compare-run{padding:8px 12px}#compare-selection{width:100%;order:3}}
+@media(max-width:600px){.compare-toolbar{gap:8px 10px;padding:10px}.compare-toolbar #compare-run{min-width:104px;padding:8px 12px}.compare-fields{gap:6px 8px}#compare-selection{flex-basis:100%}.compare-filter{margin-left:0}}
 </style></head>
 <body><div class="compare-toolbar" aria-label="型号比对操作栏">
-<span id="compare-message" role="status">勾选两个栏位</span>
+<div class="compare-fields"><span class="compare-label">比对栏位</span><span id="compare-message" role="status">在表头选择两栏</span>
 <div id="compare-selection"></div>
+</div>
 <button id="compare-run" type="button" disabled>型号比对</button>
 <div id="compare-result" class="compare-result" hidden>
 <span id="compare-summary" role="status"></span>
 <label class="compare-filter"><input id="compare-issues" type="checkbox">仅显示不一致和缺失</label>
 <span id="compare-pages" hidden><button id="compare-prev" type="button">上一组差异</button><span id="compare-page"></span><button id="compare-next" type="button">下一组差异</button></span>
-</div></div><div id="table-root"></div><div id="compare-empty" role="status" hidden></div>
+</div></div><div id="table-top-scroll" class="table-top-scroll" role="region" aria-label="表格顶部横向滚动条" tabindex="0" title="左右拖动可查看后面的栏位" hidden><div id="table-top-scroll-spacer" aria-hidden="true"></div></div><div id="table-root"></div><div id="compare-empty" role="status" hidden></div>
 <script>
 (() => {
   const root=document.getElementById('table-root');
@@ -46,6 +53,7 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
   const selection=document.getElementById('compare-selection');
   const message=document.getElementById('compare-message');
   const run=document.getElementById('compare-run');
+  const topScroll=document.getElementById('table-top-scroll'),topSpacer=document.getElementById('table-top-scroll-spacer');
   const result=document.getElementById('compare-result'),summary=document.getElementById('compare-summary');
   const filter=document.getElementById('compare-issues'),empty=document.getElementById('compare-empty');
   const pages=document.getElementById('compare-pages'),pageLabel=document.getElementById('compare-page');
@@ -54,6 +62,19 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
   let report=null,pending=false,lastRequest=0,requestCounter=0,error='';
   const expandedRows=new Set();
   const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},window.location.origin);
+  function updateTopScroll(){
+    const wrap=root.querySelector('.bom-result-table-wrap');
+    const overflow=wrap&&wrap.scrollWidth>wrap.clientWidth+1;
+    topScroll.hidden=!overflow;
+    if(!overflow)return;
+    topScroll.style.width=wrap.clientWidth+'px';
+    topSpacer.style.width=wrap.scrollWidth+'px';
+    if(Math.abs(topScroll.scrollLeft-wrap.scrollLeft)>.5)topScroll.scrollLeft=wrap.scrollLeft;
+  }
+  topScroll.addEventListener('scroll',()=>{
+    const wrap=root.querySelector('.bom-result-table-wrap');
+    if(wrap&&Math.abs(wrap.scrollLeft-topScroll.scrollLeft)>.5)wrap.scrollLeft=topScroll.scrollLeft;
+  },{passive:true});
   function height(){
     const wrap=root.querySelector('.bom-result-table-wrap');
     if(wrap){
@@ -63,7 +84,8 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
       const overflow=wrap.scrollWidth>wrap.clientWidth+1?18:0;
       wrap.style.maxHeight=Math.ceil((head?head.getBoundingClientRect().height:0)+rowsHeight+overflow+2)+'px';
     }
-    send('streamlit:setFrameHeight',{height:Math.ceil(toolbar.getBoundingClientRect().height+root.getBoundingClientRect().height+empty.getBoundingClientRect().height+24)});
+    updateTopScroll();
+    send('streamlit:setFrameHeight',{height:Math.ceil(toolbar.getBoundingClientRect().height+topScroll.getBoundingClientRect().height+root.getBoundingClientRect().height+empty.getBoundingClientRect().height+24)});
   }
   function paintReport(){
     const rows=Array.from(root.querySelectorAll('tbody tr'));
@@ -125,7 +147,7 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
       selection.append(remove);
     });
     const dirty=selected.join('|')!==submitted.join('|');
-    message.textContent=error||(pending?'正在更新比对结果…':selected.length===2?(dirty?'已选 2 栏，点击比对':'已选 2 栏'):('勾选两个栏位（'+selected.length+'/2）'));
+    message.textContent=error||(pending?'正在比对…':selected.length===2?(dirty?'已选 2 / 2 栏，可开始比对':'已选 2 / 2 栏'):selected.length?'已选 1 / 2 栏':'在表头选择两栏');
     run.disabled=hostDisabled||pending||selected.length!==2;
     paintReport();
     height();
@@ -217,7 +239,13 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
       // Never execute script blocks from the supplied HTML.
       doc.querySelectorAll('style').forEach(style=>root.append(style.cloneNode(true)));
       const wrap=doc.querySelector('.bom-result-table-wrap');
-      if(wrap){wrap.querySelectorAll('script').forEach(script=>script.remove());root.append(wrap);}
+      if(wrap){
+        wrap.querySelectorAll('script').forEach(script=>script.remove());root.append(wrap);
+        wrap.setAttribute('role','region');wrap.setAttribute('aria-label','BOM结果表格');wrap.tabIndex=0;
+        wrap.addEventListener('scroll',()=>{
+          if(Math.abs(topScroll.scrollLeft-wrap.scrollLeft)>.5)topScroll.scrollLeft=wrap.scrollLeft;
+        },{passive:true});
+      }
       lastHtml=args.table_html;installHeaders();
       if(wrap&&!changed){wrap.scrollLeft=oldX;wrap.scrollTop=oldY;}
     }

@@ -347,7 +347,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-27T20:02:00+08:00"
+PUBLIC_CODE_STAMP = "2026-10-28T08:56:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -51857,10 +51857,17 @@ def render_bom_upload_page():
                                 "已读取旧版 .xls；原始文件不会转换或修改。"
                                 "下载内容是独立的 .xlsx 匹配结果工作簿，并按原分页保留已解析数据。"
                             )
-                        result_header_cols = st.columns([0.72, 0.28], gap="small")
-                        with result_header_cols[0]:
-                            st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
-                        with result_header_cols[1]:
+                        st.markdown(f'<div class="section-title">BOM匹配结果 · {html.escape(selected_sheet_name)}</div>', unsafe_allow_html=True)
+                        render_bom_model_comparison_panel(
+                            bom_df, bom_result_df, workbook_signature, selected_sheet_name,
+                            display_df=display_bom_result_df,
+                            include_cost=bom_export_settings.get("include_cost", False),
+                            visible_row_positions=[int(bom_df.index.get_loc(index)) for index in page_indexes]
+                            if bom_df.index.is_unique and len(page_bom_df) == len(page_indexes) else [],
+                        )
+                        # Keep all preview/download controls together below the result table.
+                        result_footer_cols = st.columns([0.66, 0.34], gap="small")
+                        with result_footer_cols[1]:
                             download_key_source = f"{workbook_signature}|{selected_sheet_name}|{export_filename}"
                             download_key = "bom_export_download_" + hashlib.sha256(download_key_source.encode("utf-8")).hexdigest()[:16]
                             native_link, native_reason = prepare_bom_native_excel_link(export_bytes, export_filename)
@@ -51882,13 +51889,6 @@ def render_bom_upload_page():
                                 height=220,
                                 scrolling=False,
                             )
-                        render_bom_model_comparison_panel(
-                            bom_df, bom_result_df, workbook_signature, selected_sheet_name,
-                            display_df=display_bom_result_df,
-                            include_cost=bom_export_settings.get("include_cost", False),
-                            visible_row_positions=[int(bom_df.index.get_loc(index)) for index in page_indexes]
-                            if bom_df.index.is_unique and len(page_bom_df) == len(page_indexes) else [],
-                        )
 
         except Exception as e:
             active_job_id = clean_text(st.session_state.get("_active_bom_job_id", ""))

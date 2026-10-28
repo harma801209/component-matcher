@@ -172,7 +172,9 @@ def header_choices(choices, columns, visible_columns):
 def header_component():
     from pathlib import Path
     import streamlit.components.v1 as components
-    return components.declare_component("bom_header_compare", path=str(Path(__file__).with_name("bom_comparison_table")))
+    # Version the frontend identity so already-open BOM fragments load new assets
+    # without browser refresh, loss of uploads or a new authentication session.
+    return components.declare_component("bom_header_compare_v2", path=str(Path(__file__).with_name("bom_comparison_table")))
 
 
 def render_table(st, frame, *, table_html, original_column_count, visible_columns,
