@@ -116,8 +116,11 @@ class NamingGuideTests(unittest.TestCase):
                                 ('FCF370JV-000','16P8R')):
             p=self.parts(self.record(model,'信昌PDC','FCF'))
             self.assertIn(structure,p['结构／尺寸']['meaning'])
-        for model in ('FCF240FT-R050E','FCF02FT-1602','FCF240FT-163XYZ'):
+        for model in ('FCF240FT-R050E','FCF240FT-163XYZ'):
             self.assertEqual(guide.explain(self.record(model,'信昌PDC','FCF'))['segments'],[],model)
+        p=self.parts(self.record('FCF02FT-1602','信昌PDC','FCF'))
+        self.assertEqual(p['封装']['meaning'],'0402（英制）')
+        self.assertNotIn('结构／尺寸',p)
 
     def test_viking_cr_dash_padding_and_0a_size_are_not_ar_codes(self):
         p=self.parts(self.record('CR-02FL6---16K','光颉Viking','CR','厚膜电阻'))
@@ -138,6 +141,172 @@ class NamingGuideTests(unittest.TestCase):
                             ('FCF240FT-163','FOJAN'),('CR-02FL6---16K','Other')):
             self.assertEqual(guide.explain(self.record(model,brand))['segments'],[])
         self.assertEqual(guide.explain(self.record('WR04X1602FTL','Walsin',kind='MLCC'))['segments'],[])
+
+    def test_koa_rn73_families_keep_termination_packaging_tolerance_and_tcr_separate(self):
+        cases=[('RN73H1ETTP1200B25','120 Ω','25'),('RN73H2ATTD1003B25','100 kΩ','25'),
+               ('RN73R1ETTP64R9B10','64.9 Ω','10'),('RN732ATTD16R0B25','16 Ω','25'),
+               ('RN731JLTDD5102F100','51 kΩ','100')]
+        for model,value,tcr in cases:
+            record=self.record(model,'KOA','RN73','薄膜电阻')
+            p=self.parts(record)
+            self.assertEqual(p['阻值']['meaning'],value)
+            self.assertEqual(p['温度系数']['meaning'],f'±{tcr} ppm/℃')
+            self.assertTrue(guide.explain(record)['complete'])
+        self.assertIn('10 英寸',self.parts(self.record(cases[-1][0],'KOA'))['包装']['meaning'])
+        self.assertEqual(self.parts(self.record('RN73H1EGTP1200B25','KOA'))['端电极']['meaning'],'Au（金）')
+        for model in ('RN73R1EGTP1200B25','RN73H2AGTD1003B25','RN73H1ETTD1200B25',
+                      'RN73R1HTCM1200B25','RN73H2ATDD1003B25','RN73H2ATTD1003B99'):
+            self.assertFalse(guide.explain(self.record(model,'KOA'))['complete'],model)
+
+    def test_koa_rk73_jumper_has_no_invented_resistance_or_tolerance_digits(self):
+        p=self.parts(self.record('RK73B2BTTD102J','KOA'))
+        self.assertEqual(p['阻值']['meaning'],'1 kΩ')
+        self.assertEqual(p['阻值误差']['meaning'],'±5%')
+        p=self.parts(self.record('RK73H1EATTP1003F','KOA'))
+        self.assertIn('耐热冲击',p['特性']['meaning'])
+        self.assertEqual(p['阻值']['meaning'],'100 kΩ')
+        p=self.parts(self.record('RK73Z1ETTP','KOA'))
+        self.assertIn('零欧',p['系列']['meaning'])
+        self.assertNotIn('阻值误差',p)
+        for model in ('RK73Z1ETTP000J','RK73B1ETTP1003F','RK73H1EAGTP1003F'):
+            self.assertEqual(guide.explain(self.record(model,'KOA'))['segments'],[],model)
+        p=self.parts(self.record('RS73G1JTTD1002B','KOA'))
+        self.assertEqual(p['阻值']['meaning'],'10 kΩ')
+        self.assertIn('0.2 W',p['尺寸／功率']['meaning'])
+
+    def test_vishay_crcw_and_tnpw_tcr_codes_are_not_interchangeable(self):
+        p=self.parts(self.record('CRCW0402120RFKED','威世Vishay'))
+        self.assertEqual(p['阻值']['meaning'],'120 Ω')
+        self.assertEqual(p['温度系数']['meaning'],'±100 ppm/℃')
+        self.assertIn('10000',p['包装']['meaning'])
+        p=self.parts(self.record('CRCW25121M00JNEG','Vishay'))
+        self.assertEqual(p['阻值']['meaning'],'1 MΩ')
+        self.assertIn('8 mm',p['包装']['meaning'])
+        p=self.parts(self.record('CRCW06030000Z0EA','Vishay'))
+        self.assertIn('跳线',p['阻值误差']['meaning'])
+        self.assertEqual(p['阻值']['meaning'],'0 Ω')
+        for tcr,ppm in [('H',50),('E',25),('X',15),('Y',10)]:
+            p=self.parts(self.record('TNPW04022K05B'+tcr+'ED0H','Vishay'))
+            self.assertEqual(p['温度系数']['meaning'],f'±{ppm} ppm/℃')
+            self.assertEqual(p['阻值']['meaning'],'2.05 kΩ')
+            self.assertIn('单一批次',p['特殊选项']['meaning'])
+        for model in ('CRCW0402120RFEED','CRCW0402120RFKEA','CRCW06030000FKEA',
+                      'CRCW0201120RFKED','TNPW04022K05BKED','TNPW080527K4BXEC',
+                      'TNPW04022K05BEEDXX'):
+            self.assertEqual(guide.explain(self.record(model,'Vishay'))['segments'],[],model)
+
+    def test_vishay_military_failure_rate_is_not_tolerance_or_lifecycle(self):
+        for model,size,value,ppm in [('RNC55J1142BSB14','55','11.4 kΩ',25),
+                                     ('RNC50H9880FSB14','50','988 Ω',50),
+                                     ('RNC60H38R1FSRE6','60','38.1 Ω',50),
+                                     ('RNR65K3014FMR64','65','3.01 MΩ',100)]:
+            record=self.record(model,'威世Vishay')
+            p=self.parts(record)
+            self.assertEqual(p['阻值']['meaning'],value)
+            self.assertEqual(p['温度系数']['meaning'],f'±{ppm} ppm/℃')
+            self.assertIn('不是英制',p['军标外形']['meaning'])
+            self.assertIn('1000 小时',p['失效率等级']['meaning'])
+            self.assertTrue(guide.explain(record)['complete'])
+        self.assertIn('热浸锡',self.parts(self.record('RNC60H38R1FSRE6201','Vishay'))['特殊选项']['meaning'])
+        data=guide.explain(self.record('RNC60H38R1FSRE6999','Vishay'))
+        self.assertFalse(data['complete'])
+        self.assertEqual(data['verified_segments'],7)
+
+    def test_pdc_faf_standard_function_tcr_and_special_order_codes(self):
+        for model,watts,ppm,value in [('FAF01FTT1000Q','1/20',25,'100 Ω'),
+                                     ('FAF06FT-1001Q','1/8',25,'1 kΩ'),
+                                     ('FAF02BVA1002P','1/16',50,'10 kΩ'),
+                                     ('FAF25FPH3302W','1',5,'33 kΩ')]:
+            record=self.record(model,'PSA(信昌电陶)','FAF','薄膜电阻')
+            p=self.parts(record)
+            self.assertIn(watts+' W',p['功率']['meaning'])
+            self.assertEqual(p['温度系数']['meaning'],f'±{ppm} ppm/℃')
+            self.assertEqual(p['阻值']['meaning'],value)
+            self.assertTrue(guide.explain(record)['complete'])
+        for tail,meaning in [('M','AEC-Q200'),('-MH','氮化钽'),('MF','抗硫化'),('-HC','抗硫化')]:
+            p=self.parts(self.record('FAF02BVA1002P'+tail,'信昌PDC'))
+            self.assertIn(meaning,p['特殊订货类型']['meaning'])
+        for model in ('FAF03BTB01BV','FAF06FT-1001Q-','FAF25FT-1001Q','FAF02BVA1002PQ'):
+            self.assertEqual(guide.explain(self.record(model,'PSA'))['segments'],[],model)
+
+    def test_full_decode_status_requires_all_segments_and_brand_and_kind_scope(self):
+        for brand,model in [('Other','RN73H1ETTP1200B25'),('Vishay','FAF06FT-1001Q'),
+                             ('KOA','CRCW0402120RFKED'),('PSA','RN73H1ETTP1200B25')]:
+            self.assertFalse(guide.explain(self.record(model,brand))['complete'])
+        for brand,model in [('KOA','RN73H1ETTP1200B25'),('Vishay','CRCW0402120RFKED'),('PSA','FAF06FT-1001Q')]:
+            self.assertFalse(guide.explain(self.record(model,brand,kind='MLCC'))['complete'])
+            data=guide.explain(self.record(model,brand))
+            self.assertTrue(data['complete'])
+            self.assertTrue(data['source_links'])
+            self.assertIn('逐码解释完整',guide.guide_html(data))
+        partial=guide.explain(self.record('FRH0402B4703TS'))
+        self.assertFalse(partial['complete'])
+        self.assertIn('尚未完整',guide.guide_html(partial))
+
+    def test_vishay_cmf_six_character_value_and_industrial_packaging(self):
+        for model,value,pack in [('CMF55499R00DHBF','499 Ω','含铅／散装'),
+                                  ('CMF552K0000FKEK','2 kΩ','无铅／散装'),
+                                  ('CMF55800R00BHBF','800 Ω','含铅／散装'),
+                                  ('CMF55301R00FKEA','301 Ω','整盘编带')]:
+            record=self.record(model,'Vishay')
+            p=self.parts(record)
+            self.assertEqual(p['阻值']['meaning'],value)
+            self.assertIn(pack,p['包装']['meaning'])
+            self.assertTrue(guide.explain(record)['complete'])
+        for model in ('CMF552K0000FKEK999','CMF07100R00FKEA','CMF552K000FKEK'):
+            self.assertFalse(guide.explain(self.record(model,'Vishay'))['complete'])
+
+    def test_stackpole_rncf_tolerance_and_tcr_t_are_different_fields(self):
+        cases=[('RNCF0805BTE32K0','±0.1%',25,'32 kΩ','5000'),
+               ('RNCF0603TTC10K0','±0.01%',50,'10 kΩ','5000'),
+               ('RNCF0805DKE174K','±0.5%',25,'174 kΩ','1000'),
+               ('RNCF0402BKE61R9','±0.1%',25,'61.9 Ω','1000')]
+        for model,tol,ppm,value,qty in cases:
+            record=self.record(model,'Stackpole','RNCF','薄膜电阻')
+            p=self.parts(record)
+            self.assertEqual(p['阻值']['meaning'],value)
+            self.assertEqual(p['阻值误差']['meaning'],tol)
+            self.assertEqual(p['温度系数']['meaning'],f'±{ppm} ppm/℃')
+            self.assertIn(qty,p['包装']['meaning'])
+            self.assertTrue(guide.explain(record)['complete'])
+        for model in ('RNCF0805BTE1002','RNCF0805BTT32K0XX'):
+            self.assertFalse(guide.explain(self.record(model,'Stackpole'))['complete'])
+
+    def test_pdc_thick_film_standard_and_boost_tables_do_not_merge_families(self):
+        for model,watts in [('FPS06FT-3R90','1/2'),('FPS03FT-10R0-M','1/8'),
+                            ('FPF25FQK4700N','3'),('FPF06FTG1001N','3/4'),
+                            ('FWF02FV-1000-W','1/16'),('FCF12FT-6800P','1/3')]:
+            record=self.record(model,'PSA(信昌电陶)')
+            p=self.parts(record)
+            self.assertIn(watts+' W',p['功率']['meaning'])
+            self.assertTrue(guide.explain(record)['complete'],model)
+        for model in ('FPS25FQK1001N','FPS05FTG1001N','FPF02FV-10R0',
+                      'FPF06FT-R080','FCF03FT-R500','FWF02FV-1000M'):
+            self.assertFalse(guide.explain(self.record(model,'PSA'))['complete'],model)
+        data=guide.explain(self.record('FV31X221K202ECG','PDC','FV','MLCC'))
+        self.assertNotIn('2020_3in1_catalog',repr(data['source_links']))
+
+    def test_source_links_reject_executable_urls_and_escape_labels(self):
+        data=guide.explain(self.record('CRCW0402120RFKED','Vishay'))
+        data['source_links']=[('<img src=x>','https://www.vishay.com/docs/20035/dcrcwe3.pdf'),
+                              ('bad','javascript:alert(1)')]
+        output=guide.guide_html(data)
+        self.assertNotIn('<img',output)
+        self.assertNotIn('javascript:',output)
+        self.assertIn('&lt;img',output)
+        self.assertIn('noopener noreferrer',output)
+
+    def test_coverage_audit_cannot_call_partial_or_selectable_brands_complete(self):
+        from tools.audit_model_naming_coverage import audit
+        rows=[self.record('RN73H1ETTP1200B25','KOA'),
+              self.record('FRH0402B4703TS','FOJAN'),self.record('UNKNOWN','Other')]
+        before=copy.deepcopy(rows)
+        result=audit(rows)['summary']
+        self.assertEqual((result['records'],result['complete'],result['partial'],result['unexplained']),(3,1,1,1))
+        self.assertFalse(result['full_coverage'])
+        self.assertEqual(rows,before)
+        self.assertTrue(audit(rows[:1])['summary']['full_coverage'])
+        self.assertFalse(audit([])['summary']['full_coverage'])
 
     def test_murata_and_samsung_use_separate_size_and_voltage_tables(self):
         m=self.parts(self.record('GRM155R71C104KA88D','村田Murata','GRM','MLCC'))
