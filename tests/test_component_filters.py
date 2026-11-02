@@ -398,7 +398,7 @@ class CatalogFilterTests(unittest.TestCase):
                 self.assertIs(conn,connection)
                 called.append('counts')
                 return [('MLCC',3)]
-            namespace=dict(os=os,SEARCH_DB_PATH=str(index),ensure_streamlit_cloud_data_bundle=restore,
+            namespace=dict(cached_catalog_ready_manifest=lambda signature:None,os=os,SEARCH_DB_PATH=str(index),ensure_streamlit_cloud_data_bundle=restore,
                            open_search_db_connection=opened,_catalog_filters=SimpleNamespace(category_counts=counts))
             exec(compile(ast.Module(body=[function],type_ignores=[]),str(source),'exec'),namespace)
             self.assertEqual(namespace['cached_catalog_categories']('cold'),[('MLCC',3)])
@@ -837,7 +837,7 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         function=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='cached_catalog_snapshot')
         function.decorator_list=[]
         called=[]
-        namespace=dict(_catalog_filters=SimpleNamespace(passive_completion=SimpleNamespace(KINDS={'MLCC'})),
+        namespace=dict(cached_catalog_ready_source=lambda *args:None,_catalog_filters=SimpleNamespace(passive_completion=SimpleNamespace(KINDS={'MLCC'})),
             os=SimpleNamespace(path=SimpleNamespace(isfile=lambda path:False)),PREPARED_CACHE_PATH='public.parquet',
             ensure_streamlit_cloud_data_bundle=lambda **kwargs:called.append(('restore',kwargs)),
             catalog_filter_data_signature=lambda:'restored-revision')

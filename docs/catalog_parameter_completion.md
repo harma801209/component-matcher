@@ -117,3 +117,26 @@ audit; documents were retrieved through the public HTTP product-page links.
 Do not disable certificate verification or send any credentials to this host.
 `FPQ1206F6800TS` remains unverified: the similarly named **FQP** series is not
 evidence for **FPQ**. Its size-derived power must not be promoted to rated power.
+# 发布前生成的筛选数据（2026-11-02）
+
+用户首次选择品类不应承担规格补全、TEMP 表构建和全品类初始统计。
+`tools/build_catalog_ready.py --details <已核验的公开 prepared.parquet>`
+现在离线执行原有完整补全及原厂生产状态流程，导出 `catalog_ready/` 中
+28 个独立压缩 SQLite 文件和版本清单。每个文件只含原有筛选投影：
+品牌、型号、参数、原厂状态及其公开证据，不含成本、客户、会员或登录信息。
+只使用 manifest SHA256 对得上的既有公开查询索引和明细文件，不重建基础库。
+
+运行时先校验公开源版本及规则／证据指纹，按所选品类解压并以只读方式打开；
+初始总数、各参数精确数量与范围已经预计算，首次展示不再扫描全品类。
+后续联动仍用相同 SQL 和精确计数，会员结果权限、排序、分页和型号交接不变。
+不通过缩减物料、近似数量或先显示未补全资料来换速度。
+
+指纹涵盖根目录规则代码、公开 catalog_sources/data JSON 与原厂状态证据；
+Windows/Linux 换行差异和发布 stamp 不算规则变化。索引存在时校验真实内容，
+非空 WAL、规则变化、明细变化、压缩包损坏或品类不一致均不使用该旧资产，
+而回退到原有正确但较慢的路径。数据文件缺失时只读发布清单即可确认版本，
+不用为了展示参数先恢复 113MB 明细。所有缓存仅存公开目录数据。
+
+发布门禁包含 `tests.test_catalog_prebuilt`：必须覆盖全部品类、总数一致、
+压缩资产校验通过、代码与证据版本一致。改动规则／证据后须重新构建。
+不宣称零网络延迟；冷进程仍有应用启动和一次按品类解压，但不再逐条补规格。

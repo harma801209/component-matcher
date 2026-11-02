@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "recipe": "c3f151567df02fe913a889c54472cd1c4417a3d4b4b78230a39b32440a0f576e",
+  "sources": {
+    "cache/components_search.sqlite": {
+      "sha256": "6d48e5734bf773dfa1fc07c3fc0dd42088a1264abb72496f16345dbdbf532c89",
+      "size": 579506176
+    },
+    "cache/components_prepared_v5.parquet": {
+      "sha256": "ffa5c9b4d49132f645d969c1f8ddf389515452d9285d19b9eb9120f72377cccf",
+      "size": 113211478
+    }
+  },
+  "categories": [
+    [
+      "EMI／ESD滤波器",
+      68
+    ],
+    [
+      "ESD保护器件",
+      51
+    ],
+    [
+      "MLCC",
+      115194
+    ],
+    [
+      "MOSFET",
+      16
+    ],
+    [
+      "RF耦合器",
+      11
+    ],
+    [
+      "TVS二极管",
+      155
+    ],
+    [
+      "三极管",
+      16
+    ],
+    [
+      "二极管",
+      53
+    ],
+    [
+      "共模电感",
+      468
+    ],
+    [
+      "功率电感",
+      15828
+    ],
+    [
+      "厚膜电阻",
+      564114
+    ],
+    [
+      "合金电阻",
+      2688
+    ],
+    [
+      "实时时钟模块",
+      98
+    ],
+    [
+      "射频电感",
+      6527
+    ],
+    [
+      "引线型压敏电阻",
+      1353
+    ],
+    [
+      "引线型陶瓷电容",
+      5746
+    ],
+    [
+      "振荡器",
+      33979
+    ],
+    [
+      "晶振",
+      21511
+    ],
+    [
+      "热敏电阻",
+      11601
+    ],
+    [
+      "碳膜电阻",
+      11569
+    ],
+    [
+      "磁珠",
+      1132
+    ],
+    [
+      "绕线电阻",
+      71687
+    ],
+    [
+      "薄膜电容",
+      8
+    ],
+    [
+      "薄膜电阻",
+      816300
+    ],
+    [
+      "贴片压敏电阻",
+      12995
+    ],
+    [
+      "贴片电阻",
+      4430
+    ],
+    [
+      "金属氧化膜电阻",
+      14957
+    ],
+    [
+      "铝电解电容",
+      36663
+    ]
+  ],
+  "kinds": {
+    "EMI／ESD滤波器": {
+      "file": "f9aa4f79b5e91b44.sqlite.gz",
+      "sha256": "adaf4186044080fe4c3fc2bad0a3c28ec424682fcfa08a6fa3e769900a77689f",
+      "raw_sha256": "f0426f4fc2b2adb7ade41ef56d88253b1825ca56e1f938b7a8e0d1fa83bab5fe",
+      "raw_size": 98304,
+      "total": 68,
+      "unique": true
+    },
+    "ESD保护器件": {
+      "file": "ce2168cfa65b74b4.sqlite.gz",
+      "sha256": "a9b9bd4d1260e9277af0b603de991ce3c9cc12edc52ae32a16bae1a27121144a",
+      "raw_sha256": "89ce02588e96a6e9edc0ad6cb06d0672b1c57768ad23bffc1653db6ae9b33de6",
+      "raw_size": 77824,
+      "total": 51,
+      "unique": true
+    },
+    "MLCC": {
+      "file": "7d8d049f25232c45.sqlite.gz",
+      "sha256": "f15b534c70f3be7511a35dcdbe34d717858399c6f9e01897640a2cc3eb8a9d18",
+      "raw_sha256": "f2d944066c9ca5f210ac876b5e5b4284143ce25056853de51db309c20bc4b51e",
+      "raw_size": 21938176,
+      "total": 115194,
+      "unique": true
+    },
+    "MOSFET": {
+      "file": "7b6994083ff7653a.sqlite.gz",
+      "sha256": "ae69b40ccb92a9b265343a0e337934486cb122b4805f13a7252f9d2af4929ad0",
+      "raw_sha256": "1414320c7a74f6903d17dab2fa3ad27adad58d7c4af7ee0fd665566d35acc7e3",
+      "raw_size": 24576,
+      "total": 16,
+      "unique": true
+    },
+    "RF耦合器": {
+      "file": "43fda4fd023da4dd.sqlite.gz",
+      "sha256": "99bdaf4d1d6fdd7d00ab7b057e5502c868be9b87fef86c70c1c677f754b9a2c0",
+      "raw_sha256": "e4abedba99228918e1a4a098c7f83e30bd758f77aed2b9223ec57bb28ecf694e",
+      "raw_size": 65536,
+      "total": 11,
+      "unique": true
+    },
+    "TVS二极管": {
+      "file": "fc378c5b46f6aaf1.sqlite.gz",
+      "sha256": "ddd396c89749a23b58df3fadb111bf1b8b14a252387240ac9a32075ece4d5b96",
+      "raw_sha256": "c139c803fb15abaad63400d5e39a554126aec1f14475c25439ba5d43e36caa2f",
+      "raw_size": 45056,
+      "total": 155,
+      "unique": true
+    },
+    "三极管": {
+      "file": "138f3302b8f6baaf.sqlite.gz",
+      "sha256": "3a648782ce315bb57fd6fd8e13c06a8b16b1de41a078c45ee35e52854b769441",
+      "raw_sha256": "2e3c80b84d9d53184f3adc3e1a741f96f52dbd5d2746cb07b3106dcb3ccf217d",
+      "raw_size": 24576,
+      "total": 16,
+      "unique": true
+    },
+    "二极管": {
+      "file": "1f10826526d1b4ec.sqlite.gz",
+      "sha256": "baea6b8a79142dcecadae4eda67c0c085e38acdcf5e4e8c69bafd5736472c011",
+      "raw_sha256": "830ff7d05ed2a27a0a2d4f278543a2d38c0e0ddf952e77d1ef869ae27d64cb19",
+      "raw_size": 32768,
+      "total": 53,
+      "unique": true
+    },
+    "共模电感": {
+      "file": "50ab029e854e9709.sqlite.gz",
+      "sha256": "4debbdae26b3abacc87aa958559594f7443cb0e9ab2d3fe57832a06529305c5d",
+      "raw_sha256": "5263d55ff6586464f4b001867aa4815e3ddc9cf7969ed5436b56435e98e6d62b",
+      "raw_size": 139264,
+      "total": 468,
+      "unique": true
+    },
+    "功率电感": {
+      "file": "dae8cce8062e26d4.sqlite.gz",
+      "sha256": "00b984ade36d6602ca2b319b37b4b22cb2b515c7a04c757e48fce7abb3a788ee",
+      "raw_sha256": "1c482905b5904773d38849b250e3e2925c160818f7b5038185a337c140524333",
+      "raw_size": 4325376,
+      "total": 15828,
+      "unique": true
+    },
+    "厚膜电阻": {
+      "file": "0fd5d878b1b68847.sqlite.gz",
+      "sha256": "d9af2cb2b50f9b751e4fba41fa3e92991340d7ee97c876d0ec5f0b4b8102e3e2",
+      "raw_sha256": "249fa923282be87bc68d7b76462075381d820716f0b2e2d545162d4c5aeee557",
+      "raw_size": 87121920,
+      "total": 564114,
+      "unique": true
+    },
+    "合金电阻": {
+      "file": "0d05b55035bc16d6.sqlite.gz",
+      "sha256": "bb410f5fb14414c207f94b6a5e21733ed29a23d26fcf6b891bc3228900bebe53",
+      "raw_sha256": "a8bd7347c47d4bd1928eb6edee44e99627c8898cdefc40ca4e30f0798eb0c189",
+      "raw_size": 491520,
+      "total": 2688,
+      "unique": true
+    },
+    "实时时钟模块": {
+      "file": "e8b30455274658b7.sqlite.gz",
+      "sha256": "8f539e50ff17c86cdef17b2ab33779a361524bb1463167cc25ef6f008c6d44f0",
+      "raw_sha256": "355154bc88006102c3275206203b57aa868e3b705f1b844af4c59d01190fe127",
+      "raw_size": 49152,
+      "total": 98,
+      "unique": true
+    },
+    "射频电感": {
+      "file": "6691e01e3b30f457.sqlite.gz",
+      "sha256": "3c49efe5f842b170cf1cafc5200db2eac6c7f50473aff58a666f8c8f3330704a",
+      "raw_sha256": "12cee03655529f46f2c5ee5b0261802d0b80a804fc589d615e02adc0f0452861",
+      "raw_size": 1552384,
+      "total": 6527,
+      "unique": true
+    },
+    "引线型压敏电阻": {
+      "file": "33673a13d81f8f03.sqlite.gz",
+      "sha256": "ea0a1e8dd634bea35793923025153369d039daf3909d7710d92e1fb1a08f6aaf",
+      "raw_sha256": "b74965fe069a2611dfb78b3c855865a4d5e07d7aa87e92713dc152b2a20f3c72",
+      "raw_size": 208896,
+      "total": 1353,
+      "unique": true
+    },
+    "引线型陶瓷电容": {
+      "file": "86e367514a82cd16.sqlite.gz",
+      "sha256": "a1662cf5bf92030e80ea492a7cdf4583d36233e0efe74bf74230a6c58d85f7af",
+      "raw_sha256": "0a185d50640b9f746efe375dc3eafe068f3f2fc871170ea83e80b051706211a6",
+      "raw_size": 1232896,
+      "total": 5746,
+      "unique": true
+    },
+    "振荡器": {
+      "file": "c8d59734ccfc806d.sqlite.gz",
+      "sha256": "784c61c0867b135cd65dc7fa96cd9cfca4fba2882dc5a9cb08ff06e8a4111189",
+      "raw_sha256": "14de35c16031c19952f35cc87b1fc9cffdefd6e47b324949015aaffb250a78f3",
+      "raw_size": 6975488,
+      "total": 33979,
+      "unique": true
+    },
+    "晶振": {
+      "file": "9d33ba54fe522cbc.sqlite.gz",
+      "sha256": "652cb16aa2455ae05b3a9f3a0f1d8e372f0224af597b579694dc671f622e7cf4",
+      "raw_sha256": "e583186a9e1477de237c1a2e2646a3429237b0bd43da66201fdf43a9b3e8f2ac",
+      "raw_size": 3858432,
+      "total": 21511,
+      "unique": true
+    },
+    "热敏电阻": {
+      "file": "dc8a42c2781ec81a.sqlite.gz",
+      "sha256": "0e2a4438f6a719c49b4cad885973c756877ad9e13b5fad783a3a4ca01140a046",
+      "raw_sha256": "499da862b7afa7140b7c42583b412a34712cbce5d228a16c05efa914b3fc2e25",
+      "raw_size": 2076672,
+      "total": 11601,
+      "unique": true
+    },
+    "碳膜电阻": {
+      "file": "d5930bbdb65500e1.sqlite.gz",
+      "sha256": "6b70a38edba62526b8a6c1d4f95c1edfa1cb6689affac56e40aae7b1fb45ad66",
+      "raw_sha256": "3ebd6b2558f5ef03ffdec99aff838048146036ebb9926658b0e21bd20874eebd",
+      "raw_size": 1945600,
+      "total": 11569,
+      "unique": true
+    },
+    "磁珠": {
+      "file": "58d7a32768e6e94d.sqlite.gz",
+      "sha256": "20ae85ddd51bf35efdaa41cfd66e30a7db59e069fccaaf9c4163e498b7df400b",
+      "raw_sha256": "3cd4b091a0769433d17268d1499de2f715cd9e3cfc5ad8b3d0b06bb7211efc22",
+      "raw_size": 282624,
+      "total": 1132,
+      "unique": true
+    },
+    "绕线电阻": {
+      "file": "bbcdf5e7ecd667b1.sqlite.gz",
+      "sha256": "131a12f5b16a77495e376a1357cbd7aa4df324a213490da001c4e42ef77a6e0b",
+      "raw_sha256": "cdf3af2e89d8834e5f0c0bfc072bdfb75ca6fd381078b6c186b5cbc2f1a4bf63",
+      "raw_size": 12353536,
+      "total": 71687,
+      "unique": true
+    },
+    "薄膜电容": {
+      "file": "22bd834ccf72ffdd.sqlite.gz",
+      "sha256": "e2559f0944ec72dc649254d6e493987b4bc1db87aa3a4e7a8b028decb9b10dcc",
+      "raw_sha256": "c39400e8fc631d8d4bdcc4740521b77adeab6a8ae5953f198d8b7319bd41bbc7",
+      "raw_size": 24576,
+      "total": 8,
+      "unique": true
+    },
+    "薄膜电阻": {
+      "file": "754008b75bbf1c44.sqlite.gz",
+      "sha256": "38dbbc04903de85ce3908b07fd498cbd33f3888962259c58ff6a9f7253176b8e",
+      "raw_sha256": "9f28fdde4e1e769016c8b314768ba54b15227ed6d2e3baab7e7744e1be19da4c",
+      "raw_size": 135446528,
+      "total": 816300,
+      "unique": true
+    },
+    "贴片压敏电阻": {
+      "file": "082c81d501f8ee3e.sqlite.gz",
+      "sha256": "cc28a49dd5571a4e39e8c7f7699c5adcf4d0533a84ef4384d0a550bc50ede71d",
+      "raw_sha256": "73d78d04004e756e40a4d7a6eab98cd2ea5cdab80f717d086a71516f9c23bfc7",
+      "raw_size": 1822720,
+      "total": 12995,
+      "unique": true
+    },
+    "贴片电阻": {
+      "file": "7aa0f67b6f43b949.sqlite.gz",
+      "sha256": "b5e43ecb55f5b470643ca404f66f883ff3331604c6d8ba133dbed761b177ea82",
+      "raw_sha256": "2402a81362bc6ffbb02b5cb7d1b882645c85a6697e8187298b3a4fcc3f7681e9",
+      "raw_size": 712704,
+      "total": 4430,
+      "unique": true
+    },
+    "金属氧化膜电阻": {
+      "file": "6516f786d0f79a10.sqlite.gz",
+      "sha256": "7f43ad508432edbfe6e1d143a406d013362180f25422d46cb5081482fbaeedf0",
+      "raw_sha256": "22582f4ed1c28bac2b76490d68113ebe2e2c46e0a07943c2fd7bf77af4872420",
+      "raw_size": 2621440,
+      "total": 14957,
+      "unique": true
+    },
+    "铝电解电容": {
+      "file": "cf7d6babf7dd6bac.sqlite.gz",
+      "sha256": "1dc1d1fc70b416255005479897dc73c2d749f3e7fa1e850f9025b87f6a6bf3ca",
+      "raw_sha256": "07ad16ecb88e01b4c16a237768fe8efb8d131284071660290d3ffa76684ae7a1",
+      "raw_size": 7421952,
+      "total": 36663,
+      "unique": false
+    }
+  }
+}

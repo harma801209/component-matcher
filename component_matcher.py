@@ -31,6 +31,7 @@ import warnings
 import traceback
 import textwrap
 import amotech_catalog as _amotech_catalog
+import catalog_prebuilt as _catalog_prebuilt
 from safety_mlcc import (
     PDC_REVIEWED_SAFETY_MODELS, documented_pdc_safety_fields,
     enrich_documented_safety_mlcc_record, enrich_documented_safety_mlcc_frame,
@@ -347,7 +348,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-10-28T22:00:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-02T15:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -50280,11 +50281,26 @@ def catalog_filter_data_signature():
     add_path_signature_fields(signature, "catalog", SEARCH_DB_PATH)
     add_path_signature_fields(signature, "catalog_wal", SEARCH_DB_PATH + "-wal")
     add_path_signature_fields(signature, "catalog_details", PREPARED_CACHE_PATH)
+    add_path_signature_fields(signature, "catalog_ready", os.path.join(BASE_DIR, "catalog_ready", "manifest.json"))
     return json.dumps(signature, sort_keys=True)
+
+
+@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
+def cached_catalog_ready_manifest(data_signature):
+    return _catalog_prebuilt.manifest(index=SEARCH_DB_PATH, details=PREPARED_CACHE_PATH)
+
+
+@st.cache_resource(ttl=3600, max_entries=8, show_spinner=False)
+def cached_catalog_ready_source(data_signature, component_type):
+    document = cached_catalog_ready_manifest(data_signature)
+    return _catalog_prebuilt.open_source(document, component_type) if document else None
 
 
 @st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
 def cached_catalog_categories(data_signature):
+    ready = cached_catalog_ready_manifest(data_signature)
+    if ready:
+        return [tuple(row) for row in ready['categories']]
     if not os.path.isfile(SEARCH_DB_PATH):
         # A fresh public worker may be opened directly in filter mode, before
         # ordinary search has prepared its index. Restore only that published
@@ -50378,6 +50394,10 @@ def resolve_catalog_mlcc_rule(model, brand):
 
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_catalog_snapshot(data_signature, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key="", sort_desc=False, keyword_mode="contains"):
+    source = cached_catalog_ready_source(data_signature, component_type)
+    if source is not None:
+        with source.lock:
+            return _catalog_filters.snapshot(source.connection, component_type, selected, ranges, keyword, page, page_size, include_rows, sort_key, sort_desc, verified_unique=source.verified_unique, keyword_mode=keyword_mode, query_cache=source.query_cache)
     if component_type in _catalog_filters.passive_completion.KINDS and not os.path.isfile(PREPARED_CACHE_PATH):
         # Restore first, then use the stable asset revision. Decoding here
         # would cache under the old missing-file key and decode the same MLCC

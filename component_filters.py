@@ -256,7 +256,7 @@ def available_profile(conn, component_type):
     # A frozen, kind-scoped projection of the *completed* public catalogue.
     # Expressions have already been evaluated, including unit conversions and
     # official lifecycle joins. No account/price columns enter this projection.
-    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_browse_metadata'").fetchone():
+    if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_browse_metadata' UNION ALL SELECT 1 FROM sqlite_master WHERE name='catalog_browse_metadata'").fetchone():
         row = conn.execute('SELECT kind, fields FROM catalog_browse_metadata').fetchone()
         if row and row[0] == component_type:
             fields = [Field(key, label, '"'+key+'"', tuple(tuple(unit) for unit in units))

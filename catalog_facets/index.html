@@ -36,7 +36,7 @@ function request(action,extra={}){
  const event=Date.now()+'-'+(++eventId);
  if(action==='kind'){
   pendingKind={kind:extra.kind,view:data.view,event};
-  const hint=node('p','正在加载「'+extra.kind+'」的规格参数，首次准备数据需要稍候…','kind-loading');
+  const hint=node('p','正在读取「'+extra.kind+'」…','kind-loading');
   hint.setAttribute('role','status');hint.setAttribute('aria-live','polite');root.prepend(hint);height();
  }
  root.classList.add('busy');root.setAttribute('aria-busy','true');send('streamlit:setComponentValue',{value:{view:data.view,event,action,...extra},dataType:'json'});
