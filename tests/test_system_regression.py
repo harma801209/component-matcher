@@ -3476,6 +3476,7 @@ class SystemRegressionTests(unittest.TestCase):
         namespace=dict(_workbench_importlib=SimpleNamespace(reload=reload),_catalog_filters=parent,
                        _amotech_catalog=SimpleNamespace(name='amotech',version='old'),
                        _resistance_corrections=SimpleNamespace(name='resistance_corrections',version='old'),
+                       _model_naming_guide=SimpleNamespace(name='naming_guide',version='old'),
                        _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=lifecycle,
                        _catalog_panasonic_lifecycle=panasonic,
                        _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'),
@@ -3485,6 +3486,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertIn('lifecycle',calls)
         self.assertIn('amotech',calls)
         self.assertIn('resistance_corrections',calls)
+        self.assertIn('naming_guide',calls)
         self.assertIn('bom_comparison',calls)
         self.assertLess(calls.index('panasonic'),calls.index('lifecycle'))
         self.assertNotIn('member_auth_runtime',calls)
@@ -3595,6 +3597,7 @@ class SystemRegressionTests(unittest.TestCase):
         saved_theme = sys.modules.get("precision_theme")
         saved_upload_bridge = sys.modules.get("bom_image_clipboard")
         saved_native_excel = sys.modules.get("bom_native_excel")
+        saved_naming_guide = sys.modules.get("model_naming_guide")
         with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
             root = Path(folder)
             theme = root / "precision_theme.py"
@@ -3603,13 +3606,16 @@ class SystemRegressionTests(unittest.TestCase):
             upload_bridge.write_text('PUBLIC_UPLOAD_MARKER = "before"\n',encoding='utf-8')
             native_excel = root / 'bom_native_excel.py'
             native_excel.write_text('PUBLIC_NATIVE_MARKER = "before"\n',encoding='utf-8')
-            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\nfrom bom_native_excel import PUBLIC_NATIVE_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
+            naming_guide = root / 'model_naming_guide.py'
+            naming_guide.write_text('PUBLIC_NAMING_MARKER = "old-fixed-columns"\n',encoding='utf-8')
+            (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\nfrom bom_native_excel import PUBLIC_NATIVE_MARKER\nfrom model_naming_guide import PUBLIC_NAMING_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
             runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
             namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
             sys.path.insert(0, folder)
             sys.modules.pop("precision_theme", None)
             sys.modules.pop("bom_image_clipboard",None)
             sys.modules.pop("bom_native_excel",None)
+            sys.modules.pop("model_naming_guide",None)
             try:
                 exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
                 cached, _ = namespace["load_component_matcher_runtime"]()
@@ -3632,6 +3638,14 @@ class SystemRegressionTests(unittest.TestCase):
                 cached,_=namespace['load_component_matcher_runtime']()
                 self.assertEqual(cached['base_namespace']['PUBLIC_NATIVE_MARKER'],'after-native-transport-update')
                 self.assertIsNot(cached['base_namespace'],bridge_namespace)
+                native_namespace=cached['base_namespace']
+                naming_guide.write_text('PUBLIC_NAMING_MARKER = "new-content-width-16px-gap"\n',encoding='utf-8')
+                cached,_=namespace['load_component_matcher_runtime']()
+                self.assertEqual(cached['base_namespace']['PUBLIC_NAMING_MARKER'],'new-content-width-16px-gap')
+                self.assertIsNot(cached['base_namespace'],native_namespace)
+                naming_namespace=cached['base_namespace']
+                namespace['load_component_matcher_runtime']()
+                self.assertIs(cached['base_namespace'],naming_namespace)
             finally:
                 sys.path.pop(0)
                 sys.modules.pop("precision_theme", None)
@@ -3643,6 +3657,9 @@ class SystemRegressionTests(unittest.TestCase):
                 sys.modules.pop('bom_native_excel',None)
                 if saved_native_excel is not None:
                     sys.modules['bom_native_excel']=saved_native_excel
+                sys.modules.pop('model_naming_guide',None)
+                if saved_naming_guide is not None:
+                    sys.modules['model_naming_guide']=saved_naming_guide
 
     def test_02ba_page_modes_are_mutually_exclusive(self):
         app = self.app

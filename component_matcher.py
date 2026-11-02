@@ -33,6 +33,7 @@ import textwrap
 import amotech_catalog as _amotech_catalog
 import catalog_prebuilt as _catalog_prebuilt
 import resistance_corrections as _resistance_corrections
+import model_naming_guide as _model_naming_guide
 from safety_mlcc import (
     PDC_REVIEWED_SAFETY_MODELS, documented_pdc_safety_fields,
     enrich_documented_safety_mlcc_record, enrich_documented_safety_mlcc_frame,
@@ -86,6 +87,7 @@ import panasonic_lifecycle as _catalog_panasonic_lifecycle
 _workbench_importlib.reload(_workbench_theme)
 _workbench_importlib.reload(_amotech_catalog)
 _workbench_importlib.reload(_resistance_corrections)
+_workbench_importlib.reload(_model_naming_guide)
 # Reload leaf helpers before their importer: reloading only component_filters
 # retains the old imported completion module during Cloud hot updates.
 _workbench_importlib.reload(_catalog_filters.mlcc_completion)
@@ -350,7 +352,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-02T19:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-02T20:53:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"

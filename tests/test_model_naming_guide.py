@@ -385,6 +385,52 @@ class NamingGuideTests(unittest.TestCase):
 
 
 class NamingGuideUITests(unittest.TestCase):
+    def test_different_specs_models_and_multiple_placeholders_keep_content_width(self):
+        from streamlit.testing.v1 import AppTest
+        script='''
+import streamlit as st
+from model_naming_guide import render_header
+st.session_state['parent_runs']=st.session_state.get('parent_runs',0)+1
+st.session_state['heading_layouts']=[]
+st.session_state['heading_widths']=[]
+original_container,original_markdown=st.container,st.markdown
+def recorded_container(*args,**kwargs):
+    if kwargs.get('horizontal'):
+        st.session_state['heading_layouts'].append(kwargs)
+    return original_container(*args,**kwargs)
+def recorded_markdown(body,*args,**kwargs):
+    if 'class="section-title naming-inline-title"' in str(body):
+        st.session_state['heading_widths'].append(kwargs.get('width'))
+    return original_markdown(body,*args,**kwargs)
+st.container,st.markdown=recorded_container,recorded_markdown
+cases=[
+ ('贴片电阻（Chip Resistor）规格条件','FOJAN(富捷)','FRC0402J103TS','FRC','厚膜电阻'),
+ ('贴片电阻（Chip Resistor）规格条件','FOJAN(富捷)','FRC0402F1602TS','FRC','厚膜电阻'),
+ ('陶瓷贴片电容（MLCC）规格条件','信昌PDC','FV31X221K202ECG','FV','MLCC'),
+ ('料号片段反推规格','FOJAN(富捷)','FPM253WFR300TM','FPM','合金电阻'),
+ ('共模电感（Common Mode Choke）规格条件','Test','REAL-INPUT-ROW','Test','共模电感'),
+ ('长标题：规格与型号混合的多条搜索结果 · 陶瓷贴片电容（MLCC）规格条件','村田Murata','GRM155R71C104KA88D','GRM','MLCC')]
+try:
+    for index,(title,brand,model,series,kind) in enumerate(cases):
+        placeholder=st.empty()
+        placeholder.markdown('<div class="section-title">'+title+'</div>',unsafe_allow_html=True)
+        rows=[dict(品牌=brand,型号=model,系列=series,器件类别=kind)]
+        if index==0:
+            rows.append(dict(品牌='PSA(信昌电陶)',型号='FPF02JV-103',系列='FPF',器件类别='厚膜电阻'))
+        with placeholder.container():
+            render_header(title,rows,'variant_'+str(index))
+finally:
+    st.container,st.markdown=original_container,original_markdown
+'''
+        at=AppTest.from_string(script).run(timeout=30)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['parent_runs'],1)
+        self.assertEqual(at.session_state['heading_widths'],['content']*6)
+        self.assertEqual(at.session_state['heading_layouts'],
+                         [dict(horizontal=True,vertical_alignment='center',gap='small')]*6)
+        self.assertEqual(len(at.selectbox),12)
+        self.assertEqual(at.selectbox[1].value,'FRC0402J103TS')
+
     def test_older_streamlit_without_horizontal_container_keeps_accessible_popover(self):
         from streamlit.testing.v1 import AppTest
         script='''
