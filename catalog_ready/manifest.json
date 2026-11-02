@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "recipe": "9036457a13a0515d82488b048ff26debcea1b03c9be7528dc1e9bb35ce41ba61",
+  "recipe": "1aeb98af4ac821eef4625977975c73390cffa88bcd14ddf3d7aec7769e2963f3",
   "sources": {
     "cache/components_search.sqlite": {
       "sha256": "6d48e5734bf773dfa1fc07c3fc0dd42088a1264abb72496f16345dbdbf532c89",
@@ -208,9 +208,9 @@
     },
     "厚膜电阻": {
       "file": "0fd5d878b1b68847.sqlite.gz",
-      "sha256": "d9af2cb2b50f9b751e4fba41fa3e92991340d7ee97c876d0ec5f0b4b8102e3e2",
-      "raw_sha256": "249fa923282be87bc68d7b76462075381d820716f0b2e2d545162d4c5aeee557",
-      "raw_size": 87121920,
+      "sha256": "18542612f47a6e2771aca6c600ef2dd516aa49da62cb1f58b877b010ef201a99",
+      "raw_sha256": "3a20192c97a85a75d6b7f2298f13e83a702ca7094836eca33b8e4a9e3228db12",
+      "raw_size": 87117824,
       "total": 564114,
       "unique": true
     },
@@ -312,8 +312,8 @@
     },
     "薄膜电阻": {
       "file": "754008b75bbf1c44.sqlite.gz",
-      "sha256": "38dbbc04903de85ce3908b07fd498cbd33f3888962259c58ff6a9f7253176b8e",
-      "raw_sha256": "9f28fdde4e1e769016c8b314768ba54b15227ed6d2e3baab7e7744e1be19da4c",
+      "sha256": "c3f65cad355011e6925c1fdc015ef3f07e153313737a0d206f28f5d677882366",
+      "raw_sha256": "154d2280437aec9c21d701b29e57c29b0dcb0ca73cd2c8c6929825323e3f2d0d",
       "raw_size": 135446528,
       "total": 816300,
       "unique": true

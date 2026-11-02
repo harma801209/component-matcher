@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "revision": "2026-11-02-resistance-40-v1",
+  "scope": "Exact existing brand/model identities only; nominal resistance, not availability, power, tolerance or price.",
+  "sources": {
+    "koa-rn73r": {"url": "https://www.koaspeer.com/pdfs/RN73R.pdf", "page": 1, "rule": "3 significant figures followed by multiplier: 2803 = 280 x 10^3 ohms."},
+    "koa-rs73": {"url": "https://www.koaspeer.com/pdfs/RS73.pdf", "page": 1, "rule": "Four-digit nominal resistance: 1005 = 100 x 10^5 ohms; see KOA 2026 full catalogue p.36-37."},
+    "vishay-cmf": {"url": "https://www.vishay.com/docs/31018/cmfind.pdf", "page": 2, "rule": "Six-character decimal code, R=ohms, K=kohms, M=Mohms. R10000=0.1ohm. Revision 21-Feb-2025."},
+    "vishay-rnc": {"url": "https://www.vishay.com/docs/31025/erc.pdf", "page": 2, "rule": "Three significant figures plus multiplier: 3382 = 338 x 10^2 ohms. Revision 04-Sep-2025."}
+  },
+  "groups": [
+    {"brand": "KOA", "source": "koa-rn73r", "code": "2803", "old_ohms": 28000, "ohms": 280000, "models": [
+      "RN73R1JTTD2803D50", "RN73R2ATTD2803D100", "RN73R2ATTD2803F50", "RN73R1ETTP2803D50", "RN73R2ATTD2803B25", "RN73R1ETTP2803F25", "RN73R1ETTP2803F50", "RN73R1JTTD2803C25", "RN73R2ATTD2803F100", "RN73R1JTTD2803F50", "RN73R2BTTD2803C25", "RN73R2BTTD2803C50", "RN73R1ETTP2803D25", "RN73R2ATTD2803D50", "RN73R2BTTD2803D50", "RN73R2ATTD2803C25", "RN73R1ETTP2803C25", "RN73R2BTTD2803B25", "RN73R2BTTD2803B50"
+    ]},
+    {"brand": "KOA", "source": "koa-rs73", "code": "1005", "old_ohms": 1000000, "ohms": 10000000, "models": [
+      "RS73F2BTTD1005D", "RS73G2BTTD1005F", "RS73F2BTTD1005F", "RS73G2ATTD1005D", "RS73G2BTTD1005D"
+    ]},
+    {"brand": "Vishay", "source": "vishay-cmf", "code": "255R00", "old_ohms": 225, "ohms": 255, "models": [
+      "CMF55255R00BHEK", "CMF55255R00BHBF", "CMF55255R00FHEK", "CMF55255R00FKRE", "CMF55255R00DHEA", "CMF55255R00DHRE", "CMF55255R00DHR6", "CMF55255R00BEEB", "CMF55255R00FKEB", "CMF55255R00FKR6", "CMF55255R00FKEA"
+    ]},
+    {"brand": "Vishay", "source": "vishay-cmf", "code": "233K30", "old_ohms": 233000, "ohms": 233300, "models": ["CMF55233K30BEEB"]},
+    {"brand": "Vishay", "source": "vishay-cmf", "code": "8M2000", "old_ohms": 0.0082, "ohms": 8200000, "models": ["CMF558M2000FKR6"]},
+    {"brand": "Vishay", "source": "vishay-rnc", "code": "3382", "old_ohms": 33200, "ohms": 33800, "models": ["RNC55J3382BSRE6"]},
+    {"brand": "Vishay", "source": "vishay-cmf", "code": "R10000", "old_ohms": 100000000, "ohms": 0.1, "models": ["CMF55R10000GNBF"]},
+    {"brand": "Vishay", "source": "vishay-cmf", "code": "R15000", "old_ohms": 150000000, "ohms": 0.15, "models": ["CMF60R15000GNEK"]}
+  ]
+}

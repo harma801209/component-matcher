@@ -3475,6 +3475,7 @@ class SystemRegressionTests(unittest.TestCase):
             return module
         namespace=dict(_workbench_importlib=SimpleNamespace(reload=reload),_catalog_filters=parent,
                        _amotech_catalog=SimpleNamespace(name='amotech',version='old'),
+                       _resistance_corrections=SimpleNamespace(name='resistance_corrections',version='old'),
                        _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=lifecycle,
                        _catalog_panasonic_lifecycle=panasonic,
                        _catalog_result_table=SimpleNamespace(name='table'),_catalog_filter_panel=SimpleNamespace(name='panel'),
@@ -3483,6 +3484,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertLess(calls.index('passive'),calls.index('filters'))
         self.assertIn('lifecycle',calls)
         self.assertIn('amotech',calls)
+        self.assertIn('resistance_corrections',calls)
         self.assertIn('bom_comparison',calls)
         self.assertLess(calls.index('panasonic'),calls.index('lifecycle'))
         self.assertNotIn('member_auth_runtime',calls)

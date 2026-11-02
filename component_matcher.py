@@ -32,6 +32,7 @@ import traceback
 import textwrap
 import amotech_catalog as _amotech_catalog
 import catalog_prebuilt as _catalog_prebuilt
+import resistance_corrections as _resistance_corrections
 from safety_mlcc import (
     PDC_REVIEWED_SAFETY_MODELS, documented_pdc_safety_fields,
     enrich_documented_safety_mlcc_record, enrich_documented_safety_mlcc_frame,
@@ -84,6 +85,7 @@ import panasonic_lifecycle as _catalog_panasonic_lifecycle
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
 _workbench_importlib.reload(_amotech_catalog)
+_workbench_importlib.reload(_resistance_corrections)
 # Reload leaf helpers before their importer: reloading only component_filters
 # retains the old imported completion module during Cloud hot updates.
 _workbench_importlib.reload(_catalog_filters.mlcc_completion)
@@ -348,7 +350,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-02T18:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-02T19:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -35666,6 +35668,7 @@ def open_search_db_connection(timeout_sec=30):
     conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
     install_jianghai_search_overlay(conn)
     install_amotech_catalogue_overlay(conn)
+    _resistance_corrections.install_search_overlay(conn)
     return conn
 
 
@@ -36503,14 +36506,14 @@ def _load_prepared_data_cached(cache_signature):
         try:
             cached = read_prepared_cache()
             if prepared_dataframe_looks_sane(cached):
-                return cached
+                return _resistance_corrections.enrich_frame(cached)
         except Exception:
             pass
     try:
         rebuild_prepared_cache_from_database()
         cached = read_prepared_cache()
         if prepared_dataframe_looks_sane(cached):
-            return cached
+            return _resistance_corrections.enrich_frame(cached)
     except Exception:
         pass
     prepared = prepare_search_dataframe(load_data())
@@ -37022,6 +37025,7 @@ def build_search_text_series(frame, columns):
 def prepare_search_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
+    df = _resistance_corrections.enrich_frame(df)
     df = enrich_documented_safety_mlcc_frame(df)
     df = enrich_jianghai_frame(df)
     df = remove_incomplete_pdc_mlcc_models(df)
@@ -37396,7 +37400,7 @@ def prepare_search_dataframe(df):
                         work.loc[normalized_idx, "_value_num"] = pd.to_numeric(normalized_values["_normalized_value"], errors="coerce")
                     if "_unit_upper" in work.columns:
                         work.loc[normalized_idx, "_unit_upper"] = normalized_values["_normalized_unit"].apply(lambda value: normalize_search_sidecar_value(value).upper() if normalize_search_sidecar_value(value) is not None else None)
-    return enrich_jianghai_frame(work)
+    return _resistance_corrections.enrich_frame(enrich_jianghai_frame(work))
 
 
 def compatible_component_types_for_search(target_type):
@@ -38024,7 +38028,7 @@ def build_lightweight_component_row_from_search_sidecar(core_row, detail_row=Non
             if clean_text(part) != ""
         )
     )
-    return enrich_documented_safety_mlcc_record(enrich_jianghai_record(record))
+    return _resistance_corrections.enrich_record(enrich_documented_safety_mlcc_record(enrich_jianghai_record(record)))
 
 
 def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferred_component_type=""):
@@ -50372,6 +50376,7 @@ def cached_catalog_passive_source(data_signature, component_type):
     try:
         install_jianghai_search_overlay(conn)
         install_amotech_catalogue_overlay(conn)
+        _resistance_corrections.install_search_overlay(conn)
         install_catalog_parameters(conn, data_signature, component_type)
         _catalog_filters.prepare_browse_source(conn, component_type)
         source = _catalog_filters.passive_completion.SharedSource(conn)

@@ -52,6 +52,7 @@ def main():
             conn = sqlite3.connect(args.index.resolve().as_uri()+'?mode=ro', uri=True)
             app['install_jianghai_search_overlay'](conn)
             app['install_amotech_catalogue_overlay'](conn)
+            app['_resistance_corrections'].install_search_overlay(conn)
             return conn
         with closing(connection()) as conn:
             categories = filters.category_counts(conn)
