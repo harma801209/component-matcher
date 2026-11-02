@@ -348,7 +348,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-02T15:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-02T16:20:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -52749,7 +52749,9 @@ if search_requested:
                         search_stats["no_match"] += 1
                 continue
             elif mode == "料号片段":
-                st.markdown('<div class="section-title">料号片段反推规格</div>', unsafe_allow_html=True)
+                naming_header_title = "料号片段反推规格"
+                naming_header_placeholder = st.empty()
+                naming_header_placeholder.markdown('<div class="section-title">料号片段反推规格</div>', unsafe_allow_html=True)
                 spec_info_df = build_spec_info_df(spec)
                 spec_info_df = apply_search_cost_visibility(spec_info_df)
                 st.dataframe(
@@ -52762,7 +52764,9 @@ if search_requested:
                 st.markdown(f'<div class="section-title">{build_component_section_title(spec, "匹配结果（含推荐等级）")}</div>', unsafe_allow_html=True)
                 matched = cached_run_query_match(query_df, mode, spec, query_text=line)
             else:
-                st.markdown(f'<div class="section-title">{build_component_section_title(spec, "规格条件")}</div>', unsafe_allow_html=True)
+                naming_header_title = build_component_section_title(spec, "规格条件")
+                naming_header_placeholder = st.empty()
+                naming_header_placeholder.markdown(f'<div class="section-title">{html.escape(naming_header_title)}</div>', unsafe_allow_html=True)
                 spec_info_df = build_spec_info_df(spec)
                 spec_info_df = apply_search_cost_visibility(spec_info_df)
                 st.dataframe(
@@ -52806,6 +52810,12 @@ if search_requested:
                 show_df = annotate_match_display_gaps(show_df, spec)
                 if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                     show_df = show_df.drop(columns=["特殊用途"])
+                # Render in the reserved specification-heading position only
+                # after the actual visible matches are known. Widget changes
+                # stay inside a fragment, never rerun matching/audit/pricing.
+                from model_naming_guide import render_header as render_model_naming_header
+                with naming_header_placeholder.container():
+                    render_model_naming_header(naming_header_title, show_df, f"search_{line_index}")
                 clickable_table_html = render_clickable_result_table(
                     show_df,
                     spec=spec,
