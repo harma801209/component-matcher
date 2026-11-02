@@ -84,6 +84,98 @@ def part(code, name, meaning, verified=True):
     return dict(code=code, name=name, meaning=meaning, verified=verified)
 
 
+def walsin_resistor(model):
+    """Separate WR type letters from WF precision/TCR letters (original tables)."""
+    sizes={'04':'0402','06':'0603','08':'0805','12':'1206'}
+    match=re.fullmatch(r'(WR)(04|06|08|12)([XW])([0-9R]{3,4})([FJP])([TQGHBDA])(L)',model)
+    if match:
+        series,size,subtype,code,tol,packing,tail=match.groups()
+        value=resistance(code)
+        if value is None or len(code)!=(4 if tol=='F' else 3) or tol=='P' and value!=0:
+            return [],''
+        if packing in 'HDA' and size!='04':
+            return [],''
+        packs={'T':'7 英寸卷盘','Q':'10 英寸卷盘','G':'13 英寸卷盘','H':'13 英寸卷盘／50000 颗（0402）',
+               'B':'散装','D':'7 英寸卷盘／20000 颗（0402）','A':'7 英寸卷盘／15000 颗（0402）'}
+        segments=[part(series,'系列','WR 通用厚膜贴片电阻'),part(size,'封装',sizes[size]+'（英制）'),
+            part(subtype,'类型','常规阻值／跳线类型；实际范围按该尺寸规格表' if subtype=='X' else '±1% 扩展阻值类型；不是温漂代码'),
+            part(code,'阻值',quantity(value)),part(tol,'阻值误差','跳线（非百分比误差）' if tol=='P' else tolerance(tol)),
+            part(packing,'包装',packs[packing]),part(tail,'端电极','Sn 基（无铅）')]
+        return segments,'Walsin 原厂 ASC_WR_V23，2015-04，Catalogue Numbers，第 6 页（原厂署名规格书存档）。'
+    match=re.fullmatch(r'(WF)(04|06|08|12)([HU])([0-9R]{4})([ABCDF])(T)(L)',model)
+    if not match or resistance(match[4]) is None:
+        return [],''
+    series,size,subtype,code,tol,packing,tail=match.groups()
+    if subtype=='H' and tol not in 'BD':
+        return [],''
+    segments=[part(series,'系列','WF 精密贴片电阻'),part(size,'封装',sizes[size]+'（英制）')]
+    if subtype=='H':
+        segments.append(part(subtype,'类型','高精度厚膜（误差小于 1%）；不是温漂代码'))
+        source='Walsin 原厂 ASC_WFxxH_V03，2023-05，Catalogue Numbers，第 4 页（原厂署名规格书存档）。'
+    else:
+        segments.append(part(subtype,'温度系数','±25 ppm/℃'))
+        source='Walsin 原厂 ASC_WFxxU_V16，2012-03，Catalogue Numbers，第 6 页（原厂署名规格书存档）；只采用本版本已明确的尺寸和字段。'
+    segments.extend([part(code,'阻值',quantity(resistance(code))),part(tol,'阻值误差',tolerance(tol)),
+        part(packing,'包装','编带卷盘'),part(tail,'端电极','Sn 基（无铅）')])
+    return segments,source
+
+
+def yageo_rc(model):
+    match=re.fullmatch(r'(RC)(0075|0100|0201|0402|0603|0805|1206|1210|1218|2010|2512)([BDFJ])([RKS])(-)(07|10|13|7W|7D|7N|3W)(\d*[RKM]\d*)(L)',model)
+    if not match:
+        return [],''
+    series,size,tol,packing,tcr,reel,code,tail=match.groups()
+    value=resistance(code)
+    if value is None or not 2<=len(code)<=4:
+        return [],''
+    if (packing=='S' or reel=='7N') and size not in {'0075','0100'} or reel=='7D' and size not in {'0201','0402'}:
+        return [],''
+    reels={'07':'7 英寸卷盘／标准功率','10':'10 英寸卷盘','13':'13 英寸卷盘',
+           '7W':'7 英寸卷盘／2 倍标准功率','7D':'7 英寸卷盘／2 倍标准装量（0201／0402）',
+           '7N':'7 英寸防静电卷盘（0075／0100）','3W':'13 英寸卷盘／2 倍标准功率'}
+    segments=[part(series,'系列','RC 通用厚膜贴片电阻'),part(size,'封装',size+'（英制尺寸代码）'),
+        part(tol,'阻值误差',tolerance(tol)),part(packing,'包装',{'R':'纸带卷盘','K':'压纹带卷盘','S':'防静电卷盘'}[packing]),
+        part(tcr,'温度系数','按规格表，不能由此位得出一个固定 ppm 数值'),part(reel,'卷盘／功率',reels[reel]),
+        part(code,'阻值',quantity(value)),part(tail,'订货尾码','订货系统默认代码；不是生产状态或认证标志')]
+    return segments,'YAGEO 原厂 RC_L Series，2025-11-14 V.14，Ordering Information，第 2 页。'
+
+
+def viking_cr(model):
+    match=re.fullmatch(r'(CR-)(E5|01|02|03|05|06|10|0A|12|25|62)([BCDFJ])([LEPH])([0245679ABCD])(-*)(\d+[RKM]\d*)',model)
+    if not match:
+        return [],''
+    series,size,tol,function,packing,padding,code=match.groups()
+    if len(padding+code)!=6 or resistance(code) is None:
+        return [],''
+    sizes={'E5':'01005','01':'0201','02':'0402','03':'0603','05':'0805','06':'1206',
+           '10':'1210','0A':'2010','12':'2512','25':'1225','62':'0612'}
+    packs={'0':'7 英寸／15000 颗','2':'7 英寸／2000 颗','4':'7 英寸／4000 颗','5':'7 英寸／20000 颗',
+           '6':'7 英寸／10000 颗','7':'7 英寸／5000 颗','9':'10 英寸／8000 颗','A':'10 英寸／10000 颗',
+           'B':'10 英寸／20000 颗','C':'13 英寸／40000 颗','D':'13 英寸／20000 颗'}
+    functions={'L':'标准／高精度类型；温漂按规格表','E':'TC50（±50 ppm/℃）类型','P':'高功率类型；具体瓦数按尺寸规格表','H':'超高功率类型；具体瓦数按尺寸规格表'}
+    segments=[part(series,'系列','CR 厚膜贴片电阻'),part(size,'封装',sizes[size]+'（英制）'),
+        part(tol,'阻值误差',tolerance(tol)),part(function,'功能',functions[function]),part(packing,'包装',packs[packing])]
+    if padding:
+        segments.append(part(padding,'补位符','阻值区补足 6 个字符的位置符，不是负号'))
+    segments.append(part(code,'阻值',quantity(resistance(code))))
+    return segments,'Viking 原厂 CR Series REV.C6，2021-03-10，Part Numbering，正文第 2 页（PDF 第 3 页）。'
+
+
+def pdc_fcf_array(model):
+    # The 3-character network structure must not reuse single-chip FCF/FCF-E sizes.
+    match=re.fullmatch(r'(FCF)(220|240|241|320|340|341|35R|370)([FJ])([TVW])(-)([0-9R]{3,4})',model)
+    if not match or resistance(match[6]) is None:
+        return [],''
+    series,size,tol,packing,dash,code=match.groups()
+    sizes={'220':'0402 × 2（4P2R）','240':'0402 × 4（8P4R，凸电极）','241':'0402 × 4（8P4R，凹电极）',
+           '320':'0603 × 2（4P2R，凸电极）','340':'0603 × 4（8P4R，凸电极）','341':'0603 × 4（8P4R，凹电极）',
+           '35R':'10P8R 排阻结构','370':'16P8R 排阻结构'}
+    segments=[part(series,'系列','FCF 厚膜排阻／电阻网络（不是单颗电阻）'),part(size,'结构／尺寸',sizes[size]),
+        part(tol,'阻值误差',tolerance(tol)),part(packing,'包装',{'T':'纸带／5000 颗','V':'纸带／10000 颗','W':'纸带／20000 颗'}[packing]),
+        part(dash,'标准代码','标准订货位置符'),part(code,'阻值',quantity(resistance(code)))]
+    return segments,'PSA／PDC 原厂 FCF ARRAY Rev.12.0.I48，Part Number，正文第 3 页（PDF 第 4 页）；四联结构不可当作单颗直接替换。'
+
+
 def explain(record):
     brand, model = text(record.get('品牌')), compact(record.get('型号'))
     manufacturer = compact(brand)
@@ -128,6 +220,8 @@ def explain(record):
             if mark:
                 segments.append(part(mark,'标记代码','无标记'))
             source=VIKING_SOURCE
+        else:
+            segments,source=viking_cr(model)
     elif resistor and any(token in manufacturer for token in ('YAGEO','国巨')):
         match = re.fullmatch(r'(RT)(\d{4})([LPWBCDF])([RK])([ABCDE])(\d{2})([0-9RKM.]+)(L)',model)
         if match and resistance(match[7]) is not None:
@@ -139,6 +233,12 @@ def explain(record):
                 part(reel,'卷盘代码','7 英寸' if reel=='07' else '具体卷盘尺寸须查订货表',reel=='07'),
                 part(code,'阻值',quantity(resistance(code))),part(tail,'订货尾码','订货系统固定尾码，不单独证明生产状态或认证')]
             source=YAGEO_SOURCE
+        else:
+            segments,source=yageo_rc(model)
+    elif resistor and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
+        segments,source=walsin_resistor(model)
+    elif resistor and any(token in manufacturer for token in ('PDC','PSA','信昌')):
+        segments,source=pdc_fcf_array(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
         match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)(\d{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2})([BCDFGJKMZ])([A-Z0-9]+)',model)
         if match:

@@ -5,7 +5,8 @@
 按最终可见匹配结果的品牌＋系列分组，并在组内选择实际出现的型号。
 没有用一套通用字母表套用所有厂家，也不生成未出现在结果中的示例型号。
 
-已接入分段结构：富捷部分 FR／FP 系列、光颉 AR、国巨 RT、村田 GR 系列、
+已接入分段结构：富捷部分 FR／FP 系列、光颉 AR／CR、国巨 RT／RC、华新科 WR／WF（H／U）、
+信昌 FCF 排阻、村田 GR 系列、
 信昌 FV／FM／FS／FP／FN／MT／MG、三星 CL、TDK C、AMOTECH 标准 AC 系列。
 某系列未接入时仍可选择，明确提示逐码规则尚未核验；如显示库内参数，
 会标明这些参数不是已知的代码位置映射。未核验的尾码使用不同颜色和文字提示。
@@ -15,6 +16,28 @@
 显示订货代码含义不证明该组合可订购、仍在产、已认证或可直接替代。
 
 ## 依据和已复核的示例
+
+### 2026-11-02 原厂资料补充
+
+上一版已能选择结果中的所有品牌，但 WR／RC 等系列没有分段处理器，因此只显示
+库内参数。这是本系统的接入缺口，不代表厂家没有命名规则。
+
+本轮逐页查看原厂署名 PDF 的命名表及表头，按品牌、系列、子类型分别接入：
+
+| 范围 | 原厂依据 | 本例与重要区别 |
+| --- | --- | --- |
+| Walsin WR04／06／08／12，X／W | [ASC_WR_V23，2015-04，第 6 页（原厂署名存档）](https://datasheet.lcsc.com/datasheet/pdf/b7fd8449de4a882cd112db0d86c915bb.pdf?productCode=C334789) | `WR|04|X|1602|F|T|L`；04=0402，1602=16kΩ，F=±1%，T=7英寸卷盘，L=Sn基；X/W 是类型，不是温漂。P为跳线，不解释为百分比误差。 |
+| Walsin WF04／06／08／12 H | [ASC_WFxxH_V03，2023-05，第 4 页（原厂署名存档）](https://www.melchionielectronics.com/media/72/e4/9c/1759185236/walsin_series_wf04h_wf06h_wf08h_wf12h.pdf?ts=1772123888) | H为高精度厚膜；不把所有 WF 都称为薄膜。B/D为±0.1%/±0.5%。 |
+| Walsin WF04／06／08／12 U | [ASC_WFxxU_V16，2012-03，第 6 页（原厂署名存档）](https://www.micros.com.pl/mediaserver/R5SK059.00b_WALSIN_0001.pdf) | U为±25ppm/℃；与WR的类型位不同。本轮只接入该版本明确的尺寸、误差和包装，不推断Q等特殊尾码。 |
+| YAGEO RC | [官网 RC_L V.14，2025-11-14，第 2 页](https://www.yageogroup.com/content/datasheet/asset/file/PYU-RC_GROUP_51_ROHS_L) | `RC|0402|F|R|-|07|16K|L`；中间“-”是温漂按规格表，不是RT的D/C温漂表。07是标准功率7英寸卷盘，7W与7D分别涉及功率和装量；L只是订货默认码。 |
+| Viking CR | [官网 CR REV.C6，2021-03-10，PDF第 3 页](https://www.viking.com.tw/Templates/att/CR_Series.pdf?lng=en) | `CR-|02|F|L|6|---|16K`；阻值区用“-”补足6位，0A=2010，而不是AR系列的尺寸表。功能P/H不凭空推断固定瓦数。 |
+| PSA／PDC FCF ARRAY | [官网 FCF ARRAY Rev.12.0.I48，PDF第 4 页](https://www.pdc.com.tw/storage/architecture/product~~19/product~~105/product~~158/FCF-Array/FCF-Array.pdf) | `FCF|240|F|T|-|163`；240是0402×4凸电极排阻，163=16kΩ。与两位尺寸码的单颗FCF及FCF-E分离，不把四联排阻当成可直接替换的单颗0402。 |
+
+这些是分系列的字段含义表，不是可订购组合生成器。没有因本轮规则说明新增型号、
+改变匹配排序／价格／替代判定，也不把旧版订货表当作当前在产证明。
+未覆盖的其他子系列及特殊尾码仍会明确待核验，不伪造定义。
+
+### 此前已接入的分系列依据
 
 - [Viking 原厂 AR Series REV.F3](https://www.viking.com.tw/Templates/att/AR_Series.pdf?lng=nl)，
   2022-02-10，Part Numbering（PDF 第 2 页）：

@@ -57,6 +57,88 @@ class NamingGuideTests(unittest.TestCase):
         p=self.parts(self.record('FPL2512FR002TS',series='FPL'))
         self.assertEqual(p['阻值']['meaning'],'0.002 Ω')
 
+    def test_user_walsin_wr_screenshot_uses_manufacturer_field_positions(self):
+        p=self.parts(self.record('WR04X1602FTL','华新科Walsin','WR','厚膜电阻'))
+        self.assertEqual(p['封装']['meaning'],'0402（英制）')
+        self.assertEqual(p['阻值']['meaning'],'16 kΩ')
+        self.assertEqual(p['阻值误差']['meaning'],'±1%')
+        self.assertIn('常规阻值',p['类型']['meaning'])
+        self.assertEqual(p['包装']['meaning'],'7 英寸卷盘')
+        self.assertEqual(p['端电极']['meaning'],'Sn 基（无铅）')
+        self.assertTrue(all(s['verified'] for s in p.values()))
+        self.assertNotIn('温度系数',p)  # X is not a TCR letter.
+
+    def test_walsin_wr_jumper_spaces_and_wf_subtypes_do_not_share_type_codes(self):
+        p=self.parts(self.record('WR04X000 PTL','Walsin','WR'))
+        self.assertEqual(p['阻值']['meaning'],'0 Ω')
+        self.assertIn('跳线',p['阻值误差']['meaning'])
+        p=self.parts(self.record('WR06W4R70FTL','Walsin','WR'))
+        self.assertEqual(p['阻值']['meaning'],'4.7 Ω')
+        self.assertIn('扩展阻值',p['类型']['meaning'])
+        p=self.parts(self.record('WF04H1602BTL','Walsin','WF'))
+        self.assertIn('厚膜',p['类型']['meaning'])
+        self.assertNotIn('温度系数',p)
+        p=self.parts(self.record('WF06U3742DTL','Walsin','WF'))
+        self.assertEqual(p['温度系数']['meaning'],'±25 ppm/℃')
+        self.assertEqual(p['阻值']['meaning'],'37.4 kΩ')
+        for model in ('WR04X160FTL','WR04X1602PTL','WF04H1602JTL','WF04Z1602BTL'):
+            self.assertEqual(guide.explain(self.record(model,'Walsin','WR'))['segments'],[],model)
+
+    def test_user_yageo_rc_screenshot_includes_the_tcr_dash_not_rt_table(self):
+        p=self.parts(self.record('RC0402FR-0716KL','国巨YAGEO','RC','厚膜电阻'))
+        self.assertEqual(p['阻值']['meaning'],'16 kΩ')
+        self.assertEqual(p['阻值误差']['meaning'],'±1%')
+        self.assertEqual(p['温度系数']['code'],'-')
+        self.assertIn('按规格表',p['温度系数']['meaning'])
+        self.assertIn('标准功率',p['卷盘／功率']['meaning'])
+        self.assertIn('默认',p['订货尾码']['meaning'])
+        self.assertNotIn('无铅',p['订货尾码']['meaning'])  # L alone is not that claim.
+
+    def test_yageo_rc_reel_power_variants_decimal_resistance_and_invalid_fields(self):
+        for reel,expected in (('10','10 英寸'),('13','13 英寸'),('7W','2 倍标准功率'),
+                              ('7D','2 倍标准装量'),('3W','13 英寸')):
+            p=self.parts(self.record('RC0402FR-'+reel+'9K76L','YAGEO','RC'))
+            self.assertEqual(p['阻值']['meaning'],'9.76 kΩ')
+            self.assertIn(expected,p['卷盘／功率']['meaning'])
+        p=self.parts(self.record('RC0402JR-070RL','YAGEO','RC'))
+        self.assertEqual(p['阻值']['meaning'],'0 Ω')
+        for model in ('RC0402FRD0716KL','RC0402FR-071602L','RC0402FS-7N16KL',
+                      'RC0402FR-7D16KXL','RC9999FR-0716KL'):
+            self.assertEqual(guide.explain(self.record(model,'YAGEO','RC'))['segments'],[],model)
+
+    def test_pdc_fcf_array_is_not_a_single_resistor_package_or_e_code_series(self):
+        p=self.parts(self.record('FCF240FT-163','PSA(信昌电陶)','FCF','贴片电阻'))
+        self.assertIn('0402 × 4',p['结构／尺寸']['meaning'])
+        self.assertIn('凸电极',p['结构／尺寸']['meaning'])
+        self.assertEqual(p['阻值']['meaning'],'16 kΩ')
+        self.assertIn('5000',p['包装']['meaning'])
+        for model,structure in (('FCF241FT-1602','凹电极'),('FCF35RJT-103','10P8R'),
+                                ('FCF370JV-000','16P8R')):
+            p=self.parts(self.record(model,'信昌PDC','FCF'))
+            self.assertIn(structure,p['结构／尺寸']['meaning'])
+        for model in ('FCF240FT-R050E','FCF02FT-1602','FCF240FT-163XYZ'):
+            self.assertEqual(guide.explain(self.record(model,'信昌PDC','FCF'))['segments'],[],model)
+
+    def test_viking_cr_dash_padding_and_0a_size_are_not_ar_codes(self):
+        p=self.parts(self.record('CR-02FL6---16K','光颉Viking','CR','厚膜电阻'))
+        self.assertEqual(p['阻值']['meaning'],'16 kΩ')
+        self.assertEqual(p['封装']['meaning'],'0402（英制）')
+        self.assertEqual(p['补位符']['code'],'---')
+        self.assertIn('10000',p['包装']['meaning'])
+        p=self.parts(self.record('CR-0AFH7---1R2','Viking','CR'))
+        self.assertEqual(p['封装']['meaning'],'2010（英制）')
+        self.assertIn('超高功率',p['功能']['meaning'])
+        self.assertEqual(p['阻值']['meaning'],'1.2 Ω')
+        self.assertNotIn('温度系数',p)
+        for model in ('CR-02FL6--16K','CR-02FL6---160','CR-02FZ6---16K'):
+            self.assertEqual(guide.explain(self.record(model,'Viking','CR'))['segments'],[],model)
+
+    def test_new_rules_remain_brand_and_component_scoped(self):
+        for model,brand in (('RC0402FR-0716KL','Walsin'),('WR04X1602FTL','YAGEO'),
+                            ('FCF240FT-163','FOJAN'),('CR-02FL6---16K','Other')):
+            self.assertEqual(guide.explain(self.record(model,brand))['segments'],[])
+        self.assertEqual(guide.explain(self.record('WR04X1602FTL','Walsin',kind='MLCC'))['segments'],[])
+
     def test_murata_and_samsung_use_separate_size_and_voltage_tables(self):
         m=self.parts(self.record('GRM155R71C104KA88D','村田Murata','GRM','MLCC'))
         s=self.parts(self.record('CL05B104KO5NNNC','三星Samsung','CL','MLCC'))
@@ -129,17 +211,25 @@ import streamlit as st
 from model_naming_guide import render_header
 st.session_state['parent_runs']=st.session_state.get('parent_runs',0)+1
 rows=[dict(品牌='FOJAN(富捷)',型号='FRH0402B4703TS',系列='FRH',器件类别='厚膜电阻'),
-      dict(品牌='光颉Viking',型号='AR02BTC4703',系列='AR',器件类别='薄膜电阻')]
+      dict(品牌='光颉Viking',型号='AR02BTC4703',系列='AR',器件类别='薄膜电阻'),
+      dict(品牌='华新科Walsin',型号='WR04X1602FTL',系列='WR',器件类别='厚膜电阻'),
+      dict(品牌='国巨YAGEO',型号='RC0402FR-0716KL',系列='RC',器件类别='厚膜电阻')]
 render_header('贴片电阻（Chip Resistor）规格条件',rows,'fixture')
 st.caption('原匹配结果仍在')
 '''
-        at=AppTest.from_string(script).run()
+        at=AppTest.from_string(script).run(timeout=20)
         self.assertFalse(at.exception)
         self.assertEqual(len(at.selectbox),2)
         self.assertEqual(at.selectbox[1].value,'FRH0402B4703TS')
         self.assertTrue(any('470 kΩ' in item.value for item in at.markdown))
-        at.selectbox[0].select(('光颉Viking','AR')).run()
+        at.selectbox[0].select(('光颉Viking','AR')).run(timeout=20)
         self.assertFalse(at.exception)
         self.assertEqual(at.selectbox[1].value,'AR02BTC4703')
         self.assertTrue(any('±25 ppm/℃' in item.value for item in at.markdown))
         self.assertTrue(any('原匹配结果仍在' in item.value for item in at.caption))
+        for brand,series,model,source in (('华新科Walsin','WR','WR04X1602FTL','ASC_WR_V23'),
+                                          ('国巨YAGEO','RC','RC0402FR-0716KL','2025-11-14 V.14')):
+            at.selectbox[0].select((brand,series)).run(timeout=20)
+            self.assertFalse(at.exception)
+            self.assertEqual(at.selectbox[1].value,model)
+            self.assertTrue(any('16 kΩ' in item.value and source in item.value for item in at.markdown))
