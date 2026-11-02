@@ -334,6 +334,8 @@ def guide_html(guide):
 
 
 STYLE='''<style>
+.section-title.naming-inline-title{margin:0}
+[data-testid="stMarkdownContainer"]:has(>.naming-inline-title){margin-bottom:0}
 [data-testid="stPopoverBody"]:has(.naming-guide-marker){width:min(760px,calc(100vw - 24px));max-height:80vh;overflow:auto}
 .naming-guide-marker{display:none}.naming-guide-title{font-size:19px;font-weight:700;color:#17365c;margin:0 0 5px}
 .naming-guide-sub{color:#65758b;font-size:13px;margin:0 0 14px}.naming-chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 16px}
@@ -355,10 +357,16 @@ def _render_header(title, records, instance_key):
         st.markdown('<div class="section-title">'+html.escape(title)+'</div>',unsafe_allow_html=True)
         return
     st.markdown(STYLE,unsafe_allow_html=True)
-    columns=st.columns([3,2])
-    with columns[0]:
-        st.markdown('<div class="section-title">'+html.escape(title)+'</div>',unsafe_allow_html=True)
-    with columns[1]:
+    try:
+        row=st.container(horizontal=True,vertical_alignment='center',gap='small')
+        content_width=dict(width='content')
+    except TypeError:
+        # Older Streamlit has no horizontal container/content-width API.
+        # Stack accessibly instead of reserving a fixed fraction of the row.
+        row=st.container()
+        content_width={}
+    with row:
+        st.markdown('<div class="section-title naming-inline-title">'+html.escape(title)+'</div>',unsafe_allow_html=True,**content_width)
         with st.popover('型号命名对照',help='查看本次匹配结果中各品牌、系列的代码含义'):
             st.markdown('<span class="naming-guide-marker"></span><div class="naming-guide-title">型号命名对照</div><p class="naming-guide-sub">仅展示本次匹配出现的品牌与系列；点击面板外部即可关闭。</p>',unsafe_allow_html=True)
             options=list(groups)

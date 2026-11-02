@@ -202,8 +202,41 @@ class NamingGuideTests(unittest.TestCase):
             self.assertNotIn(prohibited,ui)
         self.assertIn('st.fragment(_render_header)',ui)
 
+    def test_heading_and_popover_use_content_width_not_fixed_ratio_columns(self):
+        tree=ast.parse(Path(guide.__file__).read_text(encoding='utf-8'))
+        render=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_render_header')
+        calls=[n for n in ast.walk(render) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+               and isinstance(n.func.value,ast.Name) and n.func.value.id=='st']
+        self.assertFalse(any(n.func.attr=='columns' for n in calls))
+        horizontal=[n for n in calls if n.func.attr=='container' and any(k.arg=='horizontal' and ast.literal_eval(k.value) for k in n.keywords)]
+        self.assertEqual(len(horizontal),1)
+        self.assertEqual({k.arg:ast.literal_eval(k.value) for k in horizontal[0].keywords},
+                         dict(horizontal=True,vertical_alignment='center',gap='small'))
+        self.assertIn('naming-inline-title',Path(guide.__file__).read_text(encoding='utf-8'))
+
 
 class NamingGuideUITests(unittest.TestCase):
+    def test_older_streamlit_without_horizontal_container_keeps_accessible_popover(self):
+        from streamlit.testing.v1 import AppTest
+        script='''
+import streamlit as st
+from model_naming_guide import render_header
+original=st.container
+def legacy_container(**kwargs):
+    if 'horizontal' in kwargs:
+        raise TypeError('unexpected keyword horizontal')
+    return original(**kwargs)
+st.container=legacy_container
+try:
+    render_header('规格条件',[dict(品牌='华新科Walsin',型号='WR04X1602FTL',系列='WR',器件类别='厚膜电阻')],'legacy')
+finally:
+    st.container=original
+'''
+        at=AppTest.from_string(script).run(timeout=20)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.selectbox[1].value,'WR04X1602FTL')
+        self.assertTrue(any('16 kΩ' in item.value for item in at.markdown))
+
     def test_popover_has_only_real_result_options_and_model_specific_tables(self):
         from streamlit.testing.v1 import AppTest
         script='''
