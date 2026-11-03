@@ -163,6 +163,7 @@ def main() -> int:
                 "tests.test_repair_shop_meter",
                 "tests.test_jianghai_parameters",
                 "tests.test_member_auth_bridge",
+                "tests.test_member_admin_fields",
             ],
             env,
         )

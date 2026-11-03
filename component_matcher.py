@@ -352,7 +352,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-02T20:53:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-03T14:53:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -5607,10 +5607,6 @@ def render_member_admin_management_page():
             title += f" · {display_name}"
         with st.expander(title, expanded=False):
             current_job_title = normalize_member_job_title(member.get("job_title", ""))
-            current_pm_brands = list_member_pm_brands(member_id)
-            pm_brand_options = normalize_pm_brand_names(
-                list_pm_brand_options() + current_pm_brands
-            )
             with st.form(f"member_admin_edit_{member_id}"):
                 field_cols = st.columns([0.22, 0.22, 0.28, 0.28], gap="small")
                 with field_cols[0]:
@@ -5631,20 +5627,28 @@ def render_member_admin_management_page():
                         options=list(MEMBER_JOB_TITLE_OPTIONS),
                         index=MEMBER_JOB_TITLE_OPTIONS.index(current_job_title),
                         key=f"admin_member_job_title_{member_id}",
-                        help="只能由后台管理员选择：PM、销售或其他。",
+                        help="只能由后台管理员选择：PM、销售或其他。改为 PM 并保存后，可设置负责品牌。",
                     )
                     role_options = ["会员", "管理员"]
                     role_index = 1 if normalize_member_role(member.get("role", "")) == "admin" else 0
                     edit_role_label = st.selectbox("角色", role_options, index=role_index, key=f"admin_member_role_{member_id}")
                     reset_password = st.text_input("重置密码（留空不改）", type="password", key=f"admin_member_password_{member_id}")
-                edit_pm_brands = st.multiselect(
-                    "PM 负责品牌",
-                    pm_brand_options,
-                    default=current_pm_brands,
-                    key=f"admin_member_pm_brands_{member_id}",
-                    help="仅职务为 PM 时生效；PM 可切换全部客户，但客户专属价格只会对这里授权的品牌显示。",
-                    disabled=edit_job_title != MEMBER_JOB_TITLE_PM,
-                )
+                # None means "leave existing assignments unchanged" on save.
+                # Non-PM forms must neither display this unrelated field nor
+                # accidentally clear historical, currently inactive assignments.
+                edit_pm_brands = None
+                if edit_job_title == MEMBER_JOB_TITLE_PM:
+                    current_pm_brands = list_member_pm_brands(member_id)
+                    pm_brand_options = normalize_pm_brand_names(
+                        list_pm_brand_options() + current_pm_brands
+                    )
+                    edit_pm_brands = st.multiselect(
+                        "PM 负责品牌",
+                        pm_brand_options,
+                        default=current_pm_brands,
+                        key=f"admin_member_pm_brands_{member_id}",
+                        help="仅用于 PM 的品牌授权范围；销售的客户归属在“客户资讯”维护。",
+                    )
                 confirm_delete = st.checkbox(
                     "确认删除此会员",
                     key=f"admin_member_confirm_delete_{member_id}",
