@@ -164,6 +164,7 @@ def main() -> int:
                 "tests.test_jianghai_parameters",
                 "tests.test_member_auth_bridge",
                 "tests.test_member_admin_fields",
+                "tests.test_customer_selector_copy",
             ],
             env,
         )

@@ -352,7 +352,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-03T14:53:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-03T15:33:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -7509,7 +7509,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     if is_admin:
         new_customer_option = "通用成本（不指定客户）"
     elif access_level == "none":
-        new_customer_option = "型号匹配（不显示价格）"
+        new_customer_option = "型号匹配"
     else:
         new_customer_option = "新客户"
     customer_names = [name for name in customer_names if name != new_customer_option]
@@ -7536,7 +7536,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     if is_admin:
         help_text = "管理员可查看客户资讯中全部已启用客户；不指定客户时使用通用成本。"
     elif access_level == "none":
-        help_text = "当前公司不属于富临通，仅可匹配型号，不显示通用价格或客户专属价格。"
+        help_text = "选择本次匹配使用的客户。"
     elif access_level == "pm":
         help_text = "PM 使用通用价格；客户专属价仅供负责销售账号查看。"
     elif access_level == "sales":
@@ -7573,8 +7573,7 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
             st.session_state[SALES_CUSTOMER_SELECTION_NAME_KEY] = ""
             st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = COST_CUSTOMER_TYPE_NEW
             st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = ""
-            st.success("当前模式：型号匹配　·　价格来源：不显示价格")
-            st.caption("当前公司不属于富临通，可以正常匹配型号，但不显示通用价格或客户专属价格。")
+            st.success("当前模式：型号匹配")
             return COST_CUSTOMER_TYPE_NEW, "", True
         with st.form(f"{key_prefix}_new_member_sales_customer", clear_on_submit=True):
             new_customer_name = st.text_input(
@@ -7627,23 +7626,24 @@ def render_sales_cost_customer_selector(key_prefix="sales", restored_type="", re
     st.session_state[SALES_COST_CUSTOMER_TYPE_KEY] = customer_type
     st.session_state[SALES_COST_CUSTOMER_NAME_KEY] = customer_name
     if access_level == "none":
-        price_source = "不显示价格"
+        # Neutral presentation only: the existing authorization and cost
+        # masking remain in force for accounts without price access.
+        st.success(f"当前客户：{selected_name}")
     elif customer_type == COST_CUSTOMER_TYPE_EXISTING:
         price_context = get_sales_customer_price_context(customer_name)
         record = price_context.get("record") or {}
         price_source = f"客户价格：{record.get('customer_code') or customer_name}"
     else:
         price_source = "通用价格"
-    st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
+    if access_level != "none":
+        st.success(f"当前客户：{selected_name}　·　价格来源：{price_source}")
     if is_admin:
         st.caption("管理员可在上方下拉选单切换客户资讯中已启用的客户；没有专属价格时自动使用通用价格。")
-    elif access_level == "none":
-        st.caption("当前公司不属于富临通：可以正常匹配型号，但所有通用价格和客户专属价格均不显示。")
     elif access_level == "pm":
         st.caption("PM 使用通用价格；客户专属价仅供负责销售账号查看。")
     elif access_level == "sales":
         st.caption("只有后台分配给您的客户可使用专属价；其他客户使用通用价。")
-    else:
+    elif access_level != "none":
         st.caption("如管理员把客户分配给此账号，该客户可使用专属价；其他客户使用通用价。")
     render_admin_cost_time_summary(customer_type, customer_name, cost_time_ready)
     return customer_type, customer_name, ready and cost_time_ready
