@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "recipe": "fd475be85f8071cd50eff963c79a045c475ea49866352d3b2120ce3048392b26",
+  "recipe": "b0190bfd572376f4ac8f13feec3a97322ca26d2e1e4b019c23411a3c7f2d6307",
   "sources": {
     "cache/components_search.sqlite": {
       "sha256": "6d48e5734bf773dfa1fc07c3fc0dd42088a1264abb72496f16345dbdbf532c89",
@@ -22,7 +22,7 @@
     ],
     [
       "MLCC",
-      115194
+      127683
     ],
     [
       "MOSFET",
@@ -144,10 +144,10 @@
     },
     "MLCC": {
       "file": "7d8d049f25232c45.sqlite.gz",
-      "sha256": "f15b534c70f3be7511a35dcdbe34d717858399c6f9e01897640a2cc3eb8a9d18",
-      "raw_sha256": "f2d944066c9ca5f210ac876b5e5b4284143ce25056853de51db309c20bc4b51e",
-      "raw_size": 21938176,
-      "total": 115194,
+      "sha256": "382bd509b99d7173be886fb1fdff45d7d2d6e6de3dad28facaf60bd559b20d6b",
+      "raw_sha256": "6526e87ab0ca1e02c70c727b1aec2e72f29661a568db3fb8abcc93e0c09c6d0c",
+      "raw_size": 25055232,
+      "total": 127683,
       "unique": true
     },
     "MOSFET": {

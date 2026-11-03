@@ -31,6 +31,7 @@ import warnings
 import traceback
 import textwrap
 import amotech_catalog as _amotech_catalog
+import walsin_catalog as _walsin_catalog
 import catalog_prebuilt as _catalog_prebuilt
 import resistance_corrections as _resistance_corrections
 import model_naming_guide as _model_naming_guide
@@ -86,6 +87,7 @@ import panasonic_lifecycle as _catalog_panasonic_lifecycle
 # Refresh the stateless theme whenever component definitions are rebuilt too.
 _workbench_importlib.reload(_workbench_theme)
 _workbench_importlib.reload(_amotech_catalog)
+_workbench_importlib.reload(_walsin_catalog)
 _workbench_importlib.reload(_resistance_corrections)
 _workbench_importlib.reload(_model_naming_guide)
 # Reload leaf helpers before their importer: reloading only component_filters
@@ -352,7 +354,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-03T18:35:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-03T20:55:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -18592,7 +18594,7 @@ WALSIN_MLCC_SERIES_CLASS = {
     "UF": "高Q",
 }
 WALSIN_NUMERIC_MLCC_DIELECTRIC = {
-    "A": "",
+    "A": "X7S",
     "B": "X7R",
     "C": "COG(NPO)",
     "F": "Y5V",
@@ -22597,10 +22599,10 @@ def parse_walsin_common(model, brand=""):
         "42": "1808", "43": "1812", "56": "2225",
     }
     material_map = {
-        "B": "X7R", "C": "COG(NPO)", "F": "Y5V", "N": "COG(NPO)", "S": "X6S", "T": "X7T", "X": "X5R"
+        "A": "X7S", "B": "X7R", "C": "COG(NPO)", "F": "Y5V", "N": "COG(NPO)", "S": "X6S", "T": "X7T", "X": "X5R"
     }
     tol_map = {
-        "A": "0.25PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
+        "A": "0.05PF", "B": "0.1PF", "C": "0.25PF", "D": "0.5PF",
         "F": "1", "G": "2", "J": "5", "K": "10", "M": "20", "Z": "+80/-20",
     }
 
@@ -33378,6 +33380,8 @@ def parse_numeric_size_first_mlcc(model, brand=""):
     )
     if not match:
         return None
+    if match.group("mat") == "A" and clean_brand(brand) and not _walsin_catalog.is_brand(brand):
+        return None
 
     size_map = {
         "01005": "01005", "0201": "0201", "0402": "0402", "0603": "0603",
@@ -33981,6 +33985,21 @@ def parse_model_rule(model, brand="", component_type=""):
         return parsed_bbgk
     brand_text = clean_brand(brand)
     brand_upper = clean_text(brand_text).upper()
+    # Manufacturer-scoped rules precede overlapping MT/MG prefixes. A listed
+    # Walsin identity with its documented CT/CG suffix is also unambiguous.
+    if _walsin_catalog.is_brand(brand_text) or (
+        not brand_text and m.endswith(("CT", "CG")) and _walsin_catalog.listed(m)
+    ):
+        official_walsin = _walsin_catalog.listed(m)
+        if official_walsin:
+            parsed_walsin = _walsin_catalog.row(official_walsin, model=m)
+            # Preserve the established parser contract used by reverse lookup
+            # and voltage guards; the public table stores a numeric voltage.
+            parsed_walsin["耐压（V）"] = clean_voltage(parsed_walsin["耐压（V）"])
+            return parsed_walsin
+        parsed_walsin = parse_walsin_common(m, brand=_walsin_catalog.BRAND)
+        if parsed_walsin is not None:
+            return parsed_walsin
     if m.startswith("CLR1"):
         parsed = parse_samsung_clr1(m)
         if parsed is not None:
@@ -35680,7 +35699,7 @@ def open_search_db_connection(timeout_sec=30):
         ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     if not os.path.exists(SEARCH_DB_PATH):
         return None
-    conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec))
+    conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec), uri=True)
     conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
     install_jianghai_search_overlay(conn)
     install_amotech_catalogue_overlay(conn)
@@ -35702,6 +35721,21 @@ def amotech_search_sidecar_frames():
 
 def install_amotech_catalogue_overlay(conn):
     _amotech_catalog.install_search_overlay(conn, amotech_search_sidecar_frames())
+    _walsin_catalog.install_search_overlay(conn)
+
+
+@lru_cache(maxsize=1)
+def walsin_prepared_catalogue():
+    # Prepare only selected rows at the ordinary search handoff below. The
+    # complete public snapshot must not add a long first-search preparation.
+    frame = pd.DataFrame(_walsin_catalog.catalogue_rows())
+    frame['_model_clean'] = frame['型号']
+    return frame
+
+
+@lru_cache(maxsize=1)
+def walsin_search_sidecar_frames():
+    return _walsin_catalog.index_frames()
 
 
 def build_search_index_chunk_from_raw(raw_df):
@@ -37042,6 +37076,7 @@ def prepare_search_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
     df = _resistance_corrections.enrich_frame(df)
+    df = _walsin_catalog.enrich_frame(df)
     df = enrich_documented_safety_mlcc_frame(df)
     df = enrich_jianghai_frame(df)
     df = remove_incomplete_pdc_mlcc_models(df)
@@ -38085,6 +38120,7 @@ def _load_component_rows_by_brand_model_pairs_uncached(candidate_pairs, preferre
         seed_combined = filter_base_by_candidate_pairs(pd.DataFrame(seed_rows), pairs)
     seed_combined = concat_component_frames([
         seed_combined, filter_base_by_candidate_pairs(amotech_prepared_catalogue(), pairs),
+        pd.DataFrame(_walsin_catalog.rows_for_pairs(pairs)),
     ])
     if combined.empty and seed_combined.empty:
         return sidecar_combined
@@ -38709,6 +38745,10 @@ def load_component_rows_by_clean_models_map(models, use_database=True):
     amotech_exact = amotech_prepared[amotech_prepared['_model_clean'].isin(unique_models)].copy()
     if not amotech_exact.empty:
         work_frames.append(amotech_exact)
+    walsin_exact = walsin_prepared_catalogue()
+    walsin_exact = walsin_exact[walsin_exact['_model_clean'].isin(unique_models)].copy()
+    if not walsin_exact.empty:
+        work_frames.append(walsin_exact)
     prepared_exact = load_search_sidecar_rows_by_brand_model_pairs(candidate_pairs)
     if isinstance(prepared_exact, pd.DataFrame) and not prepared_exact.empty:
         work_frames.append(prepared_exact)
@@ -44022,6 +44062,9 @@ def collect_recommendation_warnings(row, spec):
     if row is None or spec is None:
         return []
     warnings_list = []
+    walsin_warning = _walsin_catalog.ordering_warning(row)
+    if walsin_warning:
+        warnings_list.append(walsin_warning)
     if clean_text(row.get("_fojan_variant_unverified", "")).lower() == "true":
         warnings_list.append("完整 N 版本电气参数待原厂确认，基础编码不代表已核验可直接替代")
     if spec.get("_milliohm_description") and clean_model(row.get("型号", "")).startswith("FPM") and clean_model(row.get("型号", "")).endswith("TML"):

@@ -247,6 +247,28 @@ def fojan_ka_quote_xlsx_bytes():
 
 
 class SystemRegressionTests(unittest.TestCase):
+    def test_walsin_x7s_and_brand_scoped_mt_decode(self):
+        for model in ('0805A106K250CT','0805A106K250'):
+            parsed=self.app['parse_model_rule'](model,brand='华新科Walsin')
+            self.assertEqual(parsed['材质（介质）'],'X7S')
+            self.assertEqual(parsed['容值_pf'],10_000_000)
+            self.assertEqual(float(parsed['耐压（V）']),25)
+        parsed=self.app['parse_model_rule']('MT18B334K500CT',brand='华新科Walsin')
+        self.assertEqual(parsed['品牌'],'华新科Walsin')
+        self.assertEqual(parsed['材质（介质）'],'X7R')
+        parsed=self.app['parse_model_rule']('0805B102K102CT',brand='华新科Walsin')
+        self.assertEqual(parsed['耐压（V）'],'1000')
+        parsed=self.app['parse_model_rule']('MT18B334K500CT')
+        self.assertEqual(parsed['品牌'],'华新科Walsin')
+        self.assertEqual(parsed['材质（介质）'],'X7R')
+        parsed=self.app['parse_model_rule']('MT21B106K250EIG',brand='信昌PDC')
+        self.assertEqual(parsed['品牌'],'信昌PDC')
+        self.assertEqual(parsed['材质（介质）'],'X5R')
+        candidate=dict(self.app['_walsin_catalog'].row(self.app['_walsin_catalog'].listed('0805A475K500')),
+                       推荐等级='完全匹配')
+        warnings=self.app['collect_recommendation_warnings'](candidate,{'器件类型':'MLCC'})
+        self.assertTrue(any('尾码' in warning for warning in warnings))
+
     @classmethod
     def setUpClass(cls):
         logging.disable(logging.CRITICAL)
@@ -3475,6 +3497,7 @@ class SystemRegressionTests(unittest.TestCase):
             return module
         namespace=dict(_workbench_importlib=SimpleNamespace(reload=reload),_catalog_filters=parent,
                        _amotech_catalog=SimpleNamespace(name='amotech',version='old'),
+                       _walsin_catalog=SimpleNamespace(name='walsin',version='old'),
                        _resistance_corrections=SimpleNamespace(name='resistance_corrections',version='old'),
                        _model_naming_guide=SimpleNamespace(name='naming_guide',version='old'),
                        _workbench_theme=SimpleNamespace(name='theme'),_catalog_lifecycle=lifecycle,
@@ -3485,6 +3508,7 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertLess(calls.index('passive'),calls.index('filters'))
         self.assertIn('lifecycle',calls)
         self.assertIn('amotech',calls)
+        self.assertIn('walsin',calls)
         self.assertIn('resistance_corrections',calls)
         self.assertIn('naming_guide',calls)
         self.assertIn('bom_comparison',calls)
