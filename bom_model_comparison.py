@@ -232,8 +232,27 @@ def header_component():
 
 def render_table(st, frame, *, table_html, original_column_count, visible_columns,
                  key, detail=None, row_numbers=None, component=None,
-                 visible_row_positions=None, table_renderer=None):
+                 visible_row_positions=None, table_renderer=None, authorize_view=None):
+    # Custom-component readiness/comparison events belong to this result view,
+    # not the parent's upload/start/matching/export pipeline.
+    fragment = getattr(st, 'fragment', None)
+    renderer = fragment(_render_table) if callable(fragment) else _render_table
+    return renderer(st, frame, table_html=table_html,
+                    original_column_count=original_column_count, visible_columns=visible_columns,
+                    key=key, detail=detail, row_numbers=row_numbers, component=component,
+                    visible_row_positions=visible_row_positions, table_renderer=table_renderer,
+                    authorize_view=authorize_view)
+
+
+def _render_table(st, frame, *, table_html, original_column_count, visible_columns,
+                  key, detail=None, row_numbers=None, component=None,
+                  visible_row_positions=None, table_renderer=None, authorize_view=None):
     """One component owns the controls, report and annotated result table."""
+    # Fragment reruns skip the parent's authorization. Recheck before emitting
+    # any captured rows, including costs, or consuming an old comparison event.
+    if authorize_view is not None and not authorize_view():
+        st.warning('登录或价格权限已变化，请返回 BOM 页面重新查看结果。')
+        return None
     choices = display_column_choices(frame, original_column_count)
     headers = header_choices(choices, list(frame.columns), visible_columns)
     revision = comparison_revision(frame)

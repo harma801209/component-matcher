@@ -352,7 +352,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-03T15:33:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-03T18:35:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -32172,6 +32172,16 @@ def should_start_bom_matching(
     return bool(start_clicked)
 
 
+def queue_bom_match_start(workbook_signature, export_mode):
+    from bom_run_control import queue_start
+    queue_start(st.session_state, workbook_signature, export_mode)
+
+
+def consume_bom_match_start(workbook_signature, export_mode):
+    from bom_run_control import consume_start
+    return consume_start(st.session_state, workbook_signature, export_mode)
+
+
 def bom_export_brand_groups(component_type, export_settings=None):
     settings = normalize_bom_export_settings(export_settings)
     if settings["mode"] != BOM_EXPORT_MODE_CUSTOM:
@@ -44964,7 +44974,7 @@ def restore_persisted_bom_job_upload():
     st.session_state["_bom_restored_job"] = job
     checkpoint = job.get("checkpoint") if isinstance(job.get("checkpoint"), dict) else {}
     sheet_rows = checkpoint.get("sheet_rows", checkpoint)
-    if isinstance(sheet_rows, dict) and sheet_rows:
+    if isinstance(sheet_rows, dict) and sheet_rows and clean_text(job.get("status", "")) != "complete":
         st.session_state["_bom_match_checkpoint"] = {
             "signature": clean_text(job.get("run_signature", "")),
             "sheet_rows": sheet_rows,
@@ -49416,6 +49426,22 @@ def describe_bom_compared_models(original_model, matched_model):
     return "型号文字不同，现有规则未解析出可比较的参数，需人工确认。"
 
 
+def bom_result_view_authorization_scope(include_cost=False):
+    member = current_member()
+    if not member:
+        return None
+    scope = (int(member.get("id") or 0), member_cost_access_level(member))
+    if not include_cost:
+        return scope
+    if not member_can_view_cost(member):
+        return None
+    customer_type, customer_name = selected_sales_cost_customer_context()
+    customer_type, customer_name = authorize_cost_customer_context(member, customer_type, customer_name)
+    cutoff = selected_admin_cost_as_of(member)
+    return scope + (customer_type, customer_name, cutoff,
+                    get_cost_price_lookup_signature(customer_type, customer_name, as_of=cutoff))
+
+
 def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, sheet_name,
                                       *, display_df=None, include_cost=False, visible_row_positions=None):
     # Pass full active-sheet frames, never the filtered/paged main-table view.
@@ -49447,12 +49473,15 @@ def render_bom_model_comparison_panel(upload_df, result_df, workbook_signature, 
         components.html(table_html, height=estimate_bom_result_iframe_height(len(page_frame)), scrolling=False)
         st.warning("原表与匹配结果行数不同，请先完成当前工作表匹配后再比对。")
         return None
+    authorized_scope = bom_result_view_authorization_scope(include_cost)
     return _bom_model_comparison.render_table(
         st, full_frame, key=key, table_html=table_html, original_column_count=len(upload_df.columns),
         visible_columns=[col for col in page_frame.columns if col != "_量产状态链接"],
         detail=describe_bom_compared_models,
         row_numbers=result_df["BOM行号"].tolist() if "BOM行号" in result_df else None,
         visible_row_positions=visible_row_positions if visible_row_positions is not None else [],
+        authorize_view=lambda: authorized_scope is not None and
+            bom_result_view_authorization_scope(include_cost) == authorized_scope,
         table_renderer=lambda view: render_clickable_result_table(
             format_display_df(view), hide_columns=[], show_official_status=False,
             wrapper_class="bom-result-table-wrap", footer_html="", outer_footer_html="",
@@ -49539,6 +49568,41 @@ def create_persisted_bom_job(uploaded_file, run_signature, sheet_mappings,
         if job_id:
             update_query_params(**{BOM_JOB_QUERY_PARAM: job_id})
     return job
+
+
+def restore_completed_bom_results(job, run_signature, workbook, selected_sheet_name, export_settings):
+    from bom_run_control import completed_rows
+    if st.session_state.get("_bom_result_signature") == run_signature:
+        return False
+    sheets = list((workbook or {}).get("sheet_frames", []))
+    lengths = {item["sheet_name"]: len(item["df"]) for item in sheets}
+    rows = completed_rows(job, run_signature, lengths, current_bom_job_member_key())
+    if rows is None:
+        return False
+    results, export_sheets = {}, []
+    settings = normalize_bom_export_settings(export_settings)
+    for item in sheets:
+        name = item["sheet_name"]
+        frame = move_reference_model_columns_after_rank(pd.DataFrame(rows[name]))
+        if settings.get("cost_as_of"):
+            frame["成本时间点"] = settings["cost_as_of"]
+        results[name] = frame
+        export_sheets.append({"sheet_name": name, "source_df": item["df"], "result_df": frame,
+                              "mapping": job.get("mappings", {}).get(name, {})})
+    selected_source = next(item["df"] for item in sheets if item["sheet_name"] == selected_sheet_name)
+    export_bytes = bom_to_excel_bytes(results[selected_sheet_name], selected_source,
+                                     source_workbook=workbook, sheet_results=export_sheets,
+                                     include_cost=settings.get("include_cost", False))
+    # Publish the in-session result atomically only after a complete, valid
+    # worksheet/export restore. No query, pricing lookup or progress loop ran.
+    st.session_state["_bom_sheet_results"] = results
+    st.session_state["_bom_result_df"] = results[selected_sheet_name]
+    st.session_state["_bom_export_bytes"] = export_bytes
+    st.session_state["_bom_result_signature"] = run_signature
+    pending = st.session_state.get("_bom_match_checkpoint", {})
+    if isinstance(pending, dict) and pending.get("signature") == run_signature:
+        st.session_state.pop("_bom_match_checkpoint", None)
+    return True
 
 
 def append_export_columns_to_worksheet(ws, source_df, append_columns):
@@ -51301,23 +51365,31 @@ def render_bom_upload_page():
                     )
                     if not selected_export_brands:
                         st.warning("请至少选择一个输出品牌。")
-                    match_start_clicked = st.button(
+                    st.button(
                         "开始指定品牌匹配",
                         key=f"bom_custom_match_start_{workbook_signature}",
                         type="primary",
                         use_container_width=True,
                         disabled=not selected_export_brands or not bom_customer_ready,
+                        on_click=queue_bom_match_start,
+                        args=(workbook_signature, bom_export_mode),
                     )
                 elif bom_export_mode == BOM_EXPORT_MODE_AUTO:
-                    match_start_clicked = st.button(
+                    st.button(
                         "开始主营品牌匹配",
                         key=f"bom_auto_match_start_{workbook_signature}",
                         type="primary",
                         use_container_width=True,
                         disabled=not bom_customer_ready,
+                        on_click=queue_bom_match_start,
+                        args=(workbook_signature, bom_export_mode),
                     )
                 else:
                     st.info("请先选择“主营品牌自动匹配”或“指定品牌”，系统不会在上传后自动开始匹配。")
+
+                # A lazy result component/UI rerender must not replay a stale
+                # button trigger. Only its real on_click callback queues work.
+                match_start_clicked = consume_bom_match_start(workbook_signature, bom_export_mode)
                 if bom_output_selection_ready(bom_export_mode, selected_export_brands):
                     st.caption("输出方式只在点击开始匹配后生效；切换品牌不会自动重跑整份 BOM。")
                     bom_export_settings = normalize_bom_export_settings(
@@ -51559,6 +51631,26 @@ def render_bom_upload_page():
                             or clean_text(active_bom_job.get("run_signature", "")) != current_bom_signature
                         ):
                             active_bom_job = None
+                    if (not match_start_clicked and not retry_requested
+                            and restore_completed_bom_results(active_bom_job, current_bom_signature,
+                                                              bom_workbook, selected_sheet_name, bom_export_settings)):
+                        stored_bom_signature = current_bom_signature
+                        start_bom_matching = False
+                        render_bom_progress_card(progress_placeholder, {
+                            "title": "BOM 匹配完成", "subtitle": "已直接恢复完成的结果，未重新匹配",
+                            "current_text": f"当前分页：{selected_sheet_name}",
+                            "processed_rows": total_workbook_rows, "total_rows": total_workbook_rows,
+                            "percent": 100.0, "done": True, "elapsed_seconds": 0.0,
+                            "chips": [{"label": "状态", "value": "结果已恢复", "tone": "success"}],
+                        })
+                    elif (not match_start_clicked and not retry_requested
+                          and isinstance(active_bom_job, dict) and active_bom_job.get("status") == "complete"
+                          and stored_bom_signature != current_bom_signature):
+                        # A completed job with changed scope/incomplete cached
+                        # rows must wait for an explicit start, never fall back
+                        # to the login/checkpoint auto-resume matching path.
+                        start_bom_matching = False
+                        st.info("这份 BOM 已完成过匹配；当前条件或可恢复数据已变化，请点击开始匹配更新结果。")
                     if start_bom_matching and active_bom_job is None:
                         active_bom_job = create_persisted_bom_job(
                             uploaded_file,
