@@ -8,6 +8,33 @@ import walsin_catalog as catalogue
 
 
 class WalsinCatalogueTests(unittest.TestCase):
+    def test_unrelated_candidate_predicates_keep_main_spec_index_and_upstream_rows(self):
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE components_search_core (品牌,型号,_model_clean,_component_type)')
+            conn.execute('CREATE INDEX test_core_model ON components_search_core(_model_clean)')
+            conn.execute('CREATE TABLE components_search_capacitor (品牌,型号,_component_type,_size,_mat,_pf,_tol,_volt_num)')
+            conn.execute('CREATE INDEX test_cap_spec ON components_search_capacitor(_size,_mat,_pf,_volt_num)')
+            rows=[('信昌PDC','FN18X104K500PBG','MLCC','0603','X7R',100000,'10',50),
+                  (None,'NULLBRAND','MLCC','0603','X7R',100000,'10',50),
+                  ('Other','NULLTYPE',None,'0603','X7R',100000,'10',50),
+                  (catalogue.BRAND,'0805A106K250CT','MLCC','0805',None,10000000,'10',25)]
+            conn.executemany('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?)',rows)
+            conn.executemany('INSERT INTO components_search_core VALUES (?,?,?,?)',[(r[0],r[1],r[1],r[2]) for r in rows])
+            conn.execute('CREATE TEMP TABLE upstream AS SELECT * FROM main.components_search_capacitor WHERE 0')
+            conn.execute("INSERT INTO upstream VALUES ('Upstream','NEW','MLCC','0603','X7R',100000,'10',50)")
+            conn.execute('CREATE TEMP VIEW components_search_capacitor AS SELECT * FROM main.components_search_capacitor UNION ALL SELECT * FROM upstream')
+            catalogue.install_search_overlay(conn)
+            for row in rows[:3]:
+                self.assertEqual(conn.execute('SELECT * FROM components_search_capacitor WHERE 型号=?',(row[1],)).fetchone(),row)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM components_search_capacitor WHERE 型号='NEW'").fetchone()[0],1)
+            self.assertEqual(conn.execute('SELECT _mat FROM components_search_capacitor WHERE 型号=?',('0805A106K250CT',)).fetchone()[0],'X7S')
+            query='SELECT 品牌,型号 FROM components_search_capacitor WHERE _size=? AND _mat=? AND _pf=? AND _volt_num=?'
+            plan=conn.execute('EXPLAIN QUERY PLAN '+query,('0603','X7R',100000,50)).fetchall()
+            self.assertTrue(any('USING INDEX test_cap_spec' in row[3] for row in plan),plan)
+            core_plan=conn.execute('EXPLAIN QUERY PLAN SELECT * FROM components_search_core WHERE _model_clean=?',('FN18X104K500PBG',)).fetchall()
+            self.assertTrue(any('USING INDEX test_core_model' in row[3] for row in core_plan),core_plan)
+            self.assertFalse(any('LEFT-JOIN' in row[3] for row in core_plan),core_plan)
+
     def test_x7s_is_a_listed_manufacturer_identity_not_a_synthetic_grid(self):
         x7s=[r for r in catalogue.catalogue_rows() if r['材质（介质）']=='X7S']
         self.assertEqual(len(x7s),20)

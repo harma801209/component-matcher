@@ -288,10 +288,25 @@ def install_search_overlay(conn):
                 current=f'CASE WHEN ({current} IS NULL OR LOWER(TRIM(CAST({current} AS TEXT))) IN (\'\',\'none\',\'nan\',\'<na>\',\'nat\',\'-\')) AND q."{key}" IS NOT NULL THEN q."{key}" ELSE {current} END'
             projections.append(current+f' AS "{key}"')
         source_columns=','.join(f'q."{key}"' if key in available else 'NULL' for key in columns)
-        conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT {",".join(projections)} FROM ({base}) b '
+        if table == 'components_search_core':
+            # Core carries identity only: Walsin completion never changes its
+            # existing rows. Keep exact model lookup free of needless joins.
+            conn.execute(f'CREATE TEMP VIEW "{table}" AS {base} '
+                         f'UNION ALL SELECT {source_columns} FROM walsin_public_evidence."{table}" q '
+                         f'WHERE NOT EXISTS (SELECT 1 FROM temp."{known}" k WHERE k.model=q.型号)')
+            continue
+        # Do not put every manufacturer's specification columns behind
+        # CASE/COALESCE and two LEFT JOINs: that prevents the caller's spec
+        # predicate from using the main table's compound index. The untouched
+        # branch includes NULL brand/type rows and all upstream overlay rows.
+        scoped="COALESCE(b._component_type='MLCC' AND (UPPER(b.品牌) LIKE '%WALSIN%' OR b.品牌 LIKE '%华新科%'),0)"
+        unchanged=','.join(f'b."{key}"' for key in columns)
+        conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT {unchanged} FROM ({base}) b WHERE NOT {scoped} '
+                     f'UNION ALL SELECT {",".join(projections)} FROM ({base}) b '
                      f'LEFT JOIN temp."{addon}" a ON a.品牌=b.品牌 AND a.型号=b.型号 AND a._component_type=b._component_type '
                      f'LEFT JOIN walsin_public_evidence."{table}" q ON '
                      f'b._component_type=\'MLCC\' AND (UPPER(b.品牌) LIKE \'%WALSIN%\' OR b.品牌 LIKE \'%华新科%\') AND '
                      f'q.型号=CASE WHEN UPPER(SUBSTR(b.型号,-2)) IN (\'CT\',\'CG\') THEN UPPER(SUBSTR(b.型号,1,LENGTH(b.型号)-2)) ELSE UPPER(b.型号) END '
+                     f'WHERE {scoped} '
                      f'UNION ALL SELECT {source_columns} FROM walsin_public_evidence."{table}" q '
                      f'WHERE NOT EXISTS (SELECT 1 FROM temp."{known}" k WHERE k.model=q.型号)')
