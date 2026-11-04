@@ -354,7 +354,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-04T11:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-04T16:25:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -16115,6 +16115,23 @@ def resistor_model_rule_candidate(model, brand="", component_type=""):
     )
 
 
+YAGEO_RT_ORDER_PATTERN = re.compile(
+    r"RT(?:0100|0201|0402|0603|0805|1206|1210|2010|2512)[LPWBCDF][RK]"
+    r"(?P<tcr>[ABCDE])(?:07|10|13|7W)(?P<value>[0-9RKM.]+)L"
+)
+
+
+def infer_yageo_rt_tcr(model, brand):
+    """YAGEO RT ordering table, Feb. 12 2026 V17 p2; not a series-wide default."""
+    if canonical_brand_query_label(brand) != "国巨YAGEO":
+        return ""
+    match = YAGEO_RT_ORDER_PATTERN.fullmatch(clean_model(model))
+    if not match:
+        return ""
+    ppm = {"A": 5, "B": 10, "C": 15, "D": 25, "E": 50}[match.group("tcr")]
+    return f"±{ppm}ppm/℃"
+
+
 def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
     resolved_brand = clean_brand(brand) or "国巨YAGEO"
@@ -16130,6 +16147,12 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     tol = clean_tol_for_match(RESISTOR_TOLERANCE_CODE_MAP.get(compact[6], ""))
     right_segment = compact.rsplit("-", 1)[-1] if "-" in compact else compact[7:]
     resistance_ohm, value_code = extract_resistor_value_from_model(right_segment[2:], size_hint=size)
+    rt_order = YAGEO_RT_ORDER_PATTERN.fullmatch(compact)
+    if rt_order and canonical_brand_query_label(resolved_brand) == "国巨YAGEO":
+        # RT has packaging + TCR + reel before ohms. The generic RC offset
+        # accidentally treated the reel's 07 as part of 130K (7.13 Mohm).
+        value_code = rt_order.group("value")
+        resistance_ohm = parse_resistor_value_code(value_code)
     if resistance_ohm is None:
         resistance_ohm, value_code = extract_resistor_value_from_model(compact, size_hint=size)
     if size == "" and resistance_ohm is None and tol == "":
@@ -16145,6 +16168,7 @@ def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
         "容值误差": tol,
         "_resistance_ohm": resistance_ohm,
         "_model_rule_authority": "yageo_chip_resistor_model",
+        "温度系数": infer_yageo_rt_tcr(compact, resolved_brand),
         "_value_code": value_code,
         "_param_count": sum([1 if size else 0, 1 if tol else 0, 1 if resistance_ohm is not None else 0]),
     }
@@ -17668,6 +17692,7 @@ def merge_parsed_rule_into_record(record, parsed_rule, override_conflicts=False)
         ("B值误差", clean_tol_for_match),
         ("B值条件", clean_text),
         ("功率", format_power_display),
+        ("温度系数", clean_text),
         ("脚距", clean_text),
         ("安规", clean_text),
         ("规格", clean_text),
@@ -26556,6 +26581,7 @@ def get_component_display_schema(spec_or_type):
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+            ("温度系数", "温漂（TCR，ppm/℃）"),
         ]
     if component_type in CHIP_RESISTOR_COMPONENT_TYPES:
         return [
@@ -26567,6 +26593,7 @@ def get_component_display_schema(spec_or_type):
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+            ("温度系数", "温漂（TCR，ppm/℃）"),
             ("耐压（V）", "最高工作电压"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
@@ -26581,6 +26608,7 @@ def get_component_display_schema(spec_or_type):
             ("容值单位", "阻值单位"),
             ("容值误差", "误差"),
             ("功率", "功率"),
+            ("温度系数", "温漂（TCR，ppm/℃）"),
             ("耐压（V）", "最高工作电压"),
             ("工作温度", "工作温度"),
             ("安装方式", "安装方式"),
@@ -27119,6 +27147,7 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "月偏差（s）": clean_text(spec.get("月偏差（s）", "")),
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
         "功率": format_power_display(power_source),
+        "温度系数": clean_text(spec.get("温度系数", "")) or infer_yageo_rt_tcr(spec.get("型号", ""), spec.get("品牌", "")),
         "安装方式": normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")),
         "特殊用途": normalize_special_use(special_use),
         "脚距": pitch_display,
@@ -27363,6 +27392,10 @@ def infer_component_display_fallbacks_from_row(row):
     if normalize_component_type(series_profile.get("器件类型", "")) != "":
         component_type = normalize_component_type(series_profile.get("器件类型", ""))
     result.update(infer_official_inductor_fields_from_row(row))
+    if component_type in RESISTOR_COMPONENT_TYPES and clean_text(row.get("温度系数", "")) == "":
+        tcr = infer_yageo_rt_tcr(row.get("型号", ""), row.get("品牌", ""))
+        if tcr:
+            result["温度系数"] = tcr
 
     series_code = clean_text(row.get("系列", ""))
     if clean_text(result.get("系列", "")) != "":
@@ -27559,7 +27592,7 @@ def ensure_component_display_columns(df):
     if "安规" not in out.columns:
         out["安规"] = out["_safety_class"].astype(str).apply(clean_text) if "_safety_class" in out.columns else blank_series()
     for col in [
-        "容值", "容值单位", "容值误差", "耐压（V）",
+        "容值", "容值单位", "容值误差", "耐压（V）", "温度系数",
         "封装代码", "生产状态", "直径（mm）", "极性", "ESR", "纹波电流",
         "阻值@25C", "阻值单位", "阻值误差", "B值", "B值误差", "B值条件",
         "共模阻抗", "阻抗单位", "额定电流", "DCR", "回路数",
@@ -27895,6 +27928,10 @@ def fill_component_display_blanks(df, spec):
     out = df.copy()
     fallback = build_component_display_row(spec)
     for col, value in fallback.items():
+        # TCR belongs to each individual model; a source's TCR is not evidence
+        # for an alternative. Its own retained fields / verified decode apply.
+        if col == "温度系数":
+            continue
         if col not in out.columns:
             continue
         blank_mask = out[col].astype(str).apply(clean_text).eq("")
@@ -52772,17 +52809,7 @@ if search_requested:
                     wrap_iframe=False,
                     copy_audit=build_line_copy_audit("source"),
                 )
-                match_card_header_html = (
-                    '<div style="display:flex; align-items:center; justify-content:flex-start; gap:10px; '
-                    'margin:0 2px 4px 2px; padding:0;">'
-                    '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2;">匹配料号资料</div>'
-                    f'<div style="max-width:48%; padding:8px 14px; border-radius:999px; '
-                    'border:1px solid rgba(59,130,246,0.28); background:linear-gradient(180deg, rgba(59,130,246,0.10) 0%, rgba(59,130,246,0.04) 100%); '
-                    'color:#1d4ed8; font-size:15px; font-weight:700; line-height:1.35; word-break:break-all; text-align:left;">'
-                    f'{html.escape(line)}'
-                    '</div>'
-                    '</div>'
-                )
+                from model_naming_guide import render_part_header as render_part_model_naming_header
                 if not matched.empty:
                     render_search_progress(
                         line_index - 1,
@@ -52814,6 +52841,9 @@ if search_requested:
                     show_df = annotate_match_display_gaps(show_df, spec)
                     if infer_spec_component_type(spec) == "MLCC" and "特殊用途" in show_df.columns:
                         show_df = show_df.drop(columns=["特殊用途"])
+                    render_part_model_naming_header(
+                        f"匹配料号资料 · {line}", part_info_df, show_df, f"part_search_{line_index}"
+                    )
                     result_fragment = render_clickable_result_table(
                         show_df,
                         spec=spec,
@@ -52822,7 +52852,6 @@ if search_requested:
                         copy_audit=build_line_copy_audit("matched"),
                     )
                     match_card_html = (
-                        f'{match_card_header_html}'
                         f'{part_info_fragment}'
                         '<div style="height:1px; margin:8px 0 6px 0; background:rgba(191,219,254,0.78);"></div>'
                         '<div style="font-size:20px; font-weight:800; color:#1f2937; line-height:1.2; margin:0 0 4px 2px;">匹配结果</div>'
@@ -52855,8 +52884,11 @@ if search_requested:
                         extra_chips=base_chips + [{"label": "命中数", "value": "0", "tone": "warn"}],
                     )
                     if part_info_df is not None and not part_info_df.empty:
+                        render_part_model_naming_header(
+                            f"匹配料号资料 · {line}", part_info_df, [], f"part_source_{line_index}"
+                        )
                         render_no_alt_match_card(
-                            header_html=match_card_header_html,
+                            header_html="",
                             table_fragment=part_info_fragment,
                             query_text=line,
                             mode=mode,

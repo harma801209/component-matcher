@@ -383,6 +383,62 @@ def stackpole_resistor(model):
         part(code,'阻值',quantity(resistance(code)))], 'Stackpole 原厂署名 RNCF Series，2022-07-08，第 8 页 How to Order（欧洲网站存档）；T／K 包装与 T 温漂属于不同位置，不可混用。'
 
 
+def taiyo_meas_mlcc(model):
+    """MEAS only, original c_mlcc_E_e-E12R01 pages1--2."""
+    match=re.fullmatch(r'(M)(E)(A)(S)([A-Z])(04|06|1L|10|16|21|31|32)([2358GLM])([A-Z])(B5|C6|D6)(\d{3}|\dR\d)([KM])([A-Z0-9]*)',model)
+    if not match:return [],''
+    group,category,kind,feature,volt,size,thick,dimension,material,cap,tol,tail=match.groups()
+    volts={'P':'2.5','A':'4','J':'6.3','L':'10','E':'16'}
+    sizes={'04':('0402','01005'),'06':('0603','0201'),'1L':('1005','0402'),'10':('1005','0402'),
+           '16':('1608','0603'),'21':('2012','0805'),'31':('3216','1206'),'32':('3225','1210')}
+    thickness={'2':'0.2','3':'0.3','5':'0.5','8':'0.8','G':'1.25','L':'1.6','M':'2.5'}
+    dimensions={('32','M','A'):'L3.2±0.30、W2.5±0.30、T2.5±0.30 mm',
+                ('06','3','B'):'L0.6±0.09、W0.3±0.09、T0.3±0.09 mm',
+                ('21','G','B'):'L2.0+0.20/−0、W1.25+0.20/−0、T1.25+0.20/−0 mm',
+                ('31','L','B'):'L3.2±0.30、W1.6±0.30、T1.6±0.30 mm',
+                ('06','3','C'):'L0.6+0.15/−0.05、W0.3+0.15/−0.05、T0.3+0.15/−0.05 mm',
+                ('10','5','C'):'L1.0+0.20/−0、W0.5+0.20/−0、T0.5+0.20/−0 mm',
+                ('1L','3','N'):'L1.0+0.20/−0、W0.5+0.20/−0、T0.3±0.03 mm',
+                ('10','5','N'):'L1.0+0.20/−0、W0.5+0.20/−0、T0.5+0.30/−0 mm',
+                ('06','2','P'):'L0.6±0.09、W0.3±0.09、T0.2±0.02 mm',
+                ('06','5','Q'):'L0.6±0.09、W0.3±0.09、T0.5±0.05 mm',
+                ('04','2','S'):'L0.4±0.02、W0.2±0.02、T0.2±0.02 mm'}
+    dimension_text=dimensions.get((size,thick,dimension))
+    value=Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
+    segments=[part(group,'产品类型','多层陶瓷电容 MLCC'),part(category,'类别','仅移动设备用途（旧类别 E）；不能当成车规；2026年类别合并不在此自动改号'),
+        part(kind,'结构','双端子'),part(feature,'特性','标准／通用'),
+        part(volt,'额定电压',volts[volt]+' VDC' if volt in volts else '该电压码未在本表核实',volt in volts),
+        part(size,'封装','公制 '+sizes[size][0]+'／英制 '+sizes[size][1]),part(thick,'厚度',thickness[thick]+' mm（标称值）'),
+        part(dimension,'尺寸公差',dimension_text or '此尺寸／厚度组合未列于本表，需具体型号规格书',bool(dimension_text)),
+        part(material,'温度特性',{'B5':'EIA X5R：−55～85℃、±15%；另列 JIS B 条件，二者不可混用',
+             'C6':'EIA X6S：−55～105℃、±22%','D6':'EIA X6T：−55～105℃、+22/−33%'}[material]),
+        part(cap,'容量',quantity(value,'pF')),part(tol,'容量误差',tolerance(tol))]
+    packages={'A':'φ178mm 编带卷盘','F':'φ178mm 编带卷盘，2mm 节距','T':'φ178mm 编带卷盘，4mm 节距',
+              'P':'φ178mm 编带卷盘，4mm 节距、1000颗／盘（3225／厚度M）','W':'φ178mm 压纹带卷盘，1mm 节距（0201／0402公制）'}
+    if tail:
+        segments.append(part(tail[0],'包装',packages.get(tail[0],'未公开于本版的包装代码'),tail[0] in packages))
+        segments.append(part(tail[1:],'内部代码','原厂将此段定义为内部代码，未公开逐字符含义；需原厂确认',False))
+    else:
+        segments.append(part('','订货尾码','输入缺少包装和内部代码；不能自动补成完整订货型号',False))
+    return segments,'太阳诱电原厂 c_mlcc_E_e-E12R01，第1–2页 MEAS 命名表；仅解释代码，不证明当前可订购或当前生产状态。'
+
+
+def walsin_general_mlcc(model):
+    match=re.fullmatch(r'(0201|0402|0603|0805|1206|1210|1812)([NBFXSA])(\d{3}|\dR\d)([ABCDFGJKM])(4R0|6R3|\d{3})([A-Z0-9]*)',model)
+    if not match:return [],''
+    size,material,cap,tol,volt,tail=match.groups()
+    volts={'4R0':'4','6R3':'6.3','100':'10','160':'16','250':'25','350':'35','500':'50','101':'100'}
+    value=Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
+    tol_text={'A':'±0.05 pF','B':'±0.1 pF','C':'±0.25 pF','D':'±0.5 pF'}.get(tol) or tolerance(tol)
+    segments=[part(size,'封装',size+'（英制）'),part(material,'介质',dict(N='NP0 / C0G',B='X7R',F='Y5V',X='X5R',S='X6S',A='X7S')[material]),
+              part(cap,'容量',quantity(value,'pF')),part(tol,'容量误差',tol_text),
+              part(volt,'额定电压',volts[volt]+' VDC' if volt in volts else '此电压码未列于本版通用订货表',volt in volts)]
+    if tail in {'CT','CG'}:
+        segments.extend([part('C','端电极','Cu / Ni / Sn'),part(tail[1],'包装','7 英寸卷盘' if tail[1]=='T' else '13 英寸卷盘')])
+    else:segments.append(part(tail,'订货尾码','缺少或尚未核实的端电极／包装尾码，须原厂确认',False))
+    return segments,'华科原厂 ASC_General Purpose Series，2026-10，第2页 HOW TO ORDER；不可与 MT 或信昌的代码表混用。'
+
+
 def explain(record):
     brand, model = text(record.get('品牌')), compact(record.get('型号'))
     manufacturer = compact(brand)
@@ -454,6 +510,10 @@ def explain(record):
         segments,source=vishay_resistor(model)
     elif resistor and 'STACKPOLE' in manufacturer:
         segments,source=stackpole_resistor(model)
+    elif mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
+        segments,source=walsin_general_mlcc(model)
+    elif mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
+        segments,source=taiyo_meas_mlcc(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
         match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)(\d{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2})([BCDFGJKMZ])([A-Z0-9]+)',model)
         if match:
@@ -536,7 +596,14 @@ def explain(record):
         segments,source=[],''
     complete=bool(segments) and all(row['verified'] for row in segments)
     links=[]
-    if segments and 'KOA' in manufacturer:
+    if segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
+        links=[('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
+               ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
+    elif segments and mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
+        links=[('华科原厂通用 MLCC 命名表（第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf')]
+    elif segments and resistor and 'YAGEO' in manufacturer and model.startswith('RT'):
+        links=[('YAGEO RT 原厂命名表（2026-02-12 V17，第2页）','https://www.yageogroup.com/content/datasheet/asset/file/PYU-RT_1-TO-0-01_ROHS_L')]
+    elif segments and 'KOA' in manufacturer:
         links=[('KOA 原厂 RN73 命名表','https://www.koaspeer.com/pdfs/RN73.pdf')] if model.startswith('RN73') and not model.startswith(('RN73H','RN73R')) else [('KOA 原厂 2026 目录','https://www.koaspeer.com/pdfs/KOA_2026FullCatalog_Linked.pdf')]
     elif segments and any(token in manufacturer for token in ('VISHAY','威世')):
         pdf='20035/dcrcwe3.pdf' if model.startswith('CRCW') else '28758/tnpw_e3.pdf' if model.startswith('TNPW') else '31018/cmfind.pdf' if model.startswith('CMF') else '31025/erc.pdf'
@@ -632,3 +699,9 @@ def render_header(title, frame, instance_key):
     signature=hashlib.sha256(repr([(r.get('品牌'),r.get('型号'),r.get('系列')) for r in records]).encode()).hexdigest()[:12]
     renderer=st.fragment(_render_header) if hasattr(st,'fragment') else _render_header
     renderer(title,records,str(instance_key)+'_'+signature)
+
+
+def render_part_header(title, source_frame, matched_frame, instance_key):
+    """Use only source and alternatives actually displayed for this input."""
+    records=public_candidates(source_frame)+public_candidates(matched_frame)
+    render_header(title,records,instance_key)

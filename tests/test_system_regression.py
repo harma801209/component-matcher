@@ -247,6 +247,43 @@ def fojan_ka_quote_xlsx_bytes():
 
 
 class SystemRegressionTests(unittest.TestCase):
+    def test_yageo_rt_tcr_is_decoded_and_visible_without_copying_to_alternatives(self):
+        app = self.app
+        model = 'RT0603BRE07130KL'
+        parsed = app['parse_yageo_chip_resistor_model'](model, brand='YAGEO')
+        self.assertEqual(parsed['温度系数'], '±50ppm/℃')
+        self.assertEqual(parsed['_resistance_ohm'], 130000)
+        self.assertEqual(parsed['容值误差'], '0.1')
+        for code, ppm in [('A',5),('B',10),('C',15),('D',25),('E',50)]:
+            decoded = app['parse_yageo_chip_resistor_model'](f'RT0603BR{code}07130KL', brand='YAGEO')
+            self.assertEqual(decoded['温度系数'], f'±{ppm}ppm/℃')
+        self.assertEqual(app['infer_yageo_rt_tcr'](model, '信昌PDC'), '')
+        self.assertEqual(app['infer_yageo_rt_tcr']('RC0603FR-07130KL', 'YAGEO'), '')
+        self.assertEqual(app['infer_yageo_rt_tcr']('RT0603BRZ07130KL', 'YAGEO'), '')
+        self.assertEqual(app['infer_yageo_rt_tcr']('RT0603BRE07130K', 'YAGEO'), '')
+        merged = app['merge_parsed_rule_into_record']({'品牌':'YAGEO','型号':model}, parsed)
+        self.assertEqual(merged['温度系数'], '±50ppm/℃')
+        preserved = app['merge_parsed_rule_into_record']({'温度系数':'±75ppm/℃'}, parsed)
+        self.assertEqual(preserved['温度系数'], '±75ppm/℃')
+        frame = pd.DataFrame([
+            {'品牌':'YAGEO','型号':model,'器件类型':'薄膜电阻'},
+            {'品牌':'YAGEO','型号':'RT0603BRD07130KL','器件类型':'薄膜电阻'},
+            {'品牌':'FOJAN(富捷)','型号':'FRC0603B1303TS','器件类型':'厚膜电阻'},
+        ])
+        display = app['select_component_display_columns'](frame, '薄膜电阻', prefix_columns=['品牌','型号'])
+        self.assertEqual(display['温度系数'].tolist(), ['±50ppm/℃','±25ppm/℃',''])
+        self.assertEqual(app['build_component_display_row'](dict(parsed))['温度系数'], '±50ppm/℃')
+        filled = app['fill_component_display_blanks'](app['ensure_component_display_columns'](frame), parsed)
+        self.assertEqual(filled['温度系数'].tolist(), ['±50ppm/℃','±25ppm/℃',''])
+        self.assertIn('温漂', app['get_component_header_labels']('薄膜电阻')['温度系数'])
+        resolved = app['resolve_search_query_dataframe_and_spec']('130KΩ;/;±0.1%;1/10W;0603;YAGEO;RT0603BRE07130KL')
+        self.assertEqual(resolved['mode'], '料号')
+        self.assertEqual(resolved['spec']['_resistance_ohm'], 130000)
+        source = app['build_part_info_df'](resolved['query_df'], resolved['spec'], model)
+        self.assertFalse(source.empty)
+        self.assertTrue(source['温度系数'].eq('±50ppm/℃').all())
+        self.assertEqual(app['infer_yageo_rt_tcr'](model, '国巨YAGEO'), '±50ppm/℃')
+
     def test_walsin_x7s_and_brand_scoped_mt_decode(self):
         for model in ('0805A106K250CT','0805A106K250'):
             parsed=self.app['parse_model_rule'](model,brand='华新科Walsin')

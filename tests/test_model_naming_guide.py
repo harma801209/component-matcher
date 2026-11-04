@@ -7,6 +7,45 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_taiyo_meas_screenshot_has_original_code_segments_not_inferred_values(self):
+        row=dict(品牌='太阳诱电Taiyo',型号='MEASJ063BB5225M',器件类别='陶瓷贴片电容（MLCC）',容值='999',耐压='999V')
+        data=guide.explain(row)
+        self.assertTrue(data['segments'])
+        fields={p['name']:p for p in data['segments']}
+        self.assertEqual(fields['额定电压']['meaning'],'6.3 VDC')
+        self.assertIn('0201',fields['封装']['meaning'])
+        self.assertIn('X5R',fields['温度特性']['meaning'])
+        self.assertEqual(fields['容量']['meaning'],'2.2 µF')
+        self.assertEqual(fields['容量误差']['meaning'],'±20%')
+        self.assertIn('0.09',fields['尺寸公差']['meaning'])
+        self.assertFalse(data['complete'])
+        self.assertIn('缺少',repr(data['segments']))
+        self.assertTrue(data['source_links'])
+        full=guide.explain(dict(row,型号='MEASJ063BB5225MF1A01'))
+        self.assertFalse(full['complete'])
+        self.assertEqual(''.join(p['code'] for p in full['segments']),'MEASJ063BB5225MF1A01')
+        self.assertFalse(guide.explain(dict(row,品牌='信昌PDC'))['segments'])
+
+    def test_walsin_general_mlcc_codes_are_not_mt_or_pdc_tables(self):
+        row=dict(品牌='华新科Walsin',型号='0201X225M6R3CT',器件类别='MLCC')
+        data=guide.explain(row)
+        self.assertTrue(data['complete'])
+        fields={p['name']:p['meaning'] for p in data['segments']}
+        self.assertEqual(fields['介质'],'X5R')
+        self.assertEqual(fields['容量'],'2.2 µF')
+        self.assertEqual(fields['额定电压'],'6.3 VDC')
+        self.assertEqual(fields['端电极'],'Cu / Ni / Sn')
+        self.assertFalse(guide.explain(dict(row,型号='0201X225M6R3'))['complete'])
+        self.assertFalse(guide.explain(dict(row,品牌='信昌PDC'))['segments'])
+
+    def test_direct_part_branch_has_entry_for_visible_source_and_matches(self):
+        path=Path(__file__).resolve().parents[1]/'component_matcher.py'
+        tree=ast.parse(path.read_text(encoding='utf-8'))
+        calls=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='render_part_model_naming_header']
+        self.assertEqual(len(calls),2)
+        self.assertEqual([ast.unparse(n.args[1]) for n in calls],['part_info_df','part_info_df'])
+        self.assertEqual({ast.unparse(n.args[2]) for n in calls},{'show_df','[]'})
+
     def record(self,model,brand='FOJAN(富捷)',series='FRH',kind='厚膜电阻'):
         return dict(品牌=brand,型号=model,系列=series,器件类别=kind)
 
@@ -385,6 +424,34 @@ class NamingGuideTests(unittest.TestCase):
 
 
 class NamingGuideUITests(unittest.TestCase):
+    def test_direct_mlcc_header_keeps_results_and_separate_instances(self):
+        from streamlit.testing.v1 import AppTest
+        script='''
+import streamlit as st
+from model_naming_guide import render_part_header
+st.session_state['parent_runs']=st.session_state.get('parent_runs',0)+1
+source=[dict(品牌='太阳诱电Taiyo',型号='MEASJ063BB5225M',系列='MEASJ',器件类别='MLCC',成本=123,username='SECRET')]
+matched=[dict(品牌='华新科Walsin',型号='0201X225M6R3CT',系列='常规',器件类别='MLCC',成本=456)]
+render_part_header('匹配料号资料 · MEASJ063BB5225M',source,matched,'direct')
+render_part_header('匹配料号资料 · 仅原厂',source,[],'source_only')
+st.caption('原匹配结果仍在')
+'''
+        at=AppTest.from_string(script).run(timeout=30)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['parent_runs'],1)
+        self.assertEqual(at.selectbox[1].value,'MEASJ063BB5225M')
+        self.assertEqual(at.selectbox[3].value,'MEASJ063BB5225M')
+        self.assertEqual(set(at.selectbox[0].options),{'太阳诱电Taiyo · MEASJ（1 个型号）','华新科Walsin · 常规（1 个型号）'})
+        self.assertTrue(any('6.3 VDC' in m.value for m in at.markdown))
+        self.assertNotIn('SECRET',''.join(m.value for m in at.markdown))
+        at.selectbox[0].select(('华新科Walsin','常规')).run(timeout=30)
+        self.assertFalse(at.exception)
+        self.assertEqual(at.selectbox[1].value,'0201X225M6R3CT')
+        self.assertTrue(any('Cu / Ni / Sn' in m.value for m in at.markdown))
+        # AppTest.run() reruns the full test script. The actual fragment-only
+        # widget event is checked in the real-browser preview, not simulated here.
+        self.assertTrue(any('原匹配结果仍在' in m.value for m in at.caption))
+
     def test_different_specs_models_and_multiple_placeholders_keep_content_width(self):
         from streamlit.testing.v1 import AppTest
         script='''
