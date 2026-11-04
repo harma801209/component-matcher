@@ -38,21 +38,35 @@ def audit(records):
     return dict(summary=summary,groups=ordered)
 
 
+def audit_catalogue(path, batch_size=16384):
+    """Bounded memory, same complete inventory; never silently sample rows."""
+    if batch_size < 1:
+        raise ValueError('Batch size must be positive')
+    import pyarrow.parquet as parquet
+    source = parquet.ParquetFile(path)
+    def records():
+        for batch in source.iter_batches(batch_size=batch_size,columns=['品牌','型号','系列','器件类型']):
+            yield from batch.to_pylist()
+    result = audit(records())
+    if result['summary']['records'] != source.metadata.num_rows:
+        raise ValueError('Coverage audit did not consume every source row')
+    with Path(path).open('rb') as stream:
+        result['source_sha256'] = hashlib.file_digest(stream,'sha256').hexdigest()
+    result['source'] = str(Path(path).resolve())
+    return result
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--catalogue',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--require-complete',action='store_true')
+    parser.add_argument('--batch-size',type=int,default=16384)
     args=parser.parse_args()
     if args.catalogue.resolve()==args.output.resolve(): parser.error('Output cannot overwrite the input catalogue')
     if args.catalogue.suffix.lower()!='.parquet' or args.output.suffix.lower()!='.json':
         parser.error('Expected a public .parquet input and a separate .json report')
-    import pandas as pd
-    frame=pd.read_parquet(args.catalogue,columns=['品牌','型号','系列','器件类型']).fillna('')
-    result=audit(dict(zip(frame.columns,values)) for values in frame.itertuples(index=False,name=None))
-    with args.catalogue.open('rb') as stream:
-        result['source_sha256']=hashlib.file_digest(stream,'sha256').hexdigest()
-    result['source']=str(args.catalogue.resolve())
+    result=audit_catalogue(args.catalogue,args.batch_size)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result['summary'],ensure_ascii=False))

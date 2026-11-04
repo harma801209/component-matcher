@@ -120,6 +120,50 @@ def walsin_resistor(model):
     return segments,source
 
 
+def yageo_mfr(model):
+    """Original MFR V4 p2 codes; axial lead form is NOT chip package size."""
+    match=re.fullmatch(r'(MFR)(-12|25S|-25|50S|-50|100|1WS|200|2WS|3WS)'
+                      r'([DFGJ])([RTB])([EF-])'
+                      r'(26-|52-|73-|52[ABCGH]|FB-|FFK|FKK|FK|MB|MT|FT|PN|AV|M|F)'
+                      r'(\d*[RKM]\d*)',model)
+    if not match or resistance(match[7]) is None:
+        return [],''
+    series,power,tol,packing,tcr,forming,code=match.groups()
+    watts={'-12':'1/6W','25S':'1/4W','-25':'1/4W','50S':'1/2W','-50':'1/2W',
+           '100':'1W','1WS':'1W','200':'2W','2WS':'2W','3WS':'3W'}
+    forms={'26-':'轴向编带尺寸 A = 26 mm（不是引脚间距）',
+           '52-':'轴向编带尺寸 A = 52.4 mm（不是引脚间距）',
+           '73-':'轴向编带尺寸 A = 73 mm（不是引脚间距）',
+           '52A':'轴向编带 A = 52.4 mm，引脚直径 0.4±0.02 mm',
+           '52B':'轴向编带 A = 52.4 mm，引脚直径 0.45±0.02 mm',
+           '52C':'轴向编带 A = 52.4 mm，引脚直径 0.5±0.02 mm',
+           '52G':'轴向编带 A = 52.4 mm，引脚直径≥0.6 mm',
+           '52H':'轴向编带 A = 52.4 mm，焊接部位不涂漆',
+           'M':'M 型引脚成形，尺寸图见原厂第9页',
+           'MB':'MB 型引脚成形，尺寸图见原厂第10页',
+           'F':'F 型引脚成形，尺寸图见原厂第12页',
+           'FK':'FK 型引脚成形，尺寸图见原厂第12页',
+           'FFK':'F 型弯折引脚成形，尺寸图见原厂第12页',
+           'FKK':'FKK 型引脚成形，尺寸图见原厂第12页',
+           'FB-':'FB 型引脚成形，仅 -25／50S，尺寸图见原厂第13页',
+           'MT':'MT 型引脚成形，尺寸图见原厂第14页',
+           'FT':'FT 型引脚成形，尺寸图见原厂第14页',
+           'PN':'PANAsert 引脚成形，尺寸图见原厂第14页',
+           'AV':'AVIsert 引脚成形，尺寸图见原厂第14页'}
+    if forming=='FB-' and power not in {'-25','50S'}:
+        return [],''
+    segments=[part(series,'系列','MFR 轴向引线金属膜电阻；不是贴片封装系列'),
+              part(power,'功率',watts[power]+'（额定条件及降额见原厂规格表）'),
+              part(tol,'阻值误差',tolerance(tol)),
+              part(packing,'包装',{'R':'卷盘包装','T':'盒装编带','B':'散装'}[packing]),
+              part(tcr,'温度系数',{'E':'±50 ppm/℃','F':'±100 ppm/℃','-':'按具体型号规格确认；本字符不指定数值'}[tcr],tcr!='-'),
+              part(forming,'引脚成形',forms[forming]),part(code,'阻值',quantity(resistance(code)))]
+    source='YAGEO 原厂 MFR，2024-04-03 V4，第2页订货表、第6页编带尺寸及第9–14页成形图。解码不证明具体组合可采购或当前在产。'
+    if forming=='F' and power in {'-25','50S'}:
+        source+=' 第16页修订记录曾计划于2023-02-28停用这两种功率的 F 成形；须另查具体型号最新 PCN，不能把该历史计划当作当前逐型号状态。'
+    return segments,source
+
+
 def yageo_rc(model):
     match=re.fullmatch(r'(RC)(0075|0100|0201|0402|0603|0805|1206|1210|1218|2010|2512)([BDFJ])([RKS])(-)(07|10|13|7W|7D|7N|3W)(\d*[RKM]\d*)(L)',model)
     if not match:
@@ -439,6 +483,43 @@ def walsin_general_mlcc(model):
     return segments,'华科原厂 ASC_General Purpose Series，2026-10，第2页 HOW TO ORDER；不可与 MT 或信昌的代码表混用。'
 
 
+def walsin_mt_mlcc(model):
+    """MT only: original September 2026 table, not PDC's overlapping MT."""
+    match=re.fullmatch(r'(MT)(03|15|18|21|31|32)([GNBS])(\d{3}|\dR\d)([ABCDFGJKM])(6R3|12E|\d{3})([A-Z0-9]*)',model)
+    if not match:return [],''
+    series,size,material,cap,tol,voltage,tail=match.groups()
+    sizes={'03':'0201','15':'0402','18':'0603','21':'0805','31':'1206','32':'1210'}
+    volts={'6R3':'6.3','100':'10','160':'16','250':'25','500':'50','101':'100',
+           '201':'200','251':'250','501':'500','631':'630','102':'1000','12E':'1250'}
+    cap_value=Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
+    tol_text={'A':'±0.05 pF','B':'±0.1 pF','C':'±0.25 pF','D':'±0.5 pF'}.get(tol) or tolerance(tol)
+    segments=[part(series,'系列','MT 车规安全用途系列；原厂标示 AEC-Q200 资格，不代表逐型号当前生产状态'),
+              part(size,'封装',sizes[size]+'（英制）'),part(material,'介质',dict(G='X8G',N='NP0 / C0G',B='X7R',S='X6S')[material]),
+              part(cap,'容量',quantity(cap_value,'pF')),part(tol,'容量误差',tol_text),
+              part(voltage,'额定电压',volts[voltage]+' VDC' if voltage in volts else '此电压代码未列于本版订货表',voltage in volts)]
+    if tail in {'CT','CG'}:
+        segments.extend([part('C','端电极','Cu / Ni / Sn'),part(tail[1],'包装','7 英寸卷盘' if tail[1]=='T' else '13 英寸卷盘')])
+    else:
+        segments.append(part(tail,'完整订货尾码','基本料号缺少完整尾码，或此附加码未列于本版；须原厂确认',False))
+    return segments,'Walsin 原厂 ASC_Automotive Cap_(MT)，2026-09，第2页 HOW TO ORDER；具体可供组合仍须核对实际型号目录。'
+
+
+def yageo_cc_x7r(model):
+    """Only the published CC X7R 6.3--250V table, not other CC families."""
+    match=re.fullmatch(r'(CC)(0201|0402|0603|0805|1206|1210|1812|2220)([JKM])([RKPF])(X7R)([567890AY])(BB)(\d{3}|\dR\d)',model)
+    if not match:return [],''
+    series,size,tol,packing,material,voltage,process,cap=match.groups()
+    volts=dict(zip('567890AY',('6.3','10','16','25','50','100','200','250')))
+    packages={'R':'纸／PE 编带，7 英寸卷盘','K':'压纹带，7 英寸卷盘',
+              'P':'纸／PE 编带，13 英寸卷盘','F':'压纹带，13 英寸卷盘'}
+    value=Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
+    return [part(series,'系列','CC 通用／高容 MLCC'),part(size,'封装',size+'（英制）'),
+            part(tol,'容量误差',tolerance(tol)),part(packing,'包装',packages[packing]),
+            part(material,'介质','X7R'),part(voltage,'额定电压',volts[voltage]+' VDC'),
+            part(process,'工艺／端电极代码','本版订货图列为 BB，但未分别解释两个 B 的定义；需原厂代码表，不能由库内参数倒推',False),
+            part(cap,'容量',quantity(value,'pF'))], 'YAGEO 原厂 General Purpose & High Capacitance X7R 6.3V–250V，2026-03-06 V27，第2页；BB 逐位定义未公开于该页，故不标为完整解释。'
+
+
 def explain(record):
     brand, model = text(record.get('品牌')), compact(record.get('型号'))
     manufacturer = compact(brand)
@@ -498,6 +579,8 @@ def explain(record):
             source=YAGEO_SOURCE
         else:
             segments,source=yageo_rc(model)
+            if not segments:
+                segments,source=yageo_mfr(model)
     elif resistor and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
         segments,source=walsin_resistor(model)
     elif resistor and any(token in manufacturer for token in ('PDC','PSA','信昌')):
@@ -511,7 +594,11 @@ def explain(record):
     elif resistor and 'STACKPOLE' in manufacturer:
         segments,source=stackpole_resistor(model)
     elif mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
-        segments,source=walsin_general_mlcc(model)
+        segments,source=walsin_mt_mlcc(model)
+        if not segments:
+            segments,source=walsin_general_mlcc(model)
+    elif mlcc and any(token in manufacturer for token in ('YAGEO','国巨','國巨')):
+        segments,source=yageo_cc_x7r(model)
     elif mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         segments,source=taiyo_meas_mlcc(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
@@ -600,7 +687,12 @@ def explain(record):
         links=[('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
                ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
     elif segments and mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
-        links=[('华科原厂通用 MLCC 命名表（第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf')]
+        links=([('华科原厂 MT 命名表（2026-09，第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf')]
+               if model.startswith('MT') else [('华科原厂通用 MLCC 命名表（第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf')])
+    elif segments and mlcc and any(token in manufacturer for token in ('YAGEO','国巨','國巨')):
+        links=[('YAGEO CC X7R 原厂命名表（2026-03-06 V27，第2页）','https://yageogroup.com/content/datasheet/asset/file/UPY-GPHC_X7R_6_3V-TO-250V')]
+    elif segments and resistor and any(token in manufacturer for token in ('YAGEO','国巨')) and model.startswith('MFR'):
+        links=[('YAGEO MFR 原厂订货表（2024-04-03 V4，第2页）','https://yageogroup.com/content/datasheet/asset/file/YAGEO-MFR_DATASHEET')]
     elif segments and resistor and 'YAGEO' in manufacturer and model.startswith('RT'):
         links=[('YAGEO RT 原厂命名表（2026-02-12 V17，第2页）','https://www.yageogroup.com/content/datasheet/asset/file/PYU-RT_1-TO-0-01_ROHS_L')]
     elif segments and 'KOA' in manufacturer:

@@ -7,6 +7,54 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_yageo_mfr_axial_codes_are_complete_without_guessing_stock_or_status(self):
+        row=dict(品牌='国巨YAGEO',器件类型='薄膜电阻',型号='MFR-25FTE52-130K',温度系数='999ppm/℃')
+        data=guide.explain(row)
+        self.assertTrue(data['complete'])
+        self.assertEqual(''.join(p['code'] for p in data['segments']),row['型号'])
+        fields={p['name']:p['meaning'] for p in data['segments']}
+        self.assertEqual(fields['功率'].split('（')[0],'1/4W')
+        self.assertEqual(fields['阻值'],'130 kΩ')
+        self.assertEqual(fields['温度系数'],'±50 ppm/℃')
+        self.assertIn('52.4',fields['引脚成形'])
+        self.assertNotIn('封装',fields)
+        self.assertTrue(data['source_links'])
+        for model in ('MFR25SFRF26-1R5','MFR200FTF73-100R','MFR-25FT-FB-10K'):
+            result=guide.explain(dict(row,型号=model))
+            self.assertTrue(result['segments'])
+            self.assertEqual(''.join(p['code'] for p in result['segments']),model)
+        unspecified=guide.explain(dict(row,型号='MFR-25FT-52-10K'))
+        self.assertFalse(unspecified['complete'])
+        historical=guide.explain(dict(row,型号='MFR-25FTEF100R'))
+        self.assertIn('历史计划',historical['source'])
+        for model in ('MFR-25BTE52-10K','MFR-25FTD52-10K','MFR100FTEFB-10K','MFR-25FTE52-10KXYZ'):
+            self.assertFalse(guide.explain(dict(row,型号=model))['segments'])
+        self.assertFalse(guide.explain(dict(row,品牌='华科Walsin'))['segments'])
+
+    def test_streaming_coverage_audit_counts_every_row_without_claiming_full_coverage(self):
+        import hashlib
+        import tempfile
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from tools.audit_model_naming_coverage import audit_catalogue
+        with tempfile.TemporaryDirectory(prefix='naming-coverage-stream-') as directory:
+            path=Path(directory)/'public.parquet'
+            pq.write_table(pa.Table.from_pylist([
+                {'品牌':'华新科Walsin','型号':'0201X225M6R3CT','系列':'常规','器件类型':'MLCC'},
+                {'品牌':'太阳诱电Taiyo','型号':'MEASJ063BB5225M','系列':'MEASJ','器件类型':'MLCC'},
+                {'品牌':'Other','型号':'UNKNOWN','系列':None,'器件类型':'MLCC'},
+            ]),path)
+            before=hashlib.sha256(path.read_bytes()).hexdigest()
+            report=audit_catalogue(path,batch_size=1)
+            self.assertEqual(report,audit_catalogue(path,batch_size=64))
+            self.assertEqual(report['summary']['records'],3)
+            self.assertEqual(report['summary']['complete'],1)
+            self.assertEqual(report['summary']['partial'],1)
+            self.assertEqual(report['summary']['unexplained'],1)
+            self.assertFalse(report['summary']['full_coverage'])
+            self.assertEqual(report['source_sha256'],before)
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+
     def test_taiyo_meas_screenshot_has_original_code_segments_not_inferred_values(self):
         row=dict(品牌='太阳诱电Taiyo',型号='MEASJ063BB5225M',器件类别='陶瓷贴片电容（MLCC）',容值='999',耐压='999V')
         data=guide.explain(row)
@@ -45,6 +93,44 @@ class NamingGuideTests(unittest.TestCase):
         self.assertEqual(len(calls),2)
         self.assertEqual([ast.unparse(n.args[1]) for n in calls],['part_info_df','part_info_df'])
         self.assertEqual({ast.unparse(n.args[2]) for n in calls},{'show_df','[]'})
+
+    def test_yageo_cc_x7r_explains_published_fields_without_inventing_bb(self):
+        result=guide.explain({'品牌':'国巨YAGEO','型号':'CC0603KRX7R9BB104','器件类型':'MLCC'})
+        fields={p['name']:p for p in result['segments']}
+        self.assertEqual(fields['容量']['meaning'],'100 nF')
+        self.assertEqual(fields['额定电压']['meaning'],'50 VDC')
+        self.assertEqual(fields['容量误差']['meaning'],'±10%')
+        self.assertIn('7 英寸',fields['包装']['meaning'])
+        self.assertFalse(fields['工艺／端电极代码']['verified'])
+        self.assertFalse(result['complete'])
+        self.assertEqual(''.join(p['code'] for p in result['segments']),'CC0603KRX7R9BB104')
+        self.assertTrue(result['source_links'])
+        for brand,kind,model in [('TDK','MLCC','CC0603KRX7R9BB104'),('Yageo','厚膜电阻','CC0603KRX7R9BB104'),
+                                  ('Yageo','MLCC','CC0603KRX5R9BB104'),('Yageo','MLCC','CC0603KRX7R3BB104')]:
+            self.assertFalse(guide.explain({'品牌':brand,'器件类型':kind,'型号':model})['segments'])
+
+
+    def test_walsin_mt_complete_code_is_brand_scoped_and_source_backed(self):
+        actual=guide.explain({'品牌':'华新科Walsin','型号':'MT18B334K500CT','器件类型':'MLCC'})
+        self.assertTrue(actual['complete'])
+        fields={p['name']:p['meaning'] for p in actual['segments']}
+        self.assertEqual(fields['介质'],'X7R')
+        self.assertEqual(fields['容量'],'330 nF')
+        self.assertEqual(fields['端电极'],'Cu / Ni / Sn')
+        self.assertEqual(fields['包装'],'7 英寸卷盘')
+        self.assertTrue(actual['source_links'])
+        for model,tol in (('MT18N4R0A500CG','±0.05 pF'),('MT18N4R0B500CT','±0.1 pF')):
+            result=guide.explain({'品牌':'Walsin','型号':model,'器件类型':'MLCC'})
+            self.assertTrue(result['complete'])
+            self.assertIn(tol,[p['meaning'] for p in result['segments']])
+        for model in ('MT18B334K500','MT18B334K500CTX'):
+            result=guide.explain({'品牌':'Walsin','型号':model,'器件类型':'MLCC'})
+            self.assertFalse(result['complete'])
+            self.assertEqual(''.join(p['code'] for p in result['segments']),model)
+        other=guide.explain({'品牌':'信昌PDC','型号':'MT18B334K500CT','器件类型':'MLCC'})
+        self.assertFalse(other['complete'])
+        self.assertNotIn('2026-09',other['source'])
+
 
     def record(self,model,brand='FOJAN(富捷)',series='FRH',kind='厚膜电阻'):
         return dict(品牌=brand,型号=model,系列=series,器件类别=kind)

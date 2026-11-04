@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 import subprocess
@@ -125,6 +126,8 @@ def main() -> int:
                 "jianghai_parameters.py",
                 "amotech_catalog.py",
                 "walsin_catalog.py",
+                "manufacturer_lifecycle.py",
+                "tools/audit_model_naming_coverage.py",
                 "resistance_corrections.py",
                 "tools/import_amotech_catalog.py",
                 "tools/import_amotech_electronics.py",
@@ -132,12 +135,7 @@ def main() -> int:
             ],
             env,
         )
-        run_checked(
-            [
-                sys.executable,
-                "-m",
-                "unittest",
-                "-v",
+        modules = [
                 "tests.test_bom_resilience",
                 "tests.test_bom_model_comparison",
                 "tests.test_bom_header_comparison",
@@ -170,9 +168,23 @@ def main() -> int:
                 "tests.test_member_auth_bridge",
                 "tests.test_member_admin_fields",
                 "tests.test_customer_selector_copy",
-            ],
-            env,
-        )
+                "tests.test_search_trend_scopes",
+        ]
+        # Identical mandatory inventory, but bounded process lifetimes. Large
+        # model/AST fixtures otherwise accumulate until Windows exhausts commit.
+        tree = ast.parse((ROOT/'tests/test_system_regression.py').read_text(encoding='utf-8'))
+        system_class = next(node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=='SystemRegressionTests')
+        names = sorted(node.name for node in system_class.body if isinstance(node,ast.FunctionDef) and node.name.startswith('test_'))
+        assert names and len(names)==len(set(names))
+        system_groups = [[f'tests.test_system_regression.SystemRegressionTests.{name}' for name in names[start:start+50]]
+                         for start in range(0,len(names),50)]
+        first = modules.index('tests.test_system_regression')
+        game = modules.index('tests.test_product_training')
+        accounts = modules.index('tests.test_jianghai_parameters')
+        test_groups = [modules[:first],*system_groups,modules[first+1:game],modules[game:accounts],modules[accounts:]]
+        for index, group in enumerate(test_groups,1):
+            print(f'Safety gate group {index}/{len(test_groups)} ({len(group)} targets)',flush=True)
+            run_checked([sys.executable,'-m','unittest','-v',*group],env)
     after = protected_runtime_snapshot()
     if before != after:
         changed = sorted(path for path in before if before[path] != after[path])

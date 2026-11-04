@@ -247,6 +247,77 @@ def fojan_ka_quote_xlsx_bytes():
 
 
 class SystemRegressionTests(unittest.TestCase):
+    def test_ordinary_result_tables_never_promote_legacy_production_defaults(self):
+        app = self.app
+        lifecycle = app['_catalog_lifecycle']
+        verified = next(record for record in lifecycle.records() if record['manufacturer']=='panasonic')
+        frame = pd.DataFrame([
+            {'品牌':'Other','型号':'UNKNOWN','器件类型':'厚膜电阻','生产状态':'Active',
+             '备注1':'Mass Production','备注2':'https://example.com/not-proof'},
+            {'品牌':'Panasonic','型号':verified['model'],'器件类型':'厚膜电阻','生产状态':'Active'},
+        ])
+        original = frame.copy(deep=True)
+        for extra_status in (False, True):
+            rendered = app['render_clickable_result_table'](frame,spec={'器件类型':'厚膜电阻'},
+                         show_official_status=extra_status,wrap_iframe=False)
+            self.assertNotIn('>Active</td>',rendered)
+            self.assertIn('未核实',rendered)
+            self.assertIn(verified['status'],rendered)
+            self.assertIn(verified['source'],rendered)
+            self.assertIn(verified['checked_at'],rendered)
+            self.assertEqual(rendered.count('>原厂状态（核查记录）</th>'),1)
+        pd.testing.assert_frame_equal(frame,original)
+        for order in ([0,1],[1,0]):
+            duplicate_index = frame.iloc[order].copy()
+            duplicate_index.index = pd.Index([7,7],name='source_row')
+            unchanged = duplicate_index.copy(deep=True)
+            normalized = app['normalize_official_lifecycle_display'](duplicate_index)
+            pd.testing.assert_index_equal(normalized.index,duplicate_index.index)
+            for position, identity in enumerate(duplicate_index['品牌']):
+                expected = verified['status'] if identity == 'Panasonic' else '未核实'
+                expected_source = verified['source'] if identity == 'Panasonic' else ''
+                self.assertEqual(normalized.iloc[position]['生产状态'],expected)
+                self.assertEqual(normalized.iloc[position]['_量产状态链接'],expected_source)
+            pd.testing.assert_frame_equal(duplicate_index,unchanged)
+        self.assertIsNone(lifecycle.lookup('Other',verified['model']))
+        self.assertIsNone(lifecycle.lookup('Panasonic',verified['model']+'X'))
+        copy = lifecycle.lookup('Panasonic',verified['model'])
+        copy['status']='invented'
+        self.assertEqual(lifecycle.lookup('Panasonic',verified['model'])['status'],verified['status'])
+
+    def test_verified_resistor_tcr_reaches_both_final_tables_without_source_copy(self):
+        app = self.app
+        infer = app['infer_verified_resistor_tcr']
+        self.assertEqual(infer('AR02BTC4703','Viking','薄膜电阻'),'±25ppm/℃')
+        self.assertEqual(infer('RT0603BRE07130KL','YAGEO','薄膜电阻'),'±50ppm/℃')
+        self.assertEqual(infer('AR02BTC4703','FOJAN(富捷)','薄膜电阻'),'')
+        self.assertEqual(infer('AR02BTC4703','Viking','MLCC'),'')
+        frame = pd.DataFrame([
+            {'品牌':'Viking','型号':'AR02BTC4703','器件类型':'薄膜电阻'},
+            {'品牌':'Other','型号':'UNKNOWN','器件类型':'薄膜电阻'},
+            {'品牌':'Viking','型号':'AR02BTC4703','器件类型':'薄膜电阻','温度系数':'±75ppm/℃'},
+        ])
+        shown = app['select_component_display_columns'](frame,'薄膜电阻',prefix_columns=['品牌','型号'])
+        self.assertEqual(shown['温度系数'].tolist(),['±25ppm/℃','','±75ppm/℃'])
+        before = shown.copy(deep=True)
+        for spec in [None, {'器件类型':'薄膜电阻'}]:
+            rendered = app['render_clickable_result_table'](shown, spec=spec, show_official_status=False, wrap_iframe=False)
+            self.assertIn('>温漂（TCR，ppm/℃）</th>', rendered)
+            self.assertIn('±25ppm/℃', rendered)
+            self.assertIn('待核验', rendered)
+        pd.testing.assert_frame_equal(shown,before)
+
+    def test_bom_mlcc_merge_does_not_reclassify_other_capacitors(self):
+        build = self.app['build_bom_mlcc_requirement_candidate']
+        mapping = {'model':'MPN','spec':'描述','name':'类型','quantity':None}
+        for kind, description in [
+            ('铝电解电容','铝电解电容 100uF ±20% 25V 8x12mm'),
+            ('薄膜电容','薄膜电容 100nF ±10% 250V P5mm'),
+            ('引线型陶瓷电容','引线型陶瓷电容 100nF ±10% 50V X7R P5mm'),
+        ]:
+            with self.subTest(kind=kind):
+                self.assertIsNone(build({'类型':kind,'描述':description,'容值':'100nF','精度':'10%','电压':'50V'},mapping))
+
     def test_yageo_rt_tcr_is_decoded_and_visible_without_copying_to_alternatives(self):
         app = self.app
         model = 'RT0603BRE07130KL'
@@ -349,6 +420,116 @@ class SystemRegressionTests(unittest.TestCase):
             else:
                 os.environ[key] = value
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
+
+    def test_bom_merged_mlcc_fields_keep_all_requirements_and_reject_conflicts(self):
+        build = self.app['build_bom_mlcc_requirement_candidate']
+        mapping = {'model':'替代料型号','spec':'物料描述','name':'类型','quantity':None}
+        record = {'类型':'陶瓷电容','物料描述':'CL10B334KB8VPNC 330nF ±10% 50V X7R 0603 AEC-Q200',
+                  '容值':'0.33uF','精度':'±10%','电压 ':'50V','材质 ':'X7R','封装':603,
+                  '替代料型号':'MT18B334K500CT','匹配型号':'MG18B334K500CT'}
+        candidate = build(record, mapping)
+        spec = candidate['spec_override']
+        self.assertEqual(spec['尺寸（inch）'],'0603')
+        self.assertEqual(spec['容值_pf'],330000)
+        self.assertEqual(spec['材质（介质）'],'X7R')
+        self.assertEqual(spec['耐压（V）'],'50')
+        self.assertIn('车规',spec['特殊用途'])
+        self.assertEqual(spec['_bom_manual_models'],['MT18B334K500CT'])
+        self.assertEqual(candidate['input_conflicts'],[])
+        conflicting = build(dict(record, **{'材质 ':'X5R','电压 ':'25V'}),mapping)
+        self.assertTrue(any('介质' in x for x in conflicting['input_conflicts']))
+        self.assertTrue(any('耐压' in x for x in conflicting['input_conflicts']))
+        row = self.app['build_bom_upload_result_row'](pd.DataFrame(),0,
+                  dict(record, **{'材质 ':'X5R'}),mapping)
+        self.assertEqual(row['状态'],'参数冲突')
+        self.assertEqual(row['自有型号'],'')
+        self.assertIn('人工确认',row['差异说明'])
+        picofarad=build({'物料描述':'CL10C040BB81PNC 4㎊ ±0.1pF 50V C0G 0603',
+                        '容值':'4pF','精度':'±0.1pF','电压 ':'50V','材质 ':'COG','封装':603},mapping)
+        self.assertEqual(picofarad['spec_override']['容值_pf'],4)
+        self.assertEqual(picofarad['input_conflicts'],[])
+        u2j=build({'物料描述':'2.2nF 1000V ±5% 1210','材质 ':'U2J'},mapping)
+        self.assertEqual(u2j['spec_override']['材质（介质）'],'U2J')
+        self.assertEqual(u2j['input_conflicts'],[])
+
+
+    def test_bom_mlcc_policy_filters_qualifications_and_ranks_valid_manual_then_mt(self):
+        app=self.app
+        spec=app['parse_spec_query']('0603 100nF ±10% 50V X7R AEC-Q200 软端子')
+        spec.update({'型号':'','特殊用途':'AEC-Q200/软端子','_bom_spec_policy':True,'_bom_manual_models':['MG18B104K500CT']})
+        base={'品牌':'华新科Walsin','器件类型':'MLCC','尺寸（inch）':'0603',
+              '容值_pf':100000,'容值':100,'容值单位':'NF','容值误差':'10',
+              '耐压（V）':'50','材质（介质）':'X7R','推荐等级':'完全匹配'}
+        frame=pd.DataFrame([dict(base,型号='MG18B104K500CT',特殊用途='常规'),
+                            dict(base,型号='MT18B104K500CT',特殊用途='AEC-Q200'),
+                            dict(base,型号='GOOD',特殊用途='AEC-Q200/软端子')])
+        kept=app['apply_bom_mlcc_requirement_policy'](frame,spec)
+        self.assertEqual(kept['型号'].tolist(),['GOOD'])
+        spec['特殊用途']='';spec['_mlcc_series_class']=''
+        eligible=frame.iloc[:2].copy()
+        kept=app['apply_bom_mlcc_requirement_policy'](eligible,spec)
+        self.assertEqual(app['build_procurement_recommendation'](kept,spec)['model'],'MG18B104K500CT')
+        spec['_bom_manual_models']=[]
+        self.assertEqual(app['build_procurement_recommendation'](kept,spec)['model'],'MT18B104K500CT')
+
+
+    def test_bom_mlcc_policy_marks_upgrades_and_does_not_retain_invalid_manual(self):
+        app=self.app
+        spec=app['parse_spec_query']('0603 100nF ±10% 50V X7R')
+        spec.update({'型号':'','_bom_spec_policy':True,'_bom_manual_models':['BAD']})
+        base={'品牌':'测试品牌','器件类型':'MLCC','尺寸（inch）':'0603',
+              '容值_pf':100000,'容值':100,'容值单位':'NF','容值误差':'10',
+              '耐压（V）':'50','材质（介质）':'X7R','推荐等级':'完全匹配'}
+        kept=app['apply_bom_mlcc_requirement_policy'](pd.DataFrame([
+            dict(base,型号='BAD',**{'材质（介质）':'X5R'}),
+            dict(base,型号='UP',**{'耐压（V）':'100','容值误差':'5'}),
+            dict(base,型号='EXACT')]),spec)
+        self.assertNotIn('BAD',set(kept['型号']))
+        upgrade=kept.loc[kept['型号'].eq('UP')].iloc[0]
+        self.assertEqual(upgrade['推荐等级'],'升级候选')
+        self.assertEqual(app['classify_recommendation_status'](upgrade,spec)[0],'需确认')
+        self.assertEqual(app['build_procurement_recommendation'](kept,spec)['model'],'EXACT')
+
+
+    def test_bom_mlcc_merged_policy_controls_actual_export_and_cache(self):
+        app=self.app
+        original=app['load_search_dataframe_for_query']
+        base={'品牌':'华新科Walsin','器件类型':'MLCC','尺寸（inch）':'0603',
+              '容值_pf':100000,'容值':100,'容值单位':'NF','容值误差':'10','耐压（V）':'50',
+              '材质（介质）':'X7R','特殊用途':'车规'}
+        frame=app['prepare_search_dataframe'](pd.DataFrame([
+            dict(base,型号='MG18B104K500CT',特殊用途='常规'),
+            dict(base,型号='MT18B104K500CT'),
+        ]))
+        cache={}
+        mapping={'model':'MPN','spec':'描述','name':None,'quantity':None}
+        record={'MPN':'MG18B104K500CT','描述':'0603 100nF ±10% 50V X7R AEC-Q200',
+                '容值':'100nF','精度':'10%','电压':'50V','材质':'X7R','封装':603}
+        try:
+            app['load_search_dataframe_for_query']=lambda *a,**k: frame.copy()
+            for _ in range(2):
+                result=app['build_bom_upload_result_row'](None,0,record,mapping,query_cache=cache,
+                     cost_lookup={},export_settings={'mode':'指定品牌','brands':['华新科Walsin']})
+                self.assertEqual(result['自有型号'],'MT18B104K500CT')
+                self.assertNotEqual(result['状态'],'参数冲突')
+                self.assertIn('原表替代型号',result['差异说明'])
+            self.assertEqual(len(cache),1)
+            upgraded=frame.loc[frame['型号'].eq('MT18B104K500CT')].copy()
+            upgraded['耐压（V）']='100';upgraded['_volt_num']=100;upgraded['_volt']='100'
+            app['load_search_dataframe_for_query']=lambda *a,**k: upgraded.copy()
+            result=app['build_bom_upload_result_row'](None,0,record,mapping,cost_lookup={},
+                     export_settings={'mode':'指定品牌','brands':['华新科Walsin']})
+            self.assertEqual(result['状态'],'需确认')
+            self.assertEqual(result['首选推荐等级'],'升级候选')
+            self.assertIn('升级候选',result['自有匹配说明'])
+            app['load_search_dataframe_for_query']=lambda *a,**k: frame.iloc[:1].copy()
+            result=app['build_bom_upload_result_row'](None,0,record,mapping,cost_lookup={},
+                     export_settings={'mode':'指定品牌','brands':['华新科Walsin']})
+            self.assertEqual(result['状态'],'无匹配')
+            self.assertEqual(result['自有型号'],'')
+        finally:
+            app['load_search_dataframe_for_query']=original
+
 
     def test_amotech_original_broadband_part_is_a_real_catalogue_record(self):
         import amotech_catalog as amo
@@ -5523,7 +5704,7 @@ class SystemRegressionTests(unittest.TestCase):
             mode, rohm_spec = app["detect_query_mode_and_spec"](
                 pd.DataFrame(), "贴片电阻 10K 0603 ±1% 0.25W ESR系列 ROHM"
             )
-            self.assertEqual(mode, "厚膜电阻")
+            self.assertEqual(mode, "贴片电阻")
             self.assertEqual(rohm_spec["品牌"], "ROHM")
             self.assertFalse(rohm_spec.get(app["BRAND_QUERY_FILTER_FLAG"], False))
         finally:
@@ -6294,7 +6475,7 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app["st"].session_state.pop("bom_model_compare_signature_test_columns", None)
         self.assertEqual(before, after)
-        self.assertEqual(app["BOM_MATCH_OUTPUT_VERSION"], 6)
+        self.assertEqual(app["BOM_MATCH_OUTPUT_VERSION"], 7)
 
     def test_bom_separate_fojan_description_controls_selection_and_price(self):
         app = self.app
@@ -6656,7 +6837,7 @@ class SystemRegressionTests(unittest.TestCase):
         mode, spec = app["detect_query_mode_and_spec"](pd.DataFrame(), query)
         spec = app["merge_query_text_hints_into_spec"](spec, query)
 
-        self.assertEqual(mode, "厚膜电阻")
+        self.assertEqual(mode, "贴片电阻")
         self.assertEqual(app["build_fojan_resistor_model_from_spec"](spec), "")
         self.assertEqual(
             app["fojan_neighboring_standard_resistances"](17_000.0, "1"),
@@ -9725,7 +9906,11 @@ class SystemRegressionTests(unittest.TestCase):
         for column in source_columns:
             if column not in rows.columns:
                 rows[column] = ""
+        # This regression must not rely on a previous test having populated a
+        # library schema, nor on a derived capacitance cache being precomputed.
+        rows = rows.drop(columns=["容值_pf", "_pf"], errors="ignore")
         prepared = app["prepare_search_dataframe"](rows)
+        self.assertEqual(prepared["_pf"].tolist(), [47000.0, 47000.0])
         original_fetch = app["fetch_search_candidate_pairs"]
         app["fetch_search_candidate_pairs"] = lambda _spec: None
         try:
@@ -11150,7 +11335,7 @@ class SystemRegressionTests(unittest.TestCase):
                 "include_cost": False,
             },
         )
-        self.assertTrue(bom_row["解析来源"].startswith("规格列"))
+        self.assertEqual(bom_row["解析来源"], "描述与独立参数合并（规格优先）")
         self.assertEqual(app["clean_voltage"](bom_row["耐压（V）"]), "25")
         self.assertEqual(bom_row["自有型号"], "FS21X475K250EIG")
         self.assertNotEqual(bom_row["自有型号"], "MT21X475K350EIG")

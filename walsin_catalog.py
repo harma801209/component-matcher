@@ -16,6 +16,9 @@ import threading
 BRAND = '华新科Walsin'
 DATA = Path(__file__).with_name('catalog_sources') / 'walsin_verified.json'
 GENERAL_PDF = 'https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf'
+MT_PDF = 'https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf'
+
+
 SIDECAR_LOCK=threading.RLock()
 
 
@@ -60,12 +63,35 @@ def normalized(value,field):
         return value
 
 
+def complete_mt_temperature(record):
+    """Blank-only rating completion, never overriding conflicting supplied fields."""
+    result=record
+    item=listed(record.get('型号','')) if is_brand(record.get('品牌','')) else None
+    high=mt_temperature_high(item) if item else None
+    material_agrees = item is not None and all(
+        blank(record.get(key)) or normalized(record[key], '_mat') == normalized(item['material'], '_mat')
+        for key in ('_mat', '材质（介质）'))
+    numeric_agrees = high is not None and all(
+        blank(record.get(key)) or normalized(record[key], key) == value
+        for key, value in (('_temp_low', -55), ('_temp_high', high)))
+    if high is not None and material_agrees and numeric_agrees and blank(record.get('工作温度')):
+        result=dict(record)
+        result['工作温度']=f'-55~{high}℃'
+        for key,value in (('_temp_low',-55),('_temp_high',high)):
+            if key in result and blank(result[key]):result[key]=value
+        note='华科 MT 原厂2026-09规格书第3页额定温区，核对2026-11-04：'+MT_PDF
+        original=result.get('备注1')
+        result['备注1']=note if blank(original) else str(original)+'；'+note
+    return result
+
+
 def enrich_record(record):
     """Exact-model, exact-old-value corrections corroborated by source/code."""
+    result=record
     correction=corrections().get(str(record.get('型号','')).strip().upper())
     if not correction or not is_brand(record.get('品牌','')):
-        return record
-    result=dict(record)
+        return complete_mt_temperature(result)
+    result=dict(result)
     companions={'_mat':('材质（介质）',),'_tol':('容值误差',),'_volt_num':('耐压（V）','_volt'),'_pf':('容值_pf',)}
     changed=False
     for field,change in correction['fields'].items():
@@ -84,13 +110,16 @@ def enrich_record(record):
         original=result.get('备注1')
         if blank(original):result['备注1']=note
         elif note not in str(original):result['备注1']=str(original)+'；'+note
-    return result
+    return complete_mt_temperature(result)
 
 
 def enrich_frame(frame):
     if frame is None or frame.empty or not {'品牌','型号'}.issubset(frame.columns):
         return frame
-    mask=frame['型号'].astype(str).str.strip().str.upper().isin(corrections())
+    models=frame['型号'].astype(str).str.strip().str.upper()
+    mask=models.isin(corrections())
+    temperatures=frame['工作温度'].map(blank) if '工作温度' in frame else True
+    mask |= models.str.startswith('MT') & frame['品牌'].map(is_brand) & temperatures
     if not mask.any():return frame
     result=frame.copy()
     for index in result.index[mask]:
@@ -119,6 +148,14 @@ def body_size(item):
     return ''
 
 
+def mt_temperature_high(item):
+    # Original MT September-2026 page3 table: X8G150; NP0 and X7R125;
+    # X6S105. No temperature is inferred for MG/ST or an unlisted identity.
+    if item.get('series')!='Automotive Caps Qualified to AEC-Q200 (MT series)':
+        return None
+    return {'X8G':150,'C0G':125,'X7R':125,'X6S':105}.get(item.get('material'))
+
+
 def row(item, model=None):
     """Published fields only; multiple body variants never become one body."""
     model = model or item['model']
@@ -140,6 +177,10 @@ def row(item, model=None):
         high={'C0G':125,'X7R':125,'X5R':85,'X6S':105,'X7S':125}.get(item['material'])
         if high:
             result['工作温度']=f'-55~{high}℃'
+    high=mt_temperature_high(item)
+    if high is not None:
+        result['工作温度']=f'-55~{high}℃'
+        result['备注1']+='；额定温区依据原厂2026-09规格书第3页：'+MT_PDF
     if 'Qualified to AEC-Q200' in item['series']:
         result['特殊用途']='车规 AEC-Q200'
     if 'Soft' in item['series'] or 'Soft term' in item['series']:
@@ -187,7 +228,7 @@ def index_frames():
         if 'Soft' in item['series']:
             special.append('软端子')
         high=({'C0G':125,'X7R':125,'X5R':85,'X6S':105,'X7S':125}.get(item['material'])
-              if item['series']=='General Purpose Caps' else None)
+              if item['series']=='General Purpose Caps' else mt_temperature_high(item))
         capacitors.append(dict(identity,_size=item['size'],
             _mat='COG(NPO)' if item['material']=='C0G' else item['material'],
             _pf=item['pf'],_tol=item['tol'],_volt_num=item['voltage'],

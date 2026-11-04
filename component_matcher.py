@@ -47,6 +47,7 @@ from jianghai_parameters import (
     annotate_pending_display as annotate_jianghai_pending_display,
 )
 from copy import copy, deepcopy
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from cost_price_history import (
@@ -329,7 +330,7 @@ PREPARED_CACHE_VERSION = 7
 SOURCE_NORMALIZED_CACHE_VERSION = 8
 SEARCH_INDEX_SCHEMA_VERSION = 8
 QUERY_RESULT_CACHE_VERSION = 142
-BOM_MATCH_OUTPUT_VERSION = 6
+BOM_MATCH_OUTPUT_VERSION = 7
 MANUAL_CORRECTION_RULES_VERSION = 1
 SEARCH_DB_FETCH_CHUNK = 300
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")
@@ -354,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-04T16:25:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-05T02:28:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -3463,10 +3464,12 @@ def build_member_search_log_where(start_date="", end_date="", keyword=""):
     return where_clause, params
 
 
-def list_member_search_log_summary(start_date="", end_date="", keyword="", limit=300):
+def list_member_search_log_summary(start_date="", end_date="", keyword="", limit=300, aggregate_dates=False):
     refresh_member_auth_remote_snapshot()
     ensure_member_auth_schema()
     where_clause, params = build_member_search_log_where(start_date, end_date, keyword)
+    group_columns = "query_key" if aggregate_dates else "search_date, query_key"
+    order_columns = "search_count DESC, last_searched_at DESC" if aggregate_dates else "search_date DESC, search_count DESC, last_searched_at DESC"
     limit_clause = ""
     if limit is not None:
         try:
@@ -3475,12 +3478,12 @@ def list_member_search_log_summary(start_date="", end_date="", keyword="", limit
             limit = 300
         limit_clause = "LIMIT ?"
         params.append(limit)
-    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+    with closing(sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30)) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f"""
             SELECT
-                search_date,
+                MIN(search_date) AS search_date,
                 query_key,
                 MIN(query_text) AS query_text,
                 MAX(query_type) AS query_type,
@@ -3489,8 +3492,8 @@ def list_member_search_log_summary(start_date="", end_date="", keyword="", limit
                 MAX(created_at) AS last_searched_at
             FROM member_search_logs
             {where_clause}
-            GROUP BY search_date, query_key
-            ORDER BY search_date DESC, search_count DESC, last_searched_at DESC
+            GROUP BY {group_columns}
+            ORDER BY {order_columns}
             {limit_clause}
             """,
             tuple(params),
@@ -3590,12 +3593,13 @@ def list_member_search_log_results(search_log_id):
     return [member_row_to_dict(row) for row in rows]
 
 
-def member_search_summary_dataframe(rows):
+def member_search_summary_dataframe(rows, period="daily", period_label=""):
     data = []
+    date_column = {"weekly": "周", "monthly": "月份", "total": "统计范围"}.get(period, "日期")
     for row in rows or []:
         data.append(
             {
-                "日期": clean_text(row.get("search_date", "")),
+                date_column: period_label or clean_text(row.get("search_date", "")),
                 "搜索内容": clean_text(row.get("query_text", "")),
                 "类型": clean_text(row.get("query_type", "")),
                 "搜索次数": int(row.get("search_count") or 0),
@@ -4132,6 +4136,43 @@ def member_search_trend_period_label(search_date, period):
     return day.isoformat()
 
 
+def member_search_trend_period_bounds(label, period="daily"):
+    if period == "total" and label == "所有":
+        return "", ""
+    if period == "monthly":
+        start = datetime.strptime(label, "%Y-%m").date()
+        end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    elif period == "weekly":
+        parts = label.split(" 至 ")
+        if len(parts) != 2:
+            raise ValueError("Invalid week range")
+        start, end = (datetime.strptime(value, "%Y-%m-%d").date() for value in parts)
+        if start.weekday() != 0 or end != start + timedelta(days=6):
+            raise ValueError("Invalid week range")
+    elif period == "daily":
+        start = end = datetime.strptime(label, "%Y-%m-%d").date()
+    else:
+        raise ValueError("Invalid trend period")
+    return start.isoformat(), end.isoformat()
+
+
+def member_search_trend_type_family(component_type):
+    # Process labels alone do not prove mounting: MFR is metal film but axial.
+    return "电阻" if component_type in CHIP_RESISTOR_COMPONENT_TYPES else component_type
+
+
+def member_search_trend_type_summary(component_types):
+    kinds = {normalize_component_type(value) for value in component_types if clean_text(value)}
+    chip_types = {"厚膜电阻": "厚膜", "薄膜电阻": "薄膜", "合金电阻": "合金", "贴片电阻": "工艺未明确"}
+    if kinds == {"贴片电阻"}:
+        return "贴片电阻·工艺未明确"
+    if kinds and kinds <= set(chip_types):
+        return "电阻·" + "／".join(
+            "贴片电阻（工艺未明确）" if kind == "贴片电阻" else chip_types[kind]
+            for kind in chip_types if kind in kinds)
+    return "／".join(sorted(kinds)) or "规格"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _build_member_search_trend_base_dataframe_cached(rows_signature, database_signature):
     del database_signature
@@ -4162,7 +4203,7 @@ def _build_member_search_trend_base_dataframe_cached(rows_signature, database_si
             continue
         if search_date == "":
             continue
-        key = (search_date, label)
+        key = (search_date, label, component_type)
         item = buckets.setdefault(
             key,
             {
@@ -4195,14 +4236,15 @@ def build_member_search_trend_dataframe(summary_rows, period="daily"):
     if not isinstance(base_df, pd.DataFrame) or base_df.empty:
         return pd.DataFrame(columns=["周期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
     work = base_df.copy()
+    work["_类别组"] = work["器件类型"].apply(member_search_trend_type_family)
     work["周期"] = work["日期"].apply(lambda value: member_search_trend_period_label(value, period))
     work = work[work["周期"].astype(str).ne("")].copy()
     if work.empty:
         return pd.DataFrame(columns=["周期", "排名", "规格参数", "器件类型", "搜索次数", "来源示例"])
     df = (
-        work.groupby(["周期", "规格参数"], as_index=False)
+        work.groupby(["周期", "_类别组", "规格参数"], as_index=False)
         .agg(
-            器件类型=("器件类型", "first"),
+            器件类型=("器件类型", member_search_trend_type_summary),
             搜索次数=("搜索次数", "sum"),
             来源示例=("来源示例", "first"),
         )
@@ -4328,6 +4370,7 @@ def render_member_search_trend_chart(trend_df, period="daily"):
     ).strip()
     trend_chart_html = trend_chart_html + "\n" + "\n".join(bars) + "\n</div>"
     st.markdown(trend_chart_html, unsafe_allow_html=True)
+    return selected_period
 
 
 def ensure_configured_admin_member_account():
@@ -5800,7 +5843,9 @@ def render_member_search_logs_admin_page():
         fetch_member_search_copy_events_remote.clear()
 
     summary_rows = list_member_search_log_summary(start_text, end_text, keyword=keyword, limit=None)
-    trend_summary_rows = summary_rows
+    # The range control above explicitly belongs to search DETAILS. Trend and
+    # high-frequency controls below select their own complete day/week/month.
+    trend_summary_rows = list_member_search_log_summary("", "", keyword=keyword, limit=None)
     detail_rows = list_member_search_log_details(start_text, end_text, keyword=keyword, limit=detail_limit)
     member_period_rows = list_member_search_member_period_summary(keyword=keyword, reference_date=today)
     copy_events_response = list_member_search_copy_events(
@@ -5870,7 +5915,7 @@ def render_member_search_logs_admin_page():
     else:
         st.dataframe(member_period_df, use_container_width=True, hide_index=True)
 
-    if not summary_rows:
+    if not trend_summary_rows:
         render_admin_empty_state("当前筛选范围没有搜索记录", "会员完成搜索后，这里会自动产生每日排行。")
         return
 
@@ -5897,12 +5942,13 @@ def render_member_search_logs_admin_page():
         "total": "累计十大搜索规格趋势",
     }[trend_period]
     st.markdown(f"#### {trend_title}")
+    st.caption("此处周期同时控制榜单与下方高频搜索，不受上方明细日期限制；关键词筛选仍然适用。")
     trend_df = build_member_search_trend_dataframe(trend_summary_rows, period=trend_period)
     startup_trace(
         f"search_logs:trend period={trend_period} rows={len(trend_df)} elapsed={time.perf_counter() - trace_started:.4f}"
     )
-    render_member_search_trend_chart(trend_df, period=trend_period)
-    if isinstance(trend_df, pd.DataFrame) and not trend_df.empty:
+    selected_trend_period = render_member_search_trend_chart(trend_df, period=trend_period)
+    if isinstance(trend_df, pd.DataFrame) and not trend_df.empty and selected_trend_period:
         detail_label = {
             "daily": "查看每日搜索规格趋势明细",
             "weekly": "查看每周搜索规格趋势明细",
@@ -5911,17 +5957,26 @@ def render_member_search_logs_admin_page():
         }[trend_period]
         with st.expander(detail_label, expanded=False):
             st.dataframe(
-                trend_df,
+                trend_df[trend_df["周期"].eq(selected_trend_period)],
                 use_container_width=True,
                 hide_index=True,
             )
 
-    st.markdown("#### 每日高频搜索")
-    st.dataframe(
-        member_search_summary_dataframe(summary_rows),
-        use_container_width=True,
-        hide_index=True,
-    )
+    frequency_title = {"daily": "每日", "weekly": "每周", "monthly": "每月", "total": "累计"}[trend_period]
+    st.markdown(f"#### {frequency_title}高频搜索")
+    if selected_trend_period:
+        trend_start, trend_end = member_search_trend_period_bounds(selected_trend_period, trend_period)
+        period_summary_rows = list_member_search_log_summary(
+            trend_start, trend_end, keyword=keyword, limit=None, aggregate_dates=True)
+        actual_scope = f"{trend_start} 至 {trend_end}" if trend_start else "全部历史"
+        st.caption(f"实际统计范围：{actual_scope}；榜单按可识别规格归一，高频表保留全部搜索内容。")
+        st.dataframe(
+            member_search_summary_dataframe(period_summary_rows, period=trend_period, period_label=selected_trend_period),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("当前条件下没有可展示的周期统计。")
 
     with st.expander("追查单次搜索结果", expanded=False):
         if not detail_rows:
@@ -16132,6 +16187,24 @@ def infer_yageo_rt_tcr(model, brand):
     return f"±{ppm}ppm/℃"
 
 
+@lru_cache(maxsize=8192)
+def infer_verified_resistor_tcr(model, brand, component_type):
+    """A published code segment is evidence; the requested/source TCR is not."""
+    if normalize_component_type(component_type) not in RESISTOR_COMPONENT_TYPES:
+        return ""
+    from model_naming_guide import explain as explain_order_code
+    guide = explain_order_code({"型号": clean_model(model), "品牌": clean_brand(brand),
+                                "器件类型": normalize_component_type(component_type)})
+    values = set()
+    for segment in guide.get("segments", []):
+        if segment.get("name") != "温度系数" or not segment.get("verified"):
+            continue
+        match = re.fullmatch(r"±\s*(\d+(?:\.\d+)?)\s*ppm/(?:℃|°C)", segment.get("meaning", ""), flags=re.I)
+        if match and float(match[1]) > 0:
+            values.add(f"±{match[1]}ppm/℃")
+    return next(iter(values)) if len(values) == 1 else ""
+
+
 def parse_yageo_chip_resistor_model(model, brand="", component_type=""):
     compact = clean_model(model)
     resolved_brand = clean_brand(brand) or "国巨YAGEO"
@@ -24566,12 +24639,12 @@ COMPONENT_ALIAS_TOKENS = {
         "upper": ["THIN FILM", "THIN-FILM", "METAL FILM", "METAL FILM RESISTOR", "薄膜电阻", "金属膜电阻", "金屬膜電阻"],
     },
     "厚膜电阻": {
-        "compact": ["THICKFILMRESISTOR", "THICKFILM", "CHIPRESISTOR"],
-        "upper": ["THICK FILM", "THICK-FILM", "厚膜电阻", "貼片電阻", "贴片电阻", "CHIP RESISTOR"],
+        "compact": ["THICKFILMRESISTOR", "THICKFILM"],
+        "upper": ["THICK FILM", "THICK-FILM", "厚膜电阻"],
     },
     "贴片电阻": {
-        "compact": ["RESISTOR", "OHM"],
-        "upper": ["RESISTOR", "电阻", "電阻", "OHM", "Ω"],
+        "compact": ["RESISTOR", "OHM", "CHIPRESISTOR"],
+        "upper": ["RESISTOR", "电阻", "電阻", "OHM", "Ω", "貼片電阻", "贴片电阻", "CHIP RESISTOR"],
     },
     "功率电感": {
         "compact": ["POWERINDUCTOR", "INDUCTOR", "CHOKE", "WIREWOUNDINDUCTOR", "MOLDEDINDUCTOR"],
@@ -26953,6 +27026,8 @@ def get_component_display_schema(spec_or_type):
 
 def get_component_header_labels(spec_or_type):
     labels = {source: label for source, label in get_component_display_schema(spec_or_type)}
+    labels["温度系数"] = "温漂（TCR，ppm/℃）"
+    labels["生产状态"] = labels["量产状态"] = "原厂状态（核查记录）"
     labels["成本"] = "成本"
     labels["更新时间"] = "更新时间"
     labels["MOQ"] = "MOQ"
@@ -27147,7 +27222,8 @@ def build_component_display_row(spec, allow_online_lookup=False):
         "月偏差（s）": clean_text(spec.get("月偏差（s）", "")),
         "寿命（h）": format_life_hours_display(spec.get("寿命（h）", "")),
         "功率": format_power_display(power_source),
-        "温度系数": clean_text(spec.get("温度系数", "")) or infer_yageo_rt_tcr(spec.get("型号", ""), spec.get("品牌", "")),
+        "温度系数": clean_text(spec.get("温度系数", "")) or infer_verified_resistor_tcr(
+            clean_model(spec.get("型号", "")), clean_brand(spec.get("品牌", "")), component_type),
         "安装方式": normalize_mounting_style(spec.get("安装方式", ""), spec.get("封装代码", "")),
         "特殊用途": normalize_special_use(special_use),
         "脚距": pitch_display,
@@ -27393,7 +27469,7 @@ def infer_component_display_fallbacks_from_row(row):
         component_type = normalize_component_type(series_profile.get("器件类型", ""))
     result.update(infer_official_inductor_fields_from_row(row))
     if component_type in RESISTOR_COMPONENT_TYPES and clean_text(row.get("温度系数", "")) == "":
-        tcr = infer_yageo_rt_tcr(row.get("型号", ""), row.get("品牌", ""))
+        tcr = infer_verified_resistor_tcr(clean_model(row.get("型号", "")), clean_brand(row.get("品牌", "")), component_type)
         if tcr:
             result["温度系数"] = tcr
 
@@ -32496,6 +32572,7 @@ def build_bom_own_brand_export_slots(
         ordered_candidates = sorted(
             ordered_candidates,
             key=lambda item: (
+                bom_mlcc_policy_rank(item.get("_row", {}), spec),
                 int(item.get("_mlcc_class_rank", 0) or 0),
                 match_level_rank.get(clean_text(item.get("_row", {}).get("推荐等级", "")), 9),
                 0 if clean_text(item.get("成本", "")) != "" else 1,
@@ -36783,7 +36860,7 @@ def run_query_match(df, mode, spec):
     if mode == "料号":
         return match_by_spec(df, spec)
     if mode in {"料号片段", "规格"}:
-        return match_by_partial_spec(df, spec)
+        return apply_bom_mlcc_requirement_policy(match_by_partial_spec(df, spec), spec)
     if is_other_passive_mode(mode):
         return match_other_passive_spec(df, spec)
     return pd.DataFrame()
@@ -37144,6 +37221,10 @@ def prepare_search_dataframe(df):
             work.loc[fill_tol.index, "_tol"] = fill_tol
     if "_volt" not in work.columns:
         work["_volt"] = work["耐压（V）"].astype(str).apply(clean_voltage)
+    if "容值_pf" not in work.columns:
+        # Literal/unit source rows need not carry the derived pF cache column.
+        # Keep it missing until the explicit capacitance below can be converted.
+        work["容值_pf"] = float("nan")
     if "_pf" not in work.columns:
         work["_pf"] = pd.to_numeric(work["容值_pf"], errors="coerce")
     computed_pf = work.apply(lambda r: cap_to_pf(r.get("容值", ""), r.get("容值单位", "")), axis=1)
@@ -42124,6 +42205,32 @@ def looks_like_official_status_text(value):
     return False
 
 
+def normalize_official_lifecycle_display(frame):
+    """Presentation only: old Active/stock notes are not production evidence."""
+    if frame is None or frame.empty:
+        return frame
+    out = frame.copy()
+    identity_columns = {"品牌", "型号"}.issubset(out.columns)
+    status_columns = [col for col in ("生产状态", "量产状态") if col in out]
+    if not identity_columns and not status_columns:
+        return out
+    if not status_columns:
+        out["生产状态"] = ""
+        status_columns = ["生产状态"]
+    out["_量产状态链接"] = ""
+    out["_量产状态核查"] = ""
+    # Concatenated query frames can retain duplicate source indexes. Use row
+    # positions so one identity never inherits another identity's evidence.
+    for position, (_, row) in enumerate(out.iterrows()):
+        evidence = _catalog_lifecycle.lookup(row.get("品牌", ""), row.get("型号", "")) if identity_columns else None
+        for column in status_columns:
+            out.iat[position, out.columns.get_loc(column)] = evidence["status"] if evidence else "未核实"
+        if evidence:
+            out.iat[position, out.columns.get_loc("_量产状态链接")] = evidence["source"]
+            out.iat[position, out.columns.get_loc("_量产状态核查")] = evidence["checked_at"]
+    return out
+
+
 def append_official_status_column(show_df):
     out = show_df.copy()
     statuses = []
@@ -43117,11 +43224,14 @@ def render_clickable_result_table(
             display_df["_量产状态链接"] = ""
     else:
         display_df = show_df.copy()
+    display_df = normalize_official_lifecycle_display(display_df)
     display_df = normalize_resistor_model_display_fields(display_df)
     display_df = normalize_joyin_ntc_series_display_fields(display_df)
     display_df = normalize_timing_model_display_fields(display_df)
 
-    hidden = set(hide_columns or [])
+    hidden = set(hide_columns or []) | {"_量产状态核查"}
+    if "生产状态" in display_df and "量产状态" in display_df:
+        hidden.add("量产状态")
     visible_columns = [col for col in display_df.columns if col != "_量产状态链接" and col not in hidden]
     header_labels = get_component_header_labels(spec)
     multi_model_columns = {"信昌料号", "华科料号", "前5个其他品牌型号", "其他品牌型号"}
@@ -43181,7 +43291,7 @@ def render_clickable_result_table(
             else ""
         )
         parts.append(f"<tr{row_class}{copy_ticket_attr}>")
-        official_link = clean_text(row.get("_量产状态链接", "")) if show_official_status else ""
+        official_link = clean_text(row.get("_量产状态链接", ""))
         if level == "部分参数匹配":
             raw_hit_columns = clean_text(row.get("匹配命中列", ""))
             if raw_hit_columns != "":
@@ -43192,6 +43302,8 @@ def render_clickable_result_table(
             hit_columns = set()
         for col in visible_columns:
             value = clean_text(row.get(col, ""))
+            if col == "温度系数" and not value:
+                value = "待核验"
             norm_col = clean_text(col)
             if norm_col in multi_model_columns_norm:
                 cell = render_model_list_cell(value, grouped=norm_col in grouped_brand_model_columns_norm)
@@ -43203,8 +43315,10 @@ def render_clickable_result_table(
                 cell_class = ' class="detail-cell"'
                 matched_width = column_widths.get(col, 220)
                 td_style = f' style="width: {matched_width}px; min-width: {matched_width}px; max-width: {matched_width}px;"'
-            elif col == "量产状态" and value != "" and official_link != "":
-                cell = f'<a href="{html.escape(official_link, quote=True)}" target="_blank">{html.escape(value)}</a>'
+            elif col in {"生产状态", "量产状态"} and value != "" and official_link != "":
+                checked = clean_text(row.get("_量产状态核查", ""))
+                title = html.escape("原厂具体型号证据；核查时间：" + checked, quote=True)
+                cell = f'<a href="{html.escape(official_link, quote=True)}" title="{title}" target="_blank">{html.escape(value)}</a>'
                 cell_class = ' class="param-hit"' if col in hit_columns else ""
                 td_style = ""
             else:
@@ -44099,6 +44213,13 @@ def collect_recommendation_warnings(row, spec):
     if row is None or spec is None:
         return []
     warnings_list = []
+    if spec.get("_bom_spec_policy"):
+        for field, label in (("容值_pf", "容值"), ("尺寸（inch）", "封装"),
+                             ("材质（介质）", "介质"), ("容值误差", "精度"), ("耐压（V）", "耐压")):
+            if clean_text(spec.get(field, "")) and not clean_text(row.get(field, "")):
+                warnings_list.append(f"候选缺少{label}资料，需查原厂规格书确认")
+        if spec.get("工作温度") and not working_temperature_covers(row.get("工作温度", ""), spec["工作温度"]):
+            warnings_list.append("候选工作温度未确认覆盖需求，需人工确认")
     walsin_warning = _walsin_catalog.ordering_warning(row)
     if walsin_warning:
         warnings_list.append(walsin_warning)
@@ -44377,6 +44498,11 @@ def classify_recommendation_status(row, spec):
     if conflicts:
         return "参数冲突", "；".join(conflicts)
 
+    upgrade_note = bom_mlcc_upgrade_note(row, spec)
+    if upgrade_note:
+        warnings_list = collect_recommendation_warnings(row, spec)
+        return "需确认", "；".join([upgrade_note] + warnings_list)
+
     warnings_list = collect_recommendation_warnings(row, spec)
     if warnings_list:
         return "需确认", "；".join(warnings_list)
@@ -44412,6 +44538,7 @@ def build_procurement_recommendation(frame, spec):
         level = get_match_level_for_recommendation(row, spec)
         preferred_bonus = 1 if match_bom_preferred_brand_label(row.get("品牌", "")) != "" else 0
         score = (
+            tuple(-part for part in bom_mlcc_policy_rank(row, spec)),
             status_rank.get(status, 0),
             preferred_bonus,
             level_rank.get(level, 0),
@@ -46956,6 +47083,167 @@ def join_bom_parts(*parts):
     return re.sub(r"\s+", " ", " ".join(tokens)).strip()
 
 
+def build_bom_mlcc_requirement_candidate(record, column_mapping):
+    """Merge explicit MLCC requirements without decoding a sales alternative.
+
+    This path deliberately does not read prior system output, price or quantity
+    columns. A manufacturer code is an identity reference, never a replacement
+    for independently written customer requirements.
+    """
+    description = get_bom_selected_value(record, column_mapping.get("spec"))
+    name = get_bom_selected_value(record, column_mapping.get("name"))
+    named_kind = normalize_component_type(name)
+    if named_kind in ALL_PASSIVE_COMPONENT_TYPES and named_kind != "MLCC":
+        return None
+    if re.search(r"引[线線](?:型)?陶瓷|LEADED\s+CERAMIC", join_bom_parts(name, description), flags=re.I):
+        return None
+    explicit_kind = detect_component_type_hint(join_bom_parts(description, name))
+    if explicit_kind not in {"", "MLCC"}:
+        return None  # Preserve every non-MLCC family, not just resistors.
+    literal = description.replace("㎊", "pF").replace("㎋", "nF").replace("㎌", "uF")
+    for token in extract_model_like_tokens(description):
+        compact = clean_model(token)
+        if len(compact) >= 8 and re.search(r"[A-Z]", compact) and re.search(r"\d", compact):
+            if re.search(r"AEC[- ]?Q200", token, flags=re.I):
+                continue
+            literal = literal.replace(token, " ")
+    spec = parse_spec_query(join_bom_parts(name, literal)) or {}
+    # A +/- pF tolerance is not a capacitance value. Full-width/SI square
+    # symbols above are normalized before choosing the first explicit value.
+    for match in re.finditer(r"(?<![A-Z0-9.])(\d+(?:\.\d+)?)\s*(PF|NF|UF|µF|μF)\b", literal, flags=re.I):
+        if re.search(r"(?:±|\+/-|[+-])\s*$", literal[:match.start()]):
+            continue
+        spec["容值_pf"] = cap_to_pf(match[1], match[2].upper().replace("µ", "U").replace("Μ", "U"))
+        break
+    aliases = {
+        "容值_pf": {"容值", "容量", "电容量", "capacitance"},
+        "容值误差": {"精度", "误差", "容差", "容值误差", "tolerance"},
+        "耐压（V）": {"电压", "耐压", "额定电压", "电压v", "耐压v", "voltage"},
+        "材质（介质）": {"材质", "介质", "材质介质", "温度特性", "dielectric"},
+        "尺寸（inch）": {"封装", "尺寸", "尺寸inch", "封装尺寸", "package"},
+    }
+    labels = {"容值_pf":"容值", "容值误差":"精度", "耐压（V）":"耐压",
+              "材质（介质）":"介质", "尺寸（inch）":"封装"}
+    conflicts, sources, extra_text = [], {}, []
+    for field in aliases:
+        if clean_text(spec.get(field, "")):
+            sources[field] = f"描述={spec[field]}"
+    selected = {column_mapping.get(key) for key in ("model", "spec", "name", "quantity")}
+    for header, raw in record.items():
+        value = clean_text(raw)
+        if not value or header in selected:
+            continue
+        normalized = normalize_bom_header_name(header)
+        field = next((key for key, names in aliases.items() if normalized in names), None)
+        if field is None:
+            if normalized in {"特殊用途", "安规", "认证", "qualification", "应用等级"}:
+                extra_text.append(value)
+            continue
+        if field == "材质（介质）" and value.lower() in {"瓷", "陶瓷", "ceramic"}:
+            continue  # Ceramic body material is not a dielectric grade.
+        if field == "尺寸（inch）" and re.fullmatch(r"\d{3}(?:\.0)?", value):
+            value = str(int(float(value))).zfill(4)
+        if field == "耐压（V）" and re.fullmatch(r"\d+(?:\.\d+)?", value):
+            value += "V"
+        if field == "容值误差" and re.fullmatch(r"\d+(?:\.\d+)?", value):
+            value += "%"
+        parsed = parse_spec_query(value) or {}
+        incoming = parsed.get(field)
+        if field == "材质（介质）" and re.fullmatch(r"[A-Z][0-9][A-Z]|COG|NPO|NP0", value.upper()):
+            incoming = clean_material(value)
+        if clean_text(incoming) == "":
+            conflicts.append(f"{labels[field]}栏“{header}”无法解析：{value}")
+            continue
+        old = spec.get(field)
+        equal = values_close(old, incoming, tolerance=1e-6) if field == "容值_pf" and old is not None else clean_text(old) == clean_text(incoming)
+        if clean_text(old) and not equal:
+            conflicts.append(f"{labels[field]}冲突：{sources.get(field, '描述='+str(old))}；{header}={incoming}")
+        else:
+            spec[field] = incoming
+            sources.setdefault(field, f"{header}={incoming}")
+        extra_text.append(value)
+    if spec.get("容值_pf") is None or sum(bool(clean_text(spec.get(key))) for key in aliases) < 3:
+        return None
+    combined = join_bom_parts(name, literal, *extra_text)
+    spec.update({"型号":"", "器件类型":"MLCC", "_bom_spec_policy":True})
+    spec["特殊用途"] = "/".join(sorted(bom_mlcc_requirement_tokens(combined))) or spec.get("特殊用途", "")
+    spec["_mlcc_series_class"] = normalize_mlcc_series_class(combined)
+    if safety_class_tokens(combined):
+        spec["安规"] = "/".join(safety_class_tokens(combined))
+        spec["_safety_class"] = spec["安规"]
+    temperature = extract_working_temperature_from_text(combined)
+    if temperature:
+        spec["工作温度"] = temperature
+    model_header = normalize_bom_header_name(column_mapping.get("model", ""))
+    references = [] if model_header.startswith("匹配") else [get_bom_selected_value(record, column_mapping.get("model"))]
+    for header, value in record.items():
+        if normalize_bom_header_name(header) in {"替代型号", "替代料型号", "替代料号", "alternativempn"}:
+            references.append(clean_text(value))
+    spec["_bom_manual_models"] = list(dict.fromkeys(
+        clean_model(value) for value in references
+        if value and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._/-]{5,}", value)
+        and not looks_like_internal_bom_part_number(value)
+    ))
+    spec["_param_count"] = count_query_params(spec)
+    return {"query":combined, "source":"描述与独立参数合并（规格优先）",
+            "spec_override":spec, "input_conflicts":conflicts}
+
+
+def bom_mlcc_requirement_tokens(text):
+    tokens = set(special_use_tokens(extract_special_use_from_text(text)))
+    if re.search(r"软端子|软电极|柔性端子|SOFT[- ]?TERMINATION|FLEX(?:IBLE)?[- ]?TERMINATION|FLEXITERM", clean_text(text), flags=re.I):
+        tokens.add("软端子")
+    return tokens
+
+
+def bom_mlcc_upgrade_note(row, spec):
+    if not spec or not spec.get("_bom_spec_policy"):
+        return ""
+    changes = []
+    requested = safe_numeric_value(clean_voltage(spec.get("耐压（V）", "")))
+    actual = safe_numeric_value(clean_voltage(row.get("耐压（V）", "")))
+    if requested is not None and actual is not None and actual > requested + 1e-9:
+        changes.append(f"耐压{voltage_display(spec['耐压（V）'])}→{voltage_display(row['耐压（V）'])}")
+    required_tol = clean_tol_for_match(spec.get("容值误差", ""))
+    actual_tol = clean_tol_for_match(row.get("容值误差", ""))
+    if required_tol and actual_tol and required_tol != actual_tol and tolerance_allows(actual_tol, required_tol):
+        changes.append(f"精度{clean_tol_for_display(required_tol)}→{clean_tol_for_display(actual_tol)}")
+    return "升级候选：" + "、".join(changes) + "；需人工确认，不作为完全匹配自动采用" if changes else ""
+
+
+def apply_bom_mlcc_requirement_policy(frame, spec):
+    if not spec or not spec.get("_bom_spec_policy") or frame is None or frame.empty:
+        return frame
+    required_special = bom_mlcc_requirement_tokens(spec.get("特殊用途", "")) - SOFT_COMPLIANCE_SPECIAL_USE_TOKENS
+    def allowed(row):
+        if collect_recommendation_conflicts(row, spec):
+            return False
+        if component_has_automotive_qualification(spec) and not component_has_automotive_qualification(row):
+            return False
+        requested_safety = set(safety_class_tokens(spec.get("安规", "") or spec.get("_safety_class", "")))
+        candidate_safety = set(safety_class_tokens(join_bom_parts(row.get("安规", ""), row.get("特殊用途", ""))))
+        if not requested_safety.issubset(candidate_safety):
+            return False
+        text = " ".join(clean_text(row.get(key, "")) for key in ("特殊用途", "系列说明", "_mlcc_series_class"))
+        return required_special.issubset(bom_mlcc_requirement_tokens(text))
+    out = frame.loc[frame.apply(allowed, axis=1)].copy()
+    if not out.empty:
+        upgrades = out.apply(lambda row: bool(bom_mlcc_upgrade_note(row, spec)), axis=1)
+        out.loc[upgrades, "推荐等级"] = "升级候选"
+    return out
+
+
+def bom_mlcc_policy_rank(row, spec):
+    if not spec or not spec.get("_bom_spec_policy"):
+        return ()
+    # Preferences apply only after qualification and complete parameter checks.
+    valid = not collect_recommendation_conflicts(row, spec) and not collect_recommendation_warnings(row, spec)
+    exact = valid and get_match_level_for_recommendation(row, spec) == "完全匹配" and not bom_mlcc_upgrade_note(row, spec)
+    manual = exact and clean_model(row.get("型号", "")) in spec.get("_bom_manual_models", [])
+    mt = exact and brand_alias_matches(row.get("品牌", ""), ("Walsin", "华新科")) and clean_model(row.get("型号", "")).startswith("MT")
+    return (0 if exact else 1, 0 if manual else 1, 0 if mt else 1)
+
+
 def collect_bom_extra_spec_values(record, column_mapping):
     selected_columns = {
         column_mapping.get("model"),
@@ -47402,24 +47690,29 @@ def evaluate_bom_candidate(
     full_df_provider=None,
     exact_part_rows=None,
     export_settings=None,
+    spec_override=None,
 ):
     normalized_export_settings = normalize_bom_export_settings(export_settings)
     export_scope_key = "|".join(
         [normalized_export_settings.get("mode", "")]
         + list(normalized_export_settings.get("brands", []))
     )
-    cache_key = bom_query_cache_key(f"{export_scope_key}|{query_text}")
+    override_key = serialize_spec_for_cache(spec_override) if spec_override else ""
+    cache_key = bom_query_cache_key(f"{export_scope_key}|{query_text}|{override_key}")
     cached = query_cache.get(cache_key) if isinstance(query_cache, dict) else None
     if cached is None:
         full_df = df
         model_lookup_cache = {}
         exact_part_rows = resolve_prefetched_exact_part_rows(query_text, exact_part_rows=exact_part_rows)
         detect_df = exact_part_rows if isinstance(exact_part_rows, pd.DataFrame) and not exact_part_rows.empty else None
-        mode, spec = detect_query_mode_and_spec(
-            detect_df,
-            query_text,
-            model_lookup_cache=model_lookup_cache,
-        )
+        if spec_override is not None:
+            mode, spec = "规格", dict(spec_override)
+        else:
+            mode, spec = detect_query_mode_and_spec(
+                detect_df,
+                query_text,
+                model_lookup_cache=model_lookup_cache,
+            )
         query_df = None
         source_text = clean_text(source_label)
         model_token_rows = pd.DataFrame()
@@ -47447,7 +47740,8 @@ def evaluate_bom_candidate(
                 matched_model_token or query_text,
                 model_lookup_cache=model_lookup_cache,
             )
-        spec = merge_query_text_hints_into_spec(spec, query_text)
+        if spec_override is None:
+            spec = merge_query_text_hints_into_spec(spec, query_text)
         if (
             mode != "无法识别"
             and spec is not None
@@ -47540,6 +47834,14 @@ def evaluate_bom_candidate(
         "_candidate_index": candidate_index,
     }
     result["difference_note"] = describe_bom_result(result)
+    if spec_override is not None:
+        references = spec_override.get("_bom_manual_models", [])
+        selected = clean_model((result.get("recommendation") or {}).get("model", ""))
+        if references and selected not in references:
+            result["manual_reference_note"] = (
+                "原表替代型号“" + "、".join(references)
+                + "”未作为已校验的完全匹配优先保留；系统按合并后的客户规格重新选型，需复核差异。"
+            )
     return result
 
 def bom_candidate_priority(candidate_result):
@@ -47884,6 +48186,7 @@ def choose_best_bom_candidate(
                     prefetched_frames.append(frame)
             if prefetched_frames:
                 prefetched_rows = concat_component_frames(prefetched_frames)
+        override_options = {"spec_override":candidate["spec_override"]} if candidate.get("spec_override") else {}
         result = evaluate_bom_candidate(
             df,
             candidate["query"],
@@ -47893,7 +48196,12 @@ def choose_best_bom_candidate(
             full_df_provider=full_df_provider,
             exact_part_rows=prefetched_rows,
             export_settings=export_settings,
+            **override_options,
         )
+        if candidate.get("spec_override"):
+            # Never retry a weaker model-only query after merged requirements.
+            result["merged_requirement_policy"] = True
+            return result
         if candidate.get("description_priority"):
             return validate_bom_separate_fojan_reference(result, candidate, cost_lookup=cost_lookup)
         if candidate.get("fojan_model_reference"):
@@ -48130,7 +48438,16 @@ def build_bom_upload_result_row(
         name_value,
         *extra_values,
     )
-    candidates = build_bom_query_candidates(model_value, spec_value, name_value, extra_values=extra_values)
+    requirement_candidate = build_bom_mlcc_requirement_candidate(record, column_mapping)
+    if requirement_candidate and requirement_candidate["input_conflicts"]:
+        note = "描述与独立参数不一致，需人工确认：" + "；".join(requirement_candidate["input_conflicts"])
+        result_row.update({"状态":"参数冲突", "解析状态":"参数冲突", "失败原因":note,
+                           "差异说明":note, "推荐理由":note, "备注1":note,
+                           "解析来源":requirement_candidate["source"],
+                           "解析输入":requirement_candidate["query"]})
+        return result_row
+    candidates = [requirement_candidate] if requirement_candidate else build_bom_query_candidates(
+        model_value, spec_value, name_value, extra_values=extra_values)
     if not candidates:
         result_row["失败原因"] = "指定的 BOM 列为空"
         result_row["差异说明"] = "当前行在已指定列中没有可用于解析的内容"
@@ -48238,7 +48555,8 @@ def build_bom_upload_result_row(
     explicit_fojan_model = next(iter(explicit_fojan_display_map), "")
     description_priority = bool(best.get("description_priority"))
     strict_explicit_fojan_export = (
-        not description_priority and bool(explicit_fojan_model) and bom_export_includes_fojan(export_settings)
+        not description_priority and not best.get("merged_requirement_policy")
+        and bool(explicit_fojan_model) and bom_export_includes_fojan(export_settings)
     )
     export_exact_model = (
         (explicit_fojan_model if strict_explicit_fojan_export else "")
@@ -48274,7 +48592,7 @@ def build_bom_upload_result_row(
         if notice:
             result_row["差异说明"] = notice
             result_row["推荐理由"] = notice
-    if not description_priority:
+    if not description_priority and not best.get("merged_requirement_policy"):
         preserve_unpriced_explicit_fojan_reference(
             result_row,
             explicit_fojan_display_map,
@@ -48307,7 +48625,22 @@ def build_bom_upload_result_row(
             f"name={clean_text(name_value)}",
         )
 
-    if description_priority:
+    if best.get("merged_requirement_policy"):
+        policy_recommendation = best.get("recommendation") or {}
+        # Reconciliation of price slots must not erase an upgrade/catalogue
+        # verification warning or turn an unconfirmed ordering code into a quote.
+        if policy_recommendation.get("status") == "需确认" and result_row.get("状态") == "可推荐":
+            result_row["状态"] = "需确认"
+        note = clean_text(policy_recommendation.get("reason", ""))
+        if policy_recommendation.get("status") == "需确认":
+            for key in ("推荐理由", "差异说明", "备注1", "自有匹配说明"):
+                result_row[key] = merge_match_confirmation_into_remark1(result_row.get(key, ""), note)
+        reference_note = clean_text(best.get("manual_reference_note", ""))
+        if reference_note:
+            for key in ("差异说明", "备注1", "自有匹配备注"):
+                result_row[key] = merge_match_confirmation_into_remark1(result_row.get(key, ""), reference_note)
+        result_row["首选推荐等级"] = clean_text(policy_recommendation.get("level", result_row["首选推荐等级"]))
+    elif description_priority:
         apply_bom_description_priority_confirmation(result_row, best, spec_value)
     else:
         apply_input_model_spec_confirmation(result_row, model_value, spec_value, name_value, *extra_values)
@@ -52804,6 +53137,7 @@ if search_requested:
                     matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
                 part_info_fragment = render_clickable_result_table(
                     part_info_df,
+                    spec=spec,
                     show_official_status=False,
                     footer_html="",
                     wrap_iframe=False,

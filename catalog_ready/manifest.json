@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "recipe": "cdfe76683d9fc0619587a3ded7af9ccce485a4e413fdf3b7d26a07da8d47b168",
+  "recipe": "bc681edc7e9cd93c5c5eb43da84e4b1ceee1135087519d4c32b93a0c21e2a543",
   "sources": {
     "cache/components_search.sqlite": {
       "sha256": "6d48e5734bf773dfa1fc07c3fc0dd42088a1264abb72496f16345dbdbf532c89",
@@ -144,9 +144,9 @@
     },
     "MLCC": {
       "file": "7d8d049f25232c45.sqlite.gz",
-      "sha256": "126c864448a396495f00f58d622b34006b38b8658dca229add5c5e078b44db73",
-      "raw_sha256": "852f9d732c9a6c955c98c1027031527300948dc97557a53ac7742a81717eabb9",
-      "raw_size": 25055232,
+      "sha256": "48009c712561635e3ca2673f93e6eeb8ace1ee3049e7c7fc2eac9aa2fbbde0a1",
+      "raw_sha256": "55a3d4a80ea5136f03de4f53388d5258e74b246c32c5d81ed3fd33d32933ac93",
+      "raw_size": 25092096,
       "total": 127683,
       "unique": true
     },

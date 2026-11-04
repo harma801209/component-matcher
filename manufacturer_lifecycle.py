@@ -187,6 +187,21 @@ def records():
     return _read(str(EVIDENCE),EVIDENCE.stat().st_mtime_ns) if EVIDENCE.is_file() else ()
 
 
+@lru_cache(maxsize=2)
+def _record_index(path, modified):
+    return {(record['manufacturer'], record['model']): record
+            for record in _read(path, modified)}
+
+
+def lookup(brand, model):
+    """Exact public evidence only; no prefix, family, stock or legacy fallback."""
+    if not EVIDENCE.is_file():
+        return None
+    item = _record_index(str(EVIDENCE), EVIDENCE.stat().st_mtime_ns).get(
+        (manufacturer(brand), str(model or '').strip().upper()))
+    return dict(item) if item else None
+
+
 def install(conn, table, kind):
     evidence = records()
     if conn.execute("SELECT 1 FROM sqlite_temp_master WHERE name='catalog_lifecycle_source'").fetchone(): return 'catalog_lifecycle_source'

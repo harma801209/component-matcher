@@ -35,6 +35,26 @@ class WalsinCatalogueTests(unittest.TestCase):
             self.assertTrue(any('USING INDEX test_core_model' in row[3] for row in core_plan),core_plan)
             self.assertFalse(any('LEFT-JOIN' in row[3] for row in core_plan),core_plan)
 
+    def test_mt_temperature_is_exact_catalogue_series_and_blank_only(self):
+        row=catalogue.row(catalogue.listed('MT18B334K500CT'))
+        self.assertEqual(row['工作温度'],'-55~125℃')
+        self.assertIn('第3页',row['备注1'])
+        old={'品牌':catalogue.BRAND,'型号':'MT18B334K500CT','工作温度':'','_temp_low':None,'_temp_high':None,'成本':123}
+        fixed=catalogue.enrich_record(old)
+        self.assertEqual(fixed['工作温度'],'-55~125℃')
+        self.assertEqual(fixed['_temp_high'],125)
+        self.assertEqual(fixed['成本'],123)
+        self.assertEqual(catalogue.enrich_record(fixed),fixed)
+        self.assertEqual(catalogue.enrich_record(dict(old,工作温度='-55~150℃'))['工作温度'],'-55~150℃')
+        self.assertEqual(catalogue.enrich_record(dict(old,品牌='信昌PDC')),dict(old,品牌='信昌PDC'))
+        self.assertEqual(catalogue.enrich_record(dict(old,型号='MT18B999K500CT'))['工作温度'],'')
+        self.assertEqual(catalogue.enrich_record(dict(old,_mat='X5R'))['工作温度'],'')
+        self.assertEqual(catalogue.enrich_record(dict(old,_temp_high=150))['工作温度'],'')
+        for material,high in [('X8G',150),('C0G',125),('X7R',125),('X6S',105)]:
+            self.assertEqual(catalogue.mt_temperature_high(dict(series='Automotive Caps Qualified to AEC-Q200 (MT series)',material=material)),high)
+        self.assertIsNone(catalogue.mt_temperature_high(dict(series='Automotive Caps Without AEC-Q200 Certification_(MG series)',material='X7R')))
+
+
     def test_x7s_is_a_listed_manufacturer_identity_not_a_synthetic_grid(self):
         x7s=[r for r in catalogue.catalogue_rows() if r['材质（介质）']=='X7S']
         self.assertEqual(len(x7s),20)
@@ -72,13 +92,16 @@ class WalsinCatalogueTests(unittest.TestCase):
         row=frames['components_search_capacitor'].set_index('型号').loc['0805A106K250']
         self.assertEqual(row['_mat'],'X7S')
         self.assertEqual(row['_temp_high'],125)
+        mt=frames['components_search_capacitor'].set_index('型号').loc['MT18B334K500']
+        self.assertEqual(mt['_temp_low'],-55)
+        self.assertEqual(mt['_temp_high'],125)
         self.assertFalse({'价格','成本','生产状态','member_id'} & set(row.index))
 
     def test_historical_corrections_are_exact_model_old_value_and_brand_guarded(self):
         self.assertEqual(len(catalogue.corrections()),187)
         self.assertEqual(sum(len(r['fields']) for r in catalogue.corrections().values()),190)
         for model, correction in catalogue.corrections().items():
-            original={'品牌':catalogue.BRAND,'型号':model,'成本':123.45,'价格':678.9}
+            original={'品牌':catalogue.BRAND,'型号':model,'成本':123.45,'价格':678.9,'工作温度':'manual-temperature'}
             original.update({field:change['old'] for field,change in correction['fields'].items()})
             actual=catalogue.enrich_record(original)
             for field,change in correction['fields'].items():
