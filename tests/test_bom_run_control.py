@@ -2,6 +2,7 @@
 import ast
 import copy
 import hashlib
+import json
 from types import SimpleNamespace
 from pathlib import Path
 import unittest
@@ -326,6 +327,63 @@ class BomWorkerInterruptionTests(unittest.TestCase):
         self.assertEqual(events[:2],[('warm',main_thread),('close',main_thread)])
         self.assertTrue(all(thread != main_thread for kind,thread in events if kind=='worker'))
 
+    def test_real_coordinator_keeps_candidate_cache_row_local_while_reusing_worker_connection(self):
+        seen = []
+        run = self.coordinator(lambda *args, **kw: {})
+        state = run.__globals__['_BOM_SEARCH_ROW_CACHE']
+        def builder(_df, idx, record, mapping, **kwargs):
+            self.assertEqual(state.candidate_pairs, {})
+            self.assertEqual(state.pair_frames, {})
+            state.candidate_pairs['row'] = idx
+            state.pair_frames['row'] = idx
+            seen.append(state.connections)
+            return {'状态':'可推荐'}
+        run.__globals__['build_bom_upload_result_row'] = builder
+        result = run(None,pd.DataFrame({'型号':['A','B','C']}),{'model':'型号'},max_workers=1)
+        self.assertEqual(len(result), 3)
+        self.assertTrue(all(pool is seen[0] for pool in seen))
+
+    def test_public_default_uses_one_cpu_bound_lane_without_preparing_eight_overlays(self):
+        seen = []
+        run = self.coordinator(lambda *args, **kwargs: seen.append(threading.get_ident()) or {'状态':'可推荐'})
+        run.__globals__['is_public_mode'] = lambda: True
+        result = run(None,pd.DataFrame({'型号':[f'M{i}' for i in range(24)]}),{'model':'型号'})
+        self.assertEqual(len(result),24)
+        self.assertEqual(len(set(seen)),1)
+
+    def test_large_capacitor_snapshot_is_deferred_and_small_or_resumed_jobs_skip_it(self):
+        for count,kind,remaining in ((64,'MLCC',64),(63,'MLCC',63),(64,'resistor',64),(80,'MLCC',4)):
+            flags=[]
+            run=self.coordinator(lambda *args,**kwargs: {})
+            state=run.__globals__['_BOM_SEARCH_ROW_CACHE']
+            def builder(*args,**kwargs):
+                flags.append(state.materialize_capacitors)
+                return {'状态':'可推荐'}
+            run.__globals__.update(is_public_mode=lambda: True,
+                normalize_component_type=lambda value:value,
+                get_bom_selected_value=lambda record,column:record.get(column,''),
+                build_bom_upload_result_row=builder)
+            frame=pd.DataFrame({'型号':[f'P{i}' for i in range(count)],'类型':[kind]*count})
+            resumed={i:{'状态':'可推荐'} for i in range(count-remaining)}
+            result=run(None,frame,{'model':'型号','name':'类型'},resume_rows=resumed)
+            self.assertEqual(len(result),count)
+            self.assertFalse(flags[0])
+            self.assertEqual(flags[1:],[count==64 and kind=='MLCC']*(remaining-1))
+
+    def test_duplicate_rows_do_not_trigger_a_large_snapshot_for_two_actual_queries(self):
+        flags=[]
+        run=self.coordinator(lambda *args,**kwargs: {})
+        state=run.__globals__['_BOM_SEARCH_ROW_CACHE']
+        def builder(*args,**kwargs):
+            flags.append(state.materialize_capacitors)
+            return {'状态':'可推荐'}
+        run.__globals__.update(is_public_mode=lambda: True,
+            normalize_component_type=lambda value:value,
+            get_bom_selected_value=lambda record,column:record.get(column,''),build_bom_upload_result_row=builder)
+        result=run(None,pd.DataFrame({'型号':['A']*40+['B']*40,'类型':['MLCC']*80}),{'model':'型号','name':'类型'})
+        self.assertEqual(len(result),80)
+        self.assertEqual(flags,[False,False])
+
 
 class BomPublicConnectionTests(unittest.TestCase):
     @classmethod
@@ -438,6 +496,204 @@ class BomPublicConnectionTests(unittest.TestCase):
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             handles = list(executor.map(worker,range(4)))
         self.assertEqual(len({id(conn) for conn in handles}),4)
+
+    def test_one_job_worker_reuses_public_overlay_across_rows_and_closes_on_owner_thread(self):
+        from bom_run_control import bounded_results, search_connection_scope, lease_public_search_connection
+        state, opened, owner_threads, closed_threads = threading.local(), [], [], []
+        from contextlib import contextmanager
+        @contextmanager
+        def scope():
+            with search_connection_scope(state):
+                yield
+            closed_threads.append(threading.get_ident())
+        def worker(idx):
+            def initialize(conn):
+                opened.append(conn)
+                owner_threads.append(threading.get_ident())
+                conn.execute('CREATE TEMP TABLE overlay (value TEXT)')
+                conn.execute("INSERT INTO overlay VALUES ('public catalogue')")
+            conn = lease_public_search_connection(state.connections, 'public',
+                    lambda **kwargs: sqlite3.connect(':memory:', **kwargs), initialize)
+            self.assertEqual(conn.execute('SELECT value FROM overlay').fetchone()[0], 'public catalogue')
+            conn.close()  # Nested helpers must not close the lane's handle.
+            return idx
+        with bounded_results(worker, [(i,) for i in range(12)], 1, lambda: None, worker_scope=scope) as results:
+            self.assertEqual(list(results), list(range(12)))
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(owner_threads, closed_threads)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            opened[0].execute('SELECT 1')
+        # A subsequent job gets a new scope and a new connection.
+        with bounded_results(worker, [(20,)], 1, lambda: None, worker_scope=scope) as results:
+            self.assertEqual(list(results), [20])
+        self.assertEqual(len(opened), 2)
+        self.assertIsNot(opened[0], opened[1])
+
+    def test_scope_startup_error_reaches_coordinator_instead_of_hanging(self):
+        from bom_run_control import bounded_results
+        from contextlib import contextmanager
+        @contextmanager
+        def broken():
+            raise ValueError('scope startup failed')
+            yield
+        with self.assertRaisesRegex(ValueError, 'scope startup failed'):
+            with bounded_results(lambda idx: idx, [(0,)], 2, lambda: None, worker_scope=broken) as results:
+                list(results)
+
+    def test_partial_executor_startup_failure_still_cancels_and_shuts_down(self):
+        from bom_run_control import bounded_results
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        released, closed = threading.Event(), threading.Event()
+        real = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        calls, shutdowns = [], []
+        class PartialExecutor:
+            def __init__(self, **kwargs):pass
+            def submit(self, function):
+                calls.append(1)
+                if len(calls)==2:
+                    raise RuntimeError('not enough thread resources')
+                return real.submit(function)
+            def shutdown(self, **kwargs):
+                shutdowns.append(kwargs)
+                return real.shutdown(**kwargs)
+        @contextmanager
+        def startup_scope():
+            try:
+                if not released.wait(5):
+                    raise RuntimeError('test release timeout')
+                raise RuntimeError('test scope cancelled')
+                yield
+            finally:
+                closed.set()
+        try:
+            with patch('bom_run_control.ThreadPoolExecutor',PartialExecutor):
+                with self.assertRaisesRegex(RuntimeError,'not enough thread resources'):
+                    with bounded_results(lambda idx:idx,[(0,)],2,lambda:None,worker_scope=startup_scope) as results:
+                        list(results)
+            self.assertEqual(shutdowns,[{'wait':False,'cancel_futures':True}])
+        finally:
+            released.set()
+            real.shutdown(wait=True,cancel_futures=True)
+        # The first lane may have started before cancellation, or its queued
+        # future may already have been cancelled. Both must terminate cleanly.
+
+    def test_parallel_job_lanes_never_share_handles_and_close_before_normal_return(self):
+        from bom_run_control import bounded_results, search_connection_scope, lease_public_search_connection
+        from contextlib import contextmanager
+        state, barrier, lock = threading.local(), threading.Barrier(3), threading.Lock()
+        handles, finished, owners = [], [], {}
+        @contextmanager
+        def scope():
+            with search_connection_scope(state):
+                yield
+            finished.append(threading.get_ident())
+        def worker(idx):
+            def initialize(conn):
+                conn.execute('CREATE TEMP TABLE identity (owner INTEGER)')
+                conn.execute('INSERT INTO identity VALUES (?)',(threading.get_ident(),))
+                with lock:
+                    handles.append(conn)
+            conn = lease_public_search_connection(state.connections,'public',
+                    lambda **kwargs: sqlite3.connect(':memory:',**kwargs),initialize)
+            if idx < 3:
+                barrier.wait(timeout=10)
+            self.assertEqual(conn.execute('SELECT owner FROM identity').fetchone()[0], threading.get_ident())
+            with lock:
+                owners.setdefault(threading.get_ident(),set()).add(id(conn))
+            return idx
+        with bounded_results(worker,[(i,) for i in range(24)],3,lambda: None,worker_scope=scope) as results:
+            self.assertEqual(sorted(results),list(range(24)))
+        self.assertEqual(len(handles),3)
+        self.assertEqual(len(finished),3)
+        self.assertEqual(len(owners),3)
+        self.assertTrue(all(len(group)==1 for group in owners.values()))
+
+    def test_interruption_closes_scope_after_only_running_rows_finish(self):
+        from bom_run_control import bounded_results
+        from contextlib import contextmanager
+        started, release, closed = threading.Event(), threading.Event(), threading.Event()
+        calls = []
+        @contextmanager
+        def scope():
+            try:
+                yield
+            finally:
+                closed.set()
+        def worker(idx):
+            calls.append(idx)
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError('test worker did not get released')
+            return idx
+        def stop():
+            self.assertTrue(started.is_set())
+            raise RuntimeError('UI interrupted')
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'UI interrupted'):
+                with bounded_results(worker, [(i,) for i in range(138)], 1, stop, worker_scope=scope) as results:
+                    list(results)
+            self.assertFalse(closed.is_set())
+        finally:
+            release.set()
+        self.assertTrue(closed.wait(5))
+        self.assertEqual(calls, [0])
+
+
+class BomCandidateQueryReuseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'component_matcher.py').read_text(encoding='utf-8'))
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'fetch_search_candidate_pairs')
+        cls.code = compile(ast.Module(body=[node], type_ignores=[]), '<actual-candidate-query-cache>', 'exec')
+
+    def wrapper(self, state, loader):
+        env = dict(_BOM_SEARCH_ROW_CACHE=state, json=json, _fetch_search_candidate_pairs_uncached=loader)
+        exec(self.code, env)
+        return env['fetch_search_candidate_pairs']
+
+    def test_identical_complete_specs_only_query_once_and_return_independent_lists(self):
+        state, calls = threading.local(), []
+        state.candidate_pairs = {}
+        fetch = self.wrapper(state, lambda spec: calls.append(dict(spec)) or [('DEMO', 'PART')])
+        spec = {'尺寸（inch）': '0603', '容值_pf': 330000, '_requested_brands':['PDC'], '特殊用途':'AEC-Q200'}
+        first = fetch(spec)
+        first.clear()
+        self.assertEqual(fetch(dict(reversed(list(spec.items())))), [('DEMO', 'PART')])
+        self.assertEqual(fetch(spec), [('DEMO', 'PART')])
+        self.assertEqual(len(calls), 1)
+
+    def test_every_condition_including_unknown_future_fields_gets_a_distinct_key(self):
+        state, calls = threading.local(), []
+        state.candidate_pairs = {}
+        fetch = self.wrapper(state, lambda spec: calls.append(dict(spec)) or [])
+        base = {'器件类型':'MLCC', '_requested_brands':['PDC'], '特殊用途':'AEC-Q200', '_future_rule':'a'}
+        fetch(base)
+        for field, value in [('_requested_brands',['WALSIN']), ('特殊用途','软端子'),
+                              ('_safety_class','X2'), ('_future_rule','b'), ('耐压（V）','630V')]:
+            fetch(dict(base, **{field:value}))
+        self.assertEqual(len(calls), 6)
+
+    def test_no_scope_or_a_fresh_row_never_reuses_a_previous_result(self):
+        state, calls = threading.local(), []
+        fetch = self.wrapper(state, lambda spec: calls.append(1) or [])
+        fetch({'a':1}); fetch({'a':1})
+        self.assertEqual(len(calls), 2)
+        state.candidate_pairs = {}
+        fetch({'a':1}); fetch({'a':1})
+        self.assertEqual(len(calls), 3)
+        state.candidate_pairs = {}
+        fetch({'a':1})
+        self.assertEqual(len(calls), 4)
+
+    def test_transient_failures_are_not_cached_but_empty_success_is_cached(self):
+        state, calls = threading.local(), []
+        state.candidate_pairs = {}
+        fetch = self.wrapper(state, lambda spec: calls.append(1) or (None if len(calls)==1 else []))
+        self.assertIsNone(fetch({'a':1}))
+        self.assertEqual(fetch({'a':1}), [])
+        self.assertEqual(fetch({'a':1}), [])
+        self.assertEqual(len(calls), 2)
 
 
 if __name__ == '__main__':

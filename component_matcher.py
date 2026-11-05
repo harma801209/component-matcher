@@ -355,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-05T15:12:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-05T20:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -40524,6 +40524,27 @@ def append_timing_tolerance_candidate_filter(where_clauses, params, tolerance):
 
 
 def fetch_search_candidate_pairs(spec):
+    # Scope is created exclusively for one BOM row. The full specification key
+    # includes brand/special-purpose requirements; never reuse across rows,
+    # principals, jobs or interactive searches. Transient failures are retried.
+    cache = getattr(_BOM_SEARCH_ROW_CACHE, "candidate_pairs", None)
+    if not isinstance(cache, dict) or not isinstance(spec, dict):
+        return _fetch_search_candidate_pairs_uncached(spec)
+    key = json.dumps(spec, sort_keys=True, ensure_ascii=False, default=str)
+    if key in cache:
+        return list(cache[key])
+    if (getattr(_BOM_SEARCH_ROW_CACHE, "materialize_capacitors", False)
+            and infer_spec_component_type(spec) == "MLCC"):
+        from bom_run_control import materialize_public_capacitor_index
+        for conn in getattr(_BOM_SEARCH_ROW_CACHE, "connections", {}).values():
+            materialize_public_capacitor_index(conn)
+    result = _fetch_search_candidate_pairs_uncached(spec)
+    if result is not None:
+        cache[key] = tuple(result)
+    return result
+
+
+def _fetch_search_candidate_pairs_uncached(spec):
     if spec is None:
         return None
     target_type = infer_spec_component_type(spec)
@@ -49566,23 +49587,37 @@ def bom_dataframe_from_upload(
             worker_cache = {}
             thread_state.query_cache = worker_cache
         previous_pair_frame_cache = getattr(_BOM_SEARCH_ROW_CACHE, "pair_frames", None)
+        previous_candidate_pairs = getattr(_BOM_SEARCH_ROW_CACHE, "candidate_pairs", None)
+        previous_materialize = getattr(_BOM_SEARCH_ROW_CACHE, "materialize_capacitors", None)
         _BOM_SEARCH_ROW_CACHE.pair_frames = {}
+        _BOM_SEARCH_ROW_CACHE.candidate_pairs = {}
+        # Deliver a real first result before investing in a larger indexed
+        # snapshot. This is not a fake completion or a progress-only change.
+        _BOM_SEARCH_ROW_CACHE.materialize_capacitors = (
+            large_mlcc_job and getattr(thread_state, "completed_records", 0) > 0
+        )
         try:
-            from bom_run_control import search_connection_scope
-            with search_connection_scope(_BOM_SEARCH_ROW_CACHE):
-                result_row = build_bom_upload_result_row(
-                    None,
-                    idx,
-                    record,
-                    column_mapping,
-                    query_cache=worker_cache,
-                    full_df_provider=full_df_provider,
-                    export_settings=export_settings,
-                    exact_part_prefetch_map=exact_part_prefetch_map,
-                    cost_lookup=cost_lookup,
-                    resistor_pricing_rules=resistor_pricing_rules,
-                )
+            result_row = build_bom_upload_result_row(
+                None,
+                idx,
+                record,
+                column_mapping,
+                query_cache=worker_cache,
+                full_df_provider=full_df_provider,
+                export_settings=export_settings,
+                exact_part_prefetch_map=exact_part_prefetch_map,
+                cost_lookup=cost_lookup,
+                resistor_pricing_rules=resistor_pricing_rules,
+            )
         finally:
+            if previous_materialize is None:
+                delattr(_BOM_SEARCH_ROW_CACHE, "materialize_capacitors")
+            else:
+                _BOM_SEARCH_ROW_CACHE.materialize_capacitors = previous_materialize
+            if previous_candidate_pairs is None:
+                delattr(_BOM_SEARCH_ROW_CACHE, "candidate_pairs")
+            else:
+                _BOM_SEARCH_ROW_CACHE.candidate_pairs = previous_candidate_pairs
             if previous_pair_frame_cache is None:
                 try:
                     delattr(_BOM_SEARCH_ROW_CACHE, "pair_frames")
@@ -49596,6 +49631,7 @@ def bom_dataframe_from_upload(
                 f"elapsed={time.perf_counter() - row_started_at:.3f}s",
                 f"status={clean_text(result_row.get('状态', ''))}",
             )
+        thread_state.completed_records = getattr(thread_state, "completed_records", 0) + 1
         return idx, result_row
 
     pending_items = []
@@ -49606,9 +49642,21 @@ def bom_dataframe_from_upload(
         representative_index = next(idx for idx in group_indexes if idx not in completed_rows)
         pending_items.append((representative_index, records[representative_index]))
         pending_group_indexes[representative_index] = group_indexes
+    # Count pending unique capacitor specs, not total source/resumed rows. Do
+    # not pay snapshot setup for a small remainder, duplicate-only or resistor BOM.
+    name_column = column_mapping.get("name")
+    large_mlcc_job = bool(name_column and (is_public_mode() or is_streamlit_cloud_runtime()) and sum(
+        normalize_component_type(get_bom_selected_value(record, name_column)) == "MLCC"
+        for _, record in pending_items
+    ) >= 64)
     worker_count = max_workers
     if worker_count is None:
-        worker_count = min(8, max(1, len(pending_items)))
+        # SQL overlays invoke Python functions and dataframe scoring is CPU/GIL
+        # bound. On the constrained public host extra threads multiply overlay
+        # preparation and CPU use rather than improve latency. Explicit worker
+        # limits remain supported for controlled tests and non-public callers.
+        worker_count = (1 if is_public_mode() or is_streamlit_cloud_runtime()
+                        else min(8, max(1, len(pending_items))))
     worker_count = max(1, min(int(worker_count or 1), 8))
     if pending_items and worker_count > 1 and (is_public_mode() or is_streamlit_cloud_runtime()):
         # lru_cache can compute simultaneous cold misses more than once. Warm
@@ -49626,10 +49674,11 @@ def bom_dataframe_from_upload(
         {"BOM行号": "", "解析输入": "正在从断点继续 BOM 匹配" if completed_rows else "准备开始 BOM 匹配"},
         done=False,
     )
-    from bom_run_control import bounded_results
+    from bom_run_control import bounded_results, search_connection_scope
     with bounded_results(
         process_record, pending_items, worker_count,
         heartbeat=lambda: emit_progress(len(completed_rows)),
+        worker_scope=lambda: search_connection_scope(_BOM_SEARCH_ROW_CACHE),
     ) as results:
         for idx, result_row in results:
             group_indexes = pending_group_indexes.get(idx, [idx])

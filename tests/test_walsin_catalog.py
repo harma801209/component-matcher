@@ -8,6 +8,50 @@ import walsin_catalog as catalogue
 
 
 class WalsinCatalogueTests(unittest.TestCase):
+    def test_bom_materialization_preserves_complete_rows_and_eliminates_per_query_decode(self):
+        from bom_run_control import materialize_public_capacitor_index
+        from unittest.mock import patch
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            ordinary=stack.enter_context(sqlite3.connect(':memory:'))
+            fast=stack.enter_context(sqlite3.connect(':memory:'))
+            rows=[(1,catalogue.BRAND,'0805A106K250CT','MLCC','0805',None,10000000,'10',25,None,None),
+                  (2,catalogue.BRAND,'HH18N1R5B500CT','MLCC','0603','C0G',1.5,'0.1',50,None,None),
+                  (3,catalogue.BRAND,'HH18N1R5B500CT','MLCC','0603','X7R',1.5,'0.1',50,None,None),
+                  (4,'Other','ORIGINAL','MLCC','0603','X7R',100000,'10',50,None,None),
+                  (5,None,'NULLBRAND','MLCC','0603','X7R',100000,'10',50,None,None),
+                  (6,catalogue.BRAND,' \t1210b224k451ct \n','MLCC','1210','X7R',220000,'0.1PF',16,None,None),
+                  (7,catalogue.BRAND,'HH18N1R5B500CT','MLCC','0603','C0G','garbage','10',50,None,None)]
+            for conn in (ordinary,fast):
+                conn.execute('CREATE TABLE components_search_core (品牌,型号,_model_clean,_component_type)')
+                conn.execute('CREATE TABLE components_search_capacitor (id,品牌,型号,_component_type,_size,_mat,_pf,_tol,_volt_num,_temp_low,_temp_high)')
+                conn.execute('CREATE INDEX original_spec ON components_search_capacitor(_component_type,_size,_mat,_pf)')
+                conn.executemany('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?,?,?,?)',rows)
+                conn.executemany('INSERT INTO components_search_core VALUES (?,?,?,?)',[(r[1],r[2],r[2],r[3]) for r in rows])
+                conn.execute('CREATE TEMP TABLE upstream AS SELECT * FROM main.components_search_capacitor WHERE 0')
+                conn.execute("INSERT INTO upstream VALUES (8,'Upstream','ADDED','MLCC','0603','X7R',100000,'10',50,NULL,NULL)")
+                conn.execute('CREATE TEMP VIEW components_search_capacitor AS SELECT * FROM main.components_search_capacitor UNION ALL SELECT * FROM upstream')
+            catalogue.install_search_overlay(ordinary)
+            with patch.object(catalogue,'core',wraps=catalogue.core) as decoder:
+                catalogue.install_search_overlay(fast)
+                materialize_public_capacitor_index(fast)
+                decoder.reset_mock()
+                catalogue.install_search_overlay(fast)
+                materialize_public_capacitor_index(fast)
+                for conn in (ordinary,fast):
+                    values=conn.execute('SELECT * FROM components_search_capacitor').fetchall()
+                    signature=sorted(values,key=repr)
+                    if conn is ordinary:expected=signature
+                    else:self.assertEqual(signature,expected)
+                    self.assertEqual(conn.execute('SELECT * FROM main.components_search_capacitor').fetchall(),rows)
+                for _ in range(3):
+                    params=('MLCC','0805','X7S',10000000)
+                    query='SELECT 品牌,型号 FROM components_search_capacitor WHERE _component_type=? AND _size=? AND _mat=? AND _pf=?'
+                    self.assertEqual(sorted(fast.execute(query,params).fetchall()),sorted(ordinary.execute(query,params).fetchall()))
+                self.assertEqual(decoder.call_count,0,'Materialized queries must not redo manufacturer decoding')
+                plan=fast.execute('EXPLAIN QUERY PLAN '+query,params).fetchall()
+                self.assertTrue(any('bom_public_capacitor_snapshot_spec' in row[3] for row in plan),plan)
+
     def test_index_ratings_do_not_reenrich_catalogue_or_fill_conflicting_rows(self):
         from unittest.mock import patch
         with sqlite3.connect(':memory:') as conn:
