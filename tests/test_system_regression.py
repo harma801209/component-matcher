@@ -3840,6 +3840,7 @@ class SystemRegressionTests(unittest.TestCase):
         saved_upload_bridge = sys.modules.get("bom_image_clipboard")
         saved_native_excel = sys.modules.get("bom_native_excel")
         saved_naming_guide = sys.modules.get("model_naming_guide")
+        saved_bom_run_control = sys.modules.get("bom_run_control")
         with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
             root = Path(folder)
             theme = root / "precision_theme.py"
@@ -3850,6 +3851,8 @@ class SystemRegressionTests(unittest.TestCase):
             native_excel.write_text('PUBLIC_NATIVE_MARKER = "before"\n',encoding='utf-8')
             naming_guide = root / 'model_naming_guide.py'
             naming_guide.write_text('PUBLIC_NAMING_MARKER = "old-fixed-columns"\n',encoding='utf-8')
+            bom_run_control = root / 'bom_run_control.py'
+            bom_run_control.write_text('PUBLIC_BOM_MARKER = "old-coordinator"\n',encoding='utf-8')
             (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\nfrom bom_native_excel import PUBLIC_NATIVE_MARKER\nfrom model_naming_guide import PUBLIC_NAMING_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
             runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
             namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
@@ -3858,6 +3861,7 @@ class SystemRegressionTests(unittest.TestCase):
             sys.modules.pop("bom_image_clipboard",None)
             sys.modules.pop("bom_native_excel",None)
             sys.modules.pop("model_naming_guide",None)
+            sys.modules.pop("bom_run_control",None)
             try:
                 exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
                 cached, _ = namespace["load_component_matcher_runtime"]()
@@ -3888,6 +3892,11 @@ class SystemRegressionTests(unittest.TestCase):
                 naming_namespace=cached['base_namespace']
                 namespace['load_component_matcher_runtime']()
                 self.assertIs(cached['base_namespace'],naming_namespace)
+                bom_run_control.write_text('PUBLIC_BOM_MARKER = "bounded-heartbeat-coordinator"\n',encoding='utf-8')
+                cached,_=namespace['load_component_matcher_runtime']()
+                self.assertEqual(sys.modules['bom_run_control'].PUBLIC_BOM_MARKER,
+                                 'bounded-heartbeat-coordinator')
+                self.assertIsNot(cached['base_namespace'],naming_namespace)
             finally:
                 sys.path.pop(0)
                 sys.modules.pop("precision_theme", None)
@@ -3896,6 +3905,9 @@ class SystemRegressionTests(unittest.TestCase):
                 sys.modules.pop('bom_image_clipboard',None)
                 if saved_upload_bridge is not None:
                     sys.modules['bom_image_clipboard']=saved_upload_bridge
+                sys.modules.pop('bom_run_control',None)
+                if saved_bom_run_control is not None:
+                    sys.modules['bom_run_control']=saved_bom_run_control
                 sys.modules.pop('bom_native_excel',None)
                 if saved_native_excel is not None:
                     sys.modules['bom_native_excel']=saved_native_excel

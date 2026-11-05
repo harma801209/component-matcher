@@ -48,7 +48,7 @@ from jianghai_parameters import (
 )
 from copy import copy, deepcopy
 from contextlib import closing
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from cost_price_history import (
     normalize_as_of as normalize_cost_as_of,
@@ -355,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-05T11:20:10+08:00"
+PUBLIC_CODE_STAMP = "2026-11-05T15:12:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -35813,12 +35813,34 @@ def open_search_db_connection(timeout_sec=30):
         ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     if not os.path.exists(SEARCH_DB_PATH):
         return None
+    def initialize(conn):
+        conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
+        install_jianghai_search_overlay(conn)
+        install_amotech_catalogue_overlay(conn)
+        _resistance_corrections.install_search_overlay(conn)
+
+    pool = getattr(globals().get("_BOM_SEARCH_ROW_CACHE"), "connections", None)
+    if isinstance(pool, dict) and (is_public_mode() or is_streamlit_cloud_runtime()):
+        from pathlib import Path
+        from bom_run_control import lease_public_search_connection
+        # Only the public component index is leased. No member/cost/report/job
+        # connection passes through here. Enforce read-only main-file access;
+        # existing overlays still write exclusively to TEMP/attached public data.
+        uri = Path(SEARCH_DB_PATH).resolve().as_uri() + "?mode=ro"
+        conn = lease_public_search_connection(
+            pool, uri,
+            lambda **options: sqlite3.connect(uri, timeout=float(timeout_sec), uri=True, **options),
+            initialize,
+        )
+        conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
+        return conn
     conn = sqlite3.connect(SEARCH_DB_PATH, timeout=float(timeout_sec), uri=True)
-    conn.execute(f"PRAGMA busy_timeout = {int(timeout_sec * 1000)}")
-    install_jianghai_search_overlay(conn)
-    install_amotech_catalogue_overlay(conn)
-    _resistance_corrections.install_search_overlay(conn)
-    return conn
+    try:
+        initialize(conn)
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 @lru_cache(maxsize=1)
@@ -49358,6 +49380,19 @@ def bom_dataframe_from_upload(
     if upload_df is None or upload_df.empty:
         return pd.DataFrame()
 
+    start_ts = time.perf_counter()
+
+    def emit_preparation(stage):
+        if progress_callback is not None:
+            progress_callback({
+                "title": "BOM 正在准备匹配", "subtitle": "开始指令已收到，正在准备匹配数据",
+                "current_text": stage, "processed_rows": 0, "total_rows": len(upload_df),
+                "percent": 0.0, "done": False,
+                "elapsed_seconds": max(0.0, time.perf_counter() - start_ts),
+                "chips": [{"label": "阶段", "value": stage, "tone": "warn"}],
+            })
+
+    emit_preparation("整理输入和型号索引")
     work = upload_df.copy()
     if column_mapping is None:
         first_col = work.columns[0]
@@ -49397,12 +49432,14 @@ def bom_dataframe_from_upload(
                 for token in extract_model_like_tokens(value)
                 if looks_like_compact_part_query(token)
             )
+    emit_preparation("载入精确型号")
     exact_part_prefetch_map = (
         load_component_rows_by_exact_models_from_database(list(dict.fromkeys(exact_model_queries)))
         if exact_model_queries
         else {}
     )
     normalized_export_settings = normalize_bom_export_settings(export_settings)
+    emit_preparation("载入授权价格和匹配规则")
     cost_lookup = load_authorized_cost_price_lookup(
         normalized_export_settings.get("customer_type") or COST_CUSTOMER_TYPE_NEW,
         normalized_export_settings.get("customer_name", ""),
@@ -49439,7 +49476,6 @@ def bom_dataframe_from_upload(
     no_match_count = 0
     fail_count = 0
     skipped_count = 0
-    start_ts = time.perf_counter()
     last_emit_ts = start_ts
     last_emit_index = 0
     emit_every = max(1, total_rows // 80) if total_rows else 1
@@ -49450,6 +49486,7 @@ def bom_dataframe_from_upload(
         elapsed_seconds = max(0.0, time.perf_counter() - start_ts)
         percent = 100.0 if total_rows <= 0 else min(100.0, (processed_rows / total_rows) * 100.0)
         current_text = ""
+        row_no = ""
         if isinstance(result_row, dict):
             row_no = clean_text(result_row.get("BOM行号", ""))
             row_hint = ""
@@ -49464,7 +49501,7 @@ def bom_dataframe_from_upload(
             elif row_hint:
                 current_text = row_hint
         if not current_text and total_rows:
-            current_text = f"正在处理第 {processed_rows}/{total_rows} 行"
+            current_text = f"已完成 {processed_rows}/{total_rows} 行，正在等待其余物料的匹配结果"
         elif not current_text:
             current_text = "正在处理 BOM 数据"
         if done:
@@ -49473,6 +49510,7 @@ def bom_dataframe_from_upload(
             "title": "BOM 匹配完成" if done else "BOM 正在匹配",
             "subtitle": "正在解析并匹配上传的 BOM 数据" if not done else "已完成本次 BOM 上传匹配",
             "current_text": current_text,
+            "current_label": "最近完成" if row_no else "任务状态",
             "processed_rows": processed_rows,
             "total_rows": total_rows,
             "percent": percent,
@@ -49530,18 +49568,20 @@ def bom_dataframe_from_upload(
         previous_pair_frame_cache = getattr(_BOM_SEARCH_ROW_CACHE, "pair_frames", None)
         _BOM_SEARCH_ROW_CACHE.pair_frames = {}
         try:
-            result_row = build_bom_upload_result_row(
-                None,
-                idx,
-                record,
-                column_mapping,
-                query_cache=worker_cache,
-                full_df_provider=full_df_provider,
-                export_settings=export_settings,
-                exact_part_prefetch_map=exact_part_prefetch_map,
-                cost_lookup=cost_lookup,
-                resistor_pricing_rules=resistor_pricing_rules,
-            )
+            from bom_run_control import search_connection_scope
+            with search_connection_scope(_BOM_SEARCH_ROW_CACHE):
+                result_row = build_bom_upload_result_row(
+                    None,
+                    idx,
+                    record,
+                    column_mapping,
+                    query_cache=worker_cache,
+                    full_df_provider=full_df_provider,
+                    export_settings=export_settings,
+                    exact_part_prefetch_map=exact_part_prefetch_map,
+                    cost_lookup=cost_lookup,
+                    resistor_pricing_rules=resistor_pricing_rules,
+                )
         finally:
             if previous_pair_frame_cache is None:
                 try:
@@ -49570,6 +49610,14 @@ def bom_dataframe_from_upload(
     if worker_count is None:
         worker_count = min(8, max(1, len(pending_items)))
     worker_count = max(1, min(int(worker_count or 1), 8))
+    if pending_items and worker_count > 1 and (is_public_mode() or is_streamlit_cloud_runtime()):
+        # lru_cache can compute simultaneous cold misses more than once. Warm
+        # public catalogue frames once on the coordinator before workers start,
+        # avoiding eight competing cold preparations on the constrained host.
+        emit_preparation("准备公共元器件目录")
+        warm_connection = open_search_db_connection(timeout_sec=10)
+        if warm_connection is not None:
+            warm_connection.close()
     checkpoint_every = max(1, min(10, total_rows // 40 if total_rows >= 40 else 1))
     last_checkpoint_count = len(completed_rows)
 
@@ -49578,12 +49626,12 @@ def bom_dataframe_from_upload(
         {"BOM行号": "", "解析输入": "正在从断点继续 BOM 匹配" if completed_rows else "准备开始 BOM 匹配"},
         done=False,
     )
-    futures = {}
-    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="bom-match") as executor:
-        for idx, record in pending_items:
-            futures[executor.submit(process_record, idx, record)] = idx
-        for future in as_completed(futures):
-            idx, result_row = future.result()
+    from bom_run_control import bounded_results
+    with bounded_results(
+        process_record, pending_items, worker_count,
+        heartbeat=lambda: emit_progress(len(completed_rows)),
+    ) as results:
+        for idx, result_row in results:
             group_indexes = pending_group_indexes.get(idx, [idx])
             for group_idx in group_indexes:
                 if group_idx in completed_rows:
@@ -51884,14 +51932,22 @@ def render_bom_upload_page():
                         bom_export_mode,
                         selected_export_brands,
                     )
+                    interrupted_before_result = (
+                        not match_start_clicked
+                        and st.session_state.get("_bom_match_attempt_signature") == cached_expected_signature
+                    )
                     render_bom_progress_card(
                         progress_placeholder,
                         {
-                            "title": "BOM 文件读取完成",
+                            "title": ("BOM 正在准备匹配" if match_start_clicked else
+                                      "BOM 匹配已中断" if interrupted_before_result else "BOM 文件读取完成"),
                             "subtitle": (
                                 f"已加载 {len(bom_sheet_frames)} 个分页，共 {total_workbook_rows} 行原始数据；"
                                 + (
-                                    "输出品牌已设置，等待点击开始匹配"
+                                    "开始指令已收到，正在检查栏位和匹配条件"
+                                    if match_start_clicked else
+                                    "上次启动未完成；已有断点会保留，请点击开始匹配继续"
+                                    if interrupted_before_result else "输出品牌已设置，等待点击开始匹配"
                                     if output_selection_ready
                                     else "等待选择输出品牌"
                                 )
@@ -51899,7 +51955,9 @@ def render_bom_upload_page():
                             "current_text": (
                                 f"当前分页：{selected_sheet_name} · "
                                 + (
-                                    "点击开始匹配后执行"
+                                    "正在准备，请勿重复点击"
+                                    if match_start_clicked else
+                                    "点击开始匹配继续上次任务" if interrupted_before_result else "点击开始匹配后执行"
                                     if output_selection_ready
                                     else "请选择输出品牌"
                                 )
@@ -51910,7 +51968,7 @@ def render_bom_upload_page():
                             "done": False,
                             "elapsed_seconds": 0.0,
                             "chips": [
-                                {"label": "阶段", "value": "读取完成", "tone": "success"},
+                                {"label": "阶段", "value": "准备匹配" if match_start_clicked else "已中断" if interrupted_before_result else "读取完成", "tone": "warn" if match_start_clicked or interrupted_before_result else "success"},
                                 {"label": "分页", "value": f"{len(bom_sheet_frames)}", "tone": "success"},
                                 {"label": "行数", "value": str(total_workbook_rows), "tone": "success"},
                             ],
@@ -52064,6 +52122,16 @@ def render_bom_upload_page():
                         # to the login/checkpoint auto-resume matching path.
                         start_bom_matching = False
                         st.info("这份 BOM 已完成过匹配；当前条件或可恢复数据已变化，请点击开始匹配更新结果。")
+                    if start_bom_matching:
+                        st.session_state["_bom_match_attempt_signature"] = current_bom_signature
+                        render_bom_progress_card(progress_placeholder, {
+                            "title": "BOM 正在准备匹配",
+                            "subtitle": "正在保存任务并检查匹配索引，请勿重复点击",
+                            "current_text": f"当前分页：{selected_sheet_name} · 准备匹配数据",
+                            "processed_rows": 0, "total_rows": total_workbook_rows,
+                            "percent": 0.0, "done": False, "elapsed_seconds": 0.0,
+                            "chips": [{"label": "阶段", "value": "准备匹配", "tone": "warn"}],
+                        })
                     if start_bom_matching and active_bom_job is None:
                         active_bom_job = create_persisted_bom_job(
                             uploaded_file,
@@ -52220,6 +52288,7 @@ def render_bom_upload_page():
                                     status="complete",
                                 )
                             st.session_state.pop("_bom_match_checkpoint", None)
+                            st.session_state.pop("_bom_match_attempt_signature", None)
                             component_distribution_text = build_bom_component_distribution_text(
                                 current_bom_result_df
                             )

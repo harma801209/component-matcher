@@ -16,7 +16,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Update this stamp when publishing public-facing changes so Streamlit Cloud
 # rechecks the checkout. This does not change runtime behavior.
 # The sync script may refresh this automatically when the public bundle is rebuilt.
-PUBLIC_RELEASE_STAMP = "2026-11-05T11:20:10+08:00"
+PUBLIC_RELEASE_STAMP = "2026-11-05T15:12:00+08:00"
 
 # The public entrypoint must never spend startup time rebuilding data.
 # Keep auto-update disabled unless a manual dev run opts back in explicitly.
@@ -49,6 +49,7 @@ def load_component_matcher_runtime():
     upload_bridge_stat = os.stat(upload_bridge_path)
     native_excel_stat = os.stat(os.path.join(BASE_DIR, "bom_native_excel.py"))
     naming_guide_stat = os.stat(os.path.join(BASE_DIR, "model_naming_guide.py"))
+    bom_run_control_stat = os.stat(os.path.join(BASE_DIR, "bom_run_control.py"))
     cache_key = (
         source_path,
         PUBLIC_RELEASE_STAMP,
@@ -62,6 +63,8 @@ def load_component_matcher_runtime():
         native_excel_stat.st_size,
         naming_guide_stat.st_mtime_ns,
         naming_guide_stat.st_size,
+        bom_run_control_stat.st_mtime_ns,
+        bom_run_control_stat.st_size,
     )
     with member_auth_runtime_state.APP_CODE_LOCK:
         cache = member_auth_runtime_state.APP_CODE_CACHE
@@ -83,6 +86,9 @@ def load_component_matcher_runtime():
         # app code is rebuilt. Refresh only this stateless result-help UI;
         # leave member/login and uploaded BOM runtime state untouched.
         importlib.reload(importlib.import_module("model_naming_guide"))
+        # Only this stateless coordinator is refreshed; never reload member or
+        # session modules. Hot workers may otherwise retain its old functions.
+        importlib.reload(importlib.import_module("bom_run_control"))
 
         page_shell_start = source.index("\nst.set_page_config(") + 1
         page_shell_end = source.index("\nBOM_NONE_OPTION =", page_shell_start) + 1
