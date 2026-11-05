@@ -784,9 +784,10 @@ def guide_html(guide):
 STYLE='''<style>
 .section-title.naming-inline-title{margin:0}
 [data-testid="stMarkdownContainer"]:has(>.naming-inline-title){margin-bottom:0}
-[data-testid="stPopoverBody"]:has(.naming-guide-marker){width:min(760px,calc(100vw - 24px));max-height:80vh;overflow:auto}
-.naming-guide-marker{display:none}.naming-guide-title{font-size:19px;font-weight:700;color:#17365c;margin:0 0 5px}
-.naming-guide-sub{color:#65758b;font-size:13px;margin:0 0 14px}.naming-chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 16px}
+[data-testid="stPopoverBody"]:has(.naming-guide-marker){width:min(760px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:12px 18px 16px}
+[data-testid="stPopoverBody"]:has(.naming-guide-marker) [data-testid="stVerticalBlock"]{gap:12px}
+.naming-guide-title{font-size:19px;font-weight:700;color:#17365c;margin:0}
+.naming-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}
 .naming-chip{display:flex;flex-direction:column;text-align:center;background:#edf4ff;border:1px solid #cfdef5;border-radius:7px;padding:9px 12px;min-width:44px}
 .naming-chip code{font:700 17px ui-monospace,Consolas,monospace;color:#1956ad;background:none;padding:0}.naming-chip span{font-size:11px;color:#61748f;margin-top:4px}
 .naming-unknown{background:#fff8e8;border-color:#ebd9af}.naming-unknown code{color:#886325}
@@ -816,7 +817,7 @@ def _render_header(title, records, instance_key):
     with row:
         st.markdown('<div class="section-title naming-inline-title">'+html.escape(title)+'</div>',unsafe_allow_html=True,**content_width)
         with st.popover('型号命名对照',help='查看本次匹配结果中各品牌、系列的代码含义'):
-            st.markdown('<span class="naming-guide-marker"></span><div class="naming-guide-title">型号命名对照</div><p class="naming-guide-sub">仅展示本次匹配出现的品牌与系列；点击面板外部即可关闭。</p>',unsafe_allow_html=True)
+            st.markdown('<div class="naming-guide-title naming-guide-marker">型号命名对照</div>',unsafe_allow_html=True)
             options=list(groups)
             if hasattr(st,'fragment'):
                 chosen=st.selectbox('品牌／系列',options,format_func=lambda key:f'{key[0]} · {key[1]}（{len(groups[key])} 个型号）',key='naming_group_'+instance_key)

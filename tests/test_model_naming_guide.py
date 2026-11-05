@@ -531,6 +531,16 @@ class NamingGuideTests(unittest.TestCase):
                          dict(horizontal=True,vertical_alignment='center',gap='small'))
         self.assertIn('naming-inline-title',Path(guide.__file__).read_text(encoding='utf-8'))
 
+    def test_popover_spacing_is_scoped_and_has_no_empty_heading_marker(self):
+        source=Path(guide.__file__).read_text(encoding='utf-8')
+        self.assertIn('[data-testid="stPopoverBody"]:has(.naming-guide-marker)',guide.STYLE)
+        self.assertIn('padding:12px 18px 16px',guide.STYLE)
+        self.assertIn('[data-testid="stVerticalBlock"]{gap:12px}',guide.STYLE)
+        self.assertIn('<div class="naming-guide-title naming-guide-marker">',source)
+        self.assertNotIn('<span class="naming-guide-marker">',source)
+        self.assertNotIn('naming-guide-sub',source)
+        self.assertNotIn('仅展示本次匹配出现的品牌与系列；点击面板外部即可关闭。',source)
+
 
 class NamingGuideUITests(unittest.TestCase):
     def test_direct_mlcc_header_keeps_results_and_separate_instances(self):
@@ -646,6 +656,9 @@ st.caption('原匹配结果仍在')
         self.assertEqual(len(at.selectbox),2)
         self.assertEqual(at.selectbox[1].value,'FRH0402B4703TS')
         self.assertTrue(any('470 kΩ' in item.value for item in at.markdown))
+        self.assertTrue(any('<div class="naming-guide-title naming-guide-marker">型号命名对照</div>'==item.value for item in at.markdown))
+        self.assertNotIn('点击面板外部即可关闭',''.join(item.value for item in at.markdown))
+        self.assertTrue(any('尚未完整' in item.value or '逐码解释完整' in item.value for item in at.markdown))
         at.selectbox[0].select(('光颉Viking','AR')).run(timeout=20)
         self.assertFalse(at.exception)
         self.assertEqual(at.selectbox[1].value,'AR02BTC4703')
