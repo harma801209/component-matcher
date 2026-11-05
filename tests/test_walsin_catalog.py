@@ -8,6 +8,88 @@ import walsin_catalog as catalogue
 
 
 class WalsinCatalogueTests(unittest.TestCase):
+    def test_index_ratings_do_not_reenrich_catalogue_or_fill_conflicting_rows(self):
+        from unittest.mock import patch
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE components_search_core (品牌,型号,_model_clean,_component_type)')
+            conn.execute('CREATE TABLE components_search_capacitor (id,品牌,型号,_component_type,_size,_mat,_pf,_volt_num,_temp_low,_temp_high)')
+            model='HH18N1R5B500CT'
+            rows=[(1,catalogue.BRAND,model,'MLCC','0603','C0G',1.5,50,None,None),
+                  (2,catalogue.BRAND,model,'MLCC','0603','X7R',1.5,50,None,None),
+                  (3,catalogue.BRAND,model,'MLCC','0603','C0G',99,50,None,None),
+                  (4,catalogue.BRAND,model,'MLCC','0603','C0G',1.5,25,None,None),
+                  (5,catalogue.BRAND,model,'MLCC','0603','C0G',1.5,50,None,999),
+                  (6,catalogue.BRAND,model,'MLCC','9999','C0G',1.5,50,None,None),
+                  (7,'Other',model,'MLCC','0603','C0G',1.5,50,None,None),
+                  (8,catalogue.BRAND,model,'MLCC','0603','COG(NPO)',1.5,50,None,None),
+                  (9,catalogue.BRAND,'\t '+model+' \n','MLCC','0603','C0G',1.5,50,None,None),
+                  (10,catalogue.BRAND,model,'MLCC',603,'C0G',1.5,50,None,None),
+                  (11,catalogue.BRAND,model,'MLCC','0603','C0G','1.5garbage',50,None,None)]
+            conn.execute('INSERT INTO components_search_core VALUES (?,?,?,?)',(catalogue.BRAND,model,model,'MLCC'))
+            conn.executemany('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?,?,?)',rows)
+            with patch.object(catalogue,'enrich_record',wraps=catalogue.enrich_record) as enrich:
+                catalogue.install_search_overlay(conn)
+                catalogue.install_search_overlay(conn)
+                self.assertEqual(enrich.call_count,0)
+            actual=conn.execute('SELECT id,_temp_low,_temp_high FROM components_search_capacitor WHERE id IS NOT NULL ORDER BY id').fetchall()
+            self.assertEqual(actual,[(1,-55,125),(2,None,None),(3,None,None),(4,None,None),
+                                     (5,None,999),(6,None,None),(7,None,None),(8,-55,125),(9,-55,125),
+                                     (10,-55,125),(11,None,None)])
+            self.assertEqual(conn.execute('SELECT * FROM main.components_search_capacitor ORDER BY id').fetchall(),rows)
+
+    def test_index_corrections_keep_original_whitespace_and_case_normalization(self):
+        from unittest.mock import patch
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE components_search_core (品牌,型号,_model_clean,_component_type)')
+            conn.execute('CREATE TABLE components_search_capacitor (品牌,型号,_component_type,_size,_mat,_pf,_tol,_volt_num,_temp_low,_temp_high)')
+            model=' \t1210b224k451ct \n'
+            row=(catalogue.BRAND,model,'MLCC','1210','X7R',220000,'0.1PF',16,None,None)
+            conn.execute('INSERT INTO components_search_core VALUES (?,?,?,?)',(catalogue.BRAND,model,model,'MLCC'))
+            conn.execute('INSERT INTO components_search_capacitor VALUES (?,?,?,?,?,?,?,?,?,?)',row)
+            with patch.object(catalogue,'enrich_record',wraps=catalogue.enrich_record) as enrich:
+                catalogue.install_search_overlay(conn)
+                self.assertEqual(enrich.call_count,1)
+            self.assertEqual(conn.execute('SELECT _tol,_volt_num,_temp_low,_temp_high FROM components_search_capacitor WHERE 型号=?',(model,)).fetchone(),('10',450,-55,125))
+            self.assertEqual(conn.execute('SELECT * FROM main.components_search_capacitor').fetchone(),row)
+
+    def test_reviewed_family_temperature_tables_are_separate_and_blank_only(self):
+        examples=('HH18N1R5B500CT','RF03N1R7B500CT','RF18G0R9A251',
+                  '0603B101K201CT','SH15B104K160CT')
+        for model in examples:
+            with self.subTest(model=model):
+                item=catalogue.listed(model)
+                self.assertIsNotNone(item)
+                profile=catalogue.temperature_profile(item)
+                self.assertIsNotNone(profile)
+                row={'品牌':catalogue.BRAND,'型号':model,'工作温度':'',
+                     '_temp_low':None,'_temp_high':None,'成本':123}
+                fixed=catalogue.enrich_record(row)
+                self.assertEqual(fixed['_temp_low'],-55)
+                self.assertEqual(fixed['_temp_high'],150 if item['material']=='X8G' else 125)
+                self.assertIn(profile['url'],fixed['备注1'])
+                self.assertEqual(fixed['成本'],123)
+                self.assertEqual(catalogue.enrich_record(fixed),fixed)
+                for changes in ({'品牌':'信昌PDC'},{'_mat':'Y5V'},{'_temp_high':999},
+                                {'_pf':999999999},{'_size':'9999'},{'工作温度':'manual'}):
+                    old=dict(row,**changes)
+                    self.assertEqual(catalogue.enrich_record(old),old)
+        for series,material in [('Microwave Caps_(RF series)','Y5V'),
+                               ('Middle to High Voltage Caps_(200V-4kV)','Y5V'),
+                               ('Automotive Caps Without AEC-Q200 Certification_(MG series)','X7R')]:
+            self.assertIsNone(catalogue.temperature_profile(dict(series=series,material=material,size='0603',pf=100,voltage=250)))
+        original=catalogue.listed('RF18G0R9A251')
+        for changes in ({'voltage':100},{'size':'0201'},{'pf':1000}):
+            self.assertIsNone(catalogue.temperature_profile(dict(original,**changes)))
+
+    def test_temperature_frame_does_not_cross_duplicate_source_indexes(self):
+        frame=pd.DataFrame([{'品牌':catalogue.BRAND,'型号':'HH18N1R5B500CT','工作温度':''},
+                            {'品牌':'Other','型号':'HH18N1R5B500CT','工作温度':''}],index=[5,5])
+        original=frame.copy(deep=True)
+        fixed=catalogue.enrich_frame(frame)
+        self.assertEqual(fixed['工作温度'].tolist(),['-55~125℃',''])
+        self.assertEqual(list(fixed.index),[5,5])
+        pd.testing.assert_frame_equal(frame,original)
+
     def test_unrelated_candidate_predicates_keep_main_spec_index_and_upstream_rows(self):
         with sqlite3.connect(':memory:') as conn:
             conn.execute('CREATE TABLE components_search_core (品牌,型号,_model_clean,_component_type)')

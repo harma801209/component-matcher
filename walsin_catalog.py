@@ -17,6 +17,29 @@ BRAND = '华新科Walsin'
 DATA = Path(__file__).with_name('catalog_sources') / 'walsin_verified.json'
 GENERAL_PDF = 'https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf'
 MT_PDF = 'https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf'
+TEMPERATURE_TABLES = {
+    'High Q & Low ESR Caps_(HH series)': dict(
+        file='WTC_MLCC_HQ_Low_ESR_HH.pdf', revision='2026-09', page=3,
+        sha256='ff3ac8bdef3ec19c6a8cd640fa295994664ca061b80f3390ff6cd91df11d397c',
+        sizes={'0201','0402','0603','0805'}, materials={'C0G':(125,0.1,3300)},
+        voltage=(10,630)),
+    'Microwave Caps_(RF series)': dict(
+        file='WTC_MLCC_Microwave_RF.pdf', revision='2026-04', page=3,
+        sha256='6e4157326673ddbb0fc16a46617d15a35fcee81db4082a96602e0cc22f9f3413',
+        sizes={'01005','0201','0402','0505','0603','0805','1111'},
+        materials={'C0G':(125,0.1,1000),'X8G':(150,0.1,82)},voltage=(6.3,1500)),
+    'Middle to High Voltage Caps_(200V-4kV)': dict(
+        file='WTC_MLCC_Middle_and_High_Voltage.pdf', revision='2026-10', page=4,
+        sha256='2478248f6268a1b748d8706d5011bb3f29ad6b7eb18c6959aa695c14d230b023',
+        sizes={'0402','0603','0805','1206','1210','1808','1812'},
+        materials={'C0G':(125,0.1,47000),'X7R':(125,100,1e6)},voltage=(200,4000)),
+    'Soft Termination Capacitors_(SH series, Ag-poly)': dict(
+        file='WTC_MLCC_Soft_term_SH.pdf', revision='2026-11', page=3,
+        sha256='e43071d88416a4cee056cc1d2dfe7b7a3d50b010a010256e957b84f08d99a8ee',
+        sizes={'0402','0603','0805','1206','1210','1808','1812','1825','2220','2225'},
+        materials={'C0G':(125,0.1,1e5),'X7R':(125,100,47e6),
+                   'X5R':(85,33000,10e6),'X7T':(125,2.2e6,2.2e6)},voltage=(6.3,4000)),
+}
 
 
 SIDECAR_LOCK=threading.RLock()
@@ -28,7 +51,13 @@ def is_brand(value):
 
 def core(value):
     """Only the documented conventional C termination + T/G reel suffix."""
-    value = re.sub(r'\s+', '', str(value or '')).upper()
+    return _core_text(str(value or ''))
+
+
+@lru_cache(maxsize=65536)
+def _core_text(value):
+    """Bounded cache of pure model normalization, never rows/prices/principals."""
+    value = re.sub(r'\s+', '', value).upper()
     return re.sub(r'C[TG]$', '', value)
 
 
@@ -53,7 +82,7 @@ def corrections():
 def normalized(value,field):
     value=str(value).strip().upper().replace('±','').replace('%','').replace(' ','')
     if field=='_mat':
-        return 'C0G' if value in {'COG','C0G','NPO','NP0','COG(NPO)','COG;NPO'} else value
+        return 'C0G' if value in {'COG','C0G','NPO','NP0','COG(NPO)','C0G(NPO)','COG;NPO'} else value
     if field=='_tol':
         match=re.fullmatch(r'(\d+(?:\.\d+)?)(PF)?',value)
         return f'{float(match[1]):g}'+(match[2] or '') if match else value
@@ -63,26 +92,75 @@ def normalized(value,field):
         return value
 
 
-def complete_mt_temperature(record):
+def temperature_profile(item):
+    """Reviewed operating-rating table AND an already-listed exact base identity.
+
+    Table ranges constrain a family rating, never generate orderable combinations.
+    Unsupported materials, packages or out-of-scope legacy rows remain unknown.
+    """
+    if not item:
+        return None
+    if item.get('series')=='Automotive Caps Qualified to AEC-Q200 (MT series)':
+        high=mt_temperature_high(item)
+        return dict(high=high,url=MT_PDF,revision='2026-09',page=3,label='MT') if high else None
+    table=TEMPERATURE_TABLES.get(item.get('series'))
+    if not table or item.get('size') not in table['sizes']:
+        return None
+    bounds=table['materials'].get(normalized(item.get('material'),'_mat'))
+    if not bounds:
+        return None
+    high,minimum,maximum=bounds
+    try:
+        pf,voltage=float(item['pf']),float(item['voltage'])
+    except (KeyError,TypeError,ValueError):
+        return None
+    if not minimum<=pf<=maximum or not table['voltage'][0]<=voltage<=table['voltage'][1]:
+        return None
+    if item['series']=='Microwave Caps_(RF series)' and normalized(item['material'],'_mat')=='X8G':
+        if item['size'] not in {'0402','0603','0805'} or voltage not in {250,500}:
+            return None
+    return dict(high=high,url='https://www.passivecomponent.com/wp-content/uploads/datasheet/'+table['file'],
+                revision=table['revision'],page=table['page'],label=item['series'],source_sha256=table['sha256'])
+
+
+@lru_cache(maxsize=8192,typed=True)
+def _rating_equal(actual,expected,field):
+    """Same strict normalization as record completion, cached public values only."""
+    return normalized(actual,field)==normalized(expected,field)
+
+
+def complete_temperature(record):
     """Blank-only rating completion, never overriding conflicting supplied fields."""
     result=record
     item=listed(record.get('型号','')) if is_brand(record.get('品牌','')) else None
-    high=mt_temperature_high(item) if item else None
+    profile=temperature_profile(item)
+    high=profile['high'] if profile else None
     material_agrees = item is not None and all(
         blank(record.get(key)) or normalized(record[key], '_mat') == normalized(item['material'], '_mat')
         for key in ('_mat', '材质（介质）'))
     numeric_agrees = high is not None and all(
         blank(record.get(key)) or normalized(record[key], key) == value
         for key, value in (('_temp_low', -55), ('_temp_high', high)))
-    if high is not None and material_agrees and numeric_agrees and blank(record.get('工作温度')):
+    identity_agrees = item is not None and all(
+        blank(record.get(key)) or normalized(record[key], field)==normalized(item[item_key],field)
+        for key,field,item_key in (('_size','_size','size'),('尺寸（inch）','_size','size'),
+            ('_pf','_pf','pf'),('容值_pf','_pf','pf'),('_volt_num','_volt_num','voltage'),
+            ('耐压（V）','_volt_num','voltage')))
+    if high is not None and material_agrees and numeric_agrees and identity_agrees and blank(record.get('工作温度')):
         result=dict(record)
         result['工作温度']=f'-55~{high}℃'
         for key,value in (('_temp_low',-55),('_temp_high',high)):
             if key in result and blank(result[key]):result[key]=value
-        note='华科 MT 原厂2026-09规格书第3页额定温区，核对2026-11-04：'+MT_PDF
+        note=f"华科 {profile['label']} 原厂{profile['revision']}规格书第{profile['page']}页额定温区，核对2026-11-05：{profile['url']}"
         original=result.get('备注1')
         result['备注1']=note if blank(original) else str(original)+'；'+note
     return result
+
+
+def complete_mt_temperature(record):
+    """Compatibility entry: do not broaden an explicitly MT-only caller."""
+    item=listed(record.get('型号','')) if is_brand(record.get('品牌','')) else None
+    return complete_temperature(record) if item and mt_temperature_high(item) is not None else record
 
 
 def enrich_record(record):
@@ -90,7 +168,7 @@ def enrich_record(record):
     result=record
     correction=corrections().get(str(record.get('型号','')).strip().upper())
     if not correction or not is_brand(record.get('品牌','')):
-        return complete_mt_temperature(result)
+        return complete_temperature(result)
     result=dict(result)
     companions={'_mat':('材质（介质）',),'_tol':('容值误差',),'_volt_num':('耐压（V）','_volt'),'_pf':('容值_pf',)}
     changed=False
@@ -110,7 +188,7 @@ def enrich_record(record):
         original=result.get('备注1')
         if blank(original):result['备注1']=note
         elif note not in str(original):result['备注1']=str(original)+'；'+note
-    return complete_mt_temperature(result)
+    return complete_temperature(result)
 
 
 def enrich_frame(frame):
@@ -119,16 +197,17 @@ def enrich_frame(frame):
     models=frame['型号'].astype(str).str.strip().str.upper()
     mask=models.isin(corrections())
     temperatures=frame['工作温度'].map(blank) if '工作温度' in frame else True
-    mask |= models.str.startswith('MT') & frame['品牌'].map(is_brand) & temperatures
+    mask |= frame['品牌'].map(is_brand) & temperatures
     if not mask.any():return frame
     result=frame.copy()
-    for index in result.index[mask]:
-        before=result.loc[index].to_dict();after=enrich_record(before)
+    for position, selected in enumerate(mask.to_numpy()):
+        if not selected:continue
+        before=result.iloc[position].to_dict();after=enrich_record(before)
         for key,value in after.items():
             if key not in result.columns:result[key]=''
             if str(value)!=str(before.get(key,'')):
                 if str(result[key].dtype)=='category':result[key]=result[key].astype(object)
-                result.at[index,key]=value
+                result.iat[position,result.columns.get_loc(key)]=value
     return result
 
 
@@ -177,10 +256,10 @@ def row(item, model=None):
         high={'C0G':125,'X7R':125,'X5R':85,'X6S':105,'X7S':125}.get(item['material'])
         if high:
             result['工作温度']=f'-55~{high}℃'
-    high=mt_temperature_high(item)
-    if high is not None:
-        result['工作温度']=f'-55~{high}℃'
-        result['备注1']+='；额定温区依据原厂2026-09规格书第3页：'+MT_PDF
+    profile=temperature_profile(item)
+    if profile:
+        result['工作温度']=f"-55~{profile['high']}℃"
+        result['备注1']+=f"；额定温区依据原厂{profile['revision']}规格书第{profile['page']}页：{profile['url']}"
     if 'Qualified to AEC-Q200' in item['series']:
         result['特殊用途']='车规 AEC-Q200'
     if 'Soft' in item['series'] or 'Soft term' in item['series']:
@@ -227,8 +306,9 @@ def index_frames():
             special.extend(('车规','AEC-Q200'))
         if 'Soft' in item['series']:
             special.append('软端子')
+        profile=temperature_profile(item)
         high=({'C0G':125,'X7R':125,'X5R':85,'X6S':105,'X7S':125}.get(item['material'])
-              if item['series']=='General Purpose Caps' else mt_temperature_high(item))
+              if item['series']=='General Purpose Caps' else profile['high'] if profile else None)
         capacitors.append(dict(identity,_size=item['size'],
             _mat='COG(NPO)' if item['material']=='C0G' else item['material'],
             _pf=item['pf'],_tol=item['tol'],_volt_num=item['voltage'],
@@ -273,6 +353,9 @@ def install_search_overlay(conn):
     tables=('components_search_core','components_search_capacitor')
     if not all(conn.execute('SELECT 1 FROM main.sqlite_master WHERE name=?',(table,)).fetchone() for table in tables):
         return
+    conn.create_function('walsin_model_core',1,core,deterministic=True)
+    conn.create_function('walsin_correction_key',1,lambda value:str(value).strip().upper(),deterministic=True)
+    conn.create_function('walsin_rating_equal',3,_rating_equal,deterministic=True)
     if not any(r[1]=='walsin_public_evidence' for r in conn.execute('PRAGMA database_list')):
         path=public_sidecar()[1]
         try:
@@ -295,16 +378,22 @@ def install_search_overlay(conn):
     for table in tables:
         columns=[r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
         names=','.join('"'+c+'"' for c in columns)
-        existing=[dict(zip(columns,r)) for r in conn.execute(f'SELECT * FROM "{table}" WHERE _component_type=\'MLCC\' AND (UPPER(品牌) LIKE \'%WALSIN%\' OR 品牌 LIKE \'%华新科%\')')]
+        scope="_component_type='MLCC' AND (UPPER(品牌) LIKE '%WALSIN%' OR 品牌 LIKE '%华新科%')"
+        models=[r[0] for r in conn.execute(f'SELECT 型号 FROM "{table}" WHERE {scope}')]
         changes=[]
-        for old in existing:
-            completed=dict(enrich_record(old))
-            if completed != old:
-                changes.append(completed)
+        # Ratings already live in the one-per-process public sidecar. Only the
+        # exact historical corrections need Python row processing per connection;
+        # never re-enrich the complete Walsin catalogue (or identity-only core).
+        if table.endswith('_capacitor') and corrections():
+            corrected=tuple(corrections())
+            query=f'SELECT * FROM "{table}" WHERE {scope} AND walsin_correction_key(型号) IN ({",".join("?" for _ in corrected)})'
+            for raw in conn.execute(query,corrected):
+                old=dict(zip(columns,raw));completed=dict(enrich_record(old))
+                if completed != old:changes.append(completed)
         addon='walsin_catalogue_'+('core' if table.endswith('_core') else 'capacitor')
         known=addon+'_identities'
         conn.execute(f'CREATE TEMP TABLE "{known}" (model TEXT PRIMARY KEY)')
-        conn.executemany(f'INSERT OR IGNORE INTO "{known}" VALUES (?)',((core(r['型号']),) for r in existing))
+        conn.executemany(f'INSERT OR IGNORE INTO "{known}" VALUES (?)',((core(model),) for model in models))
         conn.execute(f'CREATE TEMP TABLE "{addon}" AS SELECT * FROM main."{table}" WHERE 0')
         values=[tuple(None if blank(r.get(c)) else r.get(c) for c in columns) for r in changes]
         if values:
@@ -319,6 +408,16 @@ def install_search_overlay(conn):
         if prior:
             conn.execute(f'DROP VIEW temp."{table}"')
         available={r[1] for r in conn.execute(f'PRAGMA walsin_public_evidence.table_info("{table}")')}
+        def empty(expression):
+            return f"({expression} IS NULL OR LOWER(TRIM(CAST({expression} AS TEXT))) IN ('','none','nan','<na>','nat','-'))"
+        agreement=[]
+        for field in ('_size','_mat','_pf','_volt_num','_temp_low','_temp_high'):
+            if field not in columns or field not in available:continue
+            actual=f'COALESCE(a."{field}",b."{field}")'
+            expected=f'q."{field}"'
+            equal=f'walsin_rating_equal({actual},{expected},\'{field}\')'
+            agreement.append(f'({empty(actual)} OR {equal})')
+        rating_agrees=' AND '.join(agreement) or '1'
         projections=[]
         for key in columns:
             if key in {'品牌','型号','_component_type','_model_clean'}:
@@ -326,7 +425,8 @@ def install_search_overlay(conn):
                 continue
             current=f'COALESCE(a."{key}",b."{key}")'
             if key in available and key not in {'品牌','型号','_component_type','_model_clean'}:
-                current=f'CASE WHEN ({current} IS NULL OR LOWER(TRIM(CAST({current} AS TEXT))) IN (\'\',\'none\',\'nan\',\'<na>\',\'nat\',\'-\')) AND q."{key}" IS NOT NULL THEN q."{key}" ELSE {current} END'
+                rating=f' AND ({rating_agrees})' if key in {'_temp_low','_temp_high'} else ''
+                current=f'CASE WHEN {empty(current)} AND q."{key}" IS NOT NULL{rating} THEN q."{key}" ELSE {current} END'
             projections.append(current+f' AS "{key}"')
         source_columns=','.join(f'q."{key}"' if key in available else 'NULL' for key in columns)
         if table == 'components_search_core':
@@ -347,7 +447,7 @@ def install_search_overlay(conn):
                      f'LEFT JOIN temp."{addon}" a ON a.品牌=b.品牌 AND a.型号=b.型号 AND a._component_type=b._component_type '
                      f'LEFT JOIN walsin_public_evidence."{table}" q ON '
                      f'b._component_type=\'MLCC\' AND (UPPER(b.品牌) LIKE \'%WALSIN%\' OR b.品牌 LIKE \'%华新科%\') AND '
-                     f'q.型号=CASE WHEN UPPER(SUBSTR(b.型号,-2)) IN (\'CT\',\'CG\') THEN UPPER(SUBSTR(b.型号,1,LENGTH(b.型号)-2)) ELSE UPPER(b.型号) END '
+                     f'q.型号=walsin_model_core(b.型号) '
                      f'WHERE {scoped} '
                      f'UNION ALL SELECT {source_columns} FROM walsin_public_evidence."{table}" q '
                      f'WHERE NOT EXISTS (SELECT 1 FROM temp."{known}" k WHERE k.model=q.型号)')

@@ -2,6 +2,16 @@
   "schema": 1,
   "records": [
     {
+      "manufacturer": "taiyo",
+      "model": "MEASJ063BB5225MF1A01",
+      "status": "量产（原厂标记旧类别）",
+      "raw_status": "Mass Production (Previous Category)",
+      "source": "https://ds.yuden.co.jp/TYCOMPAS/ut/detail?pn=MEASJ063BB5225MF1A01&u=M",
+      "checked_at": "2026-11-05T02:31:32+08:00",
+      "source_sha256": "4ebdbf6a36ef52d82dad77109e9776fda339407574df1557cfe186ca4ffb598f",
+      "parser": "taiyo-exact-product-v1"
+    },
+    {
       "manufacturer": "panasonic",
       "model": "ERJ-12NF1000U",
       "official_model": "ERJ12NF1000U",

@@ -7,6 +7,29 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_vishay_leaded_and_hp_codes_use_their_own_original_tables(self):
+        base=dict(品牌='威世Vishay',器件类型='厚膜电阻')
+        for model,document in [('CRCW08053K90FKTA','20008'),('CRCW06030000ZSTA','20008'),
+                               ('CRCW060368R0FKTAHP','20115'),('CRCW060368R0FKEAHP','20043'),
+                               ('CRCW04020000Z0TDHP','20115'),('CRCW201010K0FKEJHP','20043')]:
+            data=guide.explain(dict(base,型号=model))
+            self.assertTrue(data['complete'],model)
+            self.assertEqual(''.join(p['code'] for p in data['segments']),model)
+            self.assertIn(document,data['source'])
+            self.assertTrue(any('/'+document+'/' in u for _,u in data['source_links']))
+        leaded=guide.explain(dict(base,型号='CRCW08053K90FKTA'))
+        fields={p['name']:p['meaning'] for p in leaded['segments']}
+        self.assertEqual(fields['阻值'],'3.9 kΩ')
+        self.assertEqual(fields['温度系数'],'±100 ppm/℃')
+        self.assertIn('含铅',fields['包装'])
+        self.assertIn('8 mm',fields['包装'])
+        extra=guide.explain(dict(base,型号='CRCW08053K90FKTA99'))
+        self.assertTrue(extra['segments']);self.assertFalse(extra['complete'])
+        for model in ('CRCW02013K90FKTA','CRCW04023K90FKTA','CRCW08050000Z0TA',
+                      'CRCW08053K90FKTCHP','CRCW08050000ZSTAHP','CRCW08053K90FKTAHP99','CRCW0805000RFKTA'):
+            self.assertFalse(guide.explain(dict(base,型号=model))['segments'],model)
+        self.assertFalse(guide.explain(dict(base,品牌='YAGEO',型号='CRCW08053K90FKTA'))['segments'])
+
     def test_yageo_mfr_axial_codes_are_complete_without_guessing_stock_or_status(self):
         row=dict(品牌='国巨YAGEO',器件类型='薄膜电阻',型号='MFR-25FTE52-130K',温度系数='999ppm/℃')
         data=guide.explain(row)

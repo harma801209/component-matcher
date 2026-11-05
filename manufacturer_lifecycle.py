@@ -21,6 +21,8 @@ SAMSUNG_HOST = 'product.samsungsem.com'
 STATUSES = {'Mass Production':'量产', 'NRND':'NRND（不推荐新设计）',
             'Pre Mass Production':'量产前', 'Discontinued':'已停产',
             'Planned Discontinuation':'计划停产'}
+TAIYO_STATUSES = {'Mass Production':'量产',
+                  'Mass Production (Previous Category)':'量产（原厂标记旧类别）'}
 CATALOGUE_PARSER = 'samsung-catalogue-exact-v1'
 SPEC_FIELDS = {'_res_ohm':'REAL', '_power_watt':'REAL', '_size':'TEXT', '_tol':'TEXT',
                '_catalog_inductance_uh':'REAL','_body_size':'TEXT'}
@@ -90,6 +92,7 @@ def manufacturer(brand):
     value = str(brand or '').strip().upper()
     if value in {'三星SAMSUNG','SAMSUNG','SAMSUNG ELECTRO-MECHANICS','三星电机'}: return 'samsung'
     if value in {'PANASONIC','PANASONIC(松下)','松下PANASONIC'}: return 'panasonic'
+    if value in {'TAIYO YUDEN','TAIYO','太阳诱电TAIYO','太陽誘電TAIYO','太诱TAIYO','太阳诱电','太陽誘電'}: return 'taiyo'
     return value
 
 
@@ -141,12 +144,81 @@ def samsung_records(source, url, requested_base, checked_at):
                  source=url,checked_at=checked_at,source_sha256=digest,parser='samsung-mlcc-table-v1') for model in sorted(parts)]
 
 
+class TaiyoPage(HTMLParser):
+    """Only the exact product h1 and its Specifications/Status table row."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack=[];self.headings=[];self.heading=None
+        self.row=[];self.rows=[];self.cell=None;self.cell_kind=None
+
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        scoped=any(a.get('id')=='ProductSpecificationArea' for _,a in self.stack)
+        if tag=='h1':self.heading=''
+        if tag=='tr' and scoped:self.row=[]
+        if tag=='td' and scoped:
+            kind=set(attrs.get('class','').split()) & {'ItemName','ItemValue'}
+            if len(kind)==1:self.cell='';self.cell_kind=next(iter(kind))
+        if tag not in {'br','hr','img','input','link','meta','source','wbr'}:self.stack.append((tag,attrs))
+
+    def handle_data(self,value):
+        if any(tag in {'script','style'} for tag,_ in self.stack):return
+        if self.heading is not None:self.heading+=value
+        if self.cell is not None:self.cell+=value
+
+    def handle_endtag(self,tag):
+        if tag=='h1' and self.heading is not None:
+            self.headings.append(' '.join(self.heading.split()));self.heading=None
+        if tag=='td' and self.cell is not None:
+            self.row.append((self.cell_kind,' '.join(self.cell.split())))
+            self.cell=None;self.cell_kind=None
+        if tag=='tr' and self.row:
+            self.rows.append(self.row);self.row=[]
+        for index in range(len(self.stack)-1,-1,-1):
+            if self.stack[index][0]==tag:
+                del self.stack[index:];break
+
+
+def valid_taiyo_record(record):
+    if not isinstance(record,dict) or record.get('manufacturer')!='taiyo':return False
+    if set(record) != {'manufacturer','model','status','raw_status','source','checked_at','source_sha256','parser'}:return False
+    model=record.get('model','')
+    if not isinstance(model,str) or not re.fullmatch(r'[A-Z0-9][A-Z0-9-]{7,39}',model):return False
+    if record.get('source')!='https://ds.yuden.co.jp/TYCOMPAS/ut/detail?pn='+model+'&u=M':return False
+    if record.get('parser')!='taiyo-exact-product-v1' or record.get('raw_status') not in TAIYO_STATUSES:return False
+    if record.get('status')!=TAIYO_STATUSES[record['raw_status']]:return False
+    try:
+        checked=datetime.fromisoformat(record['checked_at'])
+        if checked.utcoffset() is None:return False
+    except (ValueError,TypeError,KeyError):return False
+    return isinstance(record.get('source_sha256'),str) and bool(re.fullmatch('[0-9a-f]{64}',record['source_sha256']))
+
+
+def taiyo_record(source,url,model,checked_at):
+    """Never transfer a full ordering-code status to its base or previous PN."""
+    candidate=dict(manufacturer='taiyo',model=model,source=url,checked_at=checked_at,
+        raw_status='Mass Production',status=TAIYO_STATUSES['Mass Production'],
+        source_sha256=hashlib.sha256(source.encode('utf-8')).hexdigest(),parser='taiyo-exact-product-v1')
+    if not valid_taiyo_record(candidate):raise ValueError('Not an exact reviewed Taiyo product request/date')
+    page=TaiyoPage();page.feed(source)
+    if page.headings != [model]:return None
+    status=[row[1][1] for row in page.rows if len(row)==2 and row[0]==('ItemName','Status') and row[1][0]=='ItemValue']
+    if len(status)!=1 or status[0] not in TAIYO_STATUSES:return None
+    candidate.update(raw_status=status[0],status=TAIYO_STATUSES[status[0]])
+    return candidate
+
+
 @lru_cache(maxsize=2)
 def _read(path, modified):
     del modified
     raw = json.loads(Path(path).read_text(encoding='utf-8'))
     result = {}
     for record in raw.get('records',[]):
+        if record.get('manufacturer')=='taiyo':
+            if valid_taiyo_record(record):
+                key=('taiyo',record['model'])
+                if key not in result or result[key]['checked_at']<record['checked_at']:result[key]=record
+            continue
         if record.get('manufacturer') == 'panasonic':
             if panasonic_lifecycle.valid_record(record):
                 key=('panasonic',record['model'])

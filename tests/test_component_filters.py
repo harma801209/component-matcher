@@ -453,7 +453,31 @@ class PassiveParameterCompletionTests(unittest.TestCase):
         raw=json.loads(lifecycle.EVIDENCE.read_text(encoding='utf-8'))['records']
         self.assertEqual(len(lifecycle.records()),len(raw))
         self.assertEqual(len({(r['manufacturer'],r['model']) for r in raw}),len(raw))
-        self.assertTrue(all(r['raw_status'] in lifecycle.STATUSES if r['manufacturer']=='samsung' else lifecycle.panasonic_lifecycle.valid_record(r) for r in raw))
+        self.assertTrue(all(r['raw_status'] in lifecycle.STATUSES if r['manufacturer']=='samsung' else lifecycle.valid_taiyo_record(r) if r['manufacturer']=='taiyo' else lifecycle.panasonic_lifecycle.valid_record(r) for r in raw))
+
+    def test_taiyo_exact_product_status_never_transfers_to_base_previous_or_legends(self):
+        import manufacturer_lifecycle as p
+        model='MEASJ063BB5225MF1A01'
+        url='https://ds.yuden.co.jp/TYCOMPAS/ut/detail?pn='+model+'&u=M'
+        source=f'<div class="productNo"><h1>{model}</h1><span>Previous Part Number: JDK063BBJ225MP-F</span></div><td id="ProductSpecificationArea"><table><tr><td class="ItemName">Status</td><td class="ItemValue">Mass Production (Previous Category)</td></tr></table></td>'
+        record=p.taiyo_record(source,url,model,'2026-11-05T02:31:32+08:00')
+        self.assertTrue(p.valid_taiyo_record(record))
+        self.assertEqual(record['status'],'量产（原厂标记旧类别）')
+        self.assertEqual(p.manufacturer('太诱Taiyo'),'taiyo')
+        self.assertEqual(p.lookup('太诱Taiyo',model)['status'],record['status'])
+        self.assertIsNone(p.lookup('太诱Taiyo','MEASJ063BB5225M'))
+        self.assertIsNone(p.lookup('太诱Taiyo','JDK063BBJ225MP-F'))
+        self.assertIsNone(p.lookup('Other',model))
+        for changed in (source.replace(model,'WRONG'),source.replace('ProductSpecificationArea','Legend'),
+                        source.replace('class="ItemName"','class="Legend"'),source+'<h1>Other</h1>',
+                        source.replace('Mass Production (Previous Category)','Unknown'),
+                        source.replace('</table>','<tr><td class="ItemName">Status</td><td class="ItemValue">Mass Production</td></tr></table>')):
+            self.assertIsNone(p.taiyo_record(changed,url,model,record['checked_at']))
+        for altered in (dict(record,model=model[:-5]),dict(record,model='JDK063BBJ225MP-F'),
+                        dict(record,parameters={'_size':'9999'}),dict(record,source=url+'&x=1'),
+                        dict(record,checked_at='2026-11-05T02:31:32')):
+            self.assertFalse(p.valid_taiyo_record(altered))
+        with self.assertRaises(ValueError):p.taiyo_record(source,url.replace('yuden.co.jp','yuden.co.jp.attacker.test'),model,record['checked_at'])
 
     def test_panasonic_exact_product_badge_not_generic_notice_or_page_presence(self):
         import panasonic_lifecycle as p
@@ -470,6 +494,24 @@ class PassiveParameterCompletionTests(unittest.TestCase):
             with self.assertRaises(ValueError):p.product_record(source,bad_url,model,record['checked_at'])
         with self.assertRaises(ValueError):p.official_model('ERJ--12NF1000U')
         with self.assertRaises(ValueError):p.product_record(source,url,model,'2026-10-21T01:00:00')
+
+    def test_taiyo_filter_overlay_joins_the_full_identity_without_old_code_promotion(self):
+        import manufacturer_lifecycle as p
+        conn=sqlite3.connect(':memory:')
+        try:
+            conn.execute('CREATE TABLE products (品牌 TEXT,型号 TEXT,_component_type TEXT,生产状态 TEXT)')
+            conn.executemany('INSERT INTO products VALUES (?,?,?,?)',[
+                ('太诱Taiyo','MEASJ063BB5225MF1A01','MLCC','Active'),
+                ('太诱Taiyo','MEASJ063BB5225M','MLCC','Active'),
+                ('太诱Taiyo','JDK063BBJ225MP-F','MLCC','Active'),
+                ('Other','MEASJ063BB5225MF1A01','MLCC','Active')])
+            view=p.install(conn,'products','MLCC')
+            rows=conn.execute('SELECT 品牌,型号,生产状态,_lifecycle_source FROM '+view).fetchall()
+            self.assertEqual(rows[0][2],'量产（原厂标记旧类别）')
+            self.assertIn('pn=MEASJ063BB5225MF1A01&u=M',rows[0][3])
+            self.assertTrue(all(row[2] is None and row[3] is None for row in rows[1:]))
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM products WHERE 生产状态='Active'").fetchone()[0],4)
+        finally:conn.close()
 
     def test_new_oem_helper_hot_update_handles_cached_parent_without_helper_attribute(self):
         import ast,sys

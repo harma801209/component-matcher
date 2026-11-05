@@ -282,7 +282,59 @@ def koa_resistor(model):
     return [],''
 
 
+def vishay_crcw_variants(model):
+    """Original Pb-bearing and HP tables, separate from the standard e3 table."""
+    match=re.fullmatch(r'(CRCW)(0402|0603|0805|1206|1210|1218|2010|2512)([0-9RKM]{4})([DFJZ])([KNS0])([ET][A-Z])([A-Z0-9]{0,2})',model)
+    if not match:return [],''
+    series,size,code,tol,tcr,packing,special=match.groups()
+    hp=special=='HP'
+    lead_free=packing.startswith('E')
+    if lead_free and not hp:return [],''  # existing standard-e3 handler owns it
+    if special in {'HR','TR','37'}:return [],''  # different original tables
+    if hp:
+        options=({'0402':{'ED','EE'},'0603':{'EI','ED','EE','EA','EC'},
+                  '0805':{'EA','EC'},'1206':{'EA','EC'},'1210':{'EA','EC'},
+                  '1218':{'EK'},'2010':{'EF','EJ'},'2512':{'EG','EH'}} if lead_free else
+                 {'0402':{'TD'},'0603':{'TA'},'0805':{'TA'},'1206':{'TA'},
+                  '1210':{'TA'},'1218':{'TK'},'2010':{'TF'},'2512':{'TG'}})
+        allowed_tolerance='DFJZ';jumper_tcr='0'
+        source=('Vishay 原厂 CRCW-HP e3，2026-03-17，文档 20043，第2–3页。' if lead_free else
+                'Vishay 原厂 CRCW-HP，2026-06-09，文档 20115，第2–3页；含铅端子版。')
+    else:
+        options={'0402':{'TD','TE'},'0603':{'TA','TC'},'0805':{'TA','TC'},
+                 '1206':{'TA','TC'},'1210':{'TA','TC'},'1218':{'TK'},
+                 '2010':{'TF'},'2512':{'TG','TH'}}
+        allowed_tolerance='FJZ';jumper_tcr='S'
+        source='Vishay 原厂 D/CRCW，2024-07-09，文档 20008，第3页；含铅端子版，不与无铅 e3 混用。'
+    if packing not in options[size] or tol not in allowed_tolerance:return [],''
+    value=Decimal(0) if code=='0000' else resistance(code)
+    jumper=code=='0000'
+    if value is None or not re.search('[RKM]',code) and not jumper or value==0 and not jumper:return [],''
+    if jumper != (tol=='Z') or (tcr!=jumper_tcr if jumper else tcr not in 'KN'):return [],''
+    packs={'TA':('纸带','5000','4','180'),'TC':('纸带','20000','4','330'),
+           'TD':('纸带','10000','2','180'),'TE':('纸带','50000','2','330'),
+           'TK':('压纹带','4000','4','180'),'TF':('压纹带','4000','4','180'),
+           'TG':('压纹带','2000','8','180'),'TH':('压纹带','4000','4','180'),
+           'EA':('纸带','5000','4','180'),'EC':('纸带','20000','4','330'),
+           'ED':('纸带','10000','2','180'),'EE':('纸带','50000','2','330'),
+           'EI':('纸带','5000','2','180'),'EK':('压纹带','4000','4','180'),
+           'EF':('压纹带','4000','4','180'),'EJ':('压纹带','16000','4','330'),
+           'EG':('压纹带','2000','8','180'),'EH':('压纹带','4000','4','180')}
+    carrier,count,pitch,reel=packs[packing]
+    width='8' if size in {'0402','0603','0805','1206'} or hp and size=='1210' else '12'
+    meaning=f'{carrier}／{count}颗／带宽{width} mm／节距{pitch} mm／卷径{reel} mm；'+('e3 无铅纯锡端子版' if lead_free else '含铅端子版')
+    segments=[part(series,'系列','厚膜贴片电阻；'+('高功率抗脉冲型' if hp else '通用型')),
+        part(size,'封装',size+'（英制）'),part(code,'阻值',quantity(value)),
+        part(tol,'阻值误差','跳线，不是百分比误差' if jumper else tolerance(tol)),
+        part(tcr,'温度系数','跳线不规定温漂' if jumper else f"±{dict(K=100,N=200)[tcr]} ppm/℃"),
+        part(packing,'包装',meaning)]
+    if special:segments.append(part(special,'特殊选项','抗脉冲、高功率类型' if hp else '原厂特殊订货编号；此具体编号尚未核验',hp))
+    return segments,source
+
+
 def vishay_resistor(model):
+    variant=vishay_crcw_variants(model)
+    if variant[0]:return variant
     match=re.fullmatch(r'(CMF)(50|55|60)([0-9RKM]{6})([BCDFGJ])([EHKLNM])(EA|EB|EK|BF|RE|R6)([0-9]{1,3})?',model)
     if match and re.search('[RKM]',match[3]) and resistance(match[3]) is not None:
         series,size,code,tol,tcr,packing,special=match.groups()
@@ -699,6 +751,8 @@ def explain(record):
         links=[('KOA 原厂 RN73 命名表','https://www.koaspeer.com/pdfs/RN73.pdf')] if model.startswith('RN73') and not model.startswith(('RN73H','RN73R')) else [('KOA 原厂 2026 目录','https://www.koaspeer.com/pdfs/KOA_2026FullCatalog_Linked.pdf')]
     elif segments and any(token in manufacturer for token in ('VISHAY','威世')):
         pdf='20035/dcrcwe3.pdf' if model.startswith('CRCW') else '28758/tnpw_e3.pdf' if model.startswith('TNPW') else '31018/cmfind.pdf' if model.startswith('CMF') else '31025/erc.pdf'
+        for document,path in (('20008','20008/dcrcw.pdf'),('20115','20115/crcwhp.pdf'),('20043','20043/crcwhpe3.pdf')):
+            if '文档 '+document in source:pdf=path
         links=[('Vishay 原厂命名表','https://www.vishay.com/docs/'+pdf)]
         if model.startswith('CMF'): links.append(('Vishay 原厂轴向包装表','https://www.vishay.com/docs/31544/packthre.pdf'))
     elif segments and model.startswith('FAF') and any(token in manufacturer for token in ('PDC','PSA','信昌')):
