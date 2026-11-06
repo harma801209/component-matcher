@@ -106,7 +106,8 @@ class BomStartIntentTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / 'component_matcher.py').read_text(encoding='utf-8')
         tree = ast.parse(source)
         node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'bom_result_view_authorization_scope')
-        state = dict(member={'id': 7}, level='sales', allowed=True, customer=('existing', 'Synthetic A'), revision='A')
+        state = dict(member={'id': 7}, level='sales', allowed=True,
+                     customer=('existing', 'Synthetic A', 'synthetic-a'), revision='A')
         env = dict(current_member=lambda: state['member'], member_cost_access_level=lambda _: state['level'],
                    member_can_view_cost=lambda _: state['allowed'],
                    selected_sales_cost_customer_context=lambda: state['customer'],
@@ -116,7 +117,7 @@ class BomStartIntentTests(unittest.TestCase):
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<actual-result-scope>', 'exec'), env)
         scope = env['bom_result_view_authorization_scope']
         original = scope(True)
-        for key, value in [('member', {'id': 8}), ('level', 'pm'), ('customer', ('new', '')), ('revision', 'B')]:
+        for key, value in [('member', {'id': 8}), ('level', 'pm'), ('customer', ('new', '', '')), ('revision', 'B')]:
             before = state[key]
             state[key] = value
             self.assertNotEqual(scope(True), original, key)

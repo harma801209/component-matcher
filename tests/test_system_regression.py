@@ -4576,6 +4576,56 @@ class SystemRegressionTests(unittest.TestCase):
         finally:
             app.update(originals)
 
+    def test_bom_cost_result_panel_accepts_full_customer_context(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        app = self.app
+        original = pd.DataFrame({'物料描述': ['0402 1K 5%'], 'MPN': ['FRC0402J102TS']})
+        result = pd.DataFrame({'BOM行号': [2], '状态': ['可推荐'], '型号1': ['FRC0402J102TS']})
+        before_original, before_result = original.copy(deep=True), result.copy(deep=True)
+        member = {'id': 41}
+        for customer_type, customer_name in ((app['COST_CUSTOMER_TYPE_NEW'], ''),
+                                              (app['COST_CUSTOMER_TYPE_EXISTING'], '客户甲')):
+            with self.subTest(customer_type=customer_type):
+                state = {app['SALES_COST_CUSTOMER_TYPE_KEY']: customer_type,
+                         app['SALES_COST_CUSTOMER_NAME_KEY']: customer_name}
+                signature = Mock(return_value=('price-version',))
+                with patch.dict(app, {
+                    'st': SimpleNamespace(session_state=state),
+                    'current_member': lambda: member, 'member_cost_access_level': lambda _: 'admin',
+                    'member_can_view_cost': lambda _: True, 'selected_admin_cost_as_of': lambda _: '',
+                    'get_cost_price_lookup_signature': signature,
+                }):
+                    self.assertEqual(len(app['selected_sales_cost_customer_context']()), 3)
+                    scope = app['bom_result_view_authorization_scope'](True)
+                    self.assertEqual(scope[:4], (41, 'admin', customer_type, customer_name))
+                    signature.assert_called_once_with(customer_type, customer_name, as_of='')
+                    with patch.object(app['_bom_model_comparison'], 'render_table', return_value='TABLE') as render:
+                        self.assertEqual(app['render_bom_model_comparison_panel'](
+                            original, result, 'file', 'Sheet1', include_cost=True), 'TABLE')
+                        callback = render.call_args.kwargs['authorize_view']
+                        self.assertTrue(callback())
+                        member['id'] = 42
+                        self.assertFalse(callback(), 'A captured result must retain its existing view scope')
+                        member['id'] = 41
+                pd.testing.assert_frame_equal(original, before_original)
+                pd.testing.assert_frame_equal(result, before_result)
+
+    def test_bom_result_scope_does_not_access_prices_for_unpriced_or_denied_views(self):
+        from unittest.mock import Mock, patch
+        app = self.app
+        forbidden = Mock(side_effect=AssertionError('No price context expected'))
+        with patch.dict(app, {'current_member': lambda: {'id': 41},
+                             'member_cost_access_level': lambda _: 'general',
+                             'member_can_view_cost': lambda _: False,
+                             'selected_sales_cost_customer_context': forbidden}):
+            self.assertEqual(app['bom_result_view_authorization_scope'](False), (41, 'general'))
+            self.assertIsNone(app['bom_result_view_authorization_scope'](True))
+        with patch.dict(app, {'current_member': lambda: None,
+                             'selected_sales_cost_customer_context': forbidden}):
+            self.assertIsNone(app['bom_result_view_authorization_scope'](True))
+        forbidden.assert_not_called()
+
     def test_bom_renderer_requires_start_or_resume_and_registers_upload_callback(self):
         import ast
         from pathlib import Path

@@ -355,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-05T20:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-06T09:20:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -49945,7 +49945,7 @@ def bom_result_view_authorization_scope(include_cost=False):
         return scope
     if not member_can_view_cost(member):
         return None
-    customer_type, customer_name = selected_sales_cost_customer_context()
+    customer_type, customer_name, _ = selected_sales_cost_customer_context()
     customer_type, customer_name = authorize_cost_customer_context(member, customer_type, customer_name)
     cutoff = selected_admin_cost_as_of(member)
     return scope + (customer_type, customer_name, cutoff,
