@@ -355,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-06T09:20:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-09T11:30:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -45579,7 +45579,7 @@ def detect_bom_image_grid_lines(image):
     return (rows, cols) if len(rows) >= 3 and len(cols) >= 3 else ([], [])
 
 
-def complete_bom_grid_horizontal_lines(row_lines, image_height):
+def complete_bom_grid_horizontal_lines(row_lines, image_height, image=None, col_lines=None):
     rows = sorted({int(value) for value in row_lines or []})
     if len(rows) < 2:
         return rows
@@ -45589,6 +45589,16 @@ def complete_bom_grid_horizontal_lines(row_lines, image_height):
         rows = [0] + rows
     if rows and rows[-1] > image_height - 2:
         rows[-1] = image_height - 1
+    # A screenshot may end after the last data line without a lower rule.
+    # Require continuing columns and real ink: no invented empty/footer row.
+    tail = image_height - rows[-1]
+    if (image is not None and col_lines and median_gap > 0
+            and max(8, median_gap * .6) <= tail <= median_gap * 1.6
+            and bom_image_has_unclosed_bottom_data(
+                image, rows, col_lines, set(range(len(col_lines)-1)))):
+        # Cell crops remove two border pixels. The virtual boundary preserves
+        # all real pixels, including descenders at the screenshot edge.
+        rows.append(image_height + 2)
     return rows
 
 
@@ -45814,7 +45824,7 @@ def build_bom_dataframe_from_grid_cell_rows(row_cells):
 
 def build_bom_grid_dataframe_from_image(pytesseract_module, image, language, started_at=None):
     row_lines, col_lines = detect_bom_image_grid_lines(image)
-    row_lines = complete_bom_grid_horizontal_lines(row_lines, image.size[1])
+    row_lines = complete_bom_grid_horizontal_lines(row_lines, image.size[1], image, col_lines)
     if len(row_lines) < 3 or len(col_lines) < 3:
         return pd.DataFrame()
     if len(row_lines) > 90:
@@ -46229,6 +46239,8 @@ def bom_image_short_review_note(note):
     note = clean_text(note)
     if '与规格不一致' in note:
         return '规格需核对'
+    if '文字触及图片边缘' in note:
+        return '边缘需核对'
     if any(token in note for token in ('截断', '裁切', '疑似缺少')):
         return '图片需补全'
     if '尚未人工确认' in note:
@@ -46267,7 +46279,7 @@ def apply_bom_image_review_to_result(result, record):
     result["差异说明"] = "；".join(value for value in (clean_text(result.get("差异说明", "")), "图片识别提示：" + note) if value)
     # Keep candidates available for review, but never present contradictory or
     # differing readings as a confirmed recommendation.
-    if result.get("状态") == "可推荐" and any(token in note for token in ("多次识别需核对", "与规格不一致", "未完成字符二次核对", "修改后尚未人工确认", "截断", "疑似缺少")):
+    if result.get("状态") == "可推荐" and any(token in note for token in ("多次识别需核对", "与规格不一致", "未完成字符二次核对", "修改后尚未人工确认", "截断", "疑似缺少", "文字触及图片边缘")):
         result["状态"] = "需确认"
         result["推荐理由"] = "图片型号/规格尚需确认；" + clean_text(result.get("推荐理由", ""))
     return result
@@ -46387,7 +46399,7 @@ def build_bom_grid_dataframe_with_recognizer(image, row_lines, col_lines):
             parts.append("型号中的0/O已按原厂型号核对，请对照原图")
         for physical_row, column_number in sorted(clipped_cells):
             if physical_row == row_number:
-                parts.append(f"{frame.columns[column_number]}：疑似文字被截图边缘截断，请核对完整内容")
+                parts.append(f"{frame.columns[column_number]}：文字触及图片边缘，请对照原图核对完整内容（不代表缺少整行）")
         parts.extend(bom_image_model_spec_warnings(frame.loc[idx].to_dict()))
         notes.append("；".join(parts))
     frame["识别提示"] = notes
@@ -46489,6 +46501,10 @@ def unique_bom_ocr_headers(headers):
 def score_bom_ocr_table_header(columns, text):
     canonical = [canonicalize_bom_ocr_header(col, idx) for idx, col in enumerate(columns or [], start=1)]
     score = sum(1 for header in canonical if header in BOM_OCR_TABLE_HEADER_KEYWORDS)
+    # Compact Excel pivot headers may use these short labels. A filter glyph
+    # can be read as 回/反; that must not turn the header into an omitted item.
+    score += sum(1 for header in canonical if header not in BOM_OCR_TABLE_HEADER_KEYWORDS
+                 and re.fullmatch(r'(?:行标签|名称|规格)[回反口□▽▼]?', normalize_ocr_table_text(header)))
     compact_text = normalize_ocr_table_text(text)
     for keyword in BOM_OCR_TABLE_HEADER_KEYWORDS:
         if keyword in compact_text and keyword not in canonical:
@@ -46874,9 +46890,12 @@ def read_uploaded_bom_workbook_for_session(uploaded_file, on_read=None, session_
         state.pop(cache_key, None)
         return read_uploaded_bom_workbook(None)
     signature = build_uploaded_file_signature(uploaded_file)
+    # Invalidate old OCR once on parser revision, not on ordinary view events.
+    parser_revision = 2 if is_uploaded_bom_image_file(getattr(uploaded_file, 'name', '')) else 1
     owner = clean_text(state.get("_member_auth_token", ""))
     cached = state.get(cache_key)
-    if isinstance(cached, dict) and cached.get("signature") == signature and cached.get("owner") == owner:
+    if (isinstance(cached, dict) and cached.get("signature") == signature
+            and cached.get("owner") == owner and cached.get('parser_revision', 1) == parser_revision):
         return deepcopy(cached["workbook"])
     state.pop(cache_key, None)
     if on_read is not None:
@@ -46885,7 +46904,8 @@ def read_uploaded_bom_workbook_for_session(uploaded_file, on_read=None, session_
     # Failed/partial reads must be retryable, including transient OCR failures.
     if workbook.get("sheet_frames") and not workbook.get("read_error") and (
             not workbook.get("read_warning") or workbook.get("kind") == "image_ocr"):
-        state[cache_key] = {"signature": signature, "owner": owner, "workbook": deepcopy(workbook)}
+        state[cache_key] = {"signature": signature, "owner": owner, "parser_revision": parser_revision,
+                            "workbook": deepcopy(workbook)}
     return workbook
 
 
@@ -52109,7 +52129,7 @@ def render_bom_upload_page():
                 if not parse_columns:
                     st.warning("请至少指定一个用于解析的列（型号列、规格列、品名列三者至少选一个）。")
                 elif is_ocr_preview and bom_df.attrs.get('ocr_audit',{}).get('missing'):
-                    st.warning('图片可能缺少物料行，请补全截图后再匹配。可展开“识别有误？修改”查看原图。')
+                    st.warning('识别结果仍有未提取的物料行或疑似截断区域，暂不能整表匹配；这不代表原图一定漏了资料。请展开“识别有误？修改”对照原图，或上传原始Excel。')
                 elif not bom_output_selection_ready(bom_export_mode, selected_export_brands):
                     st.info("BOM 已完成读取和列识别；选择输出品牌后再开始匹配。")
                 else:

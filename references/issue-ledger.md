@@ -1794,3 +1794,23 @@
 - Fix: explicitly match only the search-panel combobox to Source Sans / 16px / normal weight / 1.4 line height. Style the existing account link as a pale-blue rounded capsule with a thin border, maintaining its profile navigation, hover and keyboard-focus behavior.
 - Scope: no matching logic, input values, account records, customer records or prices changed. Tablet/mobile headers can wrap the capsule while keeping the title and account readable.
 - Verification: the cloud-DOM preview confirms exact customer font metrics, the capsule background/border/radius, customer-menu opening/Escape, profile navigation and 900/390px bounds. 109 isolated safety checks pass with protected runtime fingerprints unchanged.
+## 2026-11-09 - Borderless screenshot tail was omitted and blocked BOM matching
+
+- Symptom: a complete-looking 12-material Excel screenshot was recognized as only
+  11 materials; its last 510-ohm row was displayed as suspected missing row13 and
+  the whole BOM could not start matching.
+- Reproduction: actual source image is620x241; detected horizontal rules end at
+  y223, while visible final-row text continues to y240 with column rules intact.
+  The grid reader previously consumed only pairs of detected horizontal rules.
+- Fix: recover a row-sized trailing band only when continuing column rules and
+  actual text are observed. A virtual crop boundary preserves every real bottom
+  pixel. Edge-touching text remains an explicit row-level review warning, not an
+  omitted whole-row assertion. Genuine dropped/unreadable rows stay blocked.
+- Session caching: refresh an image parsed by the previous parser revision once;
+  repeated normal view events reuse the new parsed source and do not start a match.
+- The real-image replay also exposed short pivot headers with OCR'd filter
+  glyphs (名称回/规格反). Count those as header evidence, not missing materials;
+  preserve the observed strings and let the existing specification mapping use
+  the actual specification column.
+- Scope: isolated OCR-only worktree; preserve the separate unfinished Walsin
+  catalogue changes, original image, user Excel, accounts and runtime databases.

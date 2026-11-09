@@ -1176,6 +1176,67 @@ class SystemRegressionTests(unittest.TestCase):
         ImageDraw.Draw(toolbar).text((115,90),'to A',fill=0)
         self.assertFalse(check(toolbar,[0,40,80],[0,100,200,299],{0,1,2}))
 
+    def test_bom_image_borderless_last_row_is_recognized_not_omitted(self):
+        from PIL import Image,ImageDraw
+        from unittest.mock import patch
+        app=self.app
+        image=Image.new('L',(400,120),255)
+        draw=ImageDraw.Draw(image)
+        for x in (0,100,200,300,399):draw.line((x,0,x,119),fill=180)
+        for y in (0,40,80):draw.line((0,y,399,y),fill=180)
+        for y in (10,50,90):
+            for x in (10,110,210,310):draw.text((x,y),'A123',fill=0)
+        lines=app['complete_bom_grid_horizontal_lines']([0,40,80],120,image,[0,100,200,300,399])
+        self.assertEqual(lines,[0,40,80,122])
+        values=['料号','名称','规格','数量','123456','电阻','0201 110K ohm 1% 1/20W','300000',
+                '123457','电阻','0201 510 ohm 5% 1/20W','300000']
+        with patch.dict(app,{'get_bom_image_text_recognizer':lambda:object(),
+                             'recognize_bom_image_strips':lambda engine,crops:[(value,.95) for value in values],
+                             'recheck_bom_image_strips':lambda *args,**kwargs:{}}):
+            frame=app['build_bom_grid_dataframe_with_recognizer'](image,lines,[0,100,200,300,399])
+        self.assertEqual(len(frame),2)
+        self.assertIn('510',frame.iloc[-1]['规格'])
+        self.assertEqual(frame.attrs['ocr_audit']['missing'],[])
+        self.assertEqual(frame.attrs['ocr_regions']['1']['row'][-1],1)
+        blank=Image.new('L',(400,120),255)
+        self.assertEqual(app['complete_bom_grid_horizontal_lines']([0,40,80],120,blank,[0,100,200,300,399]),[0,40,80])
+        self.assertEqual(app['complete_bom_grid_horizontal_lines']([0,40,80],120),[0,40,80])
+        # A very short cut-off strip is still audited instead of invented.
+        self.assertEqual(app['complete_bom_grid_horizontal_lines']([0,40,80],90,image.crop((0,0,400,90)),[0,100,200,300,399]),[0,40,80])
+        note='规格：文字触及图片边缘，请对照原图核对完整内容（不代表缺少整行）'
+        self.assertEqual(app['bom_image_short_review_note'](note),'边缘需核对')
+        self.assertEqual(app['apply_bom_image_review_to_result']({'状态':'可推荐'},{'OCR原文':'510 ohm','识别提示':note})['状态'],'需确认')
+
+    def test_bom_image_parser_revision_refreshes_stale_cache_once(self):
+        from unittest.mock import patch
+        app=self.app
+        upload=UploadedBytes('borderless.png',b'image')
+        signature=app['build_uploaded_file_signature'](upload)
+        state={'_member_auth_token':'test','_bom_parsed_upload_cache':{
+            'signature':signature,'owner':'test','workbook':{'old':True}}}
+        calls=[]
+        def read(upload):
+            calls.append(True)
+            return {'kind':'image_ocr','sheet_frames':[{'df':pd.DataFrame({'规格':['510 ohm']})}]}
+        with patch.dict(app,{'read_uploaded_bom_workbook':read}):
+            first=app['read_uploaded_bom_workbook_for_session'](upload,session_state=state)
+            second=app['read_uploaded_bom_workbook_for_session'](upload,session_state=state)
+        self.assertNotIn('old',first)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(second['sheet_frames'][0]['df'].iloc[0,0],'510 ohm')
+
+    def test_bom_image_pivot_header_filter_glyphs_are_not_missing_materials(self):
+        app=self.app
+        values=[['行标签','名称回','规格反','取消'],
+                ['1.GR.2007.932312','电阻','R-CHIP;510 ohm,5%,1/20W,0201','300000']]
+        self.assertGreaterEqual(app['score_bom_ocr_table_header'](values[0],' '.join(values[0])),2)
+        frame=app['build_bom_dataframe_from_grid_cell_rows'](values)
+        self.assertEqual(len(frame),1)
+        self.assertEqual(app['guess_bom_column_mapping'](frame)['spec'],'规格反')
+        self.assertEqual(app['guess_bom_column_mapping'](frame)['name'],'名称回')
+        self.assertEqual(frame.iloc[0]['规格反'],values[1][2])
+        self.assertEqual(app['score_bom_ocr_table_header'](values[1],' '.join(values[1])),0)
+
     def test_bom_image_review_is_bound_to_member_and_upload(self):
         app=self.app
         upload=UploadedBytes('one.png',b'one')

@@ -179,9 +179,14 @@ def main() -> int:
         system_groups = [[f'tests.test_system_regression.SystemRegressionTests.{name}' for name in names[start:start+50]]
                          for start in range(0,len(names),50)]
         first = modules.index('tests.test_system_regression')
-        game = modules.index('tests.test_product_training')
-        accounts = modules.index('tests.test_jianghai_parameters')
-        test_groups = [modules[:first],*system_groups,modules[first+1:game],modules[game:accounts],modules[accounts:]]
+        # AST-heavy catalogue suites can also retain large module fixtures.
+        # Give each remaining module a fresh process, without dropping any
+        # mandatory module or test (and without changing machine settings).
+        remaining_groups = [[module] for module in modules[first+1:]]
+        assert [module for group in remaining_groups for module in group] == modules[first+1:]
+        leading_groups = [[module] for module in modules[:first]]
+        assert [module for group in leading_groups for module in group] == modules[:first]
+        test_groups = [*leading_groups, *system_groups, *remaining_groups]
         for index, group in enumerate(test_groups,1):
             print(f'Safety gate group {index}/{len(test_groups)} ({len(group)} targets)',flush=True)
             run_checked([sys.executable,'-m','unittest','-v',*group],env)
