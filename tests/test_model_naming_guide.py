@@ -7,6 +7,40 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_murata_published_dimensions_and_packaging_do_not_use_stock_values(self):
+        row=dict(品牌='村田Murata',型号='GRM033R60J105ME15D',器件类型='MLCC',
+                 厚度='999',尺寸='999')
+        data=guide.explain(row)
+        fields={p['name']:p for p in data['segments']}
+        self.assertIn('0.6×0.3 mm',fields['封装']['meaning'])
+        self.assertIn('0201',fields['封装']['meaning'])
+        self.assertEqual(fields['厚度代码']['meaning'],'0.3 mm（标称值；具体公差及最大厚度以该型号规格书为准）')
+        self.assertTrue(fields['厚度代码']['verified'])
+        self.assertEqual(fields['个别规格识别码']['code'],'E15')
+        self.assertFalse(fields['个别规格识别码']['verified'])
+        self.assertEqual(fields['包装']['code'],'D')
+        self.assertIn('180 mm',fields['包装']['meaning'])
+        self.assertIn('纸带',fields['包装']['meaning'])
+        self.assertTrue(fields['包装']['verified'])
+        self.assertFalse(data['complete'])
+        self.assertEqual(len(data['segments']),9)
+        self.assertEqual(data['verified_segments'],8)
+        self.assertEqual(''.join(p['code'] for p in data['segments']),row['型号'])
+        self.assertTrue(any('murata.com' in url for _,url in data['source_links']))
+        self.assertNotIn('999',repr(data['segments']))
+        for code,value in [('5','0.5'),('8','0.8'),('B','1.25'),('M','1.15'),('Y','0.135')]:
+            other=guide.explain(dict(row,型号='GRM03'+code+'R60J105ME15D'))
+            thickness=next(p for p in other['segments'] if p['name']=='厚度代码')
+            self.assertTrue(thickness['verified'])
+            self.assertTrue(thickness['meaning'].startswith(value+' mm'))
+        for model,field in [('GRM03XR60J105ME15D','厚度代码'),
+                            ('GRM03ZR60J105ME15D','厚度代码'),
+                            ('GRM033R60J105ME15Z','包装')]:
+            unknown=guide.explain(dict(row,型号=model))
+            self.assertFalse(next(p for p in unknown['segments'] if p['name']==field)['verified'])
+            self.assertEqual(''.join(p['code'] for p in unknown['segments']),model)
+        self.assertFalse(guide.explain(dict(row,品牌='信昌PDC'))['segments'])
+
     def test_vishay_leaded_and_hp_codes_use_their_own_original_tables(self):
         base=dict(品牌='威世Vishay',器件类型='厚膜电阻')
         for model,document in [('CRCW08053K90FKTA','20008'),('CRCW06030000ZSTA','20008'),
@@ -459,10 +493,10 @@ class NamingGuideTests(unittest.TestCase):
     def test_murata_and_samsung_use_separate_size_and_voltage_tables(self):
         m=self.parts(self.record('GRM155R71C104KA88D','村田Murata','GRM','MLCC'))
         s=self.parts(self.record('CL05B104KO5NNNC','三星Samsung','CL','MLCC'))
-        self.assertEqual(m['封装']['meaning'],s['封装']['meaning'])
+        self.assertIn(s['封装']['meaning'],m['封装']['meaning'])
         self.assertEqual(m['容量']['meaning'],'100 nF')
         self.assertEqual(s['额定电压']['meaning'],'16 V')
-        self.assertFalse(m['厚度代码']['verified'])
+        self.assertTrue(m['厚度代码']['verified'])
         self.assertFalse(s['厚度／产品／包装尾码']['verified'])
 
     def test_tdk_metric_size_and_pdc_voltage_are_not_misread(self):

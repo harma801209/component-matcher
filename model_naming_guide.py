@@ -17,7 +17,7 @@ TOL = {'T':'.01','A':'.05','B':'.1','C':'.25','D':'.5','F':'1','G':'2','J':'5','
 FOJAN_SOURCE = '系统已接入的富捷系列规则；未逐码核验的附加码会单独标出。'
 VIKING_SOURCE = 'Viking AR Series，REV.F3，2022-02-10，Part Numbering，第 2 页。'
 YAGEO_SOURCE = 'YAGEO RT Series 原厂数据表，Ordering information / Global part number。'
-MURATA_SOURCE = '系统已接入的 Murata GR 系列命名规则；产品控制／包装尾码不作额外推断。'
+MURATA_SOURCE = 'Murata 原厂 Part Numbering，第1页尺寸／标称厚度表及第3页个别规格识别码／包装表；标称厚度不代表具体型号的公差或最大厚度，不推测个别规格识别码的内部含义。'
 
 
 def text(value):
@@ -654,21 +654,43 @@ def explain(record):
     elif mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         segments,source=taiyo_meas_mlcc(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
-        match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)(\d{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2})([BCDFGJKMZ])([A-Z0-9]+)',model)
+        match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)([A-Z0-9]{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2})([BCDFGJKMZ])([A-Z0-9]+)',model)
         if match:
             series,size,thickness,material,voltage,cap,tol,tail=match.groups()
-            sizes={'02':'01005','03':'0201','15':'0402','18':'0603','21':'0805','31':'1206','32':'1210','42':'1808','43':'1812','55':'2220'}
+            sizes={'01':('008004','0.25×0.125'),'02':('01005','0.4×0.2'),
+                   '0D':('015015','0.38×0.38'),'0Y':('0202','0.6×0.6'),'MD':('015008','0.5×0.25'),
+                   '03':('0201','0.6×0.3'),'05':('0202','0.5×0.5'),'08':('0303','0.8×0.8'),
+                   '1U':('02404','0.6×1.0'),'15':('0402','1.0×0.5'),'18':('0603','1.6×0.8'),
+                   'JN':('0704','1.8×1.0'),'21':('0805','2.0×1.25'),'22':('1111','2.8×2.8'),
+                   '31':('1206','3.2×1.6'),'32':('1210','3.2×2.5'),'42':('1808','4.5×2.0'),
+                   '43':('1812','4.5×3.2'),'52':('2211','5.7×2.8'),'55':('2220','5.7×5.0'),
+                   '86':('-','8.0×6.0')}
+            # The cited table excludes KR*/KC*/EVA; this branch supports none
+            # of those families. These are nominal code values, not tolerances.
+            thicknesses={'1':'0.125','2':'0.2','3':'0.3','4':'0.4','5':'0.5','6':'0.6',
+                         '7':'0.7','8':'0.8','9':'0.85','A':'1.0','B':'1.25','C':'1.6',
+                         'D':'2.0','E':'2.5','K':'0.08','M':'1.15','Q':'1.5','S':'0.16',
+                         'T':'0.18','Y':'0.135'}
+            packages={'L':'φ180 mm 卷盘／压纹带','D':'φ180 mm 卷盘／纸带',
+                      'E':'φ180 mm 卷盘／纸带','W':'φ180 mm 卷盘／纸带',
+                      'K':'φ330 mm 卷盘／压纹带','J':'φ330 mm 卷盘／纸带',
+                      'F':'φ330 mm 卷盘／纸带','T':'散装托盘'}
             materials={'B1':'C0G','C1':'C0G','5C':'C0G','R6':'X5R','R7':'X7R','R9':'X8R','C6':'X5S','C7':'X7S','C8':'X6S','D6':'X5T','D7':'X7T','D8':'X6T'}
             volts={'0E':2.5,'0G':4,'0J':6.3,'1A':10,'1C':16,'1E':25,'1H':50,'1J':63,'2A':100,'2D':200,'2E':250,'2H':500,'3A':1000}
             cap_value = Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
             tol_value = {'B':'±0.1 pF','C':'±0.25 pF','D':'±0.5 pF','Z':'-20%～+80%'}.get(tol) or tolerance(tol)
             segments=[part(series,'系列',text(record.get('系列说明')) or 'Murata '+series+' 系列'),
-                part(size,'封装',sizes.get(size,'该尺寸代码尚未核验')+'（英制）',size in sizes),
-                part(thickness,'厚度代码','具体厚度须按该型号产品表确认',False),
+                part(size,'封装',sizes[size][0]+'（英制）；长×宽 '+sizes[size][1]+' mm（标称值）' if size in sizes else '该尺寸代码尚未核验',size in sizes),
+                part(thickness,'厚度代码',thicknesses[thickness]+' mm（标称值；具体公差及最大厚度以该型号规格书为准）' if thickness in thicknesses else '按个别规格定义，须查具体型号规格书' if thickness=='X' else '该厚度代码尚未核验',thickness in thicknesses),
                 part(material,'介质',materials.get(material,'该介质代码尚未核验'),material in materials),
                 part(voltage,'额定电压',str(volts[voltage])+' V' if voltage in volts else '该电压代码尚未核验',voltage in volts),
-                part(cap,'容量',quantity(cap_value,'pF')),part(tol,'容量误差',tol_value),
-                part(tail,'产品／包装尾码','具体产品控制与包装定义须查该系列订货表',False)]
+                part(cap,'容量',quantity(cap_value,'pF')),part(tol,'容量误差',tol_value)]
+            if re.fullmatch(r'[A-Z0-9]{3}[A-Z]',tail):
+                segments.extend([
+                    part(tail[:3],'个别规格识别码','原厂定义为三位个别规格识别码；公开命名表未逐字定义其内部含义，不作推测',False),
+                    part(tail[3:],'包装',packages.get(tail[3:],'该包装代码尚未核验'),tail[3:] in packages)])
+            else:
+                segments.append(part(tail,'产品／包装尾码','尾码不符合已核验的三位规格识别码加一位包装码结构，须查具体型号订货表',False))
             source=MURATA_SOURCE
     elif mlcc and any(token in manufacturer for token in ('PDC','信昌')):
         match=re.fullmatch(r'(FV|FM|FS|FP|FN|MT|MG)(\d{2})([BNXTAYS])(\d{3}|\dR\d)([DFGJKMZ])(6R3|\d{3})([A-Z])([A-Z])([A-Z0-9]*)',model)
@@ -738,6 +760,9 @@ def explain(record):
     if segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         links=[('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
                ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
+    elif segments and mlcc and any(token in manufacturer for token in ('MURATA','村田')):
+        links=[('村田原厂命名表入口（含尺寸、厚度、包装）','https://www.murata.com/en-eu/support/faqs/capacitor/ceramiccapacitor/part/0001'),
+               ('村田原厂个别规格识别码说明','https://www.murata.com/en-eu/support/faqs/capacitor/ceramiccapacitor/part/0011')]
     elif segments and mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
         links=([('华科原厂 MT 命名表（2026-09，第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_Automotive_MT.pdf')]
                if model.startswith('MT') else [('华科原厂通用 MLCC 命名表（第2页）','https://www.passivecomponent.com/wp-content/uploads/datasheet/WTC_MLCC_General_Purpose.pdf')])

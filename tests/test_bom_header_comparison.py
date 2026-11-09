@@ -252,14 +252,25 @@ class HeaderComparisonTests(unittest.TestCase):
 
     def test_scroll_sync_is_bidirectional_local_and_rebound_on_table_replacement(self):
         source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("wrap.scrollLeft=topScroll.scrollLeft", source)
-        self.assertIn("topScroll.scrollLeft=wrap.scrollLeft", source)
+        self.assertIn("relayScroll(topScroll,wrap)", source)
+        self.assertIn("relayScroll(wrap,topScroll)", source)
+        self.assertIn("linkedScrollPositions=new WeakMap()", source)
+        self.assertIn("wrap===root.querySelector('.bom-result-table-wrap')", source)
         self.assertIn("wrap.addEventListener('scroll'", source)
         self.assertIn("topScroll.addEventListener('scroll'", source)
         self.assertIn("updateTopScroll();", source)
         self.assertIn("topScroll.getBoundingClientRect().height", source)
-        self.assertIn("Math.abs(wrap.scrollLeft-topScroll.scrollLeft)>.5", source)
+        self.assertIn("Math.abs(target.scrollLeft-position)>.5", source)
         self.assertEqual(source.count("send('streamlit:setComponentValue'"), 1)
+
+    def test_asynchronous_scroll_echoes_do_not_rewind_real_dragging(self):
+        import shutil,subprocess
+        node=shutil.which('node')
+        self.assertIsNotNone(node,'Node.js is required for the frontend event-order regression')
+        completed=subprocess.run([node,str(Path(__file__).with_name('bom_scroll_sync_test.js'))],
+                                 capture_output=True,text=True,timeout=30,check=False)
+        self.assertEqual(completed.returncode,0,completed.stdout+completed.stderr)
+        self.assertIn('"passed":true',completed.stdout)
 
     def test_primary_button_states_override_the_existing_important_table_theme(self):
         source = (Path(__file__).resolve().parents[1] / "bom_comparison_table" / "index.html").read_text(encoding="utf-8")
@@ -275,7 +286,7 @@ class HeaderComparisonTests(unittest.TestCase):
         from bom_model_comparison import header_component
         with patch("streamlit.components.v1.declare_component", return_value="COMPONENT") as declare:
             self.assertEqual(header_component(), "COMPONENT")
-        self.assertEqual(declare.call_args.args[0], "bom_header_compare_v2")
+        self.assertEqual(declare.call_args.args[0], "bom_header_compare_v3")
         self.assertTrue(declare.call_args.kwargs["path"].endswith("bom_comparison_table"))
 
 

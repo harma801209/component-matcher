@@ -61,6 +61,22 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
   let revision='',selected=[],submitted=[],options=[],lastHtml='',hostDisabled=false;
   let report=null,pending=false,lastRequest=0,requestCounter=0,error='';
   const expandedRows=new Set();
+  // Scroll events are delivered asynchronously, including programmatic ones.
+  // Remember the actual (possibly clamped) linked position until genuine input
+  // changes it; a delayed echo must not rewind a newer drag on the other bar.
+  const linkedScrollPositions=new WeakMap();
+  function mirrorScroll(target,position){
+    if(Math.abs(target.scrollLeft-position)>.5){
+      target.scrollLeft=position;
+      linkedScrollPositions.set(target,target.scrollLeft);
+    }
+  }
+  function relayScroll(source,target){
+    const linked=linkedScrollPositions.get(source);
+    if(linked!==undefined&&Math.abs(source.scrollLeft-linked)<=.5)return;
+    linkedScrollPositions.delete(source);
+    mirrorScroll(target,source.scrollLeft);
+  }
   const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},window.location.origin);
   function updateTopScroll(){
     const wrap=root.querySelector('.bom-result-table-wrap');
@@ -69,11 +85,11 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
     if(!overflow)return;
     topScroll.style.width=wrap.clientWidth+'px';
     topSpacer.style.width=wrap.scrollWidth+'px';
-    if(Math.abs(topScroll.scrollLeft-wrap.scrollLeft)>.5)topScroll.scrollLeft=wrap.scrollLeft;
+    mirrorScroll(topScroll,wrap.scrollLeft);
   }
   topScroll.addEventListener('scroll',()=>{
     const wrap=root.querySelector('.bom-result-table-wrap');
-    if(wrap&&Math.abs(wrap.scrollLeft-topScroll.scrollLeft)>.5)wrap.scrollLeft=topScroll.scrollLeft;
+    if(wrap)relayScroll(topScroll,wrap);
   },{passive:true});
   function height(){
     const wrap=root.querySelector('.bom-result-table-wrap');
@@ -243,7 +259,7 @@ body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#183453;
         wrap.querySelectorAll('script').forEach(script=>script.remove());root.append(wrap);
         wrap.setAttribute('role','region');wrap.setAttribute('aria-label','BOM结果表格');wrap.tabIndex=0;
         wrap.addEventListener('scroll',()=>{
-          if(Math.abs(topScroll.scrollLeft-wrap.scrollLeft)>.5)topScroll.scrollLeft=wrap.scrollLeft;
+          if(wrap===root.querySelector('.bom-result-table-wrap'))relayScroll(wrap,topScroll);
         },{passive:true});
       }
       lastHtml=args.table_html;installHeaders();
