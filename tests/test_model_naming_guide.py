@@ -7,6 +7,178 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_fojan_frc_ts_is_two_verified_oem_fields_not_an_unknown_suffix(self):
+        row=dict(品牌='FOJAN(富捷)',型号='FRC0402F1001TS',系列='WRONG',器件类别='厚膜电阻',系列说明='SECRET')
+        data=guide.explain(row)
+        self.assertTrue(data['complete'])
+        self.assertEqual(''.join(p['code'] for p in data['segments']),row['型号'])
+        parts={p['name']:p for p in data['segments']}
+        self.assertIn('7 英寸',parts['包装']['meaning'])
+        self.assertEqual(parts['包装']['code'],'T')
+        self.assertEqual(parts['端电极']['code'],'S')
+        self.assertEqual(parts['端电极']['meaning'],'Sn（锡）')
+        self.assertNotIn('SECRET',repr(data))
+        self.assertIn('FRC系列普通厚膜电阻.pdf',data['source'])
+        self.assertIn('2025.09.24',data['source'])
+        self.assertIn('第 2 页',data['source'])
+        self.assertNotIn('待核验',guide.guide_html(data))
+        self.assertTrue(data['source_links'])
+
+
+    def test_fojan_packaging_termination_known_prefixes_do_not_hide_unknown_remainder(self):
+        for tail,pack,termination in [('TS','7 英寸','Sn'),('QC','10 英寸','Cu'),('RA','13 英寸','Au'),('BS','散装','Sn')]:
+            data=guide.explain(self.record('FRC0603F1001'+tail))
+            self.assertTrue(data['complete'],tail)
+            parts={p['name']:p for p in data['segments']}
+            self.assertIn(pack,parts['包装']['meaning'])
+            self.assertIn(termination,parts['端电极']['meaning'])
+        for tail in ('T','', 'TSZ','ZS','TZ'):
+            data=guide.explain(self.record('FRC0603F1001'+tail))
+            self.assertTrue(data['segments'],tail)
+            self.assertFalse(data['complete'],tail)
+            self.assertEqual(''.join(p['code'] for p in data['segments']),'FRC0603F1001'+tail)
+        for brand,kind in [('YAGEO','厚膜电阻'),('FOSAN(富信)','MOSFET'),('FOJAN','MLCC')]:
+            self.assertFalse(guide.explain(self.record('FRC0603F1001TS',brand,kind=kind))['segments'])
+        alias=guide.explain(self.record('FRC0603F1001TS','FOSAN',kind='厚膜电阻'))
+        self.assertTrue(alias['complete'])
+        self.assertIn('fosan.vip',alias['source_links'][0][1])
+
+
+    def test_fojan_local_series_each_use_their_own_source_and_special_codes(self):
+        models={'FRC':'FRC0402F1001TS','FRH':'FRH0402B4703TS','FRT':'FRT0402B4703TSX',
+                'FTH':'FTH0402T4703TSY','FRV':'FRV1206F1001TS','FRQ':'FRQ0402F1001TS',
+                'FRR':'FRR0402F1001TS','FRG':'FRG1206J476TS','FRD':'FRD1206J151TS',
+                'FPS':'FPS1206F1001TS','FPL':'FPL1206FR100TS','FQP':'FQP1206F1001TS',
+                'FQT':'FQT1206F1001TSX','FTR':'FTR1206F1001TSV','FCP':'FCP1206F1001TS',
+                'FCW':'FCW0612F1001TS','FNL':'FNL1206FR100TS','FPR':'FPR1206F1001TS',
+                'FPW':'FPW0612F1001TS','FQL':'FQL1206FR100TS','FQS':'FQS1206F1001TS',
+                'FQV':'FQV1206F1001TS','FRE':'FRE1206F1001TS','FRJ':'FRJ1206F6R80TS',
+                'FRL':'FRL1206FR100TS','FRN':'FRN1206F1001TS','FRP':'FRP1206F1001TS',
+                'FRS':'FRS1206F1001TS','FRZ':'FRZ1206J102TS','FUP':'FUP1206F1001TS'}
+        for series,model in models.items():
+            data=guide.explain(self.record(model,series=series))
+            self.assertTrue(data['complete'],model)
+            self.assertIn(series,data['source'])
+            self.assertEqual(''.join(p['code'] for p in data['segments']),model)
+        for model,field,meaning in [('FRC1206F1001TSP','特殊码','无铅'),
+                ('FRC1206F1001TSL','温度系数','±100'),('FRP1206F1001TSV','温度系数','±50'),
+                ('FRL1206FR100TSL','特殊码','低阻低温漂'),('FQL0805FR330TSW','温度系数','±100')]:
+            data=guide.explain(self.record(model))
+            self.assertTrue(data['complete'],model)
+            self.assertIn(meaning,{p['name']:p['meaning'] for p in data['segments']}[field])
+        for model in ('FRH0402B4703TSX','FRT0402B4703TSY','FTH0402B4703TS','FRC9999F1001TS',
+                      'FRC01005F1001TSX','FRC1206H1001TSP','FRP1218F1001TSX','FRL1812FR100TSL'):
+            self.assertFalse(guide.explain(self.record(model))['complete'],model)
+
+
+    def test_fojan_alloy_m_and_array_s_cannot_reuse_single_chip_termination_rule(self):
+        for model,value in [('FPM253WFR002TM','0.002 Ω'),('FPM253WFR500TM','0.5 Ω'),
+                ('FRM252WFR005TML','0.005 Ω'),('FMB251WFR010TM','0.01 Ω'),
+                ('FCM39207WFR001RM','0.001 Ω'),('FCM39207WF0M50RM','0.0005 Ω')]:
+            data=guide.explain(self.record(model,kind='合金电阻'))
+            self.assertTrue(data['complete'],model)
+            parts={p['name']:p['meaning'] for p in data['segments']}
+            self.assertEqual(parts['阻值'],value)
+            self.assertIn('Metal',parts['材质'])
+            self.assertEqual(''.join(p['code'] for p in data['segments']),model)
+        for model in ('FAR064RJ151TS','FQA064RJ151TS'):
+            data=guide.explain(self.record(model))
+            self.assertFalse(data['complete'])
+            electrode=next(p for p in data['segments'] if p['name']=='电极类型')
+            self.assertFalse(electrode['verified'])
+            self.assertIn('不一致',electrode['meaning'])
+        wide=guide.explain(self.record('FQL1205JR470TSR'))
+        self.assertTrue(wide['segments'])
+        self.assertFalse(wide['complete'])
+        self.assertIn('0.47 Ω',repr(wide))
+        self.assertEqual({p['name']:p['meaning'] for p in wide['segments']}['功率代码'],'1/2 W')
+        self.assertIn('1206',{p['name']:p['meaning'] for p in wide['segments']}['封装'])
+        self.assertIn('TRL',repr(wide))
+        self.assertIn('宽电极',wide['source'])
+        self.assertNotIn('7.13',repr(wide))
+        ambiguous=guide.explain(self.record('FQL0805FR100TS'))
+        self.assertFalse(ambiguous['complete'])
+        self.assertIn('不能静默指定功率',repr(ambiguous))
+        self.assertNotIn('功率代码',{p['name'] for p in ambiguous['segments']})
+
+
+    def test_panasonic_erj_separate_precision_and_general_ordering(self):
+        row=dict(品牌='松下Panasonic',器件类型='厚膜电阻',型号='ERJ2RKD2943X',阻值='999')
+        data=guide.explain(row);fields={p['name']:p for p in data['segments']}
+        self.assertTrue(data['complete'])
+        self.assertEqual(fields['阻值']['meaning'],'294 kΩ')
+        self.assertEqual(fields['温度系数']['meaning'],'±100 ppm/℃')
+        self.assertEqual(fields['阻值误差']['meaning'],'±0.5%')
+        self.assertIn('10000',fields['包装']['meaning'])
+        examples=('ERJ-2RKD2943X','ERJ3RBD1002V','ERJ8ENF1002V','ERJ2RKF49R9X',
+                  'ERJ3GEYJ102V','ERJ2GEJ102X','ERJ3GEY0R00V','ERJ1GNF1002C')
+        for model in examples:
+            actual=guide.explain(dict(row,型号=model))
+            self.assertTrue(actual['complete'],model)
+            self.assertEqual(''.join(p['code'] for p in actual['segments']),model)
+        for model in ('ERJ2RBD1002X','ERJ2RKD1002V','ERJ3GEJ102V','ERJ2GEYJ102X',
+                      'ERJ3GEYJR00V','ERJ3GEY0102V','ERJMP4PF10MU','ERJP06D1002V'):
+            self.assertFalse(guide.explain(dict(row,型号=model))['segments'],model)
+        self.assertFalse(guide.explain(dict(row,品牌='Other'))['segments'])
+        self.assertFalse(guide.explain(dict(row,器件类型='MLCC'))['segments'])
+
+    def test_susumu_rg_uses_manufacturer_tolerance_tcr_and_metric_size(self):
+        row=dict(品牌='进工Susumu',器件类型='薄膜电阻',型号='RG1608P-103-B-T5',阻值='999',功率='999')
+        decoded=guide.explain(row)
+        fields={p['name']:p for p in decoded['segments']}
+        self.assertTrue(decoded['complete'])
+        self.assertEqual(fields['阻值']['meaning'],'10 kΩ')
+        self.assertEqual(fields['温度系数']['meaning'],'±25 ppm/℃')
+        self.assertIn('0603',fields['封装']['meaning'])
+        self.assertEqual(fields['阻值误差']['meaning'],'±0.1%')
+        self.assertIn('5000',fields['包装数量']['meaning'])
+        self.assertNotIn('功率',fields)
+        self.assertEqual(''.join(p['code'] for p in decoded['segments']),row['型号'])
+        self.assertEqual(len(decoded['source_links']),2)
+        for model in ('RG1608P-561-B-T5','RG1608P-104-B-T5','RG1005N-102-P-T5','RG0603P-103-D-T10'):
+            self.assertTrue(guide.explain(dict(row,型号=model))['complete'])
+        for model in ('RGH1608P-103-B-T5','RG3216P-103-B-T5','RG1608P-103-B-T10',
+                      'RG0603P-103-B-T5','RG1005N-102-D-T5','RG1608R-103-B-T5','RG1608P-103-F-T5'):
+            self.assertFalse(guide.explain(dict(row,型号=model))['segments'],model)
+        self.assertFalse(guide.explain(dict(row,品牌='Other'))['segments'])
+        self.assertFalse(guide.explain(dict(row,器件类型='MLCC'))['segments'])
+
+    def test_public_exact_source_audit_is_read_only_and_uses_actual_type(self):
+        import hashlib,sqlite3,tempfile
+        from contextlib import closing
+        from tools.audit_naming_output_sources import sqlite_audit
+        with tempfile.TemporaryDirectory(prefix='naming-public-source-') as directory:
+            path=Path(directory)/'public.sqlite'
+            with closing(sqlite3.connect(path)) as conn:
+                conn.execute('CREATE TABLE components_search_core(品牌 TEXT,型号 TEXT,_component_type TEXT)')
+                conn.executemany('INSERT INTO components_search_core VALUES(?,?,?)',[
+                    ('Vishay','ERC55357R00FHEA600','薄膜电阻'),('Other','UNKNOWN','MLCC')])
+                conn.commit()
+            before=hashlib.sha256(path.read_bytes()).hexdigest()
+            result=sqlite_audit(path,'components_search_core')
+            self.assertEqual(result['summary']['records'],2)
+            self.assertEqual(result['summary']['complete'],1)
+            self.assertEqual(result['summary']['unexplained'],1)
+            self.assertFalse(result['summary']['full_coverage'])
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+            with self.assertRaises(ValueError):sqlite_audit(path,'member_auth')
+
+    def test_erc_industrial_is_not_the_military_rnc_ordering_table(self):
+        row=dict(品牌='威世Vishay',器件类型='薄膜电阻',型号='ERC55357R00FHEA600',阻值='999')
+        data=guide.explain(row)
+        fields={p['name']:p for p in data['segments']}
+        self.assertTrue(data['complete'])
+        self.assertEqual(fields['阻值']['meaning'],'357 Ω')
+        self.assertEqual(fields['温度系数']['meaning'],'±50 ppm/℃')
+        self.assertIn('600',fields['工业型号选项']['meaning'])
+        self.assertEqual(''.join(p['code'] for p in data['segments']),row['型号'])
+        self.assertTrue(any('31104/ercind.pdf' in u for _,u in data['source_links']))
+        for model in ('ERC5090R900FKEK500','ERC553K0100FHEB500'):
+            self.assertTrue(guide.explain(dict(row,型号=model))['complete'])
+        self.assertFalse(guide.explain(dict(row,型号='ERC50357R00FHEA600'))['complete'])
+        self.assertFalse(guide.explain(dict(row,型号='ERC55357R00BKEA500'))['segments'])
+        self.assertFalse(guide.explain(dict(row,品牌='KOA'))['segments'])
+
     def test_murata_published_dimensions_and_packaging_do_not_use_stock_values(self):
         row=dict(品牌='村田Murata',型号='GRM033R60J105ME15D',器件类型='MLCC',
                  厚度='999',尺寸='999')
@@ -206,8 +378,11 @@ class NamingGuideTests(unittest.TestCase):
             self.assertEqual(parts['封装']['meaning'],'0402（英制代码）')
             self.assertEqual(parts['阻值误差']['meaning'],'±0.1%')
             self.assertEqual(parts['阻值']['meaning'],'470 kΩ')
-            if series!='FRT':
-                self.assertFalse(parts['附加订货码']['verified'])
+            self.assertTrue(parts['包装']['verified'])
+            if model.endswith('T'):
+                self.assertFalse(parts['端电极']['verified'])
+            else:
+                self.assertTrue(parts['端电极']['verified'])
 
     def test_frt_termination_is_not_power_and_tcr_is_series_scoped(self):
         for tail,ppm in (('TSX',25),('TSV',50)):
@@ -215,7 +390,7 @@ class NamingGuideTests(unittest.TestCase):
             self.assertEqual(parts['端电极']['meaning'],'Sn（锡）')
             self.assertEqual(parts['温度系数']['meaning'],f'±{ppm} ppm/℃')
             self.assertNotIn('功率',parts)
-        self.assertNotIn('温度系数',self.parts(self.record('FTH0402B4703TSX',series='FTH')))
+        self.assertEqual(self.parts(self.record('FTH0402B4703TSX',series='FTH'))['温度系数']['meaning'],'±25 ppm/℃')
 
     def test_same_tcr_has_different_codes_in_viking_and_yageo(self):
         v=self.parts(self.record('AR02BTC4703','光颉Viking','AR','薄膜电阻'))
@@ -421,7 +596,7 @@ class NamingGuideTests(unittest.TestCase):
             self.assertTrue(data['complete'])
             self.assertTrue(data['source_links'])
             self.assertIn('逐码解释完整',guide.guide_html(data))
-        partial=guide.explain(self.record('FRH0402B4703TS'))
+        partial=guide.explain(self.record('FRH0402B4703TSZ'))
         self.assertFalse(partial['complete'])
         self.assertIn('尚未完整',guide.guide_html(partial))
 
@@ -481,7 +656,7 @@ class NamingGuideTests(unittest.TestCase):
     def test_coverage_audit_cannot_call_partial_or_selectable_brands_complete(self):
         from tools.audit_model_naming_coverage import audit
         rows=[self.record('RN73H1ETTP1200B25','KOA'),
-              self.record('FRH0402B4703TS','FOJAN'),self.record('UNKNOWN','Other')]
+              self.record('FRH0402B4703TSZ','FOJAN'),self.record('UNKNOWN','Other')]
         before=copy.deepcopy(rows)
         result=audit(rows)['summary']
         self.assertEqual((result['records'],result['complete'],result['partial'],result['unexplained']),(3,1,1,1))

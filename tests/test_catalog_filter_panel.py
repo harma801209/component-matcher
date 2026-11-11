@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from component_filters import PREFIX, snapshot, category_counts
 from catalog_filter_panel import build_payload, handle_request
 from tests import test_component_filters as fixtures
@@ -284,7 +285,11 @@ class SearchFormLayoutTests(unittest.TestCase):
         from precision_theme import CSS
         self.assertIn('.st-key-workbench-search-panel [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;}', CSS)
 
-    def test_moved_form_preserves_input_and_brand_customer_guards(self):
+    @patch('streamlit.env_util.is_repl', return_value=False)
+    def test_moved_form_preserves_input_and_brand_customer_guards(self, _not_a_repl):
+        # This is an AppTest file, never a REPL. Streamlit's warning-only
+        # inspect.stack()/Windows realpath probe can exhaust the 3s budget.
+        # Keep the real widget path, timeout and every state/permission assertion.
         import ast
         from streamlit.testing.v1 import AppTest
         source = '''

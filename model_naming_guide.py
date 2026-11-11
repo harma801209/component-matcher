@@ -7,6 +7,9 @@ from collections import OrderedDict
 from decimal import Decimal
 import hashlib
 import html
+import json
+from functools import lru_cache
+from pathlib import Path
 import math
 import re
 
@@ -14,7 +17,6 @@ PUBLIC_FIELDS = ('品牌', '型号', '系列', '系列说明', '器件类别', '
                  '尺寸（inch）', '尺寸（mm）', '材质（介质）', '容值', '容值单位',
                  '容值误差', '耐压（V）', '功率', '_power', '工作温度')
 TOL = {'T':'.01','A':'.05','B':'.1','C':'.25','D':'.5','F':'1','G':'2','J':'5','K':'10','M':'20'}
-FOJAN_SOURCE = '系统已接入的富捷系列规则；未逐码核验的附加码会单独标出。'
 VIKING_SOURCE = 'Viking AR Series，REV.F3，2022-02-10，Part Numbering，第 2 页。'
 YAGEO_SOURCE = 'YAGEO RT Series 原厂数据表，Ordering information / Global part number。'
 MURATA_SOURCE = 'Murata 原厂 Part Numbering，第1页尺寸／标称厚度表及第3页个别规格识别码／包装表；标称厚度不代表具体型号的公差或最大厚度，不推测个别规格识别码的内部含义。'
@@ -335,6 +337,20 @@ def vishay_crcw_variants(model):
 def vishay_resistor(model):
     variant=vishay_crcw_variants(model)
     if variant[0]:return variant
+    # ERC Industrial has its own ordering table (31104), not the military
+    # RNC/RNR table31025. A decoded identifier never certifies availability.
+    match=re.fullmatch(r'(ERC)(50|55|65|70)([0-9RKM]{6})([BDF])([EHK])(EA|EB|EK)(\d{3})',model)
+    if match and re.search('[RKM]',match[3]) and resistance(match[3]) is not None:
+        series,size,code,tol,tcr,packing,special=match.groups()
+        if tol=='B' and tcr=='K':return [],''
+        known=special=='500' or special=='600' and size=='55'
+        segments=[part(series,'系列','ERC 工业精密轴向金属膜电阻'),
+            part(size,'外形',series+size+' 轴向外形代码，不是贴片尺寸'),
+            part(code,'阻值',quantity(resistance(code))),part(tol,'阻值误差',tolerance(tol)),
+            part(tcr,'温度系数',f"±{dict(E=25,H=50,K=100)[tcr]} ppm/℃"),
+            part(packing,'包装',{'EA':'无铅／整盘编带','EB':'无铅／编带 1000 颗','EK':'无铅／散装'}[packing]),
+            part(special,'工业型号选项','工业型（适用全部已列外形）' if special=='500' else 'ERC55 工业型600外形／功率版本，不是温漂或精度' if known else '此具体订货选项未列于已核验表，不作推测',known)]
+        return segments,'Vishay 原厂 ERC Industrial，文档31104，2016-09-16，第1～2页；仅解释订货字段，不据历史目录证明当前在产或可订购。'
     match=re.fullmatch(r'(CMF)(50|55|60)([0-9RKM]{6})([BCDFGJ])([EHKLNM])(EA|EB|EK|BF|RE|R6)([0-9]{1,3})?',model)
     if match and re.search('[RKM]',match[3]) and resistance(match[3]) is not None:
         series,size,code,tol,tcr,packing,special=match.groups()
@@ -572,6 +588,241 @@ def yageo_cc_x7r(model):
             part(cap,'容量',quantity(value,'pF'))], 'YAGEO 原厂 General Purpose & High Capacitance X7R 6.3V–250V，2026-03-06 V27，第2页；BB 逐位定义未公开于该页，故不标为完整解释。'
 
 
+@lru_cache(maxsize=1)
+def fojan_naming_documents():
+    """Public OEM document metadata only; never read user folders at runtime."""
+    return json.loads((Path(__file__).parent/'catalog_sources'/'fojan_naming_documents_20261105.json').read_text(encoding='utf-8'))['documents']
+
+
+def fojan_ordering(model):
+    """Read-only naming help; does not create or qualify purchasable models."""
+    documents=fojan_naming_documents()
+    series=model[:3]
+    standard={'FRC','FRH','FRV','FRQ','FRR','FRG','FRD','FPS','FPL','FQP','FQT','FTR',
+              'FCP','FCW','FNL','FPR','FPW','FQL','FQS','FQV','FRE','FRJ','FRL','FRN',
+              'FRP','FRS','FRZ','FRT','FTH','FUP','FRB'}
+    low_ohm={'FNL','FPL','FRL','FQL'}
+    doc_prefix=series+'系列'
+    size_meaning=None
+    power=None
+    array=series in {'FAR','FQA'}
+    alloy=series in {'FCM','FMB','FPM','FRM'}
+    if series in {'FRT','FTH'}:doc_prefix=series+' 系列'
+    if series in standard:
+        match=re.fullmatch(r'(F[A-Z]{2})(01005|\d{4})([TABCD F GJKMPHL])([0-9R]{3,4})([A-Z]*)'.replace(' ',''),model)
+    elif array:
+        match=re.fullmatch(r'(FAR|FQA)(0[246][24]R)([FJP])([0-9R]{3})([A-Z]*)',model)
+    elif alloy:
+        match=re.fullmatch(r'(FCM|FMB|FPM|FRM)(\d{2}|\d{4})(\d{1,2}W|0[257]|15)([DFGJ])(R\d{3,4}|\dM\d{2})([A-Z]*)',model)
+    else:return [],''
+    # FQL has a separately documented two-character size + power form.
+    wide=None
+    ambiguous_fql=False
+    if series=='FQL':
+        candidate=re.fullmatch(r'(FQL)(\d{2})(Y5|Y6|01|02|X2|04|05|07|1W|15|2W|3W|5W)([BCDFJ])([0-9R]{3,4})([A-Z]*)',model)
+        if candidate:
+            # W/A/E/X/V are explicitly the four-digit low-TCR table; R is
+            # explicitly the short wide-electrode table. Bare TS can be
+            # structurally ambiguous and must not invent a power value.
+            valid_standard_sizes={'0402','0603','0805','1206','1210','1218','1812','2010','2512'}
+            if not match or candidate[6].endswith('R') or match[2] not in valid_standard_sizes:
+                wide=candidate;match=wide
+            elif len(candidate[6])<=2:
+                ambiguous_fql=True
+    if not match:return [],''
+    if alloy or wide:
+        series,size,power,tol,code,tail=match.groups()
+    else:series,size,tol,code,tail=match.groups()
+    value=(Decimal(code.replace('M','.'))/1000 if alloy and 'M' in code else resistance(code))
+    if value is None:return [],''
+    if not alloy and not array:
+        expected=3 if tol in {'J','K','M','P'} else 4
+        if series in low_ohm and not wide:expected=3 if size=='0603' else 4
+        if len(code)!=expected and not (wide and re.fullmatch(r'R\d{3}',code)):return [],''
+    extra=tail[2:] if len(tail)>=2 else ''
+    tcr={}
+    special={}
+    if series in {'FRT','FQT','FTR','FTH'}:
+        tcr=dict(A=10,E=15,X=25,V=50)
+        if series=='FTH':tcr['Y']=5
+    elif series in {'FRC','FRP'} and extra in {'X','V','L'}:
+        doc_prefix=series+'-X系列'
+        tcr=dict(X=25,V=50,L=100)
+    elif series=='FRC' and extra=='P':
+        doc_prefix='FRC-P系列';special={'P':'无铅（Lead Free）版本'}
+    elif series in {'FRL','FQL'} and extra=='L':
+        doc_prefix=series+'-L系列';special={'L':'低阻低温漂系列版本；本码不单独指定数值温漂'}
+    elif series=='FQL' and not wide and extra in {'A','E','X','V','W'}:
+        doc_prefix='FQL 系列车规低阻低TCR';tcr=dict(A=10,E=15,X=25,V=50,W=100)
+    if wide:
+        doc_prefix='FQL 系列车规低阻宽电极'
+        sizes=dict(zip(('06','08','12','10','20','25','39','07','09','11','13','14'),
+                       ('0603','0805','1206','1210','2010','2512','3920','0508','0612','1012','1020','1225')))
+        powers={'Y5':'0.05','Y6':'0.063','01':'0.10','02':'0.20','X2':'0.25','04':'0.4','05':'1/2','07':'3/4','1W':'1','15':'1.5','2W':'2','3W':'3','5W':'5'}
+        if size not in sizes:return [],''
+        size_meaning=sizes[size]+'（英制代码）'
+        power_meaning=powers[power]+' W'
+    elif alloy:
+        sizes={'06':'0603','08':'0805','12':'1206','20':'2010','25':'2512'}
+        if series=='FCM':
+            if size not in {'2512','3920','5930'} or power not in {'3W','7W','15W'}:return [],''
+            size_meaning=size+'（英制代码）';power_meaning=power[:-1]+' W'
+        else:
+            limits={'FMB':({'06','08','12','20','25'},{'02','05','07','1W'}),
+                    'FPM':({'25'},{'3W'}),'FRM':({'08','12','20','25'},{'05','1W','15','2W'})}
+            if size not in limits[series][0] or power not in limits[series][1]:return [],''
+            size_meaning=sizes[size]+'（英制代码）'
+            power_meaning={'02':'0.25 W','05':'0.5 W','07':'0.75 W','15':'1.5 W'}.get(power,power[:-1]+' W')
+    names=[name for name in documents if name.startswith(doc_prefix)]
+    if not names:return [],''
+    name=sorted(names)[0];doc=documents[name]
+    description=name.removesuffix('.pdf').replace('系列',' 系列 ',1)
+    standard_sizes={'01005','0201','0402','0603','0805','1206','1210','1218','1812','2010','2512'}
+    sizes_by_series={
+        'FRC':standard_sizes,'FRQ':standard_sizes-{'01005'},'FRR':standard_sizes-{'01005'},
+        'FRP':standard_sizes-{'01005','0201'},'FRH':standard_sizes-{'01005','0201'},
+        'FRV':standard_sizes-{'01005','0201','0402'},'FRG':standard_sizes-{'01005','0201','0402'},
+        'FPR':standard_sizes-{'01005','0201','0402'},'FQP':standard_sizes-{'01005','0201','0402'},
+        'FPS':standard_sizes-{'01005','0201','0402'},'FRS':standard_sizes-{'01005','0201','0402'},
+        'FQS':standard_sizes-{'01005','0201','0402'},'FQV':standard_sizes-{'01005','0201','0402'},
+        'FQT':standard_sizes-{'01005','0201'},'FTR':standard_sizes-{'01005','0201'},
+        'FPL':standard_sizes-{'01005','0201'},'FRL':standard_sizes-{'01005','0201'},'FQL':standard_sizes-{'01005','0201'},
+        'FNL':standard_sizes-{'01005','0201','1218'},'FRJ':standard_sizes-{'01005','0201','1218'},
+        'FCP':{'0402','0603','0805','1206','1210','2010','2512'},
+        'FUP':{'0402','0603','0805','1206','1210','2010','2512'},
+        'FRT':{'0402','0603','0805','1206','1210','2010','2512'},
+        'FTH':{'0402','0603','0805','1206','1210','2010','2512'},
+        'FCW':{'0612','1020','1225'},'FPW':{'0612','1020','1225'},
+        'FRD':{'0805','1206'},'FRE':{'0201','0402','0603','0805','1206','1210'},
+        'FRN':standard_sizes-{'01005','1218'},'FRZ':{'0603','0805','1206'},
+        'FRB':standard_sizes-{'01005','1218'},
+    }
+    tolerances_by_series={'FRC':'ABCDFJPHL','FRP':'ABCDFJPHL','FRQ':'ABCDFJPHL','FRR':'ABCDFJPHL',
+        'FRH':'BCD','FRV':'DFJ','FRG':'FJ','FRD':'FJ','FRE':'FJ','FRJ':'BCDFJ','FRN':'DFJP','FRZ':'BCDJ P'.replace(' ',''),'FRB':'BCDFJ',
+        'FCP':'DFGJ','FUP':'DFGJ','FCW':'DFJP','FPW':'DFJP','FNL':'FGJ','FPL':'FJ','FRL':'FJ','FQL':'FJ',
+        'FPR':'BCDFJP','FQP':'BCDFJP','FPS':'FJKMP','FRS':'FJKMP','FQS':'FJKM',
+        'FQV':'DFJ','FRT':'ABCDFJ','FQT':'ABCDFJ','FTR':'ABCDFJ','FTH':'TABCDF'}
+    size_verified=alloy or wide is not None or size in sizes_by_series.get(series,set())
+    tol_codes=tolerances_by_series.get(series,'DFGJ' if alloy else 'FJP')
+    if doc_prefix=='FRC-X系列':size_verified=size in sizes_by_series['FRC']-{'01005','0201'}
+    if doc_prefix=='FRC-P系列':tol_codes='ABCDFJP'
+    if doc_prefix=='FRP-X系列':
+        size_verified=size in sizes_by_series['FRP']-{'1218'}
+        tol_codes='DFJP'
+    if series in {'FRL','FQL'} and extra=='L':tol_codes='FGJ'
+    if series in {'FRL','FQL'} and extra=='L':size_verified=size in sizes_by_series[series]-{'1218','1812'}
+    if series=='FQL' and (wide or tcr):tol_codes='BCDFJ'
+    if series=='FQL' and tcr:size_verified=size in sizes_by_series['FQL']-{'1218'}
+    if ambiguous_fql:
+        size_verified=False
+        size_meaning=size+' 可能是四位封装码，也可拆成两位封装＋功率码；两份 FQL 命名表均适用此结构，须先确认版本，不能静默指定功率'
+    if series=='FRB':
+        description+='；该版本命名图的产品码写为 FRJ，与 FRB 标题不一致，须原厂确认'
+    segments=[part(series,'系列',description,series!='FRB'),
+              part(size,'封装',size_meaning or (size+'（原厂排阻尺寸／联数代码，非单颗英制尺寸；逐段尺寸含义仍待核验）' if array else size+'（英制代码）'+('；本系列命名尺寸表未列出此值' if not size_verified else '')),bool(size_verified))]
+    if power:segments.append(part(power,'功率代码',power_meaning))
+    tol_meaning={'P':'跨接电阻（Jumper），不是精度百分比','H':'0～+1%','L':'-1～0%'}.get(tol,tolerance(tol))
+    segments.extend([part(tol,'阻值误差',tol_meaning+('；本系列原厂表未列出此公差码' if tol not in tol_codes else ''),tol in tol_codes),part(code,'阻值',quantity(value))])
+    packing={'T':'7 英寸卷盘（编带包装）','Q':'10 英寸卷盘（编带包装）','R':'13 英寸卷盘（编带包装）','B':'散装（Bulk）'}
+    if alloy:packing.pop('Q')
+    if tail:
+        segments.append(part(tail[0],'包装',packing.get(tail[0],'本系列原厂命名表未列出的包装代码'),tail[0] in packing))
+    else:segments.append(part('','包装','缺少包装代码，不能标为完整解释',False))
+    electrodes={'S':'Sn（锡）','C':'Cu（铜）','A':'Au（金）'}
+    if alloy:electrodes={'M':'Metal（金属合金材质）'}
+    if array:electrodes={'T':'凸电极（Convex）','A':'凹电极（Concave）','F':'平电极（Flat）'}
+    if len(tail)>=2:
+        segments.append(part(tail[1],'材质' if alloy else '电极类型' if array else '端电极',electrodes.get(tail[1],
+            '原厂示例与代码表不一致，须向原厂确认；不能套用单颗电阻的 Sn 定义' if array and tail[1]=='S' else '本系列原厂命名表未定义的代码'),tail[1] in electrodes))
+    else:segments.append(part('','材质' if alloy else '端电极','缺少代码，不能标为完整解释',False))
+    if extra:
+        if extra in tcr:segments.append(part(extra,'温度系数',f'±{tcr[extra]} ppm/℃'))
+        elif alloy and extra=='L' and series!='FCM':segments.append(part(extra,'特殊码','大电极（Large electrode）'))
+        elif extra in special:segments.append(part(extra,'特殊码',special[extra]))
+        elif wide and extra=='R':segments.append(part(extra,'特殊码','TRL（原厂表列出的名称，未提供进一步释义，须原厂确认）',False))
+        else:segments.append(part(extra,'附加订货码','该附加代码未在本系列原厂命名表中定义，不能跨系列套用',False))
+    elif tcr:segments.append(part('','温度系数','缺少本系列温漂特殊码，不能标为完整解释',False))
+    source=f'富捷原厂《{name}》，{doc["revision"]}，Parts Number Explanation，第 {doc["page"]} 页；按系列分别核验，代码解释不等于可采购或满足全部电气要求。'
+    return segments,source
+
+
+
+def panasonic_erj(model):
+    """Distinct original ERJ thick-film charts, not ERJ metal-plate/power families."""
+    match=re.fullmatch(r'(ERJ)(-?)(1R|2R|3R|6R)([HBKE])(D)([0-9R]{4})([CXV])',model)
+    source='Panasonic 原厂 AOA0000C304，2025-05-29，第1～2页订货表；解释字段不证明当前在产或所有组合可订购。'
+    if match:
+        series,dash,size,tcr,tol,code,packing=match.groups()
+        if tcr not in {'1R':'H','2R':'HK','3R':'BE','6R':'BE'}[size]:return [],''
+        if packing!={'1R':'C','2R':'X','3R':'V','6R':'V'}[size]:return [],''
+        value=resistance(code)
+        if value is None:return [],''
+        sizes={'1R':('0201','0.05'),'2R':('0402','0.1'),'3R':('0603','0.1'),'6R':('0805','0.1')}
+        segments=[part(series,'产品类型','厚膜贴片电阻')]
+        if dash:segments.append(part(dash,'分隔符','产品代码分隔符，不代表电气参数'))
+        segments.extend([part(size,'尺寸／功率',sizes[size][0]+'（英制）；额定功率 '+sizes[size][1]+' W（70℃，须满足壳温及降额条件）'),
+            part(tcr,'温度系数',f"±{50 if tcr in 'HB' else 100} ppm/℃"),
+            part(tol,'阻值误差','±0.5%'),part(code,'阻值',quantity(value)),
+            part(packing,'包装',{'C':'压制载带，2 mm 节距，15000 颗／卷','X':'冲孔载带，2 mm 节距，10000 颗／卷','V':'冲孔载带，4 mm 节距，5000 颗／卷'}[packing])])
+        return segments,source
+    precise={'XGN':('01005','0.031','YU'),'1GN':('0201','0.05','C'),'1GJ':('0201','0.05','C'),
+             '2RC':('0402','0.1','X'),'2RK':('0402','0.1','X'),'3EK':('0603','0.1','V'),
+             '6EN':('0805','0.125','V'),'8EN':('1206','0.25','V'),'14N':('1210','0.5','U'),
+             '12N':('1812','0.75','U'),'12S':('2010','0.75','U'),'1TN':('2512','1','U')}
+    general={'XGN':('01005','0.031','YU'),'1GN':('0201','0.05','C'),'1GJ':('0201','0.05','C'),
+             '2GE':('0402','0.1','X'),'3GE':('0603','0.1','V'),'6GE':('0805','0.125','V'),
+             '8GE':('1206','0.25','V'),'14':('1210','0.5','U'),'12':('1812','0.75','U'),
+             '12Z':('2010','0.75','U'),'1T':('2512','1','U')}
+    match=re.fullmatch(r'(ERJ)(-?)(XGN|1GN|1GJ|2RC|2RK|3EK|6EN|8EN|14N|12N|12S|1TN)(F)([0-9R]{4})([YCXVU])',model)
+    marking=''
+    if match:
+        series,dash,size,tol,code,packing=match.groups();sizes=precise
+    else:
+        match=re.fullmatch(r'(ERJ)(-?)(XGN|1GN|1GJ|2GE|3GE|6GE|8GE|14|12Z|12|1T)(Y?)(J|0)([0-9R]{3})([YCXVU])',model)
+        if not match:return [],''
+        series,dash,size,marking,tol,code,packing=match.groups();sizes=general
+        if bool(marking)!=(size not in ('XGN','1GN','1GJ','2GE')):return [],''
+        if (tol=='0')!=(code=='R00'):return [],''
+        source='Panasonic 原厂 AOA0000C301，2022-12-22，第1页订货表；历史命名表不证明当前在产或可订购，具体组合须核对当前规格书。'
+    value=resistance(code)
+    if value is None or packing not in sizes[size][2]:return [],''
+    packs={'Y':'压制载带，W8P2，20000 颗／卷','C':'压制载带，2 mm 节距，15000 颗／卷',
+           'X':'冲孔载带，2 mm 节距，10000 颗／卷','V':'冲孔载带，4 mm 节距，5000 颗／卷',
+           'U':'压纹载带，W4P1，40000 颗／卷' if size=='XGN' else '压纹载带，4 mm 节距，'+('4000' if size in ('1T','1TN') else '5000')+' 颗／卷'}
+    segments=[part(series,'产品类型','厚膜贴片电阻')]
+    if dash:segments.append(part(dash,'分隔符','产品代码分隔符，不代表电气参数'))
+    segments.append(part(size,'尺寸／功率',sizes[size][0]+'（英制）；额定功率 '+sizes[size][1]+' W（70℃，须满足壳温及降额条件）'))
+    if marking:segments.append(part(marking,'表面标记','黑色表面有阻值标记'))
+    segments.extend([part(tol,'阻值误差','跳线（非百分比误差）' if tol=='0' else tolerance(tol)),
+        part(code,'阻值','跳线，R00 为零欧代码；实际电阻上限须查规格书' if code=='R00' else quantity(value)),
+        part(packing,'包装',packs[packing])])
+    return segments,source
+
+
+def susumu_rg(model):
+    """Current RG ordering chart; do not apply it to legacy RGH or other families."""
+    match=re.fullmatch(r'(RG)(0603|1005|1608|2012|3216)([VNPQR])-(\d{3,4})-([PWBD])-(T5|T10)',model)
+    if not match:return [],''
+    series,size,tcr,code,tol,packing=match.groups()
+    if size=='3216' and len(code)!=4:return [],''
+    if tcr not in {'0603':'NPQR','1005':'VNPR','1608':'VNPQ','2012':'VNPQ','3216':'VNPQ'}[size]:return [],''
+    if size=='0603' and (tol not in 'BD' or packing!='T10'):return [],''
+    if packing=='T10' and size not in ('0603','1005'):return [],''
+    if size=='1005' and tol=='D' and packing!='T10':return [],''
+    # The same ordering number has low/regular/high operating conditions.
+    # It does not contain a separate fixed-power code (manufacturer FAQ Q2).
+    sizes={'0603':('0201','0.6×0.3'),'1005':('0402','1.0×0.5'),
+           '1608':('0603','1.6×0.8'),'2012':('0805','2.0×1.25'),'3216':('1206','3.2×1.6')}
+    separator=lambda:part('-','分隔符','订货字段分隔符，不代表电气参数')
+    segments=[part(series,'系列','RG 高精密金属薄膜贴片电阻'),
+        part(size,'封装',sizes[size][0]+'（英制）；长×宽 '+sizes[size][1]+' mm（标称值）'),
+        part(tcr,'温度系数',f"±{dict(V=5,N=10,P=25,Q=50,R=100)[tcr]} ppm/℃"),separator(),
+        part(code,'阻值',quantity(resistance(code))),separator(),
+        part(tol,'阻值误差',tolerance(tol,dict(P='.02',W='.05',B='.1',D='.5'))),separator(),
+        part(packing,'包装数量','编带卷盘，'+('5000' if packing=='T5' else '10000')+' 颗／卷')]
+    return segments,'Susumu 原厂 RG 目录，第17页 Part numbering system／Electrical Specification／Dimensions，以及技术 FAQ Series name, part numbers；代码解释不证明所有阻值组合可订购或当前在产，功率须按具体工作条件核对。'
+
+
 def explain(record):
     brand, model = text(record.get('品牌')), compact(record.get('型号'))
     manufacturer = compact(brand)
@@ -579,27 +830,8 @@ def explain(record):
     segments, source = [], ''
     resistor = not kind or '电阻' in kind or 'RESISTOR' in kind.upper()
     mlcc = not kind or '电容' in kind or 'MLCC' in kind.upper()
-    if resistor and ('FOJAN' in manufacturer or '富捷' in manufacturer):
-        from fojan_resistor_catalog import FOJAN_SPECIAL_RESISTOR_SERIES
-        match = re.fullmatch(r'(FRC|FRH|FRT|FTH|FRV|FRQ|FRR|FRG|FRD|FPS|FPL|FQP|FQR|FQT|FTR)(01005|\d{4})([TABCD F GJKM])([0-9R]{3,4})([A-Z]*)'.replace(' ',''),model)
-        if match:
-            series, size, tol, code, tail = match.groups()
-            spec = FOJAN_SPECIAL_RESISTOR_SERIES.get(series,{})
-            description = text(record.get('系列说明')) or spec.get('description') or '本系列代号'
-            # FPL uses a decimal-R convention; standard J uses three digits.
-            valid = len(code) == (3 if tol == 'J' or series == 'FPL' and size == '0603' else 4)
-            value = resistance(code)
-            if valid and value is not None:
-                segments = [part(series,'系列',description),part(size,'封装',size+'（英制代码）'),
-                            part(tol,'阻值误差',tolerance(tol)),part(code,'阻值',quantity(value))]
-                if series == 'FRT' and re.fullmatch(r'[TQRB][SCA][AEXV]',tail):
-                    segments.extend([part(tail[0],'包装',{'T':'7 英寸卷盘','Q':'10 英寸卷盘','R':'13 英寸卷盘','B':'散装'}[tail[0]]),
-                        part(tail[1],'端电极',{'S':'Sn（锡）','C':'Cu（铜）','A':'Au（金）'}[tail[1]]),
-                        part(tail[2],'温度系数',f"±{dict(A=10,E=15,X=25,V=50)[tail[2]]} ppm/℃")])
-                    source='富捷 FRT 原厂规格书，FJ-JS-3001-V1.0／2021-01-25，Parts Number Explanation，第 1 页；具体组合须按当前型号规格书确认。'
-                elif tail:
-                    segments.append(part(tail,'附加订货码','该系列的包装／版本等附加代码尚未逐位核验，请按具体订货表确认。',False))
-                source = source or FOJAN_SOURCE
+    if resistor and any(token in manufacturer for token in ('FOJAN','FOSAN','富捷')):
+        segments,source=fojan_ordering(model)
     elif resistor and any(token in manufacturer for token in ('VIKING','光颉','光頡')):
         match = re.fullmatch(r'(AR)(01|02|03|05|06|13|10|12)([TAB CDF])([TB])([5XOSBNCD])([NYXWMPVOUQT]?)([0-9R]{4})(N?)'.replace(' ',''),model)
         if match and resistance(match[7]) is not None:
@@ -645,6 +877,10 @@ def explain(record):
         segments,source=vishay_resistor(model)
     elif resistor and 'STACKPOLE' in manufacturer:
         segments,source=stackpole_resistor(model)
+    elif resistor and any(token in manufacturer for token in ('SUSUMU','进工','進工')):
+        segments,source=susumu_rg(model)
+    elif resistor and any(token in manufacturer for token in ('PANASONIC','松下')):
+        segments,source=panasonic_erj(model)
     elif mlcc and any(token in manufacturer for token in ('WALSIN','华新科','華新科','华科')):
         segments,source=walsin_mt_mlcc(model)
         if not segments:
@@ -757,7 +993,9 @@ def explain(record):
         segments,source=[],''
     complete=bool(segments) and all(row['verified'] for row in segments)
     links=[]
-    if segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
+    if segments and any(token in manufacturer for token in ('FOJAN','FOSAN','富捷')):
+        links=[('富捷原厂规格书入口（FOSAN／FOJAN）','https://www.fosan.vip/')]
+    elif segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         links=[('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
                ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
     elif segments and mlcc and any(token in manufacturer for token in ('MURATA','村田')):
@@ -776,6 +1014,7 @@ def explain(record):
         links=[('KOA 原厂 RN73 命名表','https://www.koaspeer.com/pdfs/RN73.pdf')] if model.startswith('RN73') and not model.startswith(('RN73H','RN73R')) else [('KOA 原厂 2026 目录','https://www.koaspeer.com/pdfs/KOA_2026FullCatalog_Linked.pdf')]
     elif segments and any(token in manufacturer for token in ('VISHAY','威世')):
         pdf='20035/dcrcwe3.pdf' if model.startswith('CRCW') else '28758/tnpw_e3.pdf' if model.startswith('TNPW') else '31018/cmfind.pdf' if model.startswith('CMF') else '31025/erc.pdf'
+        if '文档31104' in source:pdf='31104/ercind.pdf'
         for document,path in (('20008','20008/dcrcw.pdf'),('20115','20115/crcwhp.pdf'),('20043','20043/crcwhpe3.pdf')):
             if '文档 '+document in source:pdf=path
         links=[('Vishay 原厂命名表','https://www.vishay.com/docs/'+pdf)]
@@ -787,6 +1026,11 @@ def explain(record):
         links=[('PDC 原厂分系列命名表','https://www.pdc.com.tw/storage/architecture/product~~19/product~~123/2020_3in1_catalog.pdf')]
     elif segments and 'STACKPOLE' in manufacturer:
         links=[('Stackpole 原厂署名 RNCF 命名表（欧洲存档）','https://stackpole-europe.com/specs/SEI-RNCF.pdf')]
+    elif segments and any(token in manufacturer for token in ('SUSUMU','进工','進工')):
+        links=[('Susumu 原厂 RG 命名表及尺寸表（第17页）','https://www.susumu.co.jp/common/pdf/n_catalog_partition01_en.pdf'),
+               ('Susumu 原厂 RG 技术问答','https://www.susumu.co.jp/en/tech/technical_faq02/')]
+    elif segments and any(token in manufacturer for token in ('PANASONIC','松下')):
+        links=[('Panasonic 原厂 ERJ 分系列命名表','https://industrial.panasonic.com/cdbs/www-data/pdf/RDA0000/'+('AOA0000C301.pdf' if 'C301' in source else 'AOA0000C304.pdf'))]
     return dict(model=model,brand=brand,series=text(record.get('系列')),segments=segments,source=source,source_links=links,
                 complete=complete,verified_segments=sum(bool(row['verified']) for row in segments),
                 status='本型号逐码解释完整' if complete else '本型号仍有代码待核验' if segments else '该系列逐码规则尚未核验')

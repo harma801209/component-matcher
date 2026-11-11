@@ -1,0 +1,232 @@
+{
+  "checked": "2026-11-05",
+  "brand_alias_evidence": {"checked": "2026-11-10", "url": "https://www.fosan.vip/", "scope": "Manufacturer website explicitly identifies FOSAN (FOJAN) 富捷. Applies only to the resistor families defined by these documents, never automatically to semiconductor or other families."},
+  "scope": "Local manufacturer-authored resistor specifications; ordering code explanation only, not availability or electrical qualification.",
+  "documents": {
+    "FAR系列抗硫化车规排阻厚膜片式电阻.pdf": {
+      "sha256": "7afd151f458a34ed7e25f8112cdf229259157a02b91c8f83280700217b0617a4",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FCM系列裸片合金高功率贴片电阻.pdf": {
+      "sha256": "112d57a8006f0c1fd99a5a5164ae20da0e80b21d108c446d1f5866ac4a3b589b",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.09.24"
+    },
+    "FCP系列常规超高功率厚膜片式电阻.pdf": {
+      "sha256": "83fdccb6a19371b988c13ce9d02f3667657368066b2551628aeb6b76d43bdb36",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/1/1"
+    },
+    "FCW系列宽电极厚膜片式电阻.pdf": {
+      "sha256": "542df0290ca321ca28cf21b598cc88f688e2910767b859489183bb9945eaaca1",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/1/1"
+    },
+    "FMB系列薄膜合金贴片电阻.pdf": {
+      "sha256": "2328376b61a9da92edd33f73e391a5cf6af3e2f87dac3cd2cf0bf741cacc1320",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.09.24"
+    },
+    "FNL系列低阻低温漂厚膜片式电阻.pdf": {
+      "sha256": "ab8aa23972237fbf4e6cd467231ecbefece0fecda3df6979f02cfbf12983885e",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0 2026/01/01"
+    },
+    "FPL系列高功率低阻厚膜片式电阻.pdf": {
+      "sha256": "b3ea3df7361545da5ab472a3fefce50ed2592cdb01048a3a3bc980e06adf879f",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.01.01"
+    },
+    "FPM系列高功率合金电阻.pdf": {
+      "sha256": "36317e1cef0828781baa5400f7d317f08a02f8a0cc02308f9ab5e1cd334135e7",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.09.24"
+    },
+    "FPR系列高功率车规抗硫化厚膜电阻.pdf": {
+      "sha256": "3ba172c1942bca15b249a775151ce4c12b6a9a50c395c7aae402eb90e1167884",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2026/1/1"
+    },
+    "FPS系列高功率抗浪涌厚膜片式电阻.pdf": {
+      "sha256": "ad7f80a9f28ea918903b7618efd6389467ccc295a5a03ebc8ce7a89bf4e24de0",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FPW系列高功率宽电极厚膜片式电阻.pdf": {
+      "sha256": "08860bd01e67176e9491fca7695ed069c2b4f5d168dc4d6b616f0b06dd251862",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/1/1"
+    },
+    "FQA系列车规厚膜片式排列电阻.pdf": {
+      "sha256": "619ca36773d1ae855b00ff7e9db369314c2a0bb70dfacab97babe0c846209379",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FQL 系列车规低阻低TCR厚膜片式电阻.pdf": {
+      "sha256": "45929036cb1f8b0b450f65243d6d39839703c47b3a10fbe113693bab71268836",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.12.29"
+    },
+    "FQL 系列车规低阻宽电极厚膜片式电阻.pdf": {
+      "sha256": "6afc3e05bd101cbb9e40c1be718093da6e9a4d4a8d1d46d71a7c10f7b015039c",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.12.18"
+    },
+    "FQL-L系列汽车级低阻低温漂厚膜片式电阻.pdf": {
+      "sha256": "76419dc6c81007dad5291c0f837460195185e242e12b2245309e47adfebe2b50",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FQL系列低阻车规厚膜片式电阻.pdf": {
+      "sha256": "ad31510bff62c917d423216f048ff0501f173b4a5dca6a2427435e6d5f4af98f",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FQP系列高功率车规厚膜电阻.pdf": {
+      "sha256": "8cb837e41b80defd44ba571e6cfd4fbccbfc597f0bd4fee4dfd72a7dd7905ea6",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2026/1/1"
+    },
+    "FQS系列抗浪涌车规厚膜片式电阻.pdf": {
+      "sha256": "4fe03d9beecc446cf4ab3d7c3bb90ddccff6b115e4ae51aee82d3d9cad58e911",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FQT系列汽车级薄膜片式电阻.pdf": {
+      "sha256": "16800d071556fecbb1117d675d428acbcb47011c0b300b1076a466952850994d",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FQV系列高压车规厚膜片式电阻.pdf": {
+      "sha256": "75202028df7b70678c0dc2f72dfb75280d884b36acf248a2d29e15d477badbd5",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRB系列常规低TCR厚膜片式电阻.pdf": {
+      "sha256": "389d58e9bac4e638ab4e7da4d50ba24c83d626ebe1f7e7c37d63976b3aad19d5",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.12.30"
+    },
+    "FRC-P系列无铅厚膜片式电阻.pdf": {
+      "sha256": "020b710dbd204424be75e0103ff61cdef0b75ef5f72805d11fb462c5a637552d",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/1/1"
+    },
+    "FRC-X系列常规低温漂厚膜片式电阻.pdf": {
+      "sha256": "df3fd1fe8a4e621edb96b5cee2fc5db011f9e69032bc675ea747a22e1746470f",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/1/1"
+    },
+    "FRC系列普通厚膜电阻.pdf": {
+      "sha256": "3129c2e0fcc114676646ce1435f7854974f999765dc5a8b9ea51ed275725e6f9",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRD系列LED厚膜片式电阻.pdf": {
+      "sha256": "6c0283560ccb5ad7841584f7700eb8c611a6f0f7f134b9fbc877ca05db155fea",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.11.20"
+    },
+    "FRE系列抗静电厚膜片式电阻.pdf": {
+      "sha256": "40bad46bb2cae2aaa76d24b41f742f1cceedbe6e53556a033f4e55099a944ac0",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025/1/1"
+    },
+    "FRG系列高阻值厚膜片式电阻.pdf": {
+      "sha256": "0e649ac9bce4014c57b4f34af52f228ff560e2968d1cc267195ab129d45aad6d",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRH系列高精度厚膜片式电阻器.pdf": {
+      "sha256": "a1e83e9adc419c18581254c2bd17a57c685670f0cbe80c96b4ff3f256e598092",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRJ系列低阻低TCR厚膜片式电阻.pdf": {
+      "sha256": "78447aa2ae6918e2bc99467e8eeeff29e1b09865e94d90bd0c0da2ddd3cd99b1",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.12.30"
+    },
+    "FRL-L系列低阻低温漂厚膜片式电阻.pdf": {
+      "sha256": "bb57a184debbf1a69374b6ccec4b66486c4c32e420186835cb7c2cffa1ab1c17",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FRL系列常规低阻厚膜片式电阻.pdf": {
+      "sha256": "e73900a45f930df812d1639e71a78b06ca2be504c08d28c2bb0d688f97c8fdcd",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FRL系列普通厚膜低阻.pdf": {
+      "sha256": "e73900a45f930df812d1639e71a78b06ca2be504c08d28c2bb0d688f97c8fdcd",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FRM系列合金低阻.pdf": {
+      "sha256": "aca64657b8eb4c9c0aa37d65a7c8efa14393f03f378b74124e7e89f997b06478",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.09.24"
+    },
+    "FRN系列汽车级高品质抗硫化厚膜片式电阻.pdf": {
+      "sha256": "9f93b5ba9d0c64fb312ff04241865de0522dcb4ad699d14c42a8833933ceb749",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025/1/1"
+    },
+    "FRP-X系列低温漂高功率厚膜片式电阻.pdf": {
+      "sha256": "66c62679ac3651d7248143c629d4c1381d063d03189e40459d3792e23f21e13a",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FRP系列高功率厚膜片式电阻.pdf": {
+      "sha256": "2e185c11fd85d538d0cb3ae065bd15e72e48a87c79c8e5f7cb962317b084c22c",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025.01.01"
+    },
+    "FRQ系列常用车规厚膜电阻.pdf": {
+      "sha256": "428c60d1320dfd9a738771997d591353581303994c32cac4386e4b785e1110e6",
+      "page": 2,
+      "revision": "FJ-JS-3001-V3.0/2026/1/1"
+    },
+    "FRR系列车规抗硫化厚膜电阻.pdf": {
+      "sha256": "1384bc64fadbd463efd077bc26c2f2c3f73e1cbcfe7e916c3dc9641aa9dd896c",
+      "page": 2,
+      "revision": "FJ-JS-3001-V3.0/2026/1/1"
+    },
+    "FRS系列抗浪涌厚膜片式电阻.pdf": {
+      "sha256": "cbad771d4b0e1ad0f4aac5043fd49ba0b020051b8e72a3a6fce626a7ffd706c0",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.01.01"
+    },
+    "FRT 系列薄膜片式电阻.pdf": {
+      "sha256": "080068ff67e57707f40c677d46f3da551b77d8b13b44e5f97311af91b84138b4",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRV系列高压厚膜片式电阻.pdf": {
+      "sha256": "8ddcd52627b1bfe03cdbd48f7d44e90e26c162e4e3ec0b359cf3dff494af53f3",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.09.24"
+    },
+    "FRZ系列无磁厚膜片式电阻.pdf": {
+      "sha256": "0507d15c2eafcd49ad29259f193f796d424f6d06e8a2ec4cb0a991a544f9482f",
+      "page": 2,
+      "revision": "FJ-JS-3001-V1.0/2025/1/1"
+    },
+    "FTH 系列高精度薄膜片式电阻.pdf": {
+      "sha256": "26f9acdd116f0b6d55a75dba4836ea77667908ed393148a8d3bc395b2f0abeb1",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025.12.31"
+    },
+    "FTR系列汽车级抗硫化薄膜片式电阻.pdf": {
+      "sha256": "29ee1cb3e1c7b3c557c2bd74812bd3e7ce477637d9766b08bd4756d5c759022c",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/9/24"
+    },
+    "FUP系列车规超高功率厚膜片式电阻.pdf": {
+      "sha256": "070b9204788df06f2378adc44df9ca8b7071613875a1db60adbeefc4c41f619c",
+      "page": 2,
+      "revision": "FJ-JS-3001-V2.0/2025/10/31"
+    }
+  }
+}

@@ -290,6 +290,14 @@ class SystemRegressionTests(unittest.TestCase):
         infer = app['infer_verified_resistor_tcr']
         self.assertEqual(infer('AR02BTC4703','Viking','薄膜电阻'),'±25ppm/℃')
         self.assertEqual(infer('RT0603BRE07130KL','YAGEO','薄膜电阻'),'±50ppm/℃')
+        self.assertEqual(infer('FTH0402T4703TSY','FOJAN(富捷)','薄膜电阻'),'±5ppm/℃')
+        self.assertEqual(infer('FRC1206F1001TSX','FOJAN(富捷)','厚膜电阻'),'±25ppm/℃')
+        self.assertEqual(infer('FRC0402F1001TS','FOJAN(富捷)','厚膜电阻'),'')
+        self.assertEqual(infer('FRH0402B4703TSX','FOJAN(富捷)','厚膜电阻'),'')
+        self.assertEqual(infer('FTH0402T4703TSY','YAGEO','薄膜电阻'),'')
+        self.assertEqual(infer('RG1608P-103-B-T5','Susumu','薄膜电阻'),'±25ppm/℃')
+        self.assertEqual(infer('ERJ2RKD2943X','Panasonic','厚膜电阻'),'±100ppm/℃')
+        self.assertEqual(infer('ERC55357R00FHEA600','Vishay','薄膜电阻'),'±50ppm/℃')
         self.assertEqual(infer('AR02BTC4703','FOJAN(富捷)','薄膜电阻'),'')
         self.assertEqual(infer('AR02BTC4703','Viking','MLCC'),'')
         frame = pd.DataFrame([
