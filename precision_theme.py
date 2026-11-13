@@ -47,6 +47,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-nav {display:flex;flex-direction:column;gap:8px;}
 .wb-nav a {display:flex;align-items:center;gap:8px;padding:14px 10px;color:#d4dfef;text-decoration:none;white-space:nowrap;font-size:15px;font-weight:600;border-left:3px solid transparent;}
 .wb-nav a:hover,.wb-nav a:focus-visible {background:#1555e8;color:#fff;border-left-color:#75a9ff;}
+.wb-nav a[data-nav="standard_advice"] {white-space:normal;line-height:1.45;}
 .wb-nav-icon {width:22px;height:22px;flex:none;display:block;}
 .wb-sidebar {display:flex;flex-direction:column;overflow-y:auto;}
 .wb-logout {margin-top:auto;display:flex;align-items:center;gap:8px;padding:16px 13px max(16px,env(safe-area-inset-bottom));min-height:52px;box-sizing:border-box;color:#d4dfef!important;text-decoration:none!important;font-size:14px;font-weight:600;border-top:1px solid #294463;}
@@ -170,15 +171,16 @@ def navigation_icon(name):
         "person": '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 21v-2a7.5 5.5 0 0 1 15 0v2Z"/>',
         "settings": '<path d="m9 3-.7 2.3-2 .9-2.3-.5-1.5 2.6 1.7 1.8-.2 2.2-1.5 1.8L4 16.7l2.3-.5 2 .9.7 2.3h3l.7-2.3 2-.9 2.3.5 1.5-2.6-1.5-1.8-.2-2.2 1.7-1.8L17 5.7l-2.3.5-2-.9L12 3Z"/><circle cx="10.5" cy="11.2" r="3"/>',
         "training": '<path d="M12 5v15M3 4c3-1 6-1 9 1 3-2 6-2 9-1v15c-3-1-6-1-9 1-3-2-6-2-9-1Z"/>',
+        "swap": '<path d="M4 8h15l-4-4M20 16H5l4 4"/>',
         "logout": '<path d="M9 4H4v16h5M17 8l4 4-4 4M9 12h12"/>',
     }
     return '<svg class="wb-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + shapes[name] + '</svg>'
 
 
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False, logout_href=None):
-    icons = {"search": "search", "bom": "list_alt", "training": "training", "member": "person", "admin": "settings"}
+    icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings"}
     nav = "".join(
-        f'<a href="{html.escape(href, quote=True)}" target="_self" class="{"active" if key == active else ""}"'
+        f'<a href="{html.escape(href, quote=True)}" target="_self" data-nav="{key}" class="{"active" if key == active else ""}"'
         f'{" aria-current=\"page\"" if key == active else ""}>'
         f'{navigation_icon(icons[key])}{html.escape(label)}</a>'
         for key, label, href in links
@@ -194,6 +196,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
     titles = {
         "search": ("元器件搜索", "输入型号或文字规格，也可按库内品类与参数筛选。价格与替代匹配仍按原有规则和权限处理。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),
+        "standard_advice": ("常规料器件替代建议", "面向研发的选型参考：按器件和应用查替代方向、风险与验证清单。"),
         "training": ("产品培训", "学习电容、电阻、电感、晶振、MOS管、二极管和三极管，掌握常用品类、结构与电路作用。"),
         "member": ("会员中心", "管理账号资料、客户与使用记录。"),
         "admin": ("管理后台", "维护会员、客户、成本清单与匹配规则。"),

@@ -169,6 +169,8 @@ def main() -> int:
                 "tests.test_member_admin_fields",
                 "tests.test_customer_selector_copy",
                 "tests.test_search_trend_scopes",
+                "tests.test_standard_part_advice",
+                "tests.test_member_logout_navigation",
         ]
         # Identical mandatory inventory, but bounded process lifetimes. Large
         # model/AST fixtures otherwise accumulate until Windows exhausts commit.

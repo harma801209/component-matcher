@@ -355,7 +355,7 @@ STARTUP_TRACE_PATH = os.path.join(BASE_DIR, "cache", "startup_trace.log")
 # This marker also participates in public query cache keys so stale session
 # search results are invalidated when we ship a new public build or adjust
 # matching/ranking behavior.
-PUBLIC_CODE_STAMP = "2026-11-13T10:30:00+08:00"
+PUBLIC_CODE_STAMP = "2026-11-13T11:45:00+08:00"
 
 COST_CUSTOMER_TYPE_NEW = "new"
 COST_CUSTOMER_TYPE_EXISTING = "existing"
@@ -1776,6 +1776,8 @@ def requested_page_mode():
         return "member"
     if get_query_param_value("bom").lower() in {"1", "true", "yes", "on", "upload", "match"}:
         return "bom"
+    if get_query_param_value("standard_advice").lower() in {"1", "true", "yes", "on"}:
+        return "standard_advice"
     if get_query_param_value("training").lower() in {"1", "true", "yes", "on"}:
         return "training"
     return "search"
@@ -5187,6 +5189,7 @@ def complete_member_login(member):
             "admin": "",
             "bom": "",
             "training": "",
+            "standard_advice": "",
             ADMIN_BACKEND_MODULE_QUERY_PARAM: "",
         }
         return_page = clean_text(get_query_param_value("login_return"))
@@ -5198,6 +5201,8 @@ def complete_member_login(member):
                 route_updates["bom"] = "1"
             elif return_page == "training":
                 route_updates["training"] = "1"
+            elif return_page == "standard_advice":
+                route_updates["standard_advice"] = "1"
             route_updates["login_return"] = ""
     set_current_member(member, query_updates=route_updates)
     if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
@@ -52646,17 +52651,18 @@ workbench_active = requested_page_mode()
 workbench_member = current_member()
 workbench_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
 workbench_links = []
-for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("training", "产品培训"), ("member", "会员中心"), ("admin", "管理后台")]:
+for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("standard_advice", "常规料器件替代建议"), ("training", "产品培训"), ("member", "会员中心"), ("admin", "管理后台")]:
     if nav_key == "admin" and not current_member_is_admin():
         continue
     nav_updates = {"admin": "1" if nav_key == "admin" else "0", "member": "1" if nav_key == "member" else "0", "bom": "1" if nav_key == "bom" else "0", "training": "1" if nav_key == "training" else "0", "login_return": "", ADMIN_BACKEND_MODULE_QUERY_PARAM: ""}
+    nav_updates["standard_advice"] = "1" if nav_key == "standard_advice" else ""
     if workbench_token:
         nav_updates[MEMBER_AUTH_QUERY_PARAM] = workbench_token
     workbench_links.append((nav_key, nav_label, build_app_href(**nav_updates)))
 workbench_return = workbench_active if workbench_active != "member" else clean_text(get_query_param_value("login_return"))
 workbench_login_href = build_app_href(
-    member="1", admin="0", bom="0", training="0",
-    login_return=workbench_return if workbench_return in {"search", "bom", "training", "admin"} else "search",
+    member="1", admin="0", bom="0", training="0", standard_advice="",
+    login_return=workbench_return if workbench_return in {"search", "bom", "standard_advice", "training", "admin"} else "search",
     **{ADMIN_BACKEND_MODULE_QUERY_PARAM: ""},
 )
 workbench_logout_href = build_app_href(**{MEMBER_LOGOUT_QUERY_PARAM: "1", MEMBER_AUTH_QUERY_PARAM: workbench_token}) if workbench_member else None
@@ -52677,6 +52683,12 @@ if is_member_page_requested():
 if is_bom_page_requested():
     render_bom_upload_page_fragment()
     startup_trace("after_footer")
+    st.stop()
+
+if workbench_active == "standard_advice":
+    from standard_part_advice import render_page as render_standard_part_advice
+    render_standard_part_advice(st)
+    render_inline_footer()
     st.stop()
 
 if workbench_active == "training":

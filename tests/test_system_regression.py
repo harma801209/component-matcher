@@ -3685,6 +3685,7 @@ class SystemRegressionTests(unittest.TestCase):
                             "admin": "",
                             "bom": "",
                             "training": "",
+                            "standard_advice": "",
                             app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                         },
                     )
@@ -3718,12 +3719,13 @@ class SystemRegressionTests(unittest.TestCase):
             app["is_member_page_requested"] = lambda: True
             app["is_bom_page_requested"] = lambda: False
             app["set_current_member"] = lambda member, query_updates=None: calls.append(query_updates)
-            for target, role, expected in [("admin", "admin", "admin"), ("admin", "member", "search"), ("bom", "member", "bom"), ("training", "member", "training"), ("training", "admin", "training"), ("search", "admin", "search"), ("https://example.com", "admin", "search")]:
+            for target, role, expected in [("admin", "admin", "admin"), ("admin", "member", "search"), ("bom", "member", "bom"), ("training", "member", "training"), ("training", "admin", "training"), ("standard_advice", "member", "standard_advice"), ("search", "admin", "search"), ("https://example.com", "admin", "search")]:
                 app["get_query_param_value"] = lambda name, target=target: target if name == "login_return" else ""
                 app["complete_member_login"]({"id": 7, "role": role})
                 self.assertEqual(calls[-1]["admin"], "1" if expected == "admin" else "")
                 self.assertEqual(calls[-1]["bom"], "1" if expected == "bom" else "")
                 self.assertEqual(calls[-1]["training"], "1" if expected == "training" else "")
+                self.assertEqual(calls[-1]["standard_advice"], "1" if expected == "standard_advice" else "")
                 self.assertEqual(calls[-1]["member"], "")
                 self.assertEqual(calls[-1]["login_return"], "")
         finally:
