@@ -1,6 +1,7 @@
 """Read-only engineering reference; no inventory, matching, or BOM writes."""
 from dataclasses import dataclass
 from html import escape
+import re
 import unicodedata
 
 TITLE = "常规料器件替代建议"
@@ -211,10 +212,92 @@ def _comparison_html(cases):
     )
 
 
-def render_page(st):
+def normalize_lookup_model(value):
+    text = unicodedata.normalize("NFKC", value).strip()
+    if "\n" in text or "\r" in text:
+        return ""
+    compact = "".join(text.split()).upper()
+    if re.fullmatch(r"[A-Z0-9][A-Z0-9./_+:#-]{1,95}", compact):
+        return compact
+    return ""
+
+
+def part_summary(row, clean_text):
+    """Allowlist catalogue data: pricing and internal fields never enter this view."""
+    value = " ".join(filter(None, (
+        clean_text(row.get("容值")), clean_text(row.get("容值单位")),
+    )))
+    summary = {
+        "品牌": clean_text(row.get("品牌")),
+        "型号": clean_text(row.get("型号")),
+        "器件类别": clean_text(row.get("器件类型")),
+        "系列": clean_text(row.get("系列")),
+        "尺寸（英制）": clean_text(row.get("尺寸（inch）")),
+        "尺寸／封装": clean_text(row.get("尺寸（mm）")) or clean_text(row.get("封装代码")),
+        "参数值": value,
+        "误差": clean_text(row.get("容值误差")),
+        "介质": clean_text(row.get("材质（介质）")),
+        "额定电压": clean_text(row.get("耐压（V）")),
+        "功率": clean_text(row.get("功率")),
+        "温度系数": clean_text(row.get("温度系数")),
+        "特殊用途": clean_text(row.get("特殊用途")),
+        "规格摘要": clean_text(row.get("规格摘要")),
+    }
+    return {key: val for key, val in summary.items() if val}
+
+
+def _render_part_lookup(st, *, lookup_part, member_id, login_href, open_match):
+    st.subheader("按料号查库")
+    result_key = "_standard_advice_lookup_result"
+    if not member_id:
+        st.session_state.pop(result_key, None)
+        if login_href:
+            st.markdown(f"[登录后查询库内料号]({login_href})")
+        else:
+            st.caption("登录后可查询库内料号。")
+        return
+    with st.form("standard_advice_part_lookup", border=False):
+        raw_model = st.text_input(
+            "原器件料号", placeholder="例如 FRC0402F1001TS", max_chars=120,
+            key="standard_advice_lookup_model",
+        )
+        submitted = st.form_submit_button("查询料号", type="primary")
+    model = normalize_lookup_model(raw_model)
+    if submitted:
+        st.session_state.pop(result_key, None)
+        if not model:
+            st.warning("请输入一个完整料号；用途或规格请用下方的案例筛选。")
+            return
+        with st.spinner("正在查询器件库…"):
+            result = lookup_part(model)
+        st.session_state[result_key] = (member_id, model, result)
+    owner, looked_up, result = st.session_state.get(result_key, (None, "", None))
+    if owner != member_id or looked_up != model:
+        return
+    if result is None:
+        st.warning("器件库暂不可用，请稍后重试。")
+    elif not result:
+        st.warning("库内没有找到这个完整料号。请核对品牌、型号和订货尾码。")
+    else:
+        st.caption("以下是原器件的库内资料，不代表已找到替代型号。下方是按电路用途筛选的设计案例。")
+        for part in result:
+            with st.container(border=True):
+                st.text(" · ".join(part[label] for label in ("品牌", "型号") if label in part))
+                for label, value in part.items():
+                    if label not in ("品牌", "型号"):
+                        st.text(f"{label}：{value}")
+        if open_match and st.button("用此料号查替代型号", key="standard_advice_open_match"):
+            open_match(model)
+
+
+def render_page(st, *, lookup_part=None, member_id=None, login_href=None, open_match=None):
     st.info("用于设计阶段选型，不是等效替代、现货或采购批准。先确认电路用途和不可放宽的条件，再由采购核实供应。")
+    if lookup_part is not None:
+        _render_part_lookup(st, lookup_part=lookup_part, member_id=member_id,
+                            login_href=login_href, open_match=open_match)
+    st.subheader("设计案例筛选")
     search, left, right = st.columns((2, 1, 1))
-    keyword = search.text_input("搜索用途、规格或型号", placeholder="例如 100 nF、0603、24 MHz", key="standard_advice_keyword")
+    keyword = search.text_input("筛选案例用途或规格", placeholder="例如 去耦、100 nF、24 MHz", key="standard_advice_keyword")
     category = left.selectbox("器件类别", ["全部", *dict.fromkeys(c.category for c in CASES)], key="standard_advice_category")
     impact = right.selectbox("设计影响", ["全部", "同规格换供方", "需重算", "需改板"], key="standard_advice_impact")
     cases = filter_advice(category, impact, keyword)

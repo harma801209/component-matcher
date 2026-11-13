@@ -1,7 +1,7 @@
 from dataclasses import replace
 import unittest
 
-from standard_part_advice import CASES, _comparison_html, filter_advice
+from standard_part_advice import CASES, _comparison_html, filter_advice, normalize_lookup_model, part_summary
 
 
 class StandardPartAdviceTests(unittest.TestCase):
@@ -24,6 +24,56 @@ class StandardPartAdviceTests(unittest.TestCase):
         html = _comparison_html([replace(CASES[0], candidate="<b>候选 & 检查</b>")])
         self.assertIn("&lt;b&gt;候选 &amp; 检查&lt;/b&gt;", html)
         self.assertNotIn("<b>候选", html)
+
+    def test_lookup_normalizes_a_single_full_model_and_only_exposes_specs(self):
+        self.assertEqual(normalize_lookup_model(" ｆｒｃ0402f1001 ts "), "FRC0402F1001TS")
+        for invalid in ("", "A", "FRC0402F1001TS\nGRM033R60J105ME15D", "0603 1k ±1%"):
+            self.assertEqual(normalize_lookup_model(invalid), "")
+        row = {"型号": "FRC0402F1001TS", "容值": 1, "容值单位": "KΩ",
+               "成本": "100", "客户": "不应显示", "_model_clean": "FRC0402F1001TS"}
+        result = part_summary(row, lambda value: "" if value is None else str(value))
+        self.assertEqual(result, {"型号": "FRC0402F1001TS", "参数值": "1 KΩ"})
+        self.assertEqual(filter_advice(keyword="FRC0402F1001TS"), ())
+
+    def test_part_lookup_is_separate_from_case_filter_and_retains_member_scope(self):
+        from streamlit.testing.v1 import AppTest
+
+        page = AppTest.from_string(
+            "import streamlit as st\n"
+            "from standard_part_advice import render_page\n"
+            "def lookup(model):\n"
+            "    st.session_state['calls'] = st.session_state.get('calls', 0) + 1\n"
+            "    if model == 'OFFLINE': return None\n"
+            "    if model != 'FRC0402F1001TS': return ()\n"
+            "    return ({'型号': model, '品牌': 'FOJAN(富捷)', '参数值': '1 KΩ'},)\n"
+            "def open_match(model): st.session_state['opened'] = model\n"
+            "render_page(st, lookup_part=lookup, member_id=st.session_state.get('member'), "
+            "login_href='?member=1', open_match=open_match)\n",
+            default_timeout=30,
+        ).run()
+        self.assertFalse(any(item.label == "原器件料号" for item in page.text_input))
+        self.assertTrue(any("登录后查询" in item.value for item in page.markdown))
+        page.session_state["member"] = 5
+        page.run()
+        submit = lambda: next(button for button in page.button if button.label == "查询料号")
+        page.text_input(key="standard_advice_lookup_model").set_value("frc0402f1001 ts")
+        page.text_input(key="standard_advice_keyword").set_value("不存在的案例")
+        submit().click().run()
+        self.assertFalse(page.exception)
+        self.assertIn("FOJAN(富捷) · FRC0402F1001TS", [item.value for item in page.text])
+        self.assertIn("参数值：1 KΩ", [item.value for item in page.text])
+        self.assertTrue(any("没有符合筛选" in item.value for item in page.warning))
+        page.button(key="standard_advice_open_match").click().run()
+        self.assertEqual(page.session_state["opened"], "FRC0402F1001TS")
+        self.assertEqual(page.session_state["calls"], 1)
+        page.session_state["member"] = 6
+        page.run()
+        self.assertFalse(page.text)
+        for model, message in (("UNKNOWN0001", "库内没有找到"), ("OFFLINE", "器件库暂不可用")):
+            page.text_input(key="standard_advice_lookup_model").set_value(model)
+            submit().click().run()
+            self.assertTrue(any(message in item.value for item in page.warning))
+            self.assertFalse(page.text)
 
     def test_streamlit_page_compares_before_selection_and_updates_details(self):
         from streamlit.testing.v1 import AppTest

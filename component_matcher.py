@@ -38626,7 +38626,7 @@ def load_component_rows_by_exact_models_from_database(models, prepare_rows=True)
             conn.close()
 
 
-def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows=True):
+def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows=True, *, strict=False):
     model_texts = list(
         dict.fromkeys(
             clean_text(model)
@@ -38638,13 +38638,20 @@ def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows
     if not model_texts:
         return result_map
     if not os.path.exists(SEARCH_DB_PATH):
+        if strict:
+            raise FileNotFoundError("Component search index is unavailable")
         ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH])
     if not os.path.exists(SEARCH_DB_PATH):
         return result_map
 
     conn = None
     try:
-        conn = sqlite3.connect(SEARCH_DB_PATH, timeout=10)
+        if strict:
+            from pathlib import Path
+
+            conn = sqlite3.connect(Path(SEARCH_DB_PATH).resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+        else:
+            conn = sqlite3.connect(SEARCH_DB_PATH, timeout=10)
         exact_values = list(dict.fromkeys(clean_model(model) for model in model_texts if clean_model(model)))
         core_frames = []
         for model_chunk in chunk_items(exact_values, SEARCH_DB_FETCH_CHUNK):
@@ -38708,10 +38715,41 @@ def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows
             result_map[model_key] = exact_df[model_series.eq(model_key)].copy()
         return result_map
     except Exception:
+        if strict:
+            raise
         return result_map
     finally:
         if conn is not None:
             conn.close()
+
+
+def load_standard_advice_part(model):
+    from standard_part_advice import normalize_lookup_model, part_summary
+
+    if not current_member():
+        return None
+    key = normalize_lookup_model(model)
+    if not key:
+        return ()
+    try:
+        if not os.path.isfile(SEARCH_DB_PATH):
+            if not (is_public_mode() or is_streamlit_cloud_runtime()):
+                return None
+            if not ensure_streamlit_cloud_data_bundle(required_paths=[SEARCH_DB_PATH]):
+                return None
+        rows = load_component_rows_by_exact_models_from_search_sidecar(
+            [key], prepare_rows=False, strict=True,
+        ).get(key)
+    except Exception as exc:
+        logging.warning("Advice catalogue lookup unavailable: %s", type(exc).__name__)
+        return None
+    if rows is None or rows.empty:
+        return ()
+    return tuple(
+        part_summary(row, clean_text)
+        for row in rows.to_dict("records")
+        if normalize_lookup_model(clean_text(row.get("型号"))) == key
+    )
 
 
 def load_semiconductor_rows_by_model_prefix(model, limit=50):
@@ -51041,6 +51079,13 @@ def handoff_catalog_model_to_search(model, defer=False):
             st.session_state["search_entry_mode"] = _catalog_filters.TEXT_MODE
 
 
+def open_standard_advice_match(model):
+    if current_member():
+        handoff_catalog_model_to_search(model, defer=True)
+        update_query_params(standard_advice="", training="")
+        st.rerun()
+
+
 def render_catalog_member_prompt():
     # A login form must remain mounted on its submit rerun, not only on the
     # first "login to view" click. Reuse the existing per-run duplicate guard.
@@ -52687,7 +52732,12 @@ if is_bom_page_requested():
 
 if workbench_active == "standard_advice":
     from standard_part_advice import render_page as render_standard_part_advice
-    render_standard_part_advice(st)
+    render_standard_part_advice(
+        st, lookup_part=load_standard_advice_part,
+        member_id=workbench_member.get("id") if workbench_member else None,
+        login_href=workbench_login_href,
+        open_match=open_standard_advice_match,
+    )
     render_inline_footer()
     st.stop()
 

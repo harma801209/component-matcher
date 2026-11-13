@@ -1722,6 +1722,43 @@ class SystemRegressionTests(unittest.TestCase):
             for key, value in original_paths.items():
                 app[key] = value
 
+    def test_standard_advice_exact_lookup_uses_index_and_requires_login(self):
+        from unittest.mock import patch
+
+        app = self.app
+        model = "FRC0402F1001TS"
+        index = os.path.join(self.temp_dir, "standard-advice-search.sqlite")
+        core = {"品牌": "FOJAN(富捷)", "型号": model, "_model_clean": model,
+                "_component_type": "厚膜电阻"}
+        with sqlite3.connect(index) as conn:
+            pd.DataFrame([core]).to_sql(app["COMPONENTS_SEARCH_CORE_TABLE"], conn, index=False, if_exists="replace")
+            pd.DataFrame([{**core, "_size": "0402", "_res_ohm": 1000.0,
+                           "_tol": "1", "_power_watt": 0.0625, "成本": "123"}]).to_sql(
+                app["COMPONENTS_SEARCH_RESISTOR_TABLE"], conn, index=False, if_exists="replace")
+        lookup = app["load_standard_advice_part"]
+        with patch.dict(app, {"SEARCH_DB_PATH": index, "current_member": lambda: None}):
+            self.assertIsNone(lookup(model))
+        with patch.dict(app, {"SEARCH_DB_PATH": index, "current_member": lambda: {"id": 5}}):
+            part, = lookup("frc0402f1001 ts")
+            self.assertEqual(part["品牌"], "FOJAN(富捷)")
+            self.assertEqual(part["型号"], model)
+            self.assertEqual(part["尺寸（英制）"], "0402")
+            self.assertEqual(part["参数值"], "1 KΩ")
+            self.assertEqual(part["误差"], "±1%")
+            self.assertEqual(part["功率"], "1/16W")
+            self.assertNotIn("成本", part)
+            self.assertEqual(lookup("FRC0402F1001"), ())
+        with patch.dict(app, {"SEARCH_DB_PATH": index + ".missing", "current_member": lambda: {"id": 5},
+                              "is_public_mode": lambda: False, "is_streamlit_cloud_runtime": lambda: False}):
+            self.assertIsNone(lookup(model))
+        def restore_index(*, required_paths):
+            self.assertEqual(required_paths, [index + ".restored"])
+            shutil.copyfile(index, required_paths[0])
+            return True
+        with patch.dict(app, {"SEARCH_DB_PATH": index + ".restored", "current_member": lambda: {"id": 5},
+                              "is_public_mode": lambda: True, "ensure_streamlit_cloud_data_bundle": restore_index}):
+            self.assertEqual(lookup(model)[0]["型号"], model)
+
     def test_resistor_sidecar_nan_capacitance_does_not_replace_resistance(self):
         app = self.app
         for model, resistance, tolerance, size, power in [
@@ -3912,6 +3949,7 @@ class SystemRegressionTests(unittest.TestCase):
         saved_native_excel = sys.modules.get("bom_native_excel")
         saved_naming_guide = sys.modules.get("model_naming_guide")
         saved_bom_run_control = sys.modules.get("bom_run_control")
+        saved_advice = sys.modules.get("standard_part_advice")
         with tempfile.TemporaryDirectory(prefix="workbench-theme-test-") as folder:
             root = Path(folder)
             theme = root / "precision_theme.py"
@@ -3924,6 +3962,8 @@ class SystemRegressionTests(unittest.TestCase):
             naming_guide.write_text('PUBLIC_NAMING_MARKER = "old-fixed-columns"\n',encoding='utf-8')
             bom_run_control = root / 'bom_run_control.py'
             bom_run_control.write_text('PUBLIC_BOM_MARKER = "old-coordinator"\n',encoding='utf-8')
+            advice = root / "standard_part_advice.py"
+            advice.write_text('ADVICE_MARKER = "old-case-search"\n', encoding="utf-8")
             (root / "component_matcher.py").write_text('from precision_theme import PUBLIC_STYLE_MARKER\nfrom bom_image_clipboard import PUBLIC_UPLOAD_MARKER\nfrom bom_native_excel import PUBLIC_NATIVE_MARKER\nfrom model_naming_guide import PUBLIC_NAMING_MARKER\ndef require_app_access():\n    pass\n\nst.set_page_config()\nBOM_NONE_OPTION = ""\n\nrequire_app_access()\n', encoding="utf-8")
             runtime = SimpleNamespace(APP_CODE_LOCK=threading.Lock(), APP_CODE_CACHE={})
             namespace = {"os": os, "importlib": importlib, "BASE_DIR": folder, "PUBLIC_RELEASE_STAMP": "test", "member_auth_runtime_state": runtime}
@@ -3933,6 +3973,7 @@ class SystemRegressionTests(unittest.TestCase):
             sys.modules.pop("bom_native_excel",None)
             sys.modules.pop("model_naming_guide",None)
             sys.modules.pop("bom_run_control",None)
+            sys.modules.pop("standard_part_advice", None)
             try:
                 exec(compile(ast.Module(body=selected, type_ignores=[]), str(source_path), "exec"), namespace)
                 cached, _ = namespace["load_component_matcher_runtime"]()
@@ -3968,8 +4009,16 @@ class SystemRegressionTests(unittest.TestCase):
                 self.assertEqual(sys.modules['bom_run_control'].PUBLIC_BOM_MARKER,
                                  'bounded-heartbeat-coordinator')
                 self.assertIsNot(cached['base_namespace'],naming_namespace)
+                bom_namespace = cached["base_namespace"]
+                advice.write_text('ADVICE_MARKER = "new-exact-catalogue-search"\n', encoding="utf-8")
+                cached, _ = namespace["load_component_matcher_runtime"]()
+                self.assertIsNot(cached["base_namespace"], bom_namespace)
+                self.assertEqual(sys.modules["standard_part_advice"].ADVICE_MARKER, "new-exact-catalogue-search")
             finally:
                 sys.path.pop(0)
+                sys.modules.pop("standard_part_advice", None)
+                if saved_advice is not None:
+                    sys.modules["standard_part_advice"] = saved_advice
                 sys.modules.pop("precision_theme", None)
                 if saved_theme is not None:
                     sys.modules["precision_theme"] = saved_theme
