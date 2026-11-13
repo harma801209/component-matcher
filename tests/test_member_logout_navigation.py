@@ -79,6 +79,19 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
                     self.assertIn('aria-label="退出登录"', output[0])
                     self.assertGreater(output[0].index('class="wb-logout"'), output[0].index('</nav>'))
 
+    def test_standard_advice_navigation_breaks_before_replacement_advice(self):
+        output = []
+        links = [
+            ("search", "元器件搜索", "?"),
+            ("standard_advice", "常规料器件替代建议", "?standard_advice=1"),
+        ]
+        render_header(SimpleNamespace(markdown=lambda value, **kw: output.append(value)),
+                      "", "standard_advice", links, None)
+        self.assertIn('href="?standard_advice=1" target="_self" data-nav="standard_advice" class="active" aria-current="page"', output[0])
+        self.assertIn("<span>常规料器件<br>替代建议</span></a>", output[0])
+        self.assertIn('<div class="wb-title">常规料器件替代建议</div>', output[0])
+        self.assertIn("</svg>元器件搜索</a>", output[0])
+
     def test_logout_visible_on_every_member_page_but_never_for_guest(self):
         for active in ["search", "bom", "training", "member", "admin"]:
             for member in [None, {"role": "member"}, {"role": "admin"}]:

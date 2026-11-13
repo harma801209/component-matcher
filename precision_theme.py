@@ -47,7 +47,7 @@ body,input,textarea,button {font-family:"Segoe UI","Microsoft YaHei",sans-serif;
 .wb-nav {display:flex;flex-direction:column;gap:8px;}
 .wb-nav a {display:flex;align-items:center;gap:8px;padding:14px 10px;color:#d4dfef;text-decoration:none;white-space:nowrap;font-size:15px;font-weight:600;border-left:3px solid transparent;}
 .wb-nav a:hover,.wb-nav a:focus-visible {background:#1555e8;color:#fff;border-left-color:#75a9ff;}
-.wb-nav a[data-nav="standard_advice"] {white-space:normal;line-height:1.45;}
+.wb-nav a[data-nav="standard_advice"] {line-height:1.45;}
 .wb-nav-icon {width:22px;height:22px;flex:none;display:block;}
 .wb-sidebar {display:flex;flex-direction:column;overflow-y:auto;}
 .wb-logout {margin-top:auto;display:flex;align-items:center;gap:8px;padding:16px 13px max(16px,env(safe-area-inset-bottom));min-height:52px;box-sizing:border-box;color:#d4dfef!important;text-decoration:none!important;font-size:14px;font-weight:600;border-top:1px solid #294463;}
@@ -179,10 +179,16 @@ def navigation_icon(name):
 
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False, logout_href=None):
     icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings"}
+
+    def nav_label(key, label):
+        if key == "standard_advice" and label == "常规料器件替代建议":
+            return "<span>常规料器件<br>替代建议</span>"
+        return html.escape(label)
+
     nav = "".join(
         f'<a href="{html.escape(href, quote=True)}" target="_self" data-nav="{key}" class="{"active" if key == active else ""}"'
         f'{" aria-current=\"page\"" if key == active else ""}>'
-        f'{navigation_icon(icons[key])}{html.escape(label)}</a>'
+        f'{navigation_icon(icons[key])}{nav_label(key, label)}</a>'
         for key, label, href in links
         if key != "admin" or (member and str(member.get("role", "")).strip().lower() == "admin")
     )
