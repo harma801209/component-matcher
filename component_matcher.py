@@ -38723,11 +38723,21 @@ def load_component_rows_by_exact_models_from_search_sidecar(models, prepare_rows
             conn.close()
 
 
-def load_standard_advice_part(model):
-    from standard_part_advice import normalize_lookup_model, part_summary
+def load_standard_advice_runtime():
+    import runpy
 
+    # A hot-updated matcher can run under an older cloud entrypoint. Load this
+    # small, stateless page from its checked-out source, not sys.modules or pyc.
+    return runpy.run_path(os.path.join(BASE_DIR, "standard_part_advice.py"))
+
+
+def load_standard_advice_part(model, *, advice_runtime=None):
     if not current_member():
         return None
+    if advice_runtime is None:
+        advice_runtime = load_standard_advice_runtime()
+    normalize_lookup_model = advice_runtime["normalize_lookup_model"]
+    part_summary = advice_runtime["part_summary"]
     key = normalize_lookup_model(model)
     if not key:
         return ()
@@ -52731,9 +52741,9 @@ if is_bom_page_requested():
     st.stop()
 
 if workbench_active == "standard_advice":
-    from standard_part_advice import render_page as render_standard_part_advice
-    render_standard_part_advice(
-        st, lookup_part=load_standard_advice_part,
+    advice_runtime = load_standard_advice_runtime()
+    advice_runtime["render_page"](
+        st, lookup_part=lambda model: load_standard_advice_part(model, advice_runtime=advice_runtime),
         member_id=workbench_member.get("id") if workbench_member else None,
         login_href=workbench_login_href,
         open_match=open_standard_advice_match,

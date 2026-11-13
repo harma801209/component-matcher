@@ -1,10 +1,61 @@
+from contextlib import nullcontext
 from dataclasses import replace
+import ast
+import os
+from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from standard_part_advice import CASES, _comparison_html, filter_advice, normalize_lookup_model, part_summary
 
 
 class StandardPartAdviceTests(unittest.TestCase):
+    def test_deployed_route_with_stale_advice_module_still_renders_and_wires_lookup(self):
+        root = Path(__file__).resolve().parents[1]
+        path = root / "component_matcher.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        loader = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                      and n.name == "load_standard_advice_runtime")
+        route = next(n for n in tree.body if isinstance(n, ast.If)
+                     and isinstance(n.test, ast.Compare)
+                     and ast.unparse(n.test) == "workbench_active == 'standard_advice'")
+        old = ModuleType("standard_part_advice")
+        # Reproduce the exact warm-worker interface from the production error.
+        old.render_page = lambda st: None
+        outputs = []
+        lookups = []
+        def lookup(model, *, advice_runtime):
+            lookups.append(model)
+            self.assertEqual(advice_runtime["normalize_lookup_model"](model), model)
+            return ()
+
+        st = SimpleNamespace(
+            info=lambda value: outputs.append(value),
+            subheader=lambda value: outputs.append(value),
+            warning=lambda value: outputs.append(value),
+            session_state={},
+            form=lambda *args, **kwargs: nullcontext(),
+            spinner=lambda *args, **kwargs: nullcontext(),
+            text_input=lambda *args, **kwargs: "frc0402f1001 ts",
+            form_submit_button=lambda *args, **kwargs: True,
+        )
+        def stop_at_case_filters(*args):
+            raise StopIteration
+        st.columns = stop_at_case_filters
+        namespace = {"BASE_DIR": str(root), "os": os, "workbench_active": "standard_advice",
+                     "workbench_member": {"id": 5}, "workbench_login_href": "?member=1",
+                     "st": st, "load_standard_advice_part": lookup,
+                     "open_standard_advice_match": lambda model: None}
+        with patch.dict(sys.modules, {"standard_part_advice": old}):
+            with self.assertRaises(StopIteration):
+                exec(compile(ast.Module(body=[loader, route], type_ignores=[]), str(path), "exec"), namespace)
+            self.assertIs(sys.modules["standard_part_advice"], old)
+        self.assertIn("按料号查库", outputs)
+        self.assertIn("设计案例筛选", outputs)
+        self.assertEqual(lookups, ["FRC0402F1001TS"])
+
     def test_cases_have_unique_keys_and_engineering_checks(self):
         self.assertEqual(len({case.key for case in CASES}), len(CASES))
         self.assertGreaterEqual(len({case.category for case in CASES}), 8)
