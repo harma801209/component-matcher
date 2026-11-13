@@ -1,5 +1,6 @@
 """Read-only engineering reference; no inventory, matching, or BOM writes."""
 from dataclasses import dataclass
+from html import escape
 import unicodedata
 
 TITLE = "常规料器件替代建议"
@@ -148,33 +149,108 @@ def filter_advice(category="全部", impact="全部", keyword=""):
                  ))) for term in terms))
 
 
+_COMPARISON_STYLE = """
+<style>
+.std-advice-scroll { max-height: min(52vh, 34rem); overflow: auto; border: 1px solid #ccd8e8; border-radius: .75rem; background: #fff; }
+.std-advice-scroll:focus-visible { outline: 2px solid #2056ad; outline-offset: 2px; }
+.std-advice-scroll .std-advice-table { width: 100%; margin: 0; table-layout: fixed; border: 0; border-collapse: separate; border-spacing: 0; color: #172e4b; font-size: .9rem; line-height: 1.45; }
+.std-advice-table :is(th, td) { border: 0; border-bottom: 1px solid #e0e8f3; padding: .8rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.std-advice-table thead th { position: sticky; top: 0; z-index: 1; color: #234268; background: #edf3fb; }
+.std-advice-table tbody th { font-weight: 400; }
+.std-advice-table tbody tr:nth-child(even) { background: #f7f9fd; }
+.std-advice-table tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.std-advice-table .std-advice-use { display: block; margin-top: .25rem; color: #4b617c; }
+.std-advice-table .std-advice-target { color: #174e9b; font-weight: 600; }
+.std-advice-table .std-advice-impact { display: inline-block; border-radius: .35rem; padding: .15rem .4rem; font-weight: 600; background: #e8effa; color: #254b81; }
+.std-advice-table .std-advice-calculate { background: #fff3db; color: #794604; }
+.std-advice-table .std-advice-layout { background: #fbe8e8; color: #892c3a; }
+.std-advice-table .std-advice-mobile-label { display: none; }
+@media (max-width: 850px) {
+  .std-advice-scroll { max-height: min(56vh, 34rem); }
+  .std-advice-table, .std-advice-table tbody, .std-advice-table tr, .std-advice-table :is(th, td) { display: block; }
+  .std-advice-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .std-advice-table colgroup { display: none; }
+  .std-advice-table tbody tr { padding: .45rem .75rem; border-bottom: 1px solid #e0e8f3; }
+  .std-advice-table tbody tr:last-child { border-bottom: 0; }
+  .std-advice-table :is(th, td) { padding: .32rem 0; border: 0; }
+  .std-advice-table .std-advice-mobile-label { display: block; font-size: .8rem; color: #4b617c; font-weight: 600; }
+}
+</style>
+""".strip()
+
+
+def _comparison_html(cases):
+    def cell(label, value, css=""):
+        return (f'<td role="cell" class="{css}"><span aria-hidden="true" '
+                f'class="std-advice-mobile-label">{label}</span>{value}</td>')
+
+    impact_classes = {"需重算": "std-advice-calculate", "需改板": "std-advice-layout"}
+    headings = ("应用场景", "原规格", "常规候选", "改动程度", "关键风险")
+    rows = []
+    for case in cases:
+        badge = (f'<span class="std-advice-impact {impact_classes.get(case.impact, "")}">'
+                 f'{escape(case.impact)}</span>')
+        rows.append(
+            '<tr role="row"><th scope="row" role="rowheader">'
+            f'<strong>{escape(case.title)}</strong>'
+            f'<span class="std-advice-use">{escape(case.category)} · {escape(case.use)}</span></th>'
+            + cell(headings[1], escape(case.original))
+            + cell(headings[2], escape(case.candidate), "std-advice-target")
+            + cell(headings[3], badge)
+            + cell(headings[4], escape(case.risks))
+            + '</tr>'
+        )
+    header = ''.join(f'<th scope="col" role="columnheader">{label}</th>' for label in headings)
+    columns = ''.join(f'<col style="width:{width}%">' for width in (22, 16, 27, 11, 24))
+    return (
+        _COMPARISON_STYLE
+        + '<div class="std-advice-scroll" role="region" aria-label="可滚动的规格对照表" tabindex="0">'
+        + '<table class="std-advice-table" role="table" aria-label="规格替代对照">'
+        + f'<colgroup>{columns}</colgroup><thead role="rowgroup"><tr role="row">{header}</tr></thead>'
+        + '<tbody role="rowgroup">' + ''.join(rows) + '</tbody></table></div>'
+    )
+
+
 def render_page(st):
     st.info("用于设计阶段选型，不是等效替代、现货或采购批准。先确认电路用途和不可放宽的条件，再由采购核实供应。")
-    with st.expander("设计评审怎么用 · 4 步"):
+    search, left, right = st.columns((2, 1, 1))
+    keyword = search.text_input("搜索用途、规格或型号", placeholder="例如 100 nF、0603、24 MHz", key="standard_advice_keyword")
+    category = left.selectbox("器件类别", ["全部", *dict.fromkeys(c.category for c in CASES)], key="standard_advice_category")
+    impact = right.selectbox("设计影响", ["全部", "同规格换供方", "需重算", "需改板"], key="standard_advice_impact")
+    cases = filter_advice(category, impact, keyword)
+    st.subheader("规格替代对照")
+    st.caption(f"显示 {len(cases)} / {len(CASES)} 条设计案例")
+    if not cases:
+        st.warning("没有符合筛选条件的案例。可清空关键字，或换器件类别和设计影响。")
+    else:
+        st.markdown(_comparison_html(cases), unsafe_allow_html=True)
+        st.subheader("评审与验证")
+        by_key = {case.key: case for case in cases}
+        if st.session_state.get("standard_advice_case") not in by_key:
+            st.session_state.pop("standard_advice_case", None)
+        selected = st.selectbox(
+            "选择案例查看详情", list(by_key), format_func=lambda key: by_key[key].title,
+            key="standard_advice_case",
+        )
+        case = by_key[selected]
+        with st.container(border=True):
+            st.markdown(f"**{case.title}** · {case.impact}")
+            original, candidate = st.columns(2)
+            original.markdown(f"**原规格**\n\n{case.original}")
+            candidate.markdown(f"**常规候选**\n\n{case.candidate}")
+            st.markdown(f"**为什么这样改：**{case.why}")
+            checks, verify = st.columns(2)
+            checks.markdown(f"**替代前确认**\n\n{case.checks}")
+            verify.markdown(f"**样板验证**\n\n{case.verify}")
+            st.warning(f"不能直接套用：{case.stop}")
+            if case.source:
+                label, url = case.source
+                st.markdown(f"原厂参考：[{label}]({url})")
+
+    with st.expander("设计评审流程"):
         st.markdown(
             "1. 标出工作条件与硬约束：电气范围、焊盘、温度、安规、车规及寿命。\n"
             "2. 先查企业批准料；请采购确认独立供应来源、交期、MOQ 和生命周期。\n"
             "3. 对候选逐项比较数据手册，做最坏情况计算；需要改值或改板的单独评审。\n"
             "4. 样板验证后由研发签核并更新 BOM／AVL，保留原料号和变更记录。"
         )
-    left, right = st.columns(2)
-    category = left.selectbox("器件类别", ["全部", *dict.fromkeys(c.category for c in CASES)], key="standard_advice_category")
-    impact = right.selectbox("设计影响", ["全部", "同规格换供方", "需重算", "需改板"], key="standard_advice_impact")
-    keyword = st.text_input("搜索用途、规格或型号", placeholder="例如 100 nF、0603、24 MHz、负载阶跃", key="standard_advice_keyword")
-    cases = filter_advice(category, impact, keyword)
-    st.caption(f"显示 {len(cases)} / {len(CASES)} 条设计案例 · 常规规格是优先核查方向，不代表实时供应")
-    if not cases:
-        st.warning("没有符合筛选条件的案例。可清空关键字，或换器件类别和设计影响。")
-    for case in cases:
-        with st.expander(f"{case.title} · {case.impact}", expanded=len(cases) == 1):
-            st.write(f"**适用电路：**{case.use}")
-            st.write(f"**偏料示例：**{case.original}")
-            st.write(f"**候选方向：**{case.candidate}")
-            st.write(f"**为什么这样改：**{case.why}")
-            st.write(f"**替代前确认：**{case.checks}")
-            st.write(f"**可能的问题：**{case.risks}")
-            st.write(f"**样板验证：**{case.verify}")
-            st.warning(f"不能直接套用：{case.stop}")
-            if case.source:
-                label, url = case.source
-                st.markdown(f"原厂参考：[{label}]({url})")
