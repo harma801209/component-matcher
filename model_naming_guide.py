@@ -222,7 +222,28 @@ def pdc_fcf_array(model):
     return segments,'PSA／PDC 原厂 FCF ARRAY Rev.12.0.I48，Part Number，正文第 3 页（PDF 第 4 页）；四联结构不可当作单颗直接替换。'
 
 
+def koa_sg73(model):
+    match=re.fullmatch(r'(SG73P|SG73S)(1EW|1E|1J|2A|2B|2E)(A?)(T)(TP|TD|TE)([0-9R]{3,4})([DFGJ])',model)
+    if not match:return [],''
+    series,size,characteristic,terminal,packing,code,tol=match.groups()
+    value=resistance(code)
+    if value is None or len(code)!=(4 if tol in 'DF' else 3):return [],''
+    if series=='SG73S' and size=='1EW':return [],''
+    if characteristic and size not in ('1J','2A','2B'):return [],''
+    if size not in {'TP':('1E','1EW','1J','2A'),'TD':('1J','2A','2B','2E'),'TE':('2A','2B','2E')}[packing]:return [],''
+    rows=[part(series,'系列','耐脉冲厚膜贴片电阻' if series=='SG73P' else '耐浪涌电压厚膜贴片电阻'),
+        part(size,'封装',{'1E':'0402','1EW':'0402（1EW外形版本）','1J':'0603','2A':'0805','2B':'1206','2E':'1210'}[size]+'（英制）')]
+    if characteristic:rows.append(part(characteristic,'特性','耐热冲击版本（Heat shock resistance）'))
+    rows.extend([part(terminal,'端接材料','Sn（锡），不是温度系数'),
+        part(packing,'包装',{'TP':'2 mm节距冲孔纸带','TD':'4 mm节距冲孔纸带','TE':'4 mm节距压纹塑料带'}[packing]+'；本页未定义每卷数量'),
+        part(code,'阻值',quantity(value)),part(tol,'阻值误差',tolerance(tol))])
+    return rows,'KOA原厂'+series+'，2026-04-'+('16' if series=='SG73P' else '15')+'，第1页Ordering information；不以系列声明替代单型号认证或当前可订购确认。'
+
+
 def koa_resistor(model):
+    decoded = koa_sg73(model)
+    if decoded[0]:
+        return decoded
     """Original family tables, not a universal KOA letter/parameter guesser."""
     sizes={'1F':'01005','1H':'0201','1E':'0402','1J':'0603','2A':'0805',
            '2B':'1206','2E':'1210','2H':'2010','W2H':'2010','3A':'2512',
@@ -334,7 +355,54 @@ def vishay_crcw_variants(model):
     return segments,source
 
 
+_VISHAY_AXIAL_PACKS={'B14':'锡铅端接，散装','BSL':'锡铅端接，散装，同批日期码',
+       'R36':'锡铅端接，整盘编带','R64':'锡铅端接，整盘编带（仅32外形）',
+       'RE6':'锡铅端接，编带1000颗','RSL':'锡铅端接，编带，同批日期码'}
+
+def military_axial(model):
+    match=re.fullmatch(r'(RLR)(05|07|20|32)(C)([0-9R]{4})([FG])([MPRS])(?:(B14|BSL|R36|R64|RE6|RSL)([1-9][0-9]{0,2})?)?',model)
+    if match:
+        series,size,lead,code,tol,rate,packing,special=match.groups()
+        if resistance(code) is None:return [],''
+        segments=[part(series,'系列','轴向金属膜电阻，MIL-PRF-39017 RLR命名'),
+            part(size,'外形',series+size+'轴向外形代号，不是贴片英制尺寸'),
+            part(lead,'引线材料','可焊接／可焊熔引线（solderable/weldable）'),
+            part(code,'阻值',quantity(resistance(code))),part(tol,'阻值误差',tolerance(tol)),
+            part(rate,'失效率等级',{'M':'1.0','P':'0.1','R':'0.01','S':'0.001'}[rate]+'%／1000h（不是温漂；当前可供等级需原厂确认）')]
+        if packing:
+            valid=not (packing=='R64' and size!='32' or packing=='R36' and size=='32')
+            segments.append(part(packing,'包装',_VISHAY_AXIAL_PACKS[packing]+('；此尺寸不适用该包装' if not valid else ''),valid))
+        if special:
+            known=special=={'05':'19','07':'23','20':'11','32':'1'}[size]
+            segments.append(part(special,'特殊订货编号','引线热浸锡' if known else '此编号的具体含义未在已核验表公开，不推测',known))
+        return segments,'Vishay原厂31023，2023-04-25，第1～2页；历史命名格式不等于当前在产或具体认证证明。'
+    match=re.fullmatch(r'(RN)(50|55|60|65|70)([ECD])([0-9R]{4})([BCDF])(?:(B14|BSL|R36|RE6|RSL)([1-9][0-9]{0,2})?)?',model)
+    if match:
+        series,size,characteristic,code,tol,packing,special=match.groups()
+        if resistance(code) is None:return [],''
+        if characteristic=='D' and (size=='50' or tol!='F'):return [],''
+        segments=[part(series,'系列','轴向金属膜电阻，MIL-R-10509 RN命名'),
+            part(size,'外形',series+size+'轴向外形代号，不是贴片英制尺寸'),
+            part(characteristic,'温度系数',f"±{dict(E=25,C=50,D=100)[characteristic]} ppm/℃"),
+            part(code,'阻值',quantity(resistance(code))),part(tol,'阻值误差',tolerance(tol))]
+    else:
+        match=re.fullmatch(r'(RL)(07|20)(S)([0-9R]{3})([GJ])(?:(B14|BSL|R36|RE6|RSL)([1-9][0-9]{0,2})?)?',model)
+        if not match:return [],''
+        series,size,lead,code,tol,packing,special=match.groups()
+        if resistance(code) is None:return [],''
+        segments=[part(series,'系列','轴向金属膜电阻，MIL-PRF-22684 RL命名'),
+            part(size,'外形',series+size+'轴向外形代号，不是贴片英制尺寸'),
+            part(lead,'引线材料','可焊接引线（solderable），不是温度系数'),
+            part(code,'阻值',quantity(resistance(code))),part(tol,'阻值误差',tolerance(tol))]
+    if packing:segments.append(part(packing,'包装',_VISHAY_AXIAL_PACKS[packing]))
+    if special:segments.append(part(special,'特殊订货编号',{'88':'引线热浸锡','143':'非磁性版本'}.get(special,'此编号的具体含义未在已核验表公开，不推测'),special in {'88','143'}))
+    return segments,'Vishay原厂31027，2022-02-02，第1～2页；RN/RL分别解析，不套工业CMF或RNC/RNR表。'
+
+
 def vishay_resistor(model):
+    decoded = military_axial(model)
+    if decoded[0]:
+        return decoded
     variant=vishay_crcw_variants(model)
     if variant[0]:return variant
     # ERC Industrial has its own ordering table (31104), not the military
@@ -415,7 +483,47 @@ def vishay_resistor(model):
     return [],''
 
 
+def pdc_updated(model):
+    match=re.fullmatch(r'(FAF)(02|03|05|06)([ABCDF])([TV])([ABCUSDR])([0-9R]{4})([VSQP])(MH)',model)
+    if match:
+        series,size,tol,packing,power,code,tcr,special=match.groups()
+        value=resistance(code)
+        if value is None:return [],''
+        rows=[part(series,'系列','精密薄膜贴片电阻，FAF-MH命名表'),
+            part(size,'封装',{'02':'0402','03':'0603','05':'0805','06':'1206'}[size]+'（英制）'),
+            part(tol,'阻值误差',tolerance(tol)),
+            part(packing,'包装','纸带，'+('5000' if packing=='T' else '10000')+'颗／卷'),
+            part(power,'功率',{'A':'0.0625','B':'1/10','C':'1/8','U':'0.15','S':'0.20','D':'1/4','R':'2/5'}[power]+' W（具体温区和降额条件须按此版本额定表）'),
+            part(code,'阻值',quantity(value)),part(tcr,'温度系数',f"±{dict(V=10,S=15,Q=25,P=50)[tcr]} ppm/℃"),
+            part(special,'特殊订货类型','AEC-Q200、抗硫化；代码不代替单型号认证记录')]
+        return rows,'PDC原厂FAF-MH-REV.7.0.Q11，PDF第5页（正文4/12），独立功率型表；不将旧版普通FAF表的额外码强行套用。'
+    match=re.fullmatch(r'(FPS)(03|05|06|12|20|25)([FJ])([TVWPXY])(-)([0-9R]{3,4})(L?)(-?)(M|MB|MD)?',model)
+    if not match:return [],''
+    series,size,tol,packing,power,code,tcr,dash,special=match.groups()
+    value=resistance(code)
+    if value is None or value<1 or len(code)!=(4 if tol=='F' else 3):return [],''
+    if dash and not special:return [],''
+    if (size in ('20','25'))!=(packing in 'PXY'):return [],''
+    if tcr and (tol!='F' or not 1<=value<=10 or size=='03'):return [],''
+    rows=[part(series,'系列','高功率抗浪涌厚膜贴片电阻，R05常规额定表（不是Triple版本）'),
+        part(size,'封装',{'03':'0603','05':'0805','06':'1206','12':'1210','20':'2010','25':'2512'}[size]+'（英制）'),
+        part(tol,'阻值误差',tolerance(tol)),
+        part(packing,'包装',{'T':'纸带5000颗','V':'纸带10000颗','W':'纸带20000颗','P':'塑料带4000颗','X':'塑料带8000颗','Y':'塑料带16000颗'}[packing]+'／卷'),
+        part(power,'功率','依本尺寸额定表：'+{'03':'1/8','05':'1/4','06':'1/2','12':'1/2','20':'1','25':'2'}[size]+' W（70℃，表面温度不得超过105℃）'),
+        part(code,'阻值',quantity(value))]
+    if tcr:rows.append(part(tcr,'温度系数','±200 ppm/℃，1–10Ω可选码'))
+    if dash:rows.append(part(dash,'分隔符','控制代码分隔符，不是负号'))
+    if special:
+        meaning={'M':'AEC-Q200','MB':'AEC-Q200；抗硫化50℃','MD':'AEC-Q200；抗硫化90℃'}[special]
+        if special in {'MB','MD'}:meaning+='；抗硫化按原厂ASTM B-809改版1000h、ΔR≤±3%条件'
+        rows.append(part(special,'控制代码',meaning+'；代码不替代型号认证记录'))
+    return rows,'PDC原厂FPS-Rev.8.0.R05，PDF第4～5页（正文3～4/13）；区分普通与Triple，未编码温漂不虚构代码。'
+
+
 def pdc_faf(model):
+    decoded = pdc_updated(model)
+    if decoded[0]:
+        return decoded
     match=re.fullmatch(r'(FAF)(01|02|03|05|06|12|20|25)([TUABCDF])([TVUPX])([-TABCDERFGH])([0-9R]{4})([BCWVSQP])(-?)(HC|MH|MF|M)?',model)
     if not match or resistance(match[6]) is None: return [],''
     series,size,tol,packing,power,code,tcr,dash,special=match.groups()
@@ -441,6 +549,10 @@ def pdc_faf(model):
 
 
 def pdc_thick_film(model):
+    if model.endswith(('MB','MD')):
+        decoded = pdc_updated(model)
+        if decoded[0]:
+            return decoded
     match=re.fullmatch(r'(FPS|FPF|FWF|FCF)(0A|01|02|03|05|06|12|20|25)([BCDFGJ])([TVUWPXYQ])([-EFGIK])([0-9R]{3,4})([NYLQP]?)(-?)(M|W)?',model)
     if not match: return [],''
     series,size,tol,packing,power,code,tcr,dash,special=match.groups()
@@ -890,7 +1002,7 @@ def explain(record):
     elif mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         segments,source=taiyo_meas_mlcc(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
-        match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)([A-Z0-9]{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2})([BCDFGJKMZ])([A-Z0-9]+)',model)
+        match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)([A-Z0-9]{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2}|\dR\d)([BCDFGJKMWZ])([A-Z0-9]+)',model)
         if match:
             series,size,thickness,material,voltage,cap,tol,tail=match.groups()
             sizes={'01':('008004','0.25×0.125'),'02':('01005','0.4×0.2'),
@@ -915,12 +1027,19 @@ def explain(record):
             volts={'0E':2.5,'0G':4,'0J':6.3,'1A':10,'1C':16,'1E':25,'1H':50,'1J':63,'2A':100,'2D':200,'2E':250,'2H':500,'3A':1000}
             cap_value = Decimal(cap.replace('R','.')) if 'R' in cap else Decimal(cap[:2])*10**int(cap[-1])
             tol_value = {'B':'±0.1 pF','C':'±0.25 pF','D':'±0.5 pF','Z':'-20%～+80%'}.get(tol) or tolerance(tol)
+            general_table = series in {'GRM','GJM','GQM'}
+            materials.pop('B1',None)
+            if general_table:
+                materials.pop('C1',None)
+                materials['B1']='JIS B（温度特性 ±10%；按额定电压的 50% 施加电压）'
+                if tol=='D' and cap_value>=10:tol_value='±0.5%'
+            if tol=='W':tol_value='±0.05 pF' if general_table else '需核对该系列的精度表'
             segments=[part(series,'系列',text(record.get('系列说明')) or 'Murata '+series+' 系列'),
                 part(size,'封装',sizes[size][0]+'（英制）；长×宽 '+sizes[size][1]+' mm（标称值）' if size in sizes else '该尺寸代码尚未核验',size in sizes),
                 part(thickness,'厚度代码',thicknesses[thickness]+' mm（标称值；具体公差及最大厚度以该型号规格书为准）' if thickness in thicknesses else '按个别规格定义，须查具体型号规格书' if thickness=='X' else '该厚度代码尚未核验',thickness in thicknesses),
                 part(material,'介质',materials.get(material,'该介质代码尚未核验'),material in materials),
                 part(voltage,'额定电压',str(volts[voltage])+' V' if voltage in volts else '该电压代码尚未核验',voltage in volts),
-                part(cap,'容量',quantity(cap_value,'pF')),part(tol,'容量误差',tol_value)]
+                part(cap,'容量',quantity(cap_value,'pF')),part(tol,'容量误差',tol_value,tol!='W' or general_table)]
             if re.fullmatch(r'[A-Z0-9]{3}[A-Z]',tail):
                 segments.extend([
                     part(tail[:3],'个别规格识别码','原厂定义为三位个别规格识别码；公开命名表未逐字定义其内部含义，不作推测',False),
@@ -1010,15 +1129,21 @@ def explain(record):
         links=[('YAGEO MFR 原厂订货表（2024-04-03 V4，第2页）','https://yageogroup.com/content/datasheet/asset/file/YAGEO-MFR_DATASHEET')]
     elif segments and resistor and 'YAGEO' in manufacturer and model.startswith('RT'):
         links=[('YAGEO RT 原厂命名表（2026-02-12 V17，第2页）','https://www.yageogroup.com/content/datasheet/asset/file/PYU-RT_1-TO-0-01_ROHS_L')]
+    elif segments and 'KOA' in manufacturer and model.startswith(('SG73P','SG73S')):
+        links=[('KOA 原厂命名表','https://www.koaspeer.com/pdfs/'+model[:5]+'.pdf')]
     elif segments and 'KOA' in manufacturer:
         links=[('KOA 原厂 RN73 命名表','https://www.koaspeer.com/pdfs/RN73.pdf')] if model.startswith('RN73') and not model.startswith(('RN73H','RN73R')) else [('KOA 原厂 2026 目录','https://www.koaspeer.com/pdfs/KOA_2026FullCatalog_Linked.pdf')]
     elif segments and any(token in manufacturer for token in ('VISHAY','威世')):
         pdf='20035/dcrcwe3.pdf' if model.startswith('CRCW') else '28758/tnpw_e3.pdf' if model.startswith('TNPW') else '31018/cmfind.pdf' if model.startswith('CMF') else '31025/erc.pdf'
         if '文档31104' in source:pdf='31104/ercind.pdf'
+        if '原厂31023' in source:pdf='31023/erl.pdf'
+        if '原厂31027' in source:pdf='31027/cmfmil.pdf'
         for document,path in (('20008','20008/dcrcw.pdf'),('20115','20115/crcwhp.pdf'),('20043','20043/crcwhpe3.pdf')):
             if '文档 '+document in source:pdf=path
         links=[('Vishay 原厂命名表','https://www.vishay.com/docs/'+pdf)]
         if model.startswith('CMF'): links.append(('Vishay 原厂轴向包装表','https://www.vishay.com/docs/31544/packthre.pdf'))
+    elif segments and ('FAF-MH-REV.7.0.Q11' in source or 'FPS-Rev.8.0.R05' in source):
+        links=[('PDC 原厂网站（规格书版本与页码见上）','https://www.pdc.com.tw/')]
     elif segments and model.startswith('FAF') and any(token in manufacturer for token in ('PDC','PSA','信昌')):
         links=[('PDC 原厂 FAF 命名表','https://www.pdc.com.tw/storage/architecture/product~~19/product~~105/product~~160/FAF.pdf'),
                ('PDC 原厂特殊订货代码表','https://www.pdc.com.tw/storage/architecture/product~~19/product~~123/2020_3in1_catalog.pdf')]

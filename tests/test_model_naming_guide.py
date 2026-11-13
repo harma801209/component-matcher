@@ -7,6 +7,21 @@ import model_naming_guide as guide
 
 
 class NamingGuideTests(unittest.TestCase):
+    def test_next_manufacturer_tables_route_to_the_correct_brand(self):
+        for brand,model,source in [
+            ('KOA','SG73P2BTTD10R0F','SG73P'),
+            ('Vishay','RLR07C4701GSB14','31023'),
+            ('Vishay','RN55D1211FB14','31027'),
+            ('PSA','FAF03ATU40R2PMH','Q11'),
+            ('PDC','FPS03FT-10R0-MB','R05'),
+        ]:
+            record={'品牌':brand,'型号':model,'器件类别':'贴片电阻'}
+            result=guide.explain(record)
+            self.assertTrue(result['complete'],model)
+            self.assertIn(source,result['source'])
+            self.assertEqual(''.join(row['code'] for row in result['segments']),model)
+            self.assertFalse(guide.explain(dict(record,品牌='Other'))['segments'])
+
     def test_fojan_frc_ts_is_two_verified_oem_fields_not_an_unknown_suffix(self):
         row=dict(品牌='FOJAN(富捷)',型号='FRC0402F1001TS',系列='WRONG',器件类别='厚膜电阻',系列说明='SECRET')
         data=guide.explain(row)
