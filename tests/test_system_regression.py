@@ -3723,6 +3723,7 @@ class SystemRegressionTests(unittest.TestCase):
                             "bom": "",
                             "training": "",
                             "standard_advice": "",
+                            "projects": "",
                             app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                         },
                     )
@@ -3756,13 +3757,14 @@ class SystemRegressionTests(unittest.TestCase):
             app["is_member_page_requested"] = lambda: True
             app["is_bom_page_requested"] = lambda: False
             app["set_current_member"] = lambda member, query_updates=None: calls.append(query_updates)
-            for target, role, expected in [("admin", "admin", "admin"), ("admin", "member", "search"), ("bom", "member", "bom"), ("training", "member", "training"), ("training", "admin", "training"), ("standard_advice", "member", "standard_advice"), ("search", "admin", "search"), ("https://example.com", "admin", "search")]:
+            for target, role, expected in [("admin", "admin", "admin"), ("admin", "member", "search"), ("bom", "member", "bom"), ("training", "member", "training"), ("training", "admin", "training"), ("standard_advice", "member", "standard_advice"), ("projects", "member", "projects"), ("search", "admin", "search"), ("https://example.com", "admin", "search")]:
                 app["get_query_param_value"] = lambda name, target=target: target if name == "login_return" else ""
                 app["complete_member_login"]({"id": 7, "role": role})
                 self.assertEqual(calls[-1]["admin"], "1" if expected == "admin" else "")
                 self.assertEqual(calls[-1]["bom"], "1" if expected == "bom" else "")
                 self.assertEqual(calls[-1]["training"], "1" if expected == "training" else "")
                 self.assertEqual(calls[-1]["standard_advice"], "1" if expected == "standard_advice" else "")
+                self.assertEqual(calls[-1]["projects"], "1" if expected == "projects" else "")
                 self.assertEqual(calls[-1]["member"], "")
                 self.assertEqual(calls[-1]["login_return"], "")
         finally:
@@ -4449,6 +4451,7 @@ class SystemRegressionTests(unittest.TestCase):
                         "member": "",
                         "admin": "",
                         "bom": "",
+                        "projects": "",
                         app["MEMBER_LOGOUT_QUERY_PARAM"]: "",
                         app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                     }
@@ -4517,6 +4520,7 @@ class SystemRegressionTests(unittest.TestCase):
                         "member": "",
                         "admin": "",
                         "bom": "",
+                        "projects": "",
                         app["MEMBER_LOGOUT_QUERY_PARAM"]: "",
                         app["ADMIN_BACKEND_MODULE_QUERY_PARAM"]: "",
                     }
@@ -9106,6 +9110,8 @@ class SystemRegressionTests(unittest.TestCase):
                         self.assertEqual(actual.upper(), str(expected_value).upper())
 
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
+        from project_progress import ProjectStore
+
         app = self.app
         snapshot = {
             "version": 0,
@@ -9185,6 +9191,11 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertTrue(ok, message)
             member = app["get_member_by_username"]("durableuser")
             app["approve_member_account_admin"](member["id"])
+            ok, message, customer = app["save_member_sales_customer"](member["id"], "项目跟进测试有限公司")
+            self.assertTrue(ok, message)
+            store = ProjectStore(app["MEMBER_AUTH_DB_PATH"], member["id"])
+            project_id = store.create(customer["id"], "样品验证", next_action="确认实验结果")
+            self.assertTrue(app["flush_member_auth_remote_snapshot"]())
             self.assertGreaterEqual(snapshot["version"], 1)
             self.assertEqual(snapshot["payload_encoding"], "gzip")
             stored_snapshot_payload = base64.b64decode(snapshot["payload_base64"])
@@ -9192,6 +9203,8 @@ class SystemRegressionTests(unittest.TestCase):
 
             with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
                 conn.execute("DELETE FROM members WHERE lower(username)=lower('DurableUser')")
+                conn.execute("DELETE FROM member_customer_project_events WHERE project_id=?", (project_id,))
+                conn.execute("DELETE FROM member_customer_projects WHERE id=?", (project_id,))
                 conn.commit()
             with sqlite3.connect(app["MEMBER_AUTH_DB_PATH"]) as conn:
                 self.assertIsNone(
@@ -9201,6 +9214,8 @@ class SystemRegressionTests(unittest.TestCase):
                 )
             app["reset_member_auth_remote_refresh_cache"]()
             self.assertIsNotNone(app["get_member_by_username"]("DurableUser"))
+            self.assertEqual(store.overview()[2][0]["next_action"], "确认实验结果")
+            self.assertEqual(store.history(project_id)[0]["kind"], "created")
             app["ensure_configured_admin_member_account"]()
             app["reset_member_auth_remote_refresh_cache"]()
             requests_before_login = dict(request_counts)

@@ -1778,6 +1778,8 @@ def requested_page_mode():
         return "bom"
     if get_query_param_value("standard_advice").lower() in {"1", "true", "yes", "on"}:
         return "standard_advice"
+    if get_query_param_value("projects").lower() in {"1", "true", "yes", "on"}:
+        return "projects"
     if get_query_param_value("training").lower() in {"1", "true", "yes", "on"}:
         return "training"
     return "search"
@@ -2500,8 +2502,9 @@ def member_pm_can_access_brand(member, brand_name, assigned_brands=None):
     return False
 
 
-def save_member_sales_customer(member_id, customer_name):
-    refresh_member_auth_remote_snapshot(force=True)
+def save_member_sales_customer(member_id, customer_name, *, sync_remote=True):
+    if sync_remote:
+        refresh_member_auth_remote_snapshot(force=True)
     ensure_member_auth_schema()
     try:
         member_id = int(member_id)
@@ -2562,7 +2565,8 @@ def save_member_sales_customer(member_id, customer_name):
             "SELECT * FROM member_sales_customers WHERE id=?",
             (customer_id,),
         ).fetchone()
-    flush_member_auth_remote_snapshot()
+    if sync_remote:
+        flush_member_auth_remote_snapshot()
     return True, f"{action}：{customer_name}。", dict(row) if row is not None else None
 
 
@@ -5190,6 +5194,7 @@ def complete_member_login(member):
             "bom": "",
             "training": "",
             "standard_advice": "",
+            "projects": "",
             ADMIN_BACKEND_MODULE_QUERY_PARAM: "",
         }
         return_page = clean_text(get_query_param_value("login_return"))
@@ -5203,6 +5208,8 @@ def complete_member_login(member):
                 route_updates["training"] = "1"
             elif return_page == "standard_advice":
                 route_updates["standard_advice"] = "1"
+            elif return_page == "projects":
+                route_updates["projects"] = "1"
             route_updates["login_return"] = ""
     set_current_member(member, query_updates=route_updates)
     if is_bom_page_requested() and bool(st.session_state.get(BOM_PENDING_UPLOAD_WAITING_LOGIN_KEY)):
@@ -5248,6 +5255,7 @@ def logout_member():
             "member": "",
             "admin": "",
             "bom": "",
+            "projects": "",
             MEMBER_LOGOUT_QUERY_PARAM: "",
             ADMIN_BACKEND_MODULE_QUERY_PARAM: "",
         }
@@ -51096,6 +51104,59 @@ def open_standard_advice_match(model):
         st.rerun()
 
 
+def render_project_progress_page(member, login_href):
+    if not member:
+        st.info("登录后即可查看自己的客户和项目。")
+        st.link_button("登录后查看项目", login_href)
+        return
+    import runpy
+
+    # Keep the route independent of a previously cached cloud entrypoint.
+    runtime = runpy.run_path(os.path.join(BASE_DIR, "project_progress.py"))
+    error = runtime["ProjectError"]
+    actor_id = int(member["id"])
+    store = runtime["ProjectStore"](MEMBER_AUTH_DB_PATH, actor_id)
+
+    def require_live_actor():
+        live = current_member()
+        if not live or int(live["id"]) != actor_id:
+            raise error("登录状态已变化，请重新登录。")
+
+    def synchronized(action):
+        require_live_actor()
+        _, _, remote_enabled = get_member_auth_remote_config()
+        if not remote_enabled:
+            if is_public_mode() or is_streamlit_cloud_runtime():
+                raise error("共享存储暂不可用，未保存项目记录。")
+            return action(), True
+        # Serialize project changes with snapshot refresh in this worker.
+        with MEMBER_AUTH_REMOTE_REFRESH_LOCK:
+            status = pull_member_auth_remote_snapshot()
+            if status not in {"current", "restored", "restored_with_local_sessions"}:
+                raise error("暂时无法同步最新项目资料，请稍后再试。")
+            result = action()
+            return result, flush_member_auth_remote_snapshot()
+
+    def write(action):
+        return synchronized(action)[1]
+
+    def register_customer(name):
+        saved, synced = synchronized(lambda: save_member_sales_customer(actor_id, name, sync_remote=False))
+        if saved[0] and not synced:
+            raise error("报备未获服务器确认，请稍后刷新核对。")
+        return saved
+
+    try:
+        refresh_member_auth_remote_snapshot()
+        ensure_member_auth_schema()
+        runtime["render_page"](st, store, write=write, register_customer=register_customer)
+    except error as exc:
+        st.warning(str(exc))
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        logging.warning("Project progress unavailable: %s", type(exc).__name__)
+        st.error("项目资料暂时无法读取或保存，请稍后再试。")
+
+
 def render_catalog_member_prompt():
     # A login form must remain mounted on its submit rerun, not only on the
     # first "login to view" click. Reuse the existing per-run duplicate guard.
@@ -52706,18 +52767,19 @@ workbench_active = requested_page_mode()
 workbench_member = current_member()
 workbench_token = clean_text(st.session_state.get("_member_auth_token", "")) or clean_text(get_query_param_value(MEMBER_AUTH_QUERY_PARAM))
 workbench_links = []
-for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("standard_advice", "常规料器件替代建议"), ("training", "产品培训"), ("member", "会员中心"), ("admin", "管理后台")]:
+for nav_key, nav_label in [("search", "元器件搜索"), ("bom", "BOM批量匹配"), ("standard_advice", "常规料器件替代建议"), ("projects", "项目跟进"), ("training", "产品培训"), ("member", "会员中心"), ("admin", "管理后台")]:
     if nav_key == "admin" and not current_member_is_admin():
         continue
     nav_updates = {"admin": "1" if nav_key == "admin" else "0", "member": "1" if nav_key == "member" else "0", "bom": "1" if nav_key == "bom" else "0", "training": "1" if nav_key == "training" else "0", "login_return": "", ADMIN_BACKEND_MODULE_QUERY_PARAM: ""}
     nav_updates["standard_advice"] = "1" if nav_key == "standard_advice" else ""
+    nav_updates["projects"] = "1" if nav_key == "projects" else ""
     if workbench_token:
         nav_updates[MEMBER_AUTH_QUERY_PARAM] = workbench_token
     workbench_links.append((nav_key, nav_label, build_app_href(**nav_updates)))
 workbench_return = workbench_active if workbench_active != "member" else clean_text(get_query_param_value("login_return"))
 workbench_login_href = build_app_href(
-    member="1", admin="0", bom="0", training="0", standard_advice="",
-    login_return=workbench_return if workbench_return in {"search", "bom", "standard_advice", "training", "admin"} else "search",
+    member="1", admin="0", bom="0", training="0", standard_advice="", projects="",
+    login_return=workbench_return if workbench_return in {"search", "bom", "standard_advice", "projects", "training", "admin"} else "search",
     **{ADMIN_BACKEND_MODULE_QUERY_PARAM: ""},
 )
 workbench_logout_href = build_app_href(**{MEMBER_LOGOUT_QUERY_PARAM: "1", MEMBER_AUTH_QUERY_PARAM: workbench_token}) if workbench_member else None
@@ -52748,6 +52810,11 @@ if workbench_active == "standard_advice":
         login_href=workbench_login_href,
         open_match=open_standard_advice_match,
     )
+    render_inline_footer()
+    st.stop()
+
+if workbench_active == "projects":
+    render_project_progress_page(workbench_member, workbench_login_href)
     render_inline_footer()
     st.stop()
 

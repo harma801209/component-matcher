@@ -178,7 +178,7 @@ def navigation_icon(name):
 
 
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False, logout_href=None):
-    icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings"}
+    icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings", "projects": "list_alt"}
 
     def nav_label(key, label):
         if key == "standard_advice" and label == "常规料器件替代建议":
@@ -203,6 +203,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
         "search": ("元器件搜索", "输入型号或文字规格，也可按库内品类与参数筛选。价格与替代匹配仍按原有规则和权限处理。"),
         "bom": ("BOM 批量匹配", "上传、复核、指定品牌匹配，保留原始内容并导出完整结果。"),
         "standard_advice": ("常规料器件替代建议", "面向研发的选型参考：按器件和应用查替代方向、风险与验证清单。"),
+        "projects": ("项目跟进", "按客户管理项目、跟进进展和下一步计划；报价、更新与提醒统一留痕。"),
         "training": ("产品培训", "学习电容、电阻、电感、晶振、MOS管、二极管和三极管，掌握常用品类、结构与电路作用。"),
         "member": ("会员中心", "管理账号资料、客户与使用记录。"),
         "admin": ("管理后台", "维护会员、客户、成本清单与匹配规则。"),

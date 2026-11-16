@@ -114,10 +114,12 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
             exec(code, env)
             keys = [key for key, _, _ in env["workbench_links"]]
             self.assertEqual("admin" in keys, role == "admin")
-            self.assertEqual(keys[:5], ["search", "bom", "standard_advice", "training", "member"])
+            self.assertEqual(keys[:6], ["search", "bom", "standard_advice", "projects", "training", "member"])
             nav = dict((key, parse_qs(urlsplit(link).query)) for key, _, link in env["workbench_links"])
             self.assertEqual(nav["standard_advice"]["standard_advice"], ["1"])
             self.assertNotIn("standard_advice", nav["search"])
+            self.assertEqual(nav["projects"]["projects"], ["1"])
+            self.assertNotIn("projects", nav["search"])
             href = rendered[0][1]["logout_href"]
             if role:
                 query = parse_qs(urlsplit(href).query)
