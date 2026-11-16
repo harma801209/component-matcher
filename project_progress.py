@@ -2,8 +2,17 @@
 
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
+import base64
+import binascii
+import gzip
+import hashlib
+from io import BytesIO
+from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
 import time
+from uuid import uuid4
+import zlib
 
 
 DAY = 86_400
@@ -46,6 +55,10 @@ CREATE TABLE IF NOT EXISTS member_customer_project_events (
 );
 CREATE INDEX IF NOT EXISTS project_progress_history
     ON member_customer_project_events(project_id, id DESC);
+CREATE TABLE IF NOT EXISTS member_customer_project_receipts (
+    operation_id TEXT PRIMARY KEY,
+    actor_id INTEGER NOT NULL
+);
 """
 
 
@@ -66,10 +79,11 @@ class ProjectError(ValueError):
 
 
 class ProjectStore:
-    def __init__(self, path, actor_id, *, clock=time.time):
+    def __init__(self, path, actor_id, *, clock=time.time, operation_id=None):
         self.path = path
         self.actor_id = int(actor_id)
         self.clock = clock
+        self.operation_id = operation_id
 
     @contextmanager
     def _connection(self, write=False):
@@ -91,6 +105,11 @@ class ProjectStore:
                 if actor is None:
                     raise ProjectError("当前会员不可用，请重新登录。")
             yield conn, str(actor["role"]).strip().lower() == "admin"
+            if write and self.operation_id is not None:
+                conn.execute(
+                    "INSERT INTO member_customer_project_receipts(operation_id, actor_id) VALUES (?,?)",
+                    (self.operation_id, self.actor_id),
+                )
 
     def overview(self):
         with self._connection() as (conn, admin):
@@ -231,6 +250,84 @@ class ProjectStore:
             conn.execute("UPDATE member_customer_projects SET reminded_due_at=? WHERE id=?", (due, project_id))
 
 
+def _verified_snapshot(response):
+    if not isinstance(response, dict):
+        raise ProjectError("无法读到最新的共享项目资料，未提交保存。")
+    limit = 64 * 1024 * 1024
+    try:
+        version = int(response["version"])
+        encoding = response.get("payload_encoding") or "identity"
+        packed = base64.b64decode(response["payload_base64"], validate=True)
+        if encoding == "gzip":
+            with gzip.GzipFile(fileobj=BytesIO(packed)) as archive:
+                raw = archive.read(limit + 1)
+        elif encoding == "identity":
+            raw = packed
+        else:
+            raise ValueError
+        size = int(response.get("uncompressed_size") or 0)
+        if (version < 1 or not raw.startswith(b"SQLite format 3\x00")
+                or len(raw) > limit or (size and size != len(raw))
+                or hashlib.sha256(raw).hexdigest() != response.get("sha256")):
+            raise ValueError
+    except (KeyError, ValueError, TypeError, EOFError, OSError, binascii.Error, zlib.error) as exc:
+        raise ProjectError("无法校验共享项目资料，未提交保存。") from exc
+    return version, raw
+
+
+def _has_receipt(path, operation_id, actor_id):
+    uri = path.resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='member_customer_project_receipts'"
+        ).fetchone()
+        return bool(exists and conn.execute(
+            "SELECT 1 FROM member_customer_project_receipts WHERE operation_id=? AND actor_id=?",
+            (operation_id, actor_id),
+        ).fetchone())
+
+
+def save_project_to_snapshot(store, action, request):
+    """Write against the authoritative version; never publish a live local DB."""
+    operation_id = uuid4().hex
+    with TemporaryDirectory(prefix="project-save-") as folder:
+        for attempt in range(3):
+            version, base = _verified_snapshot(request("GET"))
+            path = Path(folder) / f"attempt-{attempt}.sqlite"
+            path.write_bytes(base)
+            if _has_receipt(path, operation_id, store.actor_id):
+                return True
+            with closing(sqlite3.connect(path)) as conn:
+                conn.execute("PRAGMA journal_mode=DELETE")
+            staged = ProjectStore(path, store.actor_id, clock=store.clock, operation_id=operation_id)
+            action(staged)
+            raw = path.read_bytes()
+            compressed = gzip.compress(raw, compresslevel=6, mtime=0)
+            packed, encoding = (compressed, "gzip") if len(compressed) < len(raw) else (raw, "identity")
+            if len(raw) > 64 * 1024 * 1024 or len(packed) > 2_000_000:
+                raise ProjectError("共享项目存储已达到容量限制，本次没有提交。请联系管理员。")
+            digest = hashlib.sha256(raw).hexdigest()
+            reply = request("PUT", {
+                "expected_version": version, "sha256": digest,
+                "payload_base64": base64.b64encode(packed).decode("ascii"),
+                "payload_encoding": encoding, "uncompressed_size": len(raw),
+            })
+            if isinstance(reply, dict) and reply.get("ok") is True and reply.get("sha256") == digest:
+                return True
+            if isinstance(reply, dict) and reply.get("conflict") is True:
+                continue
+            # A missing acknowledgement can follow a successful write. Confirm
+            # by receipt, even if a different writer has since advanced the snapshot.
+            try:
+                _, latest = _verified_snapshot(request("GET"))
+                check = Path(folder) / "confirmation.sqlite"
+                check.write_bytes(latest)
+                return _has_receipt(check, operation_id, store.actor_id)
+            except (ProjectError, OSError, sqlite3.Error):
+                return False
+    raise ProjectError("有其他记录正在同步，本次未保存。请稍后再提交。")
+
+
 def render_page(st, store, *, write, register_customer):
     """The app supplies the verified actor and the existing snapshot sync boundary."""
     prefix = f"project-progress-{store.actor_id}"
@@ -286,7 +383,7 @@ def render_page(st, store, *, write, register_customer):
                 next_action = st.text_input("下一步计划（可选）", max_chars=300)
                 quote_request = st.checkbox("同时登记报价申请")
                 if st.form_submit_button("保存新项目", type="primary"):
-                    submit(lambda: store.create(customer_id, name, note, quote_request, next_action), "项目已保存。")
+                    submit(lambda target: target.create(customer_id, name, note, quote_request, next_action), "项目已保存。")
         else:
             st.caption("报备客户后即可添加项目。")
 
@@ -362,7 +459,7 @@ def render_page(st, store, *, write, register_customer):
             if kind == "quote_request":
                 st.caption("这是站内申请记录，不会自动向客户发报价。")
             if st.form_submit_button("保存记录", type="primary"):
-                submit(lambda: store.record(project_id, revision, kind, note, stage, next_action), "项目记录已保存。")
+                submit(lambda target: target.record(project_id, revision, kind, note, stage, next_action), "项目记录已保存。")
     if admin and row["owner_status"] == "active" and _deadline(row["due_at"], now) == "已逾期":
         if row["reminded_due_at"] == row["due_at"]:
             st.caption("本轮已发送站内提醒。")
@@ -370,7 +467,7 @@ def render_page(st, store, *, write, register_customer):
             with st.form(f"{prefix}-remind-{project_id}-{revision}"):
                 note = st.text_input("提醒说明（可选）", max_chars=500)
                 if st.form_submit_button("发送站内提醒"):
-                    submit(lambda: store.remind(project_id, revision, note), "已向该会员发送站内提醒。")
+                    submit(lambda target: target.remind(project_id, revision, note), "已向该会员发送站内提醒。")
     st.markdown("#### 项目时间线")
     st.dataframe([
         {"时间（北京时间）": _timestamp(event["created_at"]), "事项": EVENT_LABELS[event["kind"]],

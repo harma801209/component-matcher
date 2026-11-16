@@ -51138,7 +51138,22 @@ def render_project_progress_page(member, login_href):
             return result, flush_member_auth_remote_snapshot()
 
     def write(action):
-        return synchronized(action)[1]
+        require_live_actor()
+        _, _, remote_enabled = get_member_auth_remote_config()
+        if not remote_enabled:
+            if is_public_mode() or is_streamlit_cloud_runtime():
+                raise error("共享存储暂不可用，未保存项目记录。")
+            action(store)
+            return True
+        with MEMBER_AUTH_REMOTE_REFRESH_LOCK:
+            with MEMBER_AUTH_REMOTE_LOCK:
+                saved = runtime["save_project_to_snapshot"](store, action, member_auth_remote_request)
+            if saved:
+                try:
+                    pull_member_auth_remote_snapshot()
+                except (OSError, sqlite3.Error, ValueError) as exc:
+                    logging.warning("Confirmed project save; local refresh failed: %s", type(exc).__name__)
+            return saved
 
     def register_customer(name):
         saved, synced = synchronized(lambda: save_member_sales_customer(actor_id, name, sync_remote=False))

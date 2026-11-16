@@ -1,10 +1,13 @@
 from contextlib import closing
+import base64
+import gzip
+import hashlib
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
 
-from project_progress import DAY, ProjectError, ProjectStore, _deadline
+from project_progress import DAY, ProjectError, ProjectStore, _deadline, save_project_to_snapshot
 
 
 class ProjectProgressTests(unittest.TestCase):
@@ -113,7 +116,7 @@ class ProjectProgressTests(unittest.TestCase):
             "import streamlit as st\n"
             "from project_progress import ProjectStore, render_page\n"
             f"store = ProjectStore({str(self.path)!r}, 1, clock=lambda: {self.now})\n"
-            "render_page(st, store, write=lambda action: (action(), True)[1], register_customer=None)\n",
+            "render_page(st, store, write=lambda action: (action(store), True)[1], register_customer=None)\n",
             default_timeout=30,
         ).run()
         self.assertFalse(page.exception)
@@ -124,3 +127,64 @@ class ProjectProgressTests(unittest.TestCase):
         self.assertFalse(page.exception)
         self.assertIn("补测试结果", page.dataframe[-1].value["说明"].tolist())
         self.assertFalse(any(button.label == "发送站内提醒" for button in page.button))
+
+    def test_shared_save_retries_conflict_without_losing_other_writer_changes(self):
+        initial = self.path.read_bytes()
+        remote = self.path.with_name("remote.sqlite")
+        remote.write_bytes(initial)
+        version = 5
+        attempted_versions = []
+
+        def request(method, payload=None):
+            nonlocal version
+            if method == "GET":
+                return self._snapshot(remote.read_bytes(), version)
+            attempted_versions.append(payload["expected_version"])
+            if len(attempted_versions) == 1:
+                ProjectStore(remote, 2).create(201, "其他会员先保存")
+                version += 1
+                return {"conflict": True, "version": version}
+            self.assertEqual(payload["expected_version"], version)
+            remote.write_bytes(self._raw(payload))
+            return {"ok": True, "sha256": payload["sha256"], "version": version + 1}
+
+        self.assertTrue(save_project_to_snapshot(
+            self.alice, lambda store: store.create(101, "测试", "测试项目", quote_request=True), request))
+        self.assertEqual(attempted_versions, [5, 6])
+        self.assertEqual(self.path.read_bytes(), initial)
+        restored = ProjectStore(remote, 1)
+        rows = restored.overview()[2]
+        self.assertEqual([row["name"] for row in rows], ["测试"])
+        self.assertEqual([e["kind"] for e in restored.history(rows[0]["id"])], ["quote_request", "created"])
+        self.assertEqual(ProjectStore(remote, 2).overview()[2][0]["name"], "其他会员先保存")
+
+    def test_shared_save_handles_lost_response_and_never_replays_uncertain_request(self):
+        for committed in (False, True):
+            with self.subTest(committed=committed):
+                original = self.path.read_bytes()
+                base = self._snapshot(original, 5)
+                snapshot = base.copy()
+                writes = []
+
+                def request(method, payload=None):
+                    if method == "GET":
+                        return snapshot
+                    writes.append(payload)
+                    if committed:
+                        snapshot.update(self._snapshot(self._raw(payload), 7))
+                    return None
+
+                self.assertEqual(save_project_to_snapshot(
+                    self.alice, lambda store: store.create(101, "测试", quote_request=True), request), committed)
+                self.assertEqual(len(writes), 1)
+                self.assertEqual(self.path.read_bytes(), original)
+
+    @staticmethod
+    def _snapshot(raw, version):
+        return {"version": version, "payload_base64": base64.b64encode(raw).decode("ascii"),
+                "sha256": hashlib.sha256(raw).hexdigest(), "uncompressed_size": len(raw)}
+
+    @staticmethod
+    def _raw(payload):
+        data = base64.b64decode(payload["payload_base64"])
+        return gzip.decompress(data) if payload["payload_encoding"] == "gzip" else data

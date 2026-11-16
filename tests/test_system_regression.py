@@ -9110,7 +9110,7 @@ class SystemRegressionTests(unittest.TestCase):
                         self.assertEqual(actual.upper(), str(expected_value).upper())
 
     def test_07_member_database_remote_snapshot_survives_instance_reset(self):
-        from project_progress import ProjectStore
+        from project_progress import ProjectStore, save_project_to_snapshot
 
         app = self.app
         snapshot = {
@@ -9194,8 +9194,13 @@ class SystemRegressionTests(unittest.TestCase):
             ok, message, customer = app["save_member_sales_customer"](member["id"], "项目跟进测试有限公司")
             self.assertTrue(ok, message)
             store = ProjectStore(app["MEMBER_AUTH_DB_PATH"], member["id"])
-            project_id = store.create(customer["id"], "样品验证", next_action="确认实验结果")
-            self.assertTrue(app["flush_member_auth_remote_snapshot"]())
+            self.assertTrue(save_project_to_snapshot(
+                store, lambda target: target.create(customer["id"], "样品验证", next_action="确认实验结果"),
+                app["member_auth_remote_request"],
+            ))
+            self.assertFalse(store.overview()[2])
+            self.assertIn(app["pull_member_auth_remote_snapshot"](), {"restored", "restored_with_local_sessions"})
+            project_id = store.overview()[2][0]["id"]
             self.assertGreaterEqual(snapshot["version"], 1)
             self.assertEqual(snapshot["payload_encoding"], "gzip")
             stored_snapshot_payload = base64.b64decode(snapshot["payload_base64"])
