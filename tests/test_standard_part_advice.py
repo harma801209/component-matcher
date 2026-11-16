@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from standard_part_advice import CASES, _comparison_html, filter_advice, normalize_lookup_model, part_summary
+from standard_part_advice import CASES, _comparison_html, _part_cards_html, filter_advice, normalize_lookup_model, part_summary
 
 
 class StandardPartAdviceTests(unittest.TestCase):
@@ -86,6 +86,20 @@ class StandardPartAdviceTests(unittest.TestCase):
         self.assertEqual(result, {"型号": "FRC0402F1001TS", "参数值": "1 KΩ"})
         self.assertEqual(filter_advice(keyword="FRC0402F1001TS"), ())
 
+    def test_part_cards_prioritize_specs_escape_text_and_keep_matches_separate(self):
+        markup = _part_cards_html((
+            {"品牌": "A & B", "型号": "R<123>", "系列": "FRC",
+             "参数值": "1 KΩ", "规格摘要": "<b>说明</b>"},
+            {"型号": "OTHER123"},
+        ))
+        self.assertEqual(markup.count('<article class="std-part-card">'), 2)
+        self.assertEqual(markup.count('<dl class="std-part-card-specs">'), 1)
+        self.assertLess(markup.index("<dt>参数值</dt>"), markup.index("<dt>系列</dt>"))
+        self.assertIn("A &amp; B", markup)
+        self.assertIn("R&lt;123&gt;", markup)
+        self.assertIn('<div class="std-part-card-field std-part-card-wide"><dt>规格摘要</dt><dd>&lt;b&gt;说明&lt;/b&gt;</dd>', markup)
+        self.assertNotIn("<b>说明</b>", markup)
+
     def test_part_lookup_is_separate_from_case_filter_and_retains_member_scope(self):
         from streamlit.testing.v1 import AppTest
 
@@ -111,20 +125,25 @@ class StandardPartAdviceTests(unittest.TestCase):
         page.text_input(key="standard_advice_keyword").set_value("不存在的案例")
         submit().click().run()
         self.assertFalse(page.exception)
-        self.assertIn("FOJAN(富捷) · FRC0402F1001TS", [item.value for item in page.text])
-        self.assertIn("参数值：1 KΩ", [item.value for item in page.text])
+        def visible_cards():
+            return [item.value for item in page.markdown if '<article class="std-part-card">' in item.value]
+
+        card, = visible_cards()
+        self.assertIn('<strong class="std-part-card-model">FRC0402F1001TS</strong>', card)
+        self.assertIn('<span class="std-part-card-brand">FOJAN(富捷)</span>', card)
+        self.assertIn("<dt>参数值</dt><dd>1 KΩ</dd>", card)
         self.assertTrue(any("没有符合筛选" in item.value for item in page.warning))
         page.button(key="standard_advice_open_match").click().run()
         self.assertEqual(page.session_state["opened"], "FRC0402F1001TS")
         self.assertEqual(page.session_state["calls"], 1)
         page.session_state["member"] = 6
         page.run()
-        self.assertFalse(page.text)
+        self.assertFalse(visible_cards())
         for model, message in (("UNKNOWN0001", "库内没有找到"), ("OFFLINE", "器件库暂不可用")):
             page.text_input(key="standard_advice_lookup_model").set_value(model)
             submit().click().run()
             self.assertTrue(any(message in item.value for item in page.warning))
-            self.assertFalse(page.text)
+            self.assertFalse(visible_cards())
 
     def test_streamlit_page_compares_before_selection_and_updates_details(self):
         from streamlit.testing.v1 import AppTest

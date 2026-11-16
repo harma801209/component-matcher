@@ -246,6 +246,46 @@ def part_summary(row, clean_text):
     return {key: val for key, val in summary.items() if val}
 
 
+_PART_CARD_STYLE = """
+<style>
+.std-part-card { padding: .95rem 1.1rem; border: 1px solid #ccd8e8; border-radius: .75rem; background: #fff; color: #172e4b; }
+.std-part-card + .std-part-card { margin-top: .7rem; }
+.std-part-card .std-part-card-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .75rem; padding-bottom: .65rem; }
+.std-part-card .std-part-card-model { min-width: 0; overflow-wrap: anywhere; font-size: 1.18rem; line-height: 1.3; color: #174e9b; }
+.std-part-card .std-part-card-brand { padding: .12rem .5rem; border-radius: .35rem; background: #edf3fb; color: #294a71; font-size: .82rem; overflow-wrap: anywhere; }
+.std-part-card .std-part-card-specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); gap: .75rem 1rem; margin: 0; padding-top: .7rem; border-top: 1px solid #e0e8f3; }
+.std-part-card .std-part-card-field { min-width: 0; }
+.std-part-card .std-part-card-wide { grid-column: 1 / -1; }
+.std-part-card dt { margin: 0 0 .15rem; color: #4b617c; font-size: .8rem; font-weight: 500; }
+.std-part-card dd { margin: 0; color: #172e4b; font-size: .95rem; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.std-part-card .std-part-card-wide dd { font-weight: 400; }
+</style>
+""".strip()
+
+
+def _part_cards_html(parts):
+    cards = []
+    primary_fields = ("参数值", "尺寸（英制）", "尺寸／封装", "误差", "功率", "额定电压")
+    for part in parts:
+        model = escape(part.get("型号", ""))
+        brand = escape(part.get("品牌", ""))
+        fields = [key for key in primary_fields if key in part]
+        fields.extend(key for key in part if key not in (*primary_fields, "型号", "品牌"))
+        rows = []
+        for key in fields:
+            wide = " std-part-card-wide" if key == "规格摘要" else ""
+            rows.append(f'<div class="std-part-card-field{wide}"><dt>{escape(key)}</dt>'
+                        f'<dd>{escape(part[key])}</dd></div>')
+        specs = '<dl class="std-part-card-specs">' + "".join(rows) + "</dl>" if rows else ""
+        brand_badge = f'<span class="std-part-card-brand">{brand}</span>' if brand else ""
+        cards.append(
+            '<article class="std-part-card"><header class="std-part-card-head">'
+            f'<strong class="std-part-card-model">{model}</strong>{brand_badge}</header>'
+            f'{specs}</article>'
+        )
+    return _PART_CARD_STYLE + "".join(cards)
+
+
 def _render_part_lookup(st, *, lookup_part, member_id, login_href, open_match):
     st.subheader("按料号查库")
     result_key = "_standard_advice_lookup_result"
@@ -279,13 +319,8 @@ def _render_part_lookup(st, *, lookup_part, member_id, login_href, open_match):
     elif not result:
         st.warning("库内没有找到这个完整料号。请核对品牌、型号和订货尾码。")
     else:
-        st.caption("以下是原器件的库内资料，不代表已找到替代型号。下方是按电路用途筛选的设计案例。")
-        for part in result:
-            with st.container(border=True):
-                st.text(" · ".join(part[label] for label in ("品牌", "型号") if label in part))
-                for label, value in part.items():
-                    if label not in ("品牌", "型号"):
-                        st.text(f"{label}：{value}")
+        st.caption("原器件规格 · 来自器件库，不代表已找到替代型号")
+        st.markdown(_part_cards_html(result), unsafe_allow_html=True)
         if open_match and st.button("用此料号查替代型号", key="standard_advice_open_match"):
             open_match(model)
 
