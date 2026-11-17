@@ -168,6 +168,7 @@ def navigation_icon(name):
     shapes = {
         "search": '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>',
         "list_alt": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 7h7M10 12h7M10 17h7M7 7h.01M7 12h.01M7 17h.01"/>',
+        "kanban": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8v7m5-7v4m5-4v8"/>',
         "person": '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 21v-2a7.5 5.5 0 0 1 15 0v2Z"/>',
         "settings": '<path d="m9 3-.7 2.3-2 .9-2.3-.5-1.5 2.6 1.7 1.8-.2 2.2-1.5 1.8L4 16.7l2.3-.5 2 .9.7 2.3h3l.7-2.3 2-.9 2.3.5 1.5-2.6-1.5-1.8-.2-2.2 1.7-1.8L17 5.7l-2.3.5-2-.9L12 3Z"/><circle cx="10.5" cy="11.2" r="3"/>',
         "training": '<path d="M12 5v15M3 4c3-1 6-1 9 1 3-2 6-2 9-1v15c-3-1-6-1-9 1-3-2-6-2-9-1Z"/>',
@@ -178,7 +179,7 @@ def navigation_icon(name):
 
 
 def render_header(st, logo_b64, active, links, member, login_href=None, is_trial=False, logout_href=None):
-    icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings", "projects": "list_alt"}
+    icons = {"search": "search", "bom": "list_alt", "standard_advice": "swap", "training": "training", "member": "person", "admin": "settings", "projects": "kanban"}
 
     def nav_label(key, label):
         if key == "standard_advice" and label == "常规料器件替代建议":

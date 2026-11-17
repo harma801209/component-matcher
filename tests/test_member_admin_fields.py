@@ -1,12 +1,24 @@
 """Actual admin renderer, synthetic profiles only; never opens a runtime DB."""
 import ast
 import copy
+from functools import lru_cache
 from pathlib import Path
 import unittest
 
 import pandas as pd
 
 ROOT=Path(__file__).resolve().parents[1]
+
+
+@lru_cache(maxsize=1)
+def compiled_admin_renderer_fixture():
+    """Compile the same production renderer once, outside timed UI reruns."""
+    names={'normalize_member_status','normalize_member_role','normalize_member_job_title',
+           'render_member_admin_management_page'}
+    tree=ast.parse((ROOT/'component_matcher.py').read_text(encoding='utf-8'))
+    nodes=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
+    assert len(nodes)==len(names)
+    return compile(ast.Module(body=nodes,type_ignores=[]),'actual-member-form-fixture','exec')
 
 
 def render_fixture(st):
@@ -49,16 +61,15 @@ def render_fixture(st):
         delete_member_account_admin=deny_delete,
         list_member_sales_customers=lambda *args:[],
         list_member_profile_change_logs=lambda *args,**kwargs:[])
-    names={'normalize_member_status','normalize_member_role','normalize_member_job_title',
-           'render_member_admin_management_page'}
-    tree=ast.parse((ROOT/'component_matcher.py').read_text(encoding='utf-8'))
-    nodes=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
-    assert len(nodes)==len(names)
-    exec(compile(ast.Module(body=nodes,type_ignores=[]),'actual-member-form-fixture','exec'),env)
+    exec(compiled_admin_renderer_fixture(),env)
     env['render_member_admin_management_page']()
 
 
 class MemberAdminFieldsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        compiled_admin_renderer_fixture()
+
     def app(self,job_title='销售',role='member'):
         from streamlit.testing.v1 import AppTest
         app=AppTest.from_string('import streamlit as st\nfrom tests.test_member_admin_fields import render_fixture\nrender_fixture(st)')

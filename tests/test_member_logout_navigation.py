@@ -4,7 +4,7 @@ import ast
 from types import SimpleNamespace
 from urllib.parse import urlencode, parse_qs, urlsplit
 
-from precision_theme import render_header, CSS
+from precision_theme import navigation_icon, render_header, CSS
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -91,6 +91,20 @@ class MemberLogoutNavigationSourceTests(unittest.TestCase):
         self.assertIn("<span>常规料器件<br>替代建议</span></a>", output[0])
         self.assertIn('<div class="wb-title">常规料器件替代建议</div>', output[0])
         self.assertIn("</svg>元器件搜索</a>", output[0])
+
+    def test_project_navigation_has_a_distinct_progress_icon(self):
+        output = []
+        links = [("bom", "BOM批量匹配", "?bom=1"), ("projects", "项目跟进", "?projects=1")]
+        render_header(SimpleNamespace(markdown=lambda value, **kw: output.append(value)),
+                      "", "projects", links, {"role": "member"})
+        bom_icon = navigation_icon("list_alt")
+        project_icon = navigation_icon("kanban")
+        self.assertNotEqual(project_icon, bom_icon)
+        self.assertIn(f'data-nav="bom" class="">{bom_icon}BOM批量匹配</a>', output[0])
+        self.assertIn(
+            f'data-nav="projects" class="active" aria-current="page">{project_icon}项目跟进</a>',
+            output[0],
+        )
 
     def test_logout_visible_on_every_member_page_but_never_for_guest(self):
         for active in ["search", "bom", "training", "member", "admin"]:
