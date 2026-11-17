@@ -217,7 +217,7 @@ def render_header(st, logo_b64, active, links, member, login_href=None, is_trial
     )
     page_heading = (
         f'<div class="wb-page-heading"><div class="wb-title">{title}</div><div class="wb-subtitle">{description}</div></div>'
-        if active != "bom" else ""
+        if active != "bom" and not (active == "projects" and member) else ""
     )
     st.markdown(
         f'<aside class="wb-sidebar"><nav class="wb-nav" aria-label="主导航">{nav}</nav>{logout}</aside>'

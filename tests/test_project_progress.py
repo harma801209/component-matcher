@@ -7,7 +7,10 @@ import sqlite3
 import tempfile
 import unittest
 
-from project_progress import DAY, ProjectError, ProjectStore, _deadline, save_project_to_snapshot
+from project_progress import (
+    DAY, LEGACY_DONE, ORDERED, STOPPED, ProjectError, ProjectStore,
+    _deadline, _project_card, _project_status, _project_timeline, save_project_to_snapshot,
+)
 
 
 class ProjectProgressTests(unittest.TestCase):
@@ -77,10 +80,59 @@ class ProjectProgressTests(unittest.TestCase):
         self.assertEqual(_deadline(due, self.now), "已逾期")
         self.alice.record(project, 3, "progress", "送样完成", "客户验证", "下周确认测试")
         self.assertEqual(self.entry()["due_at"], self.now + 7 * DAY)
-        self.alice.record(project, 4, "progress", "客户验收", "已完成")
+        self.alice.record(project, 4, "progress", "客户不再推进", STOPPED)
         self.assertIsNone(self.entry()["due_at"])
+        self.assertIsNone(self.entry()["order_recorded_at"])
         with self.assertRaises(ProjectError):
             self.alice.record(project, 5, "quoted", "结案后不再报价")
+
+    def test_first_order_closes_project_and_disables_reminders(self):
+        project = self.alice.create(101, "首单项目", next_action="继续验证")
+        self.alice.record(project, 0, "quoted", "发出报价")
+        self.assertIsNone(self.entry()["order_recorded_at"])
+        self.now += 7 * DAY
+        self.admin.remind(project, 1)
+        with self.assertRaisesRegex(ProjectError, "只能更新自己"):
+            self.admin.record(project, 1, "ordered", "越权登记")
+        with self.assertRaisesRegex(ProjectError, "项目已更新"):
+            self.alice.record(project, 0, "ordered", "过期表单")
+        with self.assertRaisesRegex(ProjectError, "首单登记"):
+            self.alice.record(project, 1, "progress", "不能从普通阶段伪造", ORDERED)
+        with self.assertRaisesRegex(ProjectError, "事项说明"):
+            self.alice.record(project, 1, "ordered", " ")
+        self.alice.record(project, 1, "ordered", "收到首张订单 PO-001")
+        row = self.entry()
+        self.assertEqual(row["stage"], ORDERED)
+        self.assertEqual(row["latest_progress"], "收到首张订单 PO-001")
+        self.assertEqual(row["order_recorded_at"], self.now)
+        self.assertEqual(row["last_progress_at"], self.now)
+        self.assertIsNone(row["due_at"])
+        self.assertIsNone(row["reminded_due_at"])
+        self.assertEqual(row["next_action"], "")
+        self.assertEqual(self.admin.overview()[2][0]["stage"], ORDERED)
+        self.assertEqual([item["kind"] for item in self.alice.history(project)],
+                         ["ordered", "reminder", "quoted", "created"])
+        with self.assertRaisesRegex(ProjectError, "已经结案"):
+            self.alice.record(project, 2, "ordered", "不重复闭环")
+        with self.assertRaisesRegex(ProjectError, "逾期"):
+            self.admin.remind(project, 2)
+
+    def test_legacy_completion_does_not_count_as_order_without_confirmation(self):
+        old = self.alice.create(101, "历史结案")
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.execute("UPDATE member_customer_projects SET stage=?, due_at=NULL WHERE id=?", (LEGACY_DONE, old))
+        self.assertEqual(_project_status(self.entry(), self.now)[1], "neutral")
+        self.assertIsNone(self.entry()["order_recorded_at"])
+        self.alice.record(old, 0, "ordered", "核对历史订单 PO-002")
+        self.assertEqual(_project_status(self.entry(), self.now), ("已下单闭环", "done"))
+
+    def test_cards_and_timeline_escape_member_content(self):
+        project = self.alice.create(101, "<script>bad</script>", "<img src=bad>", next_action="<b>action</b>")
+        markup = _project_card(self.entry(), self.now, detail=True) + _project_timeline(self.alice.history(project))
+        for unsafe in ("<script>", "<img", "<b>action"):
+            self.assertNotIn(unsafe, markup)
+        for safe in ("&lt;script&gt;", "&lt;img src=bad&gt;", "&lt;b&gt;action&lt;/b&gt;"):
+            self.assertIn(safe, markup)
 
     def test_reminder_targets_owner_once_per_cycle_and_rejects_stale_update(self):
         project = self.alice.create(101, "逾期项目")
@@ -121,12 +173,38 @@ class ProjectProgressTests(unittest.TestCase):
         ).run()
         self.assertFalse(page.exception)
         self.assertTrue(any("管理员已提醒" in item.value for item in page.warning))
-        self.assertIn("确认样品", page.dataframe[-1].value["下一步"].tolist())
-        self.assertNotIn("不应出现在我页面的项目", page.dataframe[-1].value["项目"].tolist())
+        cards = next(item.value for item in page.markdown if '<div class="pp-grid"' in item.value)
+        self.assertIn("确认样品", cards)
+        self.assertNotIn("不应出现在我页面的项目", cards)
         page.selectbox(key="project-progress-1-selected").select(mine).run()
         self.assertFalse(page.exception)
-        self.assertIn("补测试结果", page.dataframe[-1].value["说明"].tolist())
+        self.assertTrue(any("补测试结果" in item.value for item in page.markdown if 'class="pp-timeline"' in item.value))
         self.assertFalse(any(button.label == "发送站内提醒" for button in page.button))
+
+    def test_first_order_form_requires_confirmation_and_switches_to_closed_view(self):
+        from streamlit.testing.v1 import AppTest
+
+        mine = self.alice.create(101, "首单 UI 测试", next_action="确认样品")
+        page = AppTest.from_string(
+            "import streamlit as st\n"
+            "from project_progress import ProjectStore, render_page\n"
+            f"store = ProjectStore({str(self.path)!r}, 1, clock=lambda: {self.now})\n"
+            "render_page(st, store, write=lambda action: (action(store), True)[1], register_customer=None)\n",
+            default_timeout=30,
+        ).run()
+        page.selectbox(key="project-progress-1-selected").select(mine).run()
+        next(item for item in page.text_area if item.label == "首单说明").input("首单凭据 PO-100")
+        next(item for item in page.button if item.label == "确认下单并闭环").click().run()
+        self.assertTrue(any("请先确认" in item.value for item in page.warning))
+        self.assertIsNotNone(self.entry()["due_at"])
+        next(item for item in page.text_area if item.label == "首单说明").input("首单凭据 PO-100")
+        next(item for item in page.checkbox if item.label == "我确认客户已开始下单").check()
+        next(item for item in page.button if item.label == "确认下单并闭环").click().run()
+        self.assertFalse(page.exception)
+        self.assertEqual(page.radio(key="project-progress-1-scope").value, "已下单闭环")
+        self.assertEqual(self.entry()["stage"], ORDERED)
+        self.assertTrue(any("首单凭据 PO-100" in item.value for item in page.markdown if 'class="pp-timeline"' in item.value))
+        self.assertFalse(any(item.label in ("确认下单并闭环", "保存跟进") for item in page.button))
 
     def test_shared_save_retries_conflict_without_losing_other_writer_changes(self):
         initial = self.path.read_bytes()
@@ -178,6 +256,30 @@ class ProjectProgressTests(unittest.TestCase):
                     self.alice, lambda store: store.create(101, "测试", quote_request=True), request), committed)
                 self.assertEqual(len(writes), 1)
                 self.assertEqual(self.path.read_bytes(), original)
+
+    def test_first_order_survives_snapshot_restore_after_lost_acknowledgement(self):
+        project = self.alice.create(101, "等首单的项目")
+        original = self.path.read_bytes()
+        remote = self.path.with_name("restored-order.sqlite")
+        snapshot = self._snapshot(original, 3)
+
+        def request(method, payload=None):
+            if method == "GET":
+                return snapshot
+            self.assertEqual(payload["expected_version"], 3)
+            raw = self._raw(payload)
+            remote.write_bytes(raw)
+            snapshot.update(self._snapshot(raw, 4))
+            return None
+
+        self.assertTrue(save_project_to_snapshot(
+            self.alice, lambda store: store.record(project, 0, "ordered", "实际首单 PO-321"), request))
+        self.assertEqual(self.path.read_bytes(), original)
+        restored = ProjectStore(remote, 1)
+        row = restored.overview()[2][0]
+        self.assertEqual(row["stage"], ORDERED)
+        self.assertIsNone(row["due_at"])
+        self.assertEqual(restored.history(project)[0]["note"], "实际首单 PO-321")
 
     @staticmethod
     def _snapshot(raw, version):
