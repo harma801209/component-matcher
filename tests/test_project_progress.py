@@ -157,6 +157,79 @@ class ProjectProgressTests(unittest.TestCase):
         customers = [row for row in ProjectStore(remote, 3).overview()[1] if "同一" in row["customer_name"]]
         self.assertEqual([(row["owner_id"], row["group_name"]) for row in customers], [(2, "A 集团")])
 
+    def _enable_claim_keys(self):
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.execute("ALTER TABLE member_sales_customers ADD COLUMN customer_key TEXT")
+            conn.execute("UPDATE member_sales_customers SET customer_key=customer_name")
+
+    def test_collaboration_requires_review_and_never_grants_price_or_peer_projects(self):
+        self._enable_claim_keys()
+        private = self.alice.create(101, "原销售项目")
+        # A customer picker in another business module can create a duplicate
+        # member-specific sales row. It cannot stand in for project approval.
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.execute("INSERT INTO member_sales_customers VALUES(202,2,'甲客户','甲客户')")
+        with self.assertRaises(ProjectError):
+            self.bob.create(202, "不应提前加入")
+        with self.assertRaises(ProjectError):
+            self.bob.request_join("甲客户", "华东", "  ")
+        self.bob.request_join("甲客户", "华东", "对接研发")
+        req = self.bob.join_requests()[0]
+        self.assertEqual(self.alice.join_requests(), [])
+        self.assertEqual(req["status"], "待审批")
+        with self.assertRaises(ProjectError):
+            self.bob.request_join("甲客户", "华东", "重复")
+        with self.assertRaises(ProjectError):
+            self.bob.review_join(req["id"], True)
+        with self.assertRaises(ProjectError):
+            self.bob.create(101, "未批项目")
+        with self.assertRaises(ProjectError):
+            self.admin.review_join(req["id"], False)
+        self.admin.review_join(req["id"], False, "请补充分工")
+        self.bob.request_join("甲客户", "华东", "负责新产品验证")
+        second = self.bob.join_requests()[0]["id"]
+        self.admin.review_join(second, True, "同意独立跟进")
+        with self.assertRaises(ProjectError):
+            self.admin.review_join(second, False, "重复处理")
+        self.assertEqual([r["status"] for r in self.bob.join_requests()], ["已批准","已退回"])
+        collab = self.bob.create(101, "协同销售项目")
+        self.assertEqual([r["id"] for r in self.alice.overview()[2]], [private])
+        self.assertEqual([r["id"] for r in self.bob.overview()[2]], [collab])
+        self.assertEqual({r["customer_id"] for r in self.admin.overview()[2]}, {101})
+        with self.assertRaises(ProjectError):
+            self.bob.history(private)
+        with self.assertRaises(ProjectError):
+            self.bob.set_customer_group(101,"改集团")
+        with closing(sqlite3.connect(self.path)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM member_sales_customers").fetchone()[0],4)
+
+    def test_collaboration_ui_approval_and_authoritative_snapshot(self):
+        from streamlit.testing.v1 import AppTest
+        self._enable_claim_keys()
+        self.alice.overview()
+        snap = self._snapshot(self.path.read_bytes(),2)
+        def request(method,payload=None):
+            if method=="GET":
+                return snap
+            snap.update(self._snapshot(self._raw(payload),snap["version"]+1))
+            return None  # ambiguous ack: recover from the persisted receipt
+        self.assertTrue(save_project_to_snapshot(self.bob, lambda s:s.request_join("甲客户","二部","采购窗口"), request))
+        path=self.path.with_name("restored-join.sqlite")
+        from base64 import b64decode
+        raw=b64decode(snap["payload_base64"])
+        path.write_bytes(gzip.decompress(raw) if snap.get("payload_encoding")=="gzip" else raw)
+        admin_page=AppTest.from_string(
+            "import streamlit as st\nfrom project_progress import ProjectStore,render_page\n"
+            f"s=ProjectStore({str(path)!r},3)\n"
+            "render_page(st,s,write=lambda a:(a(s),True)[1],register_customer=None,join_key=lambda n:n)\n",
+            default_timeout=30).run()
+        self.assertFalse(admin_page.exception)
+        next(b for b in admin_page.button if b.label=="批准协同").click().run()
+        self.assertFalse(admin_page.exception)
+        self.assertEqual(ProjectStore(path,2).join_requests()[0]["status"],"已批准")
+        self.assertIn(101,[r["id"] for r in ProjectStore(path,2).overview()[1]])
+        self.assertEqual(self.bob.join_requests(),[])
+
     def test_registrations_list_without_projects_and_members_are_isolated(self):
         admin, customers, projects = self.alice.overview()
         self.assertFalse(admin)

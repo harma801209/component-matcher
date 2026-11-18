@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS member_customer_project_groups (
     customer_id INTEGER PRIMARY KEY REFERENCES member_sales_customers(id) ON DELETE CASCADE,
     group_name TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS project_customer_join_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES member_sales_customers(id),
+    applicant_id INTEGER NOT NULL REFERENCES members(id),
+    department TEXT NOT NULL, responsibility TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT '待审批' CHECK(status IN ('待审批','已批准','已退回')),
+    requested_at INTEGER NOT NULL, reviewed_at INTEGER, reviewer_id INTEGER,
+    review_note TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS project_customer_one_open_join
+    ON project_customer_join_requests(customer_id,applicant_id) WHERE status IN ('待审批','已批准');
 """
 
 
@@ -116,6 +127,18 @@ class ProjectStore:
             if actor is None:
                 raise ProjectError("当前会员不可用，请重新登录。")
             conn.executescript(SCHEMA)
+            # Sales/pricing may contain a per-member row for the same company.
+            # A pricing row is not permission to join someone else's project customer.
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(member_sales_customers)")}
+            key = "COALESCE(NULLIF(customer_key,''),customer_name)" if "customer_key" in cols else "customer_name"
+            conn.execute(f"""CREATE TEMP VIEW project_companies AS
+                SELECT c.* FROM member_sales_customers c JOIN
+                (SELECT MIN(id) AS id FROM member_sales_customers GROUP BY {key}) first ON first.id=c.id""")
+            conn.execute("""CREATE TEMP VIEW project_customer_team AS
+                SELECT id AS customer_id,member_id AS owner_id,1 AS primary_rep FROM project_companies
+                UNION ALL SELECT c.id,r.applicant_id,0 FROM project_companies c
+                JOIN project_customer_join_requests r ON r.customer_id=c.id
+                WHERE r.status='已批准' AND r.applicant_id<>c.member_id""")
             if write:
                 conn.execute("BEGIN IMMEDIATE")
                 actor = conn.execute(
@@ -137,9 +160,10 @@ class ProjectStore:
             scope = "" if admin else " AND m.id=?"
             owner_name = "COALESCE(NULLIF(m.display_name,''),m.username) AS owner_name"
             customers = conn.execute(
-                f"""SELECT c.id, c.member_id AS owner_id, c.customer_name,
+                f"""SELECT c.id, t.owner_id, t.primary_rep, c.customer_name,
                            COALESCE(g.group_name,'') AS group_name, {owner_name}
-                    FROM member_sales_customers c JOIN members m ON m.id=c.member_id
+                    FROM project_customer_team t JOIN project_companies c ON c.id=t.customer_id
+                    JOIN members m ON m.id=t.owner_id
                     LEFT JOIN member_customer_project_groups g ON g.customer_id=c.id
                     WHERE c.customer_name<>'' {scope}
                     ORDER BY c.customer_name, m.id, c.id""", owner,
@@ -157,7 +181,9 @@ class ProjectStore:
                             WHERE e.project_id=p.id AND e.kind IN ('quote_request','quoted')
                             ORDER BY e.id DESC LIMIT 1) AS quote_event
                     FROM member_customer_projects p JOIN members m ON m.id=p.owner_id
-                    LEFT JOIN member_sales_customers c ON c.id=p.customer_id AND c.member_id=p.owner_id
+                    LEFT JOIN member_sales_customers c ON c.id=p.customer_id AND
+                        (c.member_id=p.owner_id OR EXISTS(SELECT 1 FROM project_customer_team pt
+                         WHERE pt.customer_id=c.id AND pt.owner_id=p.owner_id))
                     LEFT JOIN member_customer_project_groups g ON g.customer_id=c.id
                     WHERE 1=1 {scope}
                     ORDER BY p.due_at IS NULL, p.due_at, p.id DESC""", owner,
@@ -201,6 +227,54 @@ class ProjectStore:
                    WHERE project_id=? ORDER BY id DESC""", (project_id,),
             )]
 
+    def request_join(self, customer_key, department, responsibility):
+        department, responsibility = department.strip(), responsibility.strip()
+        if not customer_key or not department or not responsibility or len(department)>120 or len(responsibility)>500:
+            raise ProjectError("请填写客户公司全名、你的部门（最多 120 字）和具体对接分工（最多 500 字）。")
+        with self._connection(write=True) as (conn, _):
+            customer = conn.execute("SELECT id,member_id FROM project_companies WHERE customer_key=?",
+                                    (customer_key,)).fetchone()
+            if not customer:
+                raise ProjectError("没有找到已报备的同名客户。请核对公司全名；新客户请先报备。")
+            if customer["member_id"] == self.actor_id:
+                raise ProjectError("你已负责这个客户，可直接建项目。")
+            existing = conn.execute("""SELECT status FROM project_customer_join_requests
+                WHERE customer_id=? AND applicant_id=? AND status IN ('待审批','已批准')""",
+                (customer["id"], self.actor_id)).fetchone()
+            if existing:
+                raise ProjectError("你的申请正在等待管理员审批。" if existing[0]=="待审批" else "你已获准对接，可直接建项目。")
+            conn.execute("""INSERT INTO project_customer_join_requests
+                (customer_id,applicant_id,department,responsibility,requested_at) VALUES (?,?,?,?,?)""",
+                (customer["id"], self.actor_id, department, responsibility, int(self.clock())))
+
+    def join_requests(self):
+        with self._connection() as (conn, admin):
+            return [dict(r) for r in conn.execute("""SELECT r.*,c.customer_name,
+                COALESCE(NULLIF(m.display_name,''),m.username) AS applicant,
+                CASE WHEN ? THEN COALESCE(NULLIF(o.display_name,''),o.username) ELSE '' END AS original_owner
+                FROM project_customer_join_requests r JOIN project_companies c ON c.id=r.customer_id
+                JOIN members m ON m.id=r.applicant_id JOIN members o ON o.id=c.member_id
+                WHERE ? OR r.applicant_id=? ORDER BY r.id DESC""", (admin,admin,self.actor_id))]
+
+    def review_join(self, request_id, approve, note=""):
+        note = note.strip()
+        with self._connection(write=True) as (conn, admin):
+            if not admin:
+                raise ProjectError("仅管理员可以审批协同对接申请。")
+            if not isinstance(approve, bool) or len(note)>500 or (not approve and not note):
+                raise ProjectError("退回时请填写原因（最多 500 字）。")
+            row=conn.execute("""SELECT r.applicant_id,m.status FROM project_customer_join_requests r
+                JOIN members m ON m.id=r.applicant_id JOIN project_companies c ON c.id=r.customer_id
+                WHERE r.id=? AND r.status='待审批'""",(request_id,)).fetchone()
+            if row is None:
+                raise ProjectError("申请已处理或不再有效，请刷新。")
+            if row["applicant_id"] == self.actor_id:
+                raise ProjectError("不能审批自己的申请。")
+            if approve and row["status"] != "active":
+                raise ProjectError("申请会员当前不可用。")
+            conn.execute("""UPDATE project_customer_join_requests SET status=?,reviewer_id=?,reviewed_at=?,review_note=?
+                WHERE id=? AND status='待审批'""",("已批准" if approve else "已退回",self.actor_id,int(self.clock()),note,request_id))
+
     def _project(self, conn, project_id):
         row = conn.execute(
             """SELECT p.*, m.status AS owner_status FROM member_customer_projects p
@@ -227,7 +301,8 @@ class ProjectStore:
         now = int(self.clock())
         with self._connection(write=True) as (conn, _):
             customer = conn.execute(
-                "SELECT customer_name FROM member_sales_customers WHERE id=? AND member_id=?",
+                """SELECT c.customer_name FROM project_companies c JOIN project_customer_team t
+                   ON t.customer_id=c.id WHERE c.id=? AND t.owner_id=?""",
                 (customer_id, self.actor_id),
             ).fetchone()
             if customer is None:
@@ -476,7 +551,7 @@ def _project_timeline(events):
     return '<ol class="pp-timeline" aria-label="项目时间线">' + "".join(items) + "</ol>"
 
 
-def render_page(st, store, *, write, register_customer):
+def render_page(st, store, *, write, register_customer, join_key=None):
     """The app supplies the verified actor and the existing snapshot sync boundary."""
     prefix = f"project-progress-{store.actor_id}"
     focus_order = st.session_state.pop(prefix + "-focus-order", None)
@@ -521,7 +596,7 @@ def render_page(st, store, *, write, register_customer):
     overdue = [row for row in active if _deadline(row["due_at"], now) == "已逾期"]
     reminders = [row for row in overdue if row["reminded_due_at"] == row["due_at"]]
     stats = (
-        ("报备客户", len(customers), "normal"), ("跟进中", len(active), "normal"),
+        ("报备客户", len({r["id"] for r in customers}), "normal"), ("跟进中", len(active), "normal"),
         ("已逾期", len(overdue), "attention"),
         ("已下单闭环", sum(row["stage"] == ORDERED for row in projects), "done"),
     )
@@ -541,7 +616,7 @@ def render_page(st, store, *, write, register_customer):
         st.caption(f"当前有 {len(reminders)} 个逾期项目已发送提醒。")
     with st.expander("报备客户／手动新建项目"):
         st.markdown("#### 第一步 · 报备客户")
-        st.caption("填写客户公司全名。已由其他会员报备的客户不能重复报备；自己已报备的客户可直接建项目。")
+        st.caption("新客户直接报备。已有人报备同一家公司时，可申请协同对接；管理员批准后，在同一客户下建自己的项目。")
         with st.form(prefix + "-customer"):
             company = st.text_input("客户公司全名", max_chars=120)
             group_name = st.text_input("所属集团（选填）", max_chars=120,
@@ -556,6 +631,16 @@ def render_page(st, store, *, write, register_customer):
                         st.warning(message)
                 except ProjectError as exc:
                     st.warning(str(exc))
+        if join_key is not None:
+            with st.form(prefix + "-join"):
+                st.markdown("**已报备客户 · 申请协同对接**")
+                join_company = st.text_input("已报备客户公司全名", max_chars=120)
+                dept = st.text_input("你的部门", max_chars=120)
+                duties = st.text_area("对接窗口／责任分工", max_chars=500,
+                                      placeholder="例如：华南销售部负责研发选型，原销售继续对接采购。")
+                if st.form_submit_button("提交协同申请"):
+                    submit(lambda target: target.request_join(join_key(join_company), dept, duties),
+                           "协同申请已提交。管理员批准后，该客户会出现在你的「关联客户」中。")
         st.markdown("#### 第二步 · 手动新建项目")
         if own_customers:
             choices = {row["id"]: row["customer_name"] for row in own_customers}
@@ -570,9 +655,28 @@ def render_page(st, store, *, write, register_customer):
         else:
             st.caption("报备客户后即可添加项目。")
 
-    if own_customers:
+    requests = store.join_requests()
+    if requests:
+        pending = [r for r in requests if r["status"]=="待审批" and r["applicant_id"]!=store.actor_id]
+        with st.expander("协同申请审批与记录" if admin else "我的协同申请", expanded=bool(admin and pending)):
+            st.dataframe([{"客户":r["customer_name"], "申请人":r["applicant"], "部门":r["department"],
+                           "责任分工":r["responsibility"], "状态":r["status"], "审批说明":r["review_note"],
+                           **({"原负责销售":r["original_owner"]} if admin else {})} for r in requests], hide_index=True)
+            if admin and pending:
+                by_request = {r["id"]:r for r in pending}
+                rid = st.selectbox("待审批申请", list(by_request), key=prefix+"-review-join",
+                    format_func=lambda k:f'{by_request[k]["customer_name"]} · {by_request[k]["department"]} · {by_request[k]["applicant"]}（#{k}）')
+                with st.form(f"{prefix}-review-{rid}"):
+                    reason = st.text_input("审批说明（退回时必填）",max_chars=500)
+                    allow = st.form_submit_button("批准协同")
+                    reject = st.form_submit_button("退回申请")
+                    if allow or reject:
+                        submit(lambda target: target.review_join(rid,allow,reason),
+                               "已批准协同对接。" if allow else "申请已退回。")
+    primary_customers = [r for r in own_customers if r["primary_rep"]]
+    if primary_customers:
         with st.expander("补填／修改客户集团"):
-            by_id = {row["id"]: row for row in own_customers}
+            by_id = {row["id"]: row for row in primary_customers}
             edit_id = st.selectbox("选择客户", list(by_id), key=prefix + "-edit-group-customer",
                                    format_func=lambda key: by_id[key]["customer_name"])
             with st.form(f"{prefix}-edit-group-{edit_id}"):
@@ -621,19 +725,16 @@ def render_page(st, store, *, write, register_customer):
         if in_customer_scope(row)
     })
     customer_groups = {(row["owner_id"], row["id"]): row["group_name"] for row in customers}
-    customer = customer_col.selectbox(
-        "筛选客户", [None, *customer_labels], key=prefix + "-filter",
-        format_func=lambda key: "所有客户" if key is None else (
-            f"{customer_labels[key]} · {owners[key[0]]}（#{key[0]}）" if admin else customer_labels[key]
-        ),
-    )
+    company_names = {k[1]:v for k,v in customer_labels.items()}
+    customer = customer_col.selectbox("筛选客户", [None, *company_names], key=prefix+"-company-filter",
+        format_func=lambda cid: "所有客户" if cid is None else company_names[cid])
     query = search_col.text_input("查找项目", placeholder="输入项目名或客户名", key=prefix + "-query").strip().casefold()
-    selected_customers = [key for key in customer_labels if customer is None or key == customer]
+    selected_customers = [key for key in customer_labels if customer is None or key[1] == customer]
     if selected_group is not None:
         grouped = [row for row in projects if in_customer_scope(row)]
         group_active = sum(_active_project(row) for row in grouped)
         group_ordered = sum(row["stage"] == ORDERED for row in grouped)
-        st.text(f"{groups[selected_group]} · {len(customer_labels)} 条客户报备 · "
+        st.text(f"{groups[selected_group]} · {len(company_names)} 条客户报备 · "
                 f"{group_active} 个跟进中 · {group_ordered} 个已下单闭环")
     if selected_customers:
         counts = {}
@@ -641,7 +742,7 @@ def render_page(st, store, *, write, register_customer):
             key = (row["owner_id"], row["customer_id"])
             current, ordered = counts.get(key, (0, 0))
             counts[key] = current + _active_project(row), ordered + (row["stage"] == ORDERED)
-        with st.expander(f"查看客户清单（{len(selected_customers)} 家）", expanded=not projects):
+        with st.expander(f"查看客户清单（{len({k[1] for k in selected_customers})} 家）", expanded=not projects):
             st.dataframe([
                 {"客户": customer_labels[key], "所属集团": customer_groups.get(key) or "—",
                  **({"负责会员": owners[key[0]]} if admin else {}),

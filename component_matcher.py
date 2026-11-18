@@ -2541,7 +2541,7 @@ def save_member_sales_customer(member_id, customer_name, *, sync_remote=True, co
             "SELECT 1 FROM member_sales_customers WHERE customer_key=? AND member_id<>? LIMIT 1",
             (customer_key, member_id),
         ).fetchone() is not None:
-            return False, "该客户已由其他会员报备，不能重复报备。", None
+            return False, "该客户已由其他会员报备。如需共同跟进，请填写部门和责任分工，提交协同申请。", None
         existing = conn.execute(
             """
             SELECT id FROM member_sales_customers
@@ -51169,7 +51169,8 @@ def render_project_progress_page(member, login_href):
     try:
         refresh_member_auth_remote_snapshot()
         ensure_member_auth_schema()
-        runtime["render_page"](st, store, write=write, register_customer=register_customer)
+        runtime["render_page"](st, store, write=write, register_customer=register_customer,
+                               join_key=normalize_cost_customer_key)
     except error as exc:
         st.warning(str(exc))
     except (OSError, sqlite3.Error, ValueError) as exc:
