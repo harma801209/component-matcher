@@ -363,6 +363,32 @@ class SystemRegressionTests(unittest.TestCase):
         self.assertTrue(source['温度系数'].eq('±50ppm/℃').all())
         self.assertEqual(app['infer_yageo_rt_tcr'](model, '国巨YAGEO'), '±50ppm/℃')
 
+    def test_slash_bom_exact_gigaohm_model_shows_source_power_conflict(self):
+        app = self.app
+        model = "CRHV1206AF1G00FKE5"
+        q = "1206片式电阻/1GΩ/±1%/0.33W/1206/VISHAY/" + model
+        self.assertEqual(app["find_resistance_in_text"](q), 1e9)
+        self.assertEqual(app["find_resistance_in_text"]("0.5 GOhm"), 5e8)
+        self.assertEqual(app["find_resistance_in_text"]("1mΩ"), .001)
+        self.assertEqual(app["find_resistance_in_text"]("1MΩ"), 1e6)
+        self.assertEqual(app["slash_description_model_suffixes"]("AB1206/XYZ456"), [])
+        self.assertIn("AB1206/XYZ456", app["slash_description_model_suffixes"]("1GΩ/±1%/VISHAY/AB1206/XYZ456"))
+        def no_full():
+            self.fail("exact model must not need full-library fallback")
+        hit = app["resolve_search_query_dataframe_and_spec"](q, get_full_search_df=no_full)
+        self.assertEqual(hit["resolution_path"], "exact_model_power_conflict")
+        self.assertEqual(hit["spec"]["型号"], model)
+        self.assertEqual(hit["spec"]["_resistance_ohm"], 1e9)
+        self.assertIn("0.3 W", hit["power_warning"])
+        self.assertIn("0.33 W", hit["power_warning"])
+        source=app["build_part_info_df"](hit["query_df"],hit["spec"],q)
+        self.assertEqual(set(source["型号"]),{model})
+        self.assertEqual(set(source["功率"].map(app["parse_power_to_watts"])),{0.3})
+        valid=app["resolve_search_query_dataframe_and_spec"](q.replace("0.33W","0.30W"),get_full_search_df=no_full)
+        self.assertEqual(valid["mode"], "料号")
+        self.assertEqual(valid["spec"]["型号"], model)
+        self.assertFalse(valid.get("power_warning"))
+
     def test_walsin_x7s_and_brand_scoped_mt_decode(self):
         for model in ('0805A106K250CT','0805A106K250'):
             parsed=self.app['parse_model_rule'](model,brand='华新科Walsin')

@@ -13332,8 +13332,40 @@ def extract_model_like_tokens(text):
         seen.add(compact)
     return tokens
 
+def slash_description_model_suffixes(query_text):
+    """Complete trailing MPNs in slash-delimited BOM text, longest first.
+
+    A slash alone is not a boundary: it is legal inside an ordering number.
+    Only start after a separate specification or its following brand field.
+    These candidates are used for exact catalogue lookup ONLY.
+    """
+    fields = [s.strip() for s in clean_text(query_text).upper().replace("／", "/").split("/")]
+    if len(fields)<3:
+        return []
+    electrical = re.compile(r"(?:[±+\-]?\d+(?:\.\d+)?\s*(?:%|[GMK]?Ω|[GMK]?OHMS?|M?W|V))", re.I)
+    seen_spec = False
+    candidates = []
+    for i, field in enumerate(fields[:-1]):
+        is_spec = bool(electrical.fullmatch(field))
+        seen_spec |= is_spec
+        if not seen_spec or not (is_spec or re.fullmatch(r"[A-Z]{2,20}|\d{4}", field)):
+            continue
+        suffix = "/".join(fields[i+1:])
+        if (re.fullmatch(r"[A-Z0-9][A-Z0-9._/+\-]{5,99}", suffix)
+                and re.search(r"[A-Z]",suffix) and re.search(r"\d",suffix)):
+            candidates.append(suffix)
+    return candidates
+
+
 def load_component_rows_by_query_model_tokens(query_text):
     tokens = extract_model_like_tokens(query_text)
+    suffixes = slash_description_model_suffixes(query_text)
+    if suffixes:
+        exact = load_component_rows_by_clean_models_map(suffixes, use_database=False)
+        for suffix in suffixes:
+            rows = exact.get(suffix)
+            if isinstance(rows, pd.DataFrame) and not rows.empty:
+                return rows, list(dict.fromkeys([*tokens, *suffixes])), suffix
     if not tokens:
         return pd.DataFrame(), [], ""
     whole = clean_model(query_text)
@@ -13604,7 +13636,7 @@ RESISTOR_VALUE_PATTERN = re.compile(r"(?<![A-Z0-9])(\d+(?:\.\d+)?(?:mΩ|mR|毫�
 RESISTOR_OHM_PATTERN = re.compile(r"(\d+(?:\.\d+)?(?:mΩ|mR|毫欧)|\d+(?:\.\d+)?(?:[RKM]\d+|[RKM]?)(?:\s*(?:OHMS?|Ω)))", flags=re.I)
 EXPLICIT_RESISTANCE_MEASUREMENT_PATTERN = re.compile(
     r"(?<![A-Z0-9])([+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s*"
-    r"(mΩ|MΩ|mR|毫欧|KΩ|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])",
+    r"(mΩ|MΩ|mR|毫欧|KΩ|GΩ|GOHMS?|MOHMS?|KOHMS?|OHMS?|OHM|Ω)(?![A-Z0-9])",
     flags=re.I,
 )
 MILLIOHM_NOTATION_PATTERN = re.compile(r"(?<![A-Z0-9])\d+(?:\.\d+)?\s*(?:mΩ|mR|mr|毫欧)(?![A-Z0-9])")
@@ -23352,6 +23384,8 @@ def parse_explicit_resistance_measurement_to_ohm(value_text, unit_text):
         return numeric * 1_000_000.0
     if unit_upper in {"KΩ", "KOHM", "KOHMS"}:
         return numeric * 1000.0
+    if unit_upper in {"GΩ", "GOHM", "GOHMS"}:
+        return numeric * 1_000_000_000.0
     if unit_upper in {"OHM", "OHMS", "Ω"}:
         return numeric
     return None
@@ -51375,6 +51409,22 @@ def resolve_search_query_dataframe_and_spec(
         model_token_rows, model_token_candidates, matched_model_token = load_component_rows_by_query_model_tokens(line)
         if isinstance(model_token_rows, pd.DataFrame) and not model_token_rows.empty:
             token_mode, token_spec = detect_query_mode_and_spec(model_token_rows, matched_model_token or line)
+            if (token_mode == "料号" and infer_spec_component_type(token_spec) in RESISTOR_COMPONENT_TYPES
+                    and matched_model_token in slash_description_model_suffixes(line)):
+                # Compare the literal description to the exact catalogue row before
+                # merging any user fields. Never promote a conflicting power rating.
+                ratings = {parse_power_to_watts(row.get("功率", "")) for _, row in model_token_rows.iterrows()
+                           if clean_model(row.get("型号", "")) == matched_model_token}
+                source_power = next(iter(ratings)) if len(ratings) == 1 else None
+                written_power = parse_power_to_watts(find_power_in_text(
+                    clean_text(line).upper().replace("／", "/").rsplit(matched_model_token, 1)[0]))
+                if (source_power is not None and written_power is not None
+                        and not math.isclose(source_power, written_power, rel_tol=1e-8, abs_tol=1e-12)):
+                    return {"query_df": model_token_rows, "mode": "料号", "spec": token_spec,
+                            "resolution_path": "exact_model_power_conflict", "used_full_df": False,
+                            "candidate_rows": len(model_token_rows),
+                            "power_warning": f"已找到 {matched_model_token}。功率不一致：原型号 {source_power:g} W，"
+                                             f"输入 {written_power:g} W。请确认功率要求；本次只显示原型号资料，不推荐替代。"}
             token_spec = merge_query_text_hints_into_spec(token_spec, line)
             token_spec = merge_explicit_query_spec_into_part_spec(token_spec, explicit_query_spec)
             if token_mode == "料号":
@@ -53430,6 +53480,14 @@ if search_requested:
             if mode == "料号":
                 part_info_df = build_part_info_df(query_df, spec, line)
                 part_info_df = apply_search_cost_visibility(part_info_df)
+                if resolved.get("power_warning"):
+                    st.warning(resolved["power_warning"])
+                    from model_naming_guide import render_part_header
+                    render_part_header(f"匹配料号资料 · {spec['型号']}", part_info_df, [], f"power_review_{line_index}")
+                    st.dataframe(part_info_df, hide_index=True, use_container_width=True)
+                    complete_line_search_audit("仅原厂资料", resolved["power_warning"], source_frame=part_info_df)
+                    search_stats["success"] += 1
+                    continue
                 matched = cached_run_query_match(query_df, mode, spec, query_text=line)
                 if not resolution_path.startswith("no_match_admin_resolution:"):
                     matched = exclude_brand_model_pairs(matched, extract_brand_model_pairs(part_info_df))
