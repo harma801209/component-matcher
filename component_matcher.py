@@ -2502,10 +2502,17 @@ def member_pm_can_access_brand(member, brand_name, assigned_brands=None):
     return False
 
 
-def save_member_sales_customer(member_id, customer_name, *, sync_remote=True):
+def save_member_sales_customer(member_id, customer_name, *, sync_remote=True, connection=None, exclusive_claim=False):
+    from contextlib import nullcontext
+
+    if connection is not None and sync_remote:
+        raise ValueError("An existing customer transaction must be synchronized by its caller.")
+    if exclusive_claim and (connection is None or not connection.in_transaction):
+        raise ValueError("A project customer claim requires an active write transaction.")
     if sync_remote:
         refresh_member_auth_remote_snapshot(force=True)
-    ensure_member_auth_schema()
+    if connection is None:
+        ensure_member_auth_schema()
     try:
         member_id = int(member_id)
     except Exception:
@@ -2522,7 +2529,7 @@ def save_member_sales_customer(member_id, customer_name, *, sync_remote=True):
     if not full_name_ok:
         return False, full_name_message, None
     now_text = current_timestamp_text()
-    with sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30) as conn:
+    with (nullcontext(connection) if connection is not None else sqlite3.connect(MEMBER_AUTH_DB_PATH, timeout=30)) as conn:
         conn.row_factory = sqlite3.Row
         member_row = conn.execute(
             "SELECT id FROM members WHERE id=? AND status='active'",
@@ -2530,6 +2537,11 @@ def save_member_sales_customer(member_id, customer_name, *, sync_remote=True):
         ).fetchone()
         if member_row is None:
             return False, "会员不存在或当前不可用。", None
+        if exclusive_claim and conn.execute(
+            "SELECT 1 FROM member_sales_customers WHERE customer_key=? AND member_id<>? LIMIT 1",
+            (customer_key, member_id),
+        ).fetchone() is not None:
+            return False, "该客户已由其他会员报备，不能重复报备。", None
         existing = conn.execute(
             """
             SELECT id FROM member_sales_customers
@@ -2560,7 +2572,8 @@ def save_member_sales_customer(member_id, customer_name, *, sync_remote=True):
                 (customer_name, now_text, now_text, customer_id),
             )
             action = "已切换到客户"
-        conn.commit()
+        if connection is None:
+            conn.commit()
         row = conn.execute(
             "SELECT * FROM member_sales_customers WHERE id=?",
             (customer_id,),
@@ -51122,21 +51135,6 @@ def render_project_progress_page(member, login_href):
         if not live or int(live["id"]) != actor_id:
             raise error("登录状态已变化，请重新登录。")
 
-    def synchronized(action):
-        require_live_actor()
-        _, _, remote_enabled = get_member_auth_remote_config()
-        if not remote_enabled:
-            if is_public_mode() or is_streamlit_cloud_runtime():
-                raise error("共享存储暂不可用，未保存项目记录。")
-            return action(), True
-        # Serialize project changes with snapshot refresh in this worker.
-        with MEMBER_AUTH_REMOTE_REFRESH_LOCK:
-            status = pull_member_auth_remote_snapshot()
-            if status not in {"current", "restored", "restored_with_local_sessions"}:
-                raise error("暂时无法同步最新项目资料，请稍后再试。")
-            result = action()
-            return result, flush_member_auth_remote_snapshot()
-
     def write(action):
         require_live_actor()
         _, _, remote_enabled = get_member_auth_remote_config()
@@ -51155,11 +51153,18 @@ def render_project_progress_page(member, login_href):
                     logging.warning("Confirmed project save; local refresh failed: %s", type(exc).__name__)
             return saved
 
-    def register_customer(name):
-        saved, synced = synchronized(lambda: save_member_sales_customer(actor_id, name, sync_remote=False))
-        if saved[0] and not synced:
-            raise error("报备未获服务器确认，请稍后刷新核对。")
-        return saved
+    def register_customer(name, group_name):
+        def register(target):
+            target.register_customer(
+                lambda conn: save_member_sales_customer(
+                    actor_id, name, sync_remote=False, connection=conn, exclusive_claim=True,
+                ),
+                group_name,
+            )
+
+        if not write(register):
+            raise error("服务器尚未确认这次报备。请先刷新并查看客户清单，再决定是否重新提交。")
+        return True, "", None
 
     try:
         refresh_member_auth_remote_snapshot()

@@ -9195,6 +9195,21 @@ class SystemRegressionTests(unittest.TestCase):
             self.assertTrue(ok, message)
             store = ProjectStore(app["MEMBER_AUTH_DB_PATH"], member["id"])
             self.assertTrue(save_project_to_snapshot(
+                store,
+                lambda target: target.register_customer(
+                    lambda conn: app["save_member_sales_customer"](
+                        member["id"], "集团报备测试有限公司", sync_remote=False, connection=conn,
+                        exclusive_claim=True,
+                    ),
+                    "集团测试",
+                ),
+                app["member_auth_remote_request"],
+            ))
+            self.assertEqual([row["id"] for row in store.overview()[1]], [customer["id"]])
+            self.assertIn(app["pull_member_auth_remote_snapshot"](), {"restored", "restored_with_local_sessions"})
+            customer = next(row for row in store.overview()[1] if row["customer_name"] == "集团报备测试有限公司")
+            self.assertEqual(customer["group_name"], "集团测试")
+            self.assertTrue(save_project_to_snapshot(
                 store, lambda target: target.create(customer["id"], "样品验证", next_action="确认实验结果"),
                 app["member_auth_remote_request"],
             ))
@@ -9220,6 +9235,7 @@ class SystemRegressionTests(unittest.TestCase):
             app["reset_member_auth_remote_refresh_cache"]()
             self.assertIsNotNone(app["get_member_by_username"]("DurableUser"))
             self.assertEqual(store.overview()[2][0]["next_action"], "确认实验结果")
+            self.assertEqual(store.overview()[2][0]["group_name"], "集团测试")
             self.assertEqual(store.history(project_id)[0]["kind"], "created")
             app["ensure_configured_admin_member_account"]()
             app["reset_member_auth_remote_refresh_cache"]()

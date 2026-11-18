@@ -3,6 +3,7 @@ import base64
 import gzip
 import hashlib
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -35,6 +36,126 @@ class ProjectProgressTests(unittest.TestCase):
 
     def entry(self):
         return self.alice.overview()[2][0]
+
+    def test_group_edit_is_owner_scoped_and_does_not_merge_customers(self):
+        first = self.alice.create(101, "同名项目")
+        second = self.bob.create(201, "同名项目")
+        self.alice.set_customer_group(101, "  ACME   集团  ")
+        self.bob.set_customer_group(201, "ACME 集团")
+        with self.assertRaisesRegex(ProjectError, "名下客户"):
+            self.alice.set_customer_group(201, "越权")
+        with self.assertRaisesRegex(ProjectError, "名下客户"):
+            self.admin.set_customer_group(201, "越权")
+        with self.assertRaisesRegex(ProjectError, "120"):
+            self.alice.set_customer_group(101, "A" * 121)
+        rows = {row["id"]: row for row in self.admin.overview()[2]}
+        self.assertEqual(rows[first]["group_name"], rows[second]["group_name"])
+        self.assertNotEqual(rows[first]["customer_id"], rows[second]["customer_id"])
+        self.assertEqual(self.entry()["group_name"], "ACME 集团")
+        self.alice.set_customer_group(101, "")
+        self.assertEqual(self.entry()["group_name"], "")
+        self.assertEqual(self.bob.overview()[2][0]["group_name"], "ACME 集团")
+
+    def test_registration_and_group_have_one_transaction(self):
+        def upsert(conn):
+            conn.execute("INSERT INTO member_sales_customers VALUES (103,1,'新客户')")
+            return True, "", {"id": 103}
+
+        self.alice.register_customer(upsert, "测试集团")
+        self.assertEqual({row["id"]: row["group_name"] for row in self.alice.overview()[1]}[103], "测试集团")
+        self.alice.register_customer(lambda conn: (True, "", {"id": 103}), "")
+        self.assertEqual({row["id"]: row["group_name"] for row in self.alice.overview()[1]}[103], "测试集团")
+
+        def inconsistent_save(conn):
+            conn.execute("INSERT INTO member_sales_customers VALUES (104,1,'不应留下的客户')")
+            return True, "", {"id": 201}
+
+        with self.assertRaisesRegex(ProjectError, "名下客户"):
+            self.alice.register_customer(inconsistent_save, "测试集团")
+        self.assertNotIn(104, {row["id"] for row in self.alice.overview()[1]})
+
+    def test_unconfirmed_registration_never_appears_in_local_customer_choices(self):
+        self.alice.overview()  # Initialize schema before comparing the local replica's bytes.
+        original = self.path.read_bytes()
+        for committed in (False, True):
+            with self.subTest(committed=committed):
+                snapshot = self._snapshot(original, 7)
+                staged_writes = []
+
+                def request(method, payload=None):
+                    if method == "GET":
+                        return snapshot
+                    staged_writes.append(payload)
+                    if committed:
+                        snapshot.update(self._snapshot(self._raw(payload), 8))
+                    return None
+
+                def upsert(conn):
+                    conn.execute("INSERT INTO member_sales_customers VALUES (103,1,'报备验证客户')")
+                    return True, "", {"id": 103}
+
+                saved = save_project_to_snapshot(
+                    self.alice, lambda target: target.register_customer(upsert, "验证集团"), request,
+                )
+                self.assertEqual(saved, committed)
+                self.assertEqual(len(staged_writes), 1)
+                self.assertEqual(self.path.read_bytes(), original)
+                self.assertNotIn(103, {row["id"] for row in self.alice.overview()[1]})
+                if committed:
+                    confirmed = self.path.with_name("confirmed-company.sqlite")
+                    confirmed.write_bytes(self._raw(staged_writes[0]))
+                    customers = ProjectStore(confirmed, 1).overview()[1]
+                    self.assertEqual({row["id"]: row["group_name"] for row in customers}[103], "验证集团")
+
+    def test_competing_customer_claim_is_rejected_after_snapshot_retry(self):
+        source = (Path(__file__).resolve().parents[1] / "component_matcher.py").read_text(encoding="utf-8")
+        normalization = source[source.index("def normalize_cost_customer_name("):
+                               source.index("def normalize_sales_customer_code(")]
+        registration = source[source.index("def save_member_sales_customer("):
+                              source.index("def select_member_sales_customer(")]
+        env = dict(sqlite3=sqlite3, re=re, clean_text=lambda value: str(value or "").strip(),
+                   current_timestamp_text=lambda: "2026-11-18 09:00")
+        exec(normalization + registration, env)
+        save = env["save_member_sales_customer"]
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.executescript("""
+                ALTER TABLE member_sales_customers ADD COLUMN customer_key TEXT NOT NULL DEFAULT '';
+                ALTER TABLE member_sales_customers ADD COLUMN price_access_enabled INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE member_sales_customers ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
+                ALTER TABLE member_sales_customers ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+                ALTER TABLE member_sales_customers ADD COLUMN last_selected_at TEXT NOT NULL DEFAULT '';
+                UPDATE member_sales_customers SET customer_key=customer_name;
+            """)
+        original = self.path.read_bytes()
+        snapshot = self._snapshot(original, 9)
+        remote = self.path.with_name("other-claim.sqlite")
+        remote.write_bytes(original)
+        writes = []
+
+        def register(store, name, group):
+            store.register_customer(
+                lambda conn: save(store.actor_id, name, sync_remote=False, connection=conn, exclusive_claim=True),
+                group,
+            )
+
+        def request(method, payload=None):
+            if method == "GET":
+                return snapshot
+            writes.append(payload["expected_version"])
+            register(ProjectStore(remote, 2), "同一客户有限公司", "A 集团")
+            snapshot.update(self._snapshot(remote.read_bytes(), 10))
+            return {"conflict": True, "version": 10}
+
+        with self.assertRaisesRegex(ProjectError, "已由其他会员报备"):
+            save_project_to_snapshot(
+                self.alice, lambda store: register(store, "同一 客户有限公司", "B 集团"), request,
+            )
+        self.assertEqual(writes, [9])
+        self.assertEqual(self.path.read_bytes(), original)
+        other = ProjectStore(remote, 2)
+        register(other, "同一客户有限公司", "")
+        customers = [row for row in ProjectStore(remote, 3).overview()[1] if "同一" in row["customer_name"]]
+        self.assertEqual([(row["owner_id"], row["group_name"]) for row in customers], [(2, "A 集团")])
 
     def test_registrations_list_without_projects_and_members_are_isolated(self):
         admin, customers, projects = self.alice.overview()
@@ -205,6 +326,44 @@ class ProjectProgressTests(unittest.TestCase):
         self.assertEqual(self.entry()["stage"], ORDERED)
         self.assertTrue(any("首单凭据 PO-100" in item.value for item in page.markdown if 'class="pp-timeline"' in item.value))
         self.assertFalse(any(item.label in ("确认下单并闭环", "保存跟进") for item in page.button))
+
+    def test_admin_can_filter_group_across_owners_and_member_can_edit_own_group(self):
+        from streamlit.testing.v1 import AppTest
+
+        self.alice.create(101, "集团甲项目")
+        self.alice.create(102, "无集团项目")
+        self.bob.create(201, "集团乙项目")
+        self.alice.set_customer_group(101, "ACME")
+        self.bob.set_customer_group(201, "ａｃｍｅ")
+
+        def page_for(member_id):
+            return AppTest.from_string(
+                "import streamlit as st\n"
+                "from project_progress import ProjectStore, render_page\n"
+                f"store = ProjectStore({str(self.path)!r}, {member_id}, clock=lambda: {self.now})\n"
+                "render_page(st, store, write=lambda action: (action(store), True)[1], register_customer=None)\n",
+                default_timeout=30,
+            ).run()
+
+        admin_page = page_for(3)
+        group = admin_page.selectbox(key="project-progress-3-group")
+        self.assertEqual(len(group.options), 2)
+        group.select("acme").run()
+        self.assertFalse(admin_page.exception)
+        cards = next(item.value for item in admin_page.markdown if '<div class="pp-grid"' in item.value)
+        self.assertIn("集团甲项目", cards)
+        self.assertIn("集团乙项目", cards)
+        self.assertNotIn("无集团项目", cards)
+        self.assertTrue(any("2 条客户报备" in item.value for item in admin_page.text))
+
+        member_page = page_for(1)
+        self.assertFalse(any(item.label == "筛选集团" for item in member_page.selectbox))
+        self.assertTrue(any(item.label == "关联客户" for item in member_page.selectbox))
+        member_page.selectbox(key="project-progress-1-edit-group-customer").select(101).run()
+        next(item for item in member_page.text_input if item.label == "集团名称（选填）").input("新集团")
+        next(item for item in member_page.button if item.label == "保存集团").click().run()
+        self.assertFalse(member_page.exception)
+        self.assertEqual({row["id"]: row["group_name"] for row in self.alice.overview()[1]}[101], "新集团")
 
     def test_shared_save_retries_conflict_without_losing_other_writer_changes(self):
         initial = self.path.read_bytes()

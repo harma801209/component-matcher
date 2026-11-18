@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import time
+from unicodedata import normalize
 from uuid import uuid4
 import zlib
 
@@ -63,6 +64,10 @@ CREATE TABLE IF NOT EXISTS member_customer_project_receipts (
     operation_id TEXT PRIMARY KEY,
     actor_id INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS member_customer_project_groups (
+    customer_id INTEGER PRIMARY KEY REFERENCES member_sales_customers(id) ON DELETE CASCADE,
+    group_name TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -76,6 +81,17 @@ def _deadline(due, now):
     if now >= due:
         return "已逾期"
     return "24 小时内到期" if due - now <= DAY else "待跟进"
+
+
+def _group_name(value):
+    name = " ".join(value.split())
+    if len(name) > 120:
+        raise ProjectError("集团名称不能超过 120 字。")
+    return name
+
+
+def _group_key(value):
+    return normalize("NFKC", value).casefold()
 
 
 class ProjectError(ValueError):
@@ -121,14 +137,16 @@ class ProjectStore:
             scope = "" if admin else " AND m.id=?"
             owner_name = "COALESCE(NULLIF(m.display_name,''),m.username) AS owner_name"
             customers = conn.execute(
-                f"""SELECT c.id, c.member_id AS owner_id, c.customer_name, {owner_name}
+                f"""SELECT c.id, c.member_id AS owner_id, c.customer_name,
+                           COALESCE(g.group_name,'') AS group_name, {owner_name}
                     FROM member_sales_customers c JOIN members m ON m.id=c.member_id
+                    LEFT JOIN member_customer_project_groups g ON g.customer_id=c.id
                     WHERE c.customer_name<>'' {scope}
                     ORDER BY c.customer_name, m.id, c.id""", owner,
             ).fetchall()
             projects = conn.execute(
                 f"""SELECT p.*, COALESCE(c.customer_name,p.customer_name) AS visible_customer,
-                           {owner_name}, m.status AS owner_status,
+                           COALESCE(g.group_name,'') AS group_name, {owner_name}, m.status AS owner_status,
                            (SELECT e.note FROM member_customer_project_events e
                             WHERE e.project_id=p.id AND e.kind IN ('created','progress','ordered')
                             ORDER BY e.id DESC LIMIT 1) AS latest_progress,
@@ -140,10 +158,38 @@ class ProjectStore:
                             ORDER BY e.id DESC LIMIT 1) AS quote_event
                     FROM member_customer_projects p JOIN members m ON m.id=p.owner_id
                     LEFT JOIN member_sales_customers c ON c.id=p.customer_id AND c.member_id=p.owner_id
+                    LEFT JOIN member_customer_project_groups g ON g.customer_id=c.id
                     WHERE 1=1 {scope}
                     ORDER BY p.due_at IS NULL, p.due_at, p.id DESC""", owner,
             ).fetchall()
         return admin, [dict(row) for row in customers], [dict(row) for row in projects]
+
+    def _set_group(self, conn, customer_id, name):
+        if conn.execute(
+            "SELECT 1 FROM member_sales_customers WHERE id=? AND member_id=?",
+            (customer_id, self.actor_id),
+        ).fetchone() is None:
+            raise ProjectError("只能编辑你名下客户的所属集团。")
+        conn.execute(
+            """INSERT INTO member_customer_project_groups(customer_id,group_name) VALUES (?,?)
+               ON CONFLICT(customer_id) DO UPDATE SET group_name=excluded.group_name""",
+            (customer_id, name),
+        )
+
+    def set_customer_group(self, customer_id, group_name):
+        name = _group_name(group_name)
+        with self._connection(write=True) as (conn, _):
+            self._set_group(conn, customer_id, name)
+
+    def register_customer(self, upsert, group_name=""):
+        """Commit the customer record and any supplied group together."""
+        name = _group_name(group_name)
+        with self._connection(write=True) as (conn, _):
+            ok, message, customer = upsert(conn)
+            if not ok or customer is None:
+                raise ProjectError(message or "未能报备客户。")
+            if name:
+                self._set_group(conn, customer["id"], name)
 
     def history(self, project_id):
         with self._connection() as (conn, admin):
@@ -396,6 +442,7 @@ def _project_card(row, now, *, admin=False, detail=False):
     status, tone = _project_status(row, now)
     customer = escape(row["visible_customer"])
     owner = f" · {escape(row['owner_name'])}" if admin else ""
+    group = f" · {escape(row['group_name'])}" if row["group_name"] else ""
     stage = (
         f'<span class="pp-chip" data-tone="neutral">{escape(row["stage"])}</span>'
         if _active_project(row) else ""
@@ -409,7 +456,7 @@ def _project_card(row, now, *, admin=False, detail=False):
     progress = f'<p><strong>最近记录：</strong>{escape(row["latest_progress"] or "—")}</p>' if detail else ""
     next_action = f'<p class="pp-next"><strong>下一步：</strong>{escape(row["next_action"] or "待补充")}</p>' if _active_project(row) else ""
     return (
-        f'<article class="pp-card" data-tone="{tone}"><small>{customer}{owner}</small>'
+        f'<article class="pp-card" data-tone="{tone}"><small>{customer}{group}{owner}</small>'
         f'<h3>{escape(row["name"])}</h3><span class="pp-chip" data-tone="{tone}">{status}</span>'
         f'{stage}<p><small>{quote} · {deadline}</small></p>{next_action}{progress}</article>'
     )
@@ -492,12 +539,16 @@ def render_page(st, store, *, write, register_customer):
         st.text("、".join(row["name"] for row in reminders[:5]))
     elif reminders:
         st.caption(f"当前有 {len(reminders)} 个逾期项目已发送提醒。")
-    with st.expander("报备客户／新建项目"):
+    with st.expander("报备客户／手动新建项目"):
+        st.markdown("#### 第一步 · 报备客户")
+        st.caption("填写客户公司全名。已由其他会员报备的客户不能重复报备；自己已报备的客户可直接建项目。")
         with st.form(prefix + "-customer"):
             company = st.text_input("客户公司全名", max_chars=120)
+            group_name = st.text_input("所属集团（选填）", max_chars=120,
+                                       placeholder="无集团归属可留空")
             if st.form_submit_button("报备客户"):
                 try:
-                    ok, message, _ = register_customer(company)
+                    ok, message, _ = register_customer(company, group_name)
                     if ok:
                         st.session_state[prefix + "-success"] = "客户已报备，可在清单中添加项目。"
                         st.rerun()
@@ -505,10 +556,11 @@ def render_page(st, store, *, write, register_customer):
                         st.warning(message)
                 except ProjectError as exc:
                     st.warning(str(exc))
+        st.markdown("#### 第二步 · 手动新建项目")
         if own_customers:
             choices = {row["id"]: row["customer_name"] for row in own_customers}
             with st.form(prefix + "-new"):
-                customer_id = st.selectbox("所属客户", list(choices), format_func=choices.__getitem__)
+                customer_id = st.selectbox("关联客户", list(choices), format_func=choices.__getitem__)
                 name = st.text_input("项目名称", max_chars=120)
                 note = st.text_area("项目背景／当前情况", max_chars=1000)
                 next_action = st.text_input("下一步计划（可选）", max_chars=300)
@@ -517,6 +569,17 @@ def render_page(st, store, *, write, register_customer):
                     submit(lambda target: target.create(customer_id, name, note, quote_request, next_action), "项目已保存。")
         else:
             st.caption("报备客户后即可添加项目。")
+
+    if own_customers:
+        with st.expander("补填／修改客户集团"):
+            by_id = {row["id"]: row for row in own_customers}
+            edit_id = st.selectbox("选择客户", list(by_id), key=prefix + "-edit-group-customer",
+                                   format_func=lambda key: by_id[key]["customer_name"])
+            with st.form(f"{prefix}-edit-group-{edit_id}"):
+                group_name = st.text_input("集团名称（选填）", value=by_id[edit_id]["group_name"],
+                                           max_chars=120, help="留空并保存可取消该客户的集团归属。")
+                if st.form_submit_button("保存集团"):
+                    submit(lambda target: target.set_customer_group(edit_id, group_name), "客户集团资料已保存。")
 
     if not customers and not projects:
         st.info("暂无客户或项目。已报备的客户会自动出现在这里。")
@@ -527,22 +590,37 @@ def render_page(st, store, *, write, register_customer):
                      horizontal=True, key=prefix + "-scope")
     owners = {row["owner_id"]: row["owner_name"] for row in [*customers, *projects]}
     if admin:
-        owner_col, customer_col, search_col = st.columns([1, 1.4, 1.4])
+        owner_col, group_col, customer_col, search_col = st.columns([1, 1.15, 1.15, 1.4])
         selected_owner = owner_col.selectbox(
             "负责会员", [None, *sorted(owners)], key=prefix + "-owner",
             format_func=lambda key: "所有会员" if key is None else f"{owners[key]}（#{key}）",
         )
+        groups = {}
+        for row in customers:
+            if row["group_name"] and (selected_owner is None or row["owner_id"] == selected_owner):
+                groups.setdefault(_group_key(row["group_name"]), row["group_name"])
+        selected_group = group_col.selectbox(
+            "筛选集团", [None, *sorted(groups)], key=prefix + "-group",
+            format_func=lambda key: "所有集团" if key is None else groups[key],
+        )
     else:
         customer_col, search_col = st.columns(2)
         selected_owner = None
+        selected_group = None
+
+    def in_customer_scope(row):
+        return ((selected_owner is None or row["owner_id"] == selected_owner)
+                and (selected_group is None or _group_key(row["group_name"]) == selected_group))
+
     customer_labels = {
         (row["owner_id"], row["id"]): row["customer_name"] for row in customers
-        if selected_owner is None or row["owner_id"] == selected_owner
+        if in_customer_scope(row)
     }
     customer_labels.update({
         (row["owner_id"], row["customer_id"]): row["visible_customer"] for row in projects
-        if selected_owner is None or row["owner_id"] == selected_owner
+        if in_customer_scope(row)
     })
+    customer_groups = {(row["owner_id"], row["id"]): row["group_name"] for row in customers}
     customer = customer_col.selectbox(
         "筛选客户", [None, *customer_labels], key=prefix + "-filter",
         format_func=lambda key: "所有客户" if key is None else (
@@ -551,6 +629,12 @@ def render_page(st, store, *, write, register_customer):
     )
     query = search_col.text_input("查找项目", placeholder="输入项目名或客户名", key=prefix + "-query").strip().casefold()
     selected_customers = [key for key in customer_labels if customer is None or key == customer]
+    if selected_group is not None:
+        grouped = [row for row in projects if in_customer_scope(row)]
+        group_active = sum(_active_project(row) for row in grouped)
+        group_ordered = sum(row["stage"] == ORDERED for row in grouped)
+        st.text(f"{groups[selected_group]} · {len(customer_labels)} 条客户报备 · "
+                f"{group_active} 个跟进中 · {group_ordered} 个已下单闭环")
     if selected_customers:
         counts = {}
         for row in projects:
@@ -559,7 +643,8 @@ def render_page(st, store, *, write, register_customer):
             counts[key] = current + _active_project(row), ordered + (row["stage"] == ORDERED)
         with st.expander(f"查看客户清单（{len(selected_customers)} 家）", expanded=not projects):
             st.dataframe([
-                {"客户": customer_labels[key], **({"负责会员": owners[key[0]]} if admin else {}),
+                {"客户": customer_labels[key], "所属集团": customer_groups.get(key) or "—",
+                 **({"负责会员": owners[key[0]]} if admin else {}),
                  "跟进中": counts.get(key, (0, 0))[0], "已下单闭环": counts.get(key, (0, 0))[1]}
                 for key in selected_customers
             ], hide_index=True)
