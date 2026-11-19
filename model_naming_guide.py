@@ -610,9 +610,10 @@ def stackpole_resistor(model):
 def taiyo_general_mlcc(model):
     old='LMK212BBJ476MG-T'
     new='MSASL21GBB5476MTNA01'
-    if model not in (old,new):
+    short=old.removesuffix('-T')
+    if model not in (old,short,new):
         return taiyo_meas_mlcc(model)
-    legacy=model==old
+    legacy=model!=new
     voltage=part('L','额定电压','10 V')
     size=part('212' if legacy else '21','封装','2012（公制）／0805（英制）')
     thick=part('G','厚度','标称 1.25 mm')
@@ -622,7 +623,11 @@ def taiyo_general_mlcc(model):
     segments.extend([part('BJ' if legacy else 'B5','温度特性','X5R（−55～85 °C，±15%）'),
                      part('476','容量','47 µF'),part('M','容量误差','±20%')])
     if legacy:
-        segments.extend([thick,part('-T','包装','本例为压纹编带，3000 颗／盘')])
+        segments.append(thick)
+        if model==short:
+            segments.append(part('','包装','本条库内型号未含包装码，不能确认包装方式或每盘数量。',False))
+            return segments,'依据太阳诱电完整旧号的命名资料解释已出现的代码；短号不视为完整订货号，不自动换号。'
+        segments.append(part('-T','包装','本例为压纹编带，3000 颗／盘'))
     else:
         segments.extend([part('T','包装','本例为压纹编带，3000 颗／盘'),
                          part('NA01','内部代码','未核实逐字符含义',False)])
@@ -1138,7 +1143,7 @@ def explain(record):
         links=[('富捷原厂规格书入口（FOSAN／FOJAN）','https://www.fosan.vip/')]
     elif segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
         links=[('太阳诱电原厂换号表','https://ds.yuden.co.jp/TYCOMPAS/or/detail?pn=LMK212BBJ476MG-T'),
-               ('太阳诱电原厂产品资料','https://ds.yuden.co.jp/TYCOMPAS/or/detail?pn=MSASL21GBB5476MTNA01')] if model in ('LMK212BBJ476MG-T','MSASL21GBB5476MTNA01') else [('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
+               ('太阳诱电原厂产品资料','https://ds.yuden.co.jp/TYCOMPAS/or/detail?pn=MSASL21GBB5476MTNA01')] if model in ('LMK212BBJ476MG','LMK212BBJ476MG-T','MSASL21GBB5476MTNA01') else [('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
                ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
     elif segments and mlcc and any(token in manufacturer for token in ('MURATA','村田')):
         links=[('村田原厂命名表入口（含尺寸、厚度、包装）','https://www.murata.com/en-eu/support/faqs/capacitor/ceramiccapacitor/part/0001'),
