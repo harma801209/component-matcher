@@ -607,6 +607,28 @@ def stackpole_resistor(model):
         part(code,'阻值',quantity(resistance(code)))], 'Stackpole 原厂署名 RNCF Series，2022-07-08，第 8 页 How to Order（欧洲网站存档）；T／K 包装与 T 温漂属于不同位置，不可混用。'
 
 
+def taiyo_general_mlcc(model):
+    old='LMK212BBJ476MG-T'
+    new='MSASL21GBB5476MTNA01'
+    if model not in (old,new):
+        return taiyo_meas_mlcc(model)
+    legacy=model==old
+    voltage=part('L','额定电压','10 V')
+    size=part('212' if legacy else '21','封装','2012（公制）／0805（英制）')
+    thick=part('G','厚度','标称 1.25 mm')
+    dimensions=part('B','尺寸公差','本例长、宽、厚：2.0、1.25、1.25 mm，各 +0.20/−0.00 mm')
+    segments=([voltage,part('MK','器件类型','积层陶瓷电容'),size,dimensions] if legacy else
+              [part('MSAS','系列','通用积层陶瓷电容'),voltage,size,thick,dimensions])
+    segments.extend([part('BJ' if legacy else 'B5','温度特性','X5R（−55～85 °C，±15%）'),
+                     part('476','容量','47 µF'),part('M','容量误差','±20%')])
+    if legacy:
+        segments.extend([thick,part('-T','包装','本例为压纹编带，3000 颗／盘')])
+    else:
+        segments.extend([part('T','包装','本例为压纹编带，3000 颗／盘'),
+                         part('NA01','内部代码','未核实逐字符含义',False)])
+    return segments,f'太阳诱电 TY-COMPAS 换号表：旧号 {old}；推荐量产新号 {new}。不自动替换输入型号。'
+
+
 def taiyo_meas_mlcc(model):
     """MEAS only, original c_mlcc_E_e-E12R01 pages1--2."""
     match=re.fullmatch(r'(M)(E)(A)(S)([A-Z])(04|06|1L|10|16|21|31|32)([2358GLM])([A-Z])(B5|C6|D6)(\d{3}|\dR\d)([KM])([A-Z0-9]*)',model)
@@ -1000,7 +1022,7 @@ def explain(record):
     elif mlcc and any(token in manufacturer for token in ('YAGEO','国巨','國巨')):
         segments,source=yageo_cc_x7r(model)
     elif mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
-        segments,source=taiyo_meas_mlcc(model)
+        segments,source=taiyo_general_mlcc(model)
     elif mlcc and any(token in manufacturer for token in ('MURATA','村田')):
         match = re.fullmatch(r'(GRM|GCM|GCJ|GJM|GQM|GRT|GCG|GCQ)([A-Z0-9]{2})(.)([A-Z0-9]{2})([A-Z0-9]{2})(\d{3}|R\d{2}|\dR\d)([BCDFGJKMWZ])([A-Z0-9]+)',model)
         if match:
@@ -1115,7 +1137,8 @@ def explain(record):
     if segments and any(token in manufacturer for token in ('FOJAN','FOSAN','富捷')):
         links=[('富捷原厂规格书入口（FOSAN／FOJAN）','https://www.fosan.vip/')]
     elif segments and mlcc and any(token in manufacturer for token in ('TAIYO','太阳诱电','太陽誘電')):
-        links=[('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
+        links=[('太阳诱电原厂换号表','https://ds.yuden.co.jp/TYCOMPAS/or/detail?pn=LMK212BBJ476MG-T'),
+               ('太阳诱电原厂产品资料','https://ds.yuden.co.jp/TYCOMPAS/or/detail?pn=MSASL21GBB5476MTNA01')] if model in ('LMK212BBJ476MG-T','MSASL21GBB5476MTNA01') else [('太阳诱电原厂 MEAS 命名表','https://www.yuden.co.jp/en/product/support/pdf_spice_spara/upload/c_mlcc_E_e.pdf'),
                ('太阳诱电2026类别合并通知（不自动改型号）','https://www.yuden.co.jp/en/news/category/change_to_part_numbers.html')]
     elif segments and mlcc and any(token in manufacturer for token in ('MURATA','村田')):
         links=[('村田原厂命名表入口（含尺寸、厚度、包装）','https://www.murata.com/en-eu/support/faqs/capacitor/ceramiccapacitor/part/0001'),
