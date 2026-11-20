@@ -37,6 +37,25 @@ class ProjectProgressTests(unittest.TestCase):
     def entry(self):
         return self.alice.overview()[2][0]
 
+    def test_register_and_create_are_independent_entries(self):
+        from streamlit.testing.v1 import AppTest
+
+        page = AppTest.from_string(
+            "import streamlit as st\nfrom project_progress import ProjectStore, render_page\n"
+            f"s = ProjectStore({str(self.path)!r}, 1)\n"
+            "render_page(st,s,write=lambda a:(a(s),True)[1],register_customer=None,join_key=lambda n:n)",
+            default_timeout=60,
+        ).run()
+        self.assertFalse(page.exception)
+        panels = {panel.label: panel for panel in page.expander}
+        self.assertEqual([b.label for b in panels["报备客户"].button], ["报备客户", "提交协同申请"])
+        create = panels["新增项目"]
+        self.assertEqual([b.label for b in create.button], ["保存新项目"])
+        next(w for w in create.text_input if w.label == "项目名称").input("独立入口项目")
+        create.button[0].click().run()
+        self.assertFalse(page.exception)
+        self.assertEqual(self.entry()["name"], "独立入口项目")
+
     def test_group_edit_is_owner_scoped_and_does_not_merge_customers(self):
         first = self.alice.create(101, "同名项目")
         second = self.bob.create(201, "同名项目")

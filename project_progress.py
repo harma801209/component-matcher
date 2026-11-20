@@ -614,8 +614,7 @@ def render_page(st, store, *, write, register_customer, join_key=None):
         st.text("、".join(row["name"] for row in reminders[:5]))
     elif reminders:
         st.caption(f"当前有 {len(reminders)} 个逾期项目已发送提醒。")
-    with st.expander("报备客户／手动新建项目"):
-        st.markdown("#### 第一步 · 报备客户")
+    with st.expander("报备客户"):
         st.caption("新客户直接报备。已有人报备同一家公司时，可申请协同对接；管理员批准后，在同一客户下建自己的项目。")
         with st.form(prefix + "-customer"):
             company = st.text_input("客户公司全名", max_chars=120)
@@ -625,7 +624,7 @@ def render_page(st, store, *, write, register_customer, join_key=None):
                 try:
                     ok, message, _ = register_customer(company, group_name)
                     if ok:
-                        st.session_state[prefix + "-success"] = "客户已报备，可在清单中添加项目。"
+                        st.session_state[prefix + "-success"] = "客户已报备。需要建项目时，请打开「新增项目」。"
                         st.rerun()
                     else:
                         st.warning(message)
@@ -641,7 +640,7 @@ def render_page(st, store, *, write, register_customer, join_key=None):
                 if st.form_submit_button("提交协同申请"):
                     submit(lambda target: target.request_join(join_key(join_company), dept, duties),
                            "协同申请已提交。管理员批准后，该客户会出现在你的「关联客户」中。")
-        st.markdown("#### 第二步 · 手动新建项目")
+    with st.expander("新增项目"):
         if own_customers:
             choices = {row["id"]: row["customer_name"] for row in own_customers}
             with st.form(prefix + "-new"):
@@ -653,7 +652,7 @@ def render_page(st, store, *, write, register_customer, join_key=None):
                 if st.form_submit_button("保存新项目", type="primary"):
                     submit(lambda target: target.create(customer_id, name, note, quote_request, next_action), "项目已保存。")
         else:
-            st.caption("报备客户后即可添加项目。")
+            st.info("暂无可关联的客户。请先在「报备客户」中报备新客户，或申请协同对接已有客户，获批后即可新增项目。")
 
     requests = store.join_requests()
     if requests:
