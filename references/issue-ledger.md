@@ -1,5 +1,13 @@
 # Issue Ledger
 
+## 2026-11-20 - Administrators could only create projects for their own customers
+
+Both the creation dropdown and the write transaction treated the actor as the
+owner. Admin creation now selects an active primary or approved collaborator
+for the selected customer and rechecks eligibility at save time. Project
+ownership drives follow-up; the event records the real creator. Members still
+create only their own projects. Covered by store and interactive form tests.
+
 ## 2026-09-14 - KA prices are selected strictly by customer code
 
 - Requirement: KA columns such as `F0001/含税Kpcs`, `F0002/含税Kpcs`, and `F0003/含税Kpcs` must be the only price scope. The customer group label is informational and must not make prices interchangeable.

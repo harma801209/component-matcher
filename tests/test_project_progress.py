@@ -181,6 +181,59 @@ class ProjectProgressTests(unittest.TestCase):
             conn.execute("ALTER TABLE member_sales_customers ADD COLUMN customer_key TEXT")
             conn.execute("UPDATE member_sales_customers SET customer_key=customer_name")
 
+    def test_delegated_creation_rechecks_customer_team_and_records_real_actor(self):
+        self._enable_claim_keys()
+        self.bob.request_join("甲客户", "二部", "研发")
+        with self.assertRaises(ProjectError):
+            self.admin.create(101, "待审批不能分配", owner_id=2)
+        first = self.admin.create(101, "唯一负责人")
+        self.assertEqual(self.entry()["owner_id"], 1)
+        self.assertEqual(self.alice.history(first)[0]["actor_id"], 3)
+        self.admin.review_join(self.bob.join_requests()[0]["id"], True)
+        with self.assertRaises(ProjectError):
+            self.admin.create(101, "多人不能默认")
+        with self.assertRaises(ProjectError):
+            self.alice.create(101, "普通会员不能代建", owner_id=2)
+        pid = self.admin.create(101, "协同负责", quote_request=True, owner_id=2)
+        self.assertEqual(self.bob.overview()[2][0]["owner_id"], 2)
+        self.assertEqual([e["actor_id"] for e in self.bob.history(pid)], [3, 3])
+        self.assertIn("审核人", _project_timeline(self.bob.history(pid)))
+        with self.assertRaises(ProjectError):
+            self.alice.history(pid)
+        self.now += 15 * DAY
+        self.admin.remind(pid, 0)
+        self.assertEqual(self.bob.history(pid)[0]["kind"], "reminder")
+        self.assertIsNone(self.entry()["reminded_due_at"])
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.execute("UPDATE members SET status='disabled' WHERE id=2")
+        with self.assertRaises(ProjectError):
+            self.admin.create(101, "提交前已停用", owner_id=2)
+
+    def test_admin_creation_ui_picks_customer_then_eligible_owner(self):
+        from streamlit.testing.v1 import AppTest
+        self._enable_claim_keys()
+        self.bob.request_join("甲客户", "二部", "研发")
+        self.admin.review_join(self.bob.join_requests()[0]["id"], True)
+        page = AppTest.from_string(
+            "import streamlit as st\nfrom project_progress import ProjectStore,render_page\n"
+            f"s=ProjectStore({str(self.path)!r},3)\n"
+            "render_page(st,s,write=lambda a:(a(s),True)[1],register_customer=None)", default_timeout=60
+        ).run()
+        def widget(items, label):
+            return next(w for w in items if w.label == label)
+        customer = widget(page.selectbox, "关联客户")
+        self.assertEqual(set(customer.options), {"甲客户", "无项目客户", "乙客户"})
+        customer.select(201).run()
+        self.assertEqual(widget(page.selectbox, "项目负责人").value, 2)
+        widget(page.selectbox, "关联客户").select(101).run()
+        self.assertIsNone(widget(page.selectbox, "项目负责人").value)
+        widget(page.selectbox, "项目负责人").select(2)
+        widget(page.text_input, "项目名称").input("团队代建项目")
+        widget(page.button, "保存新项目").click().run()
+        self.assertFalse(page.exception)
+        self.assertEqual([(p["customer_id"], p["owner_id"], p["name"]) for p in self.bob.overview()[2]],
+                         [(101, 2, "团队代建项目")])
+
     def test_collaboration_requires_review_and_never_grants_price_or_peer_projects(self):
         self._enable_claim_keys()
         private = self.alice.create(101, "原销售项目")

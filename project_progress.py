@@ -160,7 +160,7 @@ class ProjectStore:
             scope = "" if admin else " AND m.id=?"
             owner_name = "COALESCE(NULLIF(m.display_name,''),m.username) AS owner_name"
             customers = conn.execute(
-                f"""SELECT c.id, t.owner_id, t.primary_rep, c.customer_name,
+                f"""SELECT c.id, t.owner_id, t.primary_rep, c.customer_name, m.status AS owner_status,
                            COALESCE(g.group_name,'') AS group_name, {owner_name}
                     FROM project_customer_team t JOIN project_companies c ON c.id=t.customer_id
                     JOIN members m ON m.id=t.owner_id
@@ -223,8 +223,10 @@ class ProjectStore:
             if row["owner_id"] != self.actor_id and not admin:
                 raise ProjectError("此项目不可查看。")
             return [dict(event) for event in conn.execute(
-                """SELECT kind, stage, note, next_action, created_at FROM member_customer_project_events
-                   WHERE project_id=? ORDER BY id DESC""", (project_id,),
+                """SELECT e.kind, e.stage, e.note, e.next_action, e.created_at, e.actor_id,
+                          COALESCE(NULLIF(m.display_name,''),m.username) AS actor_name
+                   FROM member_customer_project_events e LEFT JOIN members m ON m.id=e.actor_id
+                   WHERE e.project_id=? ORDER BY e.id DESC""", (project_id,),
             )]
 
     def request_join(self, customer_key, department, responsibility):
@@ -292,26 +294,33 @@ class ProjectStore:
             (project_id, self.actor_id, kind, stage, note, now, next_action),
         )
 
-    def create(self, customer_id, name, note="", quote_request=False, next_action=""):
+    def create(self, customer_id, name, note="", quote_request=False, next_action="", *, owner_id=None):
         name = " ".join(name.split())
         note = note.strip()
         next_action = next_action.strip()
         if not name or len(name) > 120 or len(note) > 1000 or len(next_action) > 300:
             raise ProjectError("请填写项目名称（最多 120 字），说明最多 1000 字，下一步最多 300 字。")
         now = int(self.clock())
-        with self._connection(write=True) as (conn, _):
-            customer = conn.execute(
-                """SELECT c.customer_name FROM project_companies c JOIN project_customer_team t
-                   ON t.customer_id=c.id WHERE c.id=? AND t.owner_id=?""",
-                (customer_id, self.actor_id),
-            ).fetchone()
-            if customer is None:
+        with self._connection(write=True) as (conn, admin):
+            team = dict(conn.execute(
+                """SELECT t.owner_id, c.customer_name FROM project_customer_team t
+                   JOIN project_companies c ON c.id=t.customer_id JOIN members m ON m.id=t.owner_id
+                   WHERE c.id=? AND m.status='active' AND (? OR t.owner_id=?)""",
+                (customer_id, admin, self.actor_id),
+            ))
+            if admin and owner_id is None and len(team) == 1:
+                owner_id = next(iter(team))
+            elif not admin and owner_id is None:
+                owner_id = self.actor_id
+            if owner_id not in team:
+                if admin:
+                    raise ProjectError("请选择该客户当前有效的主负责或已批准协同销售。")
                 raise ProjectError("请先报备该客户，或选择你名下的客户。")
             result = conn.execute(
                 """INSERT INTO member_customer_projects
                    (owner_id, customer_id, customer_name, name, name_key, stage, created_at, due_at, next_action)
                    VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,customer_id,name_key) DO NOTHING""",
-                (self.actor_id, customer_id, customer["customer_name"], name,
+                (owner_id, customer_id, team[owner_id], name,
                  name.casefold(), STAGES[0], now, now + 14 * DAY, next_action),
             )
             if not result.rowcount:
@@ -544,6 +553,8 @@ def _project_timeline(events):
         description = f'<p>{escape(event["note"])}</p>' if event["note"] else ""
         action = f'<p><strong>下一步：</strong>{escape(event["next_action"])}</p>' if event["next_action"] else ""
         label = EVENT_LABELS.get(event["kind"], "项目记录")
+        if event["kind"] == "created" and event.get("actor_id") is not None:
+            label += " · 创建人：" + escape(event.get("actor_name") or f'会员 #{event["actor_id"]}')
         items.append(
             f'<li data-order="{ordered}"><time>{_timestamp(event["created_at"])} · 北京时间</time>'
             f'<strong>{label}</strong> · {escape(event["stage"])}{description}{action}</li>'
@@ -641,16 +652,30 @@ def render_page(st, store, *, write, register_customer, join_key=None):
                     submit(lambda target: target.request_join(join_key(join_company), dept, duties),
                            "协同申请已提交。管理员批准后，该客户会出现在你的「关联客户」中。")
     with st.expander("新增项目"):
-        if own_customers:
-            choices = {row["id"]: row["customer_name"] for row in own_customers}
+        available = customers if admin else own_customers
+        if available:
+            choices = {row["id"]: row["customer_name"] for row in available}
+            customer_id = st.selectbox("关联客户", list(choices), format_func=choices.__getitem__,
+                                       key=prefix + "-new-customer")
+            reps = {r["owner_id"]: r for r in available
+                    if r["id"] == customer_id and r["owner_status"] == "active"}
             with st.form(prefix + "-new"):
-                customer_id = st.selectbox("关联客户", list(choices), format_func=choices.__getitem__)
+                owner_id = store.actor_id
+                if admin:
+                    owner_id = st.selectbox("项目负责人", list(reps), index=0 if len(reps)==1 else None,
+                        format_func=lambda k: f'{reps[k]["owner_name"]}（{"主负责" if reps[k]["primary_rep"] else "协同"} · #{k}）',
+                        key=f"{prefix}-new-owner-{customer_id}", placeholder="请选择实际跟进的销售")
+                    st.caption("跟进提醒归项目负责人，创建记录保留你的名字。" if reps else "该客户暂时没有可负责项目的在用销售账号。")
                 name = st.text_input("项目名称", max_chars=120)
                 note = st.text_area("项目背景／当前情况", max_chars=1000)
                 next_action = st.text_input("下一步计划（可选）", max_chars=300)
                 quote_request = st.checkbox("同时登记报价申请")
-                if st.form_submit_button("保存新项目", type="primary"):
-                    submit(lambda target: target.create(customer_id, name, note, quote_request, next_action), "项目已保存。")
+                if st.form_submit_button("保存新项目", type="primary", disabled=not reps):
+                    if owner_id is None:
+                        st.warning("请先选择实际跟进项目的负责人。")
+                    else:
+                        submit(lambda target: target.create(customer_id, name, note, quote_request, next_action,
+                                                           owner_id=owner_id), "项目已保存。")
         else:
             st.info("暂无可关联的客户。请先在「报备客户」中报备新客户，或申请协同对接已有客户，获批后即可新增项目。")
 
